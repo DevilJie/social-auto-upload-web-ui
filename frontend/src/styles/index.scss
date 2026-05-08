@@ -13,7 +13,7 @@ body {
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   color: $text-primary;
-  background-color: $bg-color-page;
+  background-color: $bg-base;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -26,46 +26,46 @@ body {
 
 // Card
 .el-card {
-  background-color: $bg-color-surface;
-  border-color: $border-base;
+  background-color: $bg-elevated;
+  border-color: $border;
   color: $text-primary;
   border-radius: 12px;
   transition: box-shadow 0.3s, border-color 0.3s;
 
   &:hover {
-    border-color: rgba($primary-color, 0.3);
-    box-shadow: 0 0 20px rgba($primary-color, 0.05);
+    border-color: $border-active;
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.06);
   }
 
   .el-card__header {
-    border-color: $border-base;
+    border-color: $border;
     color: $text-primary;
   }
 }
 
 // Button
 .el-button--primary {
-  --el-button-bg-color: #{$primary-color};
-  --el-button-border-color: #{$primary-color};
-  --el-button-hover-bg-color: #16a34a;
-  --el-button-hover-border-color: #16a34a;
-  --el-button-active-bg-color: #15803d;
-  --el-button-active-border-color: #15803d;
+  --el-button-bg-color: #{$brand-start};
+  --el-button-border-color: #{$brand-start};
+  --el-button-hover-bg-color: #7c3aed;
+  --el-button-hover-border-color: #7c3aed;
+  --el-button-active-bg-color: #6d28d9;
+  --el-button-active-border-color: #6d28d9;
 }
 
 // Table
 .el-table {
-  --el-table-bg-color: #{$bg-color-surface};
-  --el-table-tr-bg-color: #{$bg-color-surface};
-  --el-table-header-bg-color: #{$bg-color-overlay};
-  --el-table-row-hover-bg-color: rgba($primary-color, 0.08);
-  --el-table-border-color: #{$border-base};
+  --el-table-bg-color: #{$bg-elevated};
+  --el-table-tr-bg-color: #{$bg-elevated};
+  --el-table-header-bg-color: #{$bg-elevated};
+  --el-table-row-hover-bg-color: rgba($brand-start, 0.08);
+  --el-table-border-color: #{$border};
   --el-table-text-color: #{$text-primary};
   --el-table-header-text-color: #{$text-secondary};
-  --el-table-current-row-bg-color: rgba($primary-color, 0.1);
+  --el-table-current-row-bg-color: rgba($brand-start, 0.1);
 
   th.el-table__cell {
-    background-color: $bg-color-overlay !important;
+    background-color: $bg-elevated !important;
     font-weight: 600;
     color: $text-secondary;
   }
@@ -76,7 +76,7 @@ body {
   }
 
   .el-table__body tr:hover > td {
-    background-color: rgba($primary-color, 0.06) !important;
+    background-color: rgba($brand-start, 0.06) !important;
   }
 
   .el-table__empty-block {
@@ -86,14 +86,14 @@ body {
 
 // Dialog
 .el-dialog {
-  --el-dialog-bg-color: #{$bg-color-surface};
+  --el-dialog-bg-color: #{$bg-elevated};
   --el-dialog-title-font-size: 18px;
-  border: 1px solid $border-base;
+  border: 1px solid $border-active;
   border-radius: 16px;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
 
   .el-dialog__header {
-    border-bottom: 1px solid $border-base;
+    border-bottom: 1px solid $border;
     padding: 20px 24px;
     margin-right: 0;
   }
@@ -107,7 +107,7 @@ body {
     color: $text-secondary;
 
     &:hover {
-      color: $primary-color;
+      color: $brand-start;
     }
   }
 
@@ -117,30 +117,30 @@ body {
   }
 
   .el-dialog__footer {
-    border-top: 1px solid $border-base;
+    border-top: 1px solid $border;
     padding: 16px 24px;
   }
 }
 
 // Input
 .el-input {
-  --el-input-bg-color: #{$bg-color-overlay};
-  --el-input-border-color: #{$border-base};
+  --el-input-bg-color: #{$bg-elevated};
+  --el-input-border-color: #{$border};
   --el-input-text-color: #{$text-primary};
   --el-input-placeholder-color: #{$text-placeholder};
 
   .el-input__wrapper {
-    background-color: $bg-color-overlay;
-    box-shadow: 0 0 0 1px $border-base inset;
+    background-color: $bg-elevated;
+    box-shadow: 0 0 0 1px $border inset;
     border-radius: 8px;
     transition: box-shadow 0.2s;
 
     &:hover {
-      box-shadow: 0 0 0 1px rgba($primary-color, 0.4) inset;
+      box-shadow: 0 0 0 1px rgba($brand-start, 0.4) inset;
     }
 
     &.is-focus {
-      box-shadow: 0 0 0 1px $primary-color inset;
+      box-shadow: 0 0 0 1px $border-active inset, 0 0 12px rgba(139, 92, 246, 0.08);
     }
   }
 
@@ -152,13 +152,13 @@ body {
 // Textarea
 .el-textarea {
   .el-textarea__inner {
-    background-color: $bg-color-overlay;
-    border-color: $border-base;
+    background-color: $bg-elevated;
+    border-color: $border;
     color: $text-primary;
     border-radius: 8px;
 
     &:focus {
-      border-color: $primary-color;
+      border-color: $brand-start;
     }
   }
 }
@@ -166,8 +166,8 @@ body {
 // Select
 .el-select {
   .el-select__wrapper {
-    background-color: $bg-color-overlay;
-    box-shadow: 0 0 0 1px $border-base inset;
+    background-color: $bg-elevated;
+    box-shadow: 0 0 0 1px $border inset;
     border-radius: 8px;
   }
 
@@ -196,29 +196,29 @@ body {
     }
 
     &.is-active {
-      color: $primary-color;
+      color: $brand-start;
     }
   }
 
   .el-tabs__active-bar {
-    background-color: $primary-color;
+    background-color: $brand-start;
   }
 
   .el-tabs__nav-wrap::after {
-    background-color: $border-base;
+    background-color: $border;
   }
 }
 
 // Upload
 .el-upload {
   .el-upload-dragger {
-    background-color: $bg-color-overlay;
-    border-color: $border-base;
+    background-color: $bg-elevated;
+    border-color: $border;
     border-radius: 12px;
     transition: border-color 0.3s;
 
     &:hover {
-      border-color: $primary-color;
+      border-color: $brand-start;
     }
 
     .el-icon--upload {
@@ -229,7 +229,7 @@ body {
       color: $text-secondary;
 
       em {
-        color: $primary-color;
+        color: $brand-start;
       }
     }
   }
@@ -238,8 +238,8 @@ body {
 // Switch
 .el-switch {
   &.is-checked .el-switch__core {
-    background-color: $primary-color;
-    border-color: $primary-color;
+    background-color: $brand-start;
+    border-color: $brand-start;
   }
 }
 
@@ -271,23 +271,23 @@ body {
 // Checkbox & Radio
 .el-checkbox {
   --el-checkbox-text-color: #{$text-primary};
-  --el-checkbox-input-border-color: #{$border-base};
+  --el-checkbox-input-border-color: #{$border};
 }
 
 .el-radio {
   --el-radio-text-color: #{$text-primary};
-  --el-radio-input-border-color: #{$border-base};
+  --el-radio-input-border-color: #{$border};
 }
 
 // Progress
 .el-progress-bar__outer {
-  background-color: $bg-color-overlay;
+  background-color: $bg-elevated;
   border-radius: 8px;
 }
 
 // Divider
 .el-divider {
-  border-color: $border-base;
+  border-color: $border;
 }
 
 // Empty
@@ -299,8 +299,8 @@ body {
 
 // Avatar
 .el-avatar {
-  background-color: rgba($primary-color, 0.15);
-  color: $primary-color;
+  background-color: rgba($brand-start, 0.15);
+  color: $brand-start;
 }
 
 // Tooltip
@@ -320,11 +320,11 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: $bg-color-page;
+  background: $bg-base;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: $border-base;
+  background: $border;
   border-radius: 3px;
 
   &:hover {

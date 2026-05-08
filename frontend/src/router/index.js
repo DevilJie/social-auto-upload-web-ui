@@ -11,37 +11,44 @@ const routes = [
   {
     path: '/',
     name: 'Dashboard',
-    component: Dashboard
+    component: Dashboard,
+    meta: { icon: 'HomeFilled', title: '仪表盘' }
   },
   {
     path: '/account-management',
     name: 'AccountManagement',
-    component: AccountManagement
+    component: AccountManagement,
+    meta: { icon: 'User', title: '账号管理' }
   },
   {
     path: '/material-management',
     name: 'MaterialManagement',
-    component: MaterialManagement
+    component: MaterialManagement,
+    meta: { icon: 'Picture', title: '素材管理' }
   },
   {
     path: '/publish-center',
     name: 'PublishCenter',
-    component: PublishCenter
+    component: PublishCenter,
+    meta: { icon: 'Upload', title: '发布中心' }
   },
   {
     path: '/task-center',
     name: 'TaskCenter',
-    component: TaskCenter
+    component: TaskCenter,
+    meta: { icon: 'List', title: '任务中心' }
   },
   {
     path: '/publish-history',
     name: 'PublishHistory',
-    component: PublishHistory
+    component: PublishHistory,
+    meta: { icon: 'Clock', title: '发布历史' }
   },
   {
     path: '/settings',
     name: 'Settings',
-    component: Settings
+    component: Settings,
+    meta: { icon: 'Setting', title: '系统设置', isBottom: true }
   }
 ]
 

@@ -1,245 +1,201 @@
 <template>
-  <div id="app">
-    <el-container>
-      <el-aside :width="isCollapse ? '64px' : '200px'">
-        <div class="sidebar">
-          <div class="logo">
-            <img v-show="isCollapse" src="/vite.svg" alt="Logo" class="logo-img">
-            <h2 v-show="!isCollapse">Social Auto Upload</h2>
-          </div>
-          <el-menu
-            :router="true"
-            :default-active="activeMenu"
-            :collapse="isCollapse"
-            class="sidebar-menu"
-            background-color="#020617"
-            text-color="#94A3B8"
-            active-text-color="#22C55E"
+  <div class="layout">
+    <!-- Icon Rail -->
+    <div class="icon-rail">
+      <div class="rail-top">
+        <div class="logo">S</div>
+      </div>
+
+      <div class="rail-nav">
+        <el-tooltip
+          v-for="item in navItems"
+          :key="item.path"
+          :content="item.title"
+          effect="dark"
+          placement="right"
+        >
+          <div
+            class="nav-item"
+            :class="{ active: activeMenu === item.path }"
+            @click="router.push(item.path)"
           >
-            <el-menu-item index="/">
-              <el-icon><HomeFilled /></el-icon>
-              <span>仪表盘</span>
-            </el-menu-item>
-            <el-menu-item index="/account-management">
-              <el-icon><User /></el-icon>
-              <span>账号管理</span>
-            </el-menu-item>
-            <el-menu-item index="/material-management">
-              <el-icon><Picture /></el-icon>
-              <span>素材管理</span>
-            </el-menu-item>
-            <el-menu-item index="/publish-center">
-              <el-icon><Upload /></el-icon>
-              <span>发布中心</span>
-            </el-menu-item>
-            <el-menu-item index="/task-center">
-              <el-icon><List /></el-icon>
-              <span>任务中心</span>
-            </el-menu-item>
-            <el-menu-item index="/publish-history">
-              <el-icon><Clock /></el-icon>
-              <span>发布历史</span>
-            </el-menu-item>
-            <el-menu-item index="/settings">
-              <el-icon><Setting /></el-icon>
-              <span>系统设置</span>
-            </el-menu-item>
-          </el-menu>
-        </div>
-      </el-aside>
-      <el-container>
-        <el-header>
-          <div class="header-content">
-            <div class="header-left">
-              <el-icon class="toggle-sidebar" @click="toggleSidebar"><Fold /></el-icon>
-            </div>
-            <div class="header-right">
-              <!-- reserved -->
-            </div>
+            <el-icon :size="20"><component :is="item.icon" /></el-icon>
           </div>
-        </el-header>
-        <el-main>
-          <router-view />
-        </el-main>
-      </el-container>
-    </el-container>
+        </el-tooltip>
+      </div>
+
+      <div class="rail-separator"></div>
+
+      <div class="rail-bottom">
+        <el-tooltip :content="settingsItem.title" effect="dark" placement="right">
+          <div
+            class="nav-item"
+            :class="{ active: activeMenu === settingsItem.path }"
+            @click="router.push(settingsItem.path)"
+          >
+            <el-icon :size="20"><component :is="settingsItem.icon" /></el-icon>
+          </div>
+        </el-tooltip>
+      </div>
+    </div>
+
+    <!-- Right area -->
+    <div class="main-area">
+      <!-- Header -->
+      <header class="header">
+        <div class="breadcrumb">{{ pageTitle }}</div>
+        <div class="header-right"></div>
+      </header>
+
+      <!-- Content -->
+      <main class="content">
+        <router-view />
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, User, Picture, Upload,
-  List, Clock, Setting, Fold
+  List, Clock, Setting
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
+const router = useRouter()
 
-// 当前激活的菜单项
-const activeMenu = computed(() => {
-  return route.path
-})
+const iconMap = { HomeFilled, User, Picture, Upload, List, Clock, Setting }
 
-// 侧边栏折叠状态
-const isCollapse = ref(false)
+const navItems = [
+  { path: '/', icon: HomeFilled, title: '仪表盘' },
+  { path: '/account-management', icon: User, title: '账号管理' },
+  { path: '/material-management', icon: Picture, title: '素材管理' },
+  { path: '/publish-center', icon: Upload, title: '发布中心' },
+  { path: '/task-center', icon: List, title: '任务中心' },
+  { path: '/publish-history', icon: Clock, title: '发布历史' }
+]
 
-// 切换侧边栏折叠状态
-const toggleSidebar = () => {
-  isCollapse.value = !isCollapse.value
-}
+const settingsItem = { path: '/settings', icon: Setting, title: '系统设置' }
+
+const activeMenu = computed(() => route.path)
+
+const pageTitle = computed(() => route.meta?.title || '')
 </script>
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
-#app {
-  min-height: 100vh;
-}
-
-.el-container {
+.layout {
+  display: flex;
   height: 100vh;
 }
 
-.el-aside {
-  background-color: #0a0f1e;
-  color: $text-primary;
-  height: 100vh;
-  overflow: hidden;
-  transition: width $transition-normal;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+// ---- Icon Rail ----
+.icon-rail {
+  width: 64px;
+  background: rgba(255, 255, 255, 0.03);
+  border-right: 1px solid $border;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  flex-shrink: 0;
 
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
+  .rail-top {
+    margin-bottom: 16px;
 
     .logo {
-      height: 64px;
-      padding: 0 20px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: $gradient-brand;
       display: flex;
       align-items: center;
-      overflow: hidden;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-
-      .logo-img {
-        width: 32px;
-        height: 32px;
-        margin-right: 12px;
-      }
-
-      h2 {
-        color: $text-primary;
-        font-size: 16px;
-        font-weight: 700;
-        white-space: nowrap;
-        margin: 0;
-        letter-spacing: -0.3px;
-      }
-    }
-
-    .sidebar-menu {
-      border-right: none;
-      flex: 1;
-      padding: 8px;
-
-      .el-menu-item {
-        display: flex;
-        align-items: center;
-        height: 44px;
-        line-height: 44px;
-        margin-bottom: 2px;
-        border-radius: 10px;
-        transition: all 0.2s;
-
-        .el-icon {
-          margin-right: 12px;
-          font-size: 18px;
-          transition: color 0.2s;
-        }
-
-        span {
-          font-size: 14px;
-          font-weight: 500;
-        }
-
-        &.is-active {
-          color: #fff;
-          background-color: rgba($primary-color, 0.15);
-
-          .el-icon {
-            color: $primary-color;
-          }
-
-          span {
-            color: #fff;
-            font-weight: 600;
-          }
-        }
-
-        &:hover:not(.is-active) {
-          background-color: rgba(255, 255, 255, 0.05);
-
-          .el-icon {
-            color: $text-primary;
-          }
-        }
-      }
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 16px;
     }
   }
-}
 
-.el-header {
-  background-color: $bg-color-overlay;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 0;
-  height: 56px;
-
-  .header-content {
+  .rail-nav {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
     align-items: center;
-    height: 100%;
-    padding: 0 20px;
+    gap: 4px;
+    flex: 1;
+  }
 
-    .header-left {
-      .toggle-sidebar {
-        font-size: 20px;
-        cursor: pointer;
-        color: $text-secondary;
-        padding: 6px;
-        border-radius: 6px;
-        transition: all 0.2s;
+  .rail-separator {
+    height: 1px;
+    background: $border;
+    margin: 8px 12px;
+    width: calc(100% - 24px);
+  }
 
-        &:hover {
-          color: $primary-color;
-          background-color: rgba($primary-color, 0.1);
-        }
-      }
+  .rail-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .nav-item {
+    width: 40px;
+    height: 40px;
+    border-radius: $radius-base;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: $transition-base;
+    color: $text-muted;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: $text-secondary;
     }
 
-    .header-right {
-      .user-dropdown {
-        display: flex;
-        align-items: center;
-        cursor: pointer;
-
-        .username {
-          margin: 0 8px;
-          color: $text-secondary;
-        }
-
-        .el-icon {
-          font-size: 12px;
-          color: $text-muted;
-        }
-      }
+    &.active {
+      background: $gradient-brand;
+      color: #fff;
     }
   }
 }
 
-.el-main {
-  background-color: $bg-color-page;
+// ---- Main Area ----
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  height: 48px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid $border;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+
+  .breadcrumb {
+    color: $text-primary;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .header-right {
+    // placeholder for future user area
+  }
+}
+
+.content {
+  flex: 1;
+  background: $bg-base;
   padding: 24px;
   overflow-y: auto;
 }

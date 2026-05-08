@@ -1,158 +1,172 @@
 <template>
   <div class="dashboard">
-    <div class="page-header">
-      <h1>自媒体自动化运营系统</h1>
-    </div>
+    <!-- Page title area -->
+    <h1 class="page-title">仪表盘</h1>
+    <p class="page-subtitle">数据概览与快捷操作</p>
 
-    <div class="dashboard-content">
-      <el-row :gutter="20">
-        <!-- 账号统计卡片 -->
-        <el-col :span="8">
-          <el-card class="stat-card">
-            <div class="stat-card-content">
-              <div class="stat-icon">
-                <el-icon><User /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ accountStats.total }}</div>
-                <div class="stat-label">账号总数</div>
-              </div>
-            </div>
-            <div class="stat-footer">
-              <div class="stat-detail">
-                <span>正常: {{ accountStats.normal }}</span>
-                <span>异常: {{ accountStats.abnormal }}</span>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-
-        <!-- 平台统计卡片 -->
-        <el-col :span="8">
-          <el-card class="stat-card">
-            <div class="stat-card-content">
-              <div class="stat-icon platform-icon">
-                <el-icon><Platform /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ platformStats.total }}</div>
-                <div class="stat-label">已接入平台</div>
-              </div>
-            </div>
-            <div class="stat-footer">
-              <div class="stat-detail">
-                <el-tooltip content="快手账号" placement="top">
-                  <el-tag size="small" type="success">{{ platformStats.kuaishou }}</el-tag>
-                </el-tooltip>
-                <el-tooltip content="抖音账号" placement="top">
-                  <el-tag size="small" type="danger">{{ platformStats.douyin }}</el-tag>
-                </el-tooltip>
-                <el-tooltip content="视频号账号" placement="top">
-                  <el-tag size="small" type="warning">{{ platformStats.channels }}</el-tag>
-                </el-tooltip>
-                <el-tooltip content="小红书账号" placement="top">
-                  <el-tag size="small" type="info">{{ platformStats.xiaohongshu }}</el-tag>
-                </el-tooltip>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-
-        <!-- 素材统计卡片 -->
-        <el-col :span="8">
-          <el-card class="stat-card">
-            <div class="stat-card-content">
-              <div class="stat-icon content-icon">
-                <el-icon><Document /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ contentStats.total }}</div>
-                <div class="stat-label">素材总数</div>
-              </div>
-            </div>
-            <div class="stat-footer">
-              <div class="stat-detail">
-                <span>视频: {{ contentStats.videos }}</span>
-                <span>图片: {{ contentStats.images }}</span>
-                <span>其他: {{ contentStats.others }}</span>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <!-- 快捷操作区域 -->
-      <div class="quick-actions">
-        <h2>快捷操作</h2>
-        <el-row :gutter="20">
-          <el-col :span="6">
-            <el-card class="action-card" @click="navigateTo('/account-management')">
-              <div class="action-icon">
-                <el-icon><UserFilled /></el-icon>
-              </div>
-              <div class="action-title">账号管理</div>
-              <div class="action-desc">管理所有平台账号</div>
-            </el-card>
-          </el-col>
-          <el-col :span="6">
-            <el-card class="action-card" @click="navigateTo('/material-management')">
-              <div class="action-icon">
-                <el-icon><Upload /></el-icon>
-              </div>
-              <div class="action-title">素材管理</div>
-              <div class="action-desc">上传和管理视频素材</div>
-            </el-card>
-          </el-col>
-          <el-col :span="6">
-            <el-card class="action-card" @click="navigateTo('/publish-center')">
-              <div class="action-icon">
-                <el-icon><Timer /></el-icon>
-              </div>
-              <div class="action-title">发布中心</div>
-              <div class="action-desc">发布内容到各平台</div>
-            </el-card>
-          </el-col>
-          <el-col :span="6">
-            <el-card class="action-card" @click="navigateTo('/about')">
-              <div class="action-icon">
-                <el-icon><DataAnalysis /></el-icon>
-              </div>
-              <div class="action-title">关于系统</div>
-              <div class="action-desc">查看系统信息</div>
-            </el-card>
-          </el-col>
-        </el-row>
+    <!-- 4 Stat cards row -->
+    <div class="stat-cards">
+      <!-- 账号总数 (purple) -->
+      <div class="stat-card stat-purple">
+        <div class="stat-top">
+          <div class="stat-icon">
+            <el-icon><User /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ accountStats.total }}</div>
+            <div class="stat-label">账号总数</div>
+          </div>
+        </div>
+        <div class="stat-bottom">
+          <div class="stat-detail">
+            <span>正常: {{ accountStats.normal }}</span>
+            <span class="divider"></span>
+            <span>异常: {{ accountStats.abnormal }}</span>
+          </div>
+        </div>
       </div>
 
-      <!-- 素材列表 -->
-      <div class="recent-tasks">
-        <div class="section-header">
-          <h2>最近上传素材</h2>
-          <el-button text @click="navigateTo('/material-management')">查看全部</el-button>
+      <!-- 已接入平台 (blue) -->
+      <div class="stat-card stat-blue">
+        <div class="stat-top">
+          <div class="stat-icon">
+            <el-icon><Platform /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ platformStats.total }}</div>
+            <div class="stat-label">已接入平台</div>
+          </div>
         </div>
+        <div class="stat-bottom">
+          <div class="stat-detail platform-tags">
+            <span class="platform-tag douyin">抖音 {{ platformStats.douyin }}</span>
+            <span class="platform-tag kuaishou">快手 {{ platformStats.kuaishou }}</span>
+            <span class="platform-tag channels">视频号 {{ platformStats.channels }}</span>
+            <span class="platform-tag xiaohongshu">小红书 {{ platformStats.xiaohongshu }}</span>
+          </div>
+        </div>
+      </div>
 
-        <el-table :data="recentMaterials" style="width: 100%" v-loading="loading">
-          <el-table-column prop="filename" label="文件名" width="300" />
-          <el-table-column prop="filesize" label="文件大小" width="120">
-            <template #default="scope">
-              {{ scope.row.filesize }} MB
-            </template>
-          </el-table-column>
-          <el-table-column prop="upload_time" label="上传时间" width="200" />
-          <el-table-column label="类型" width="100">
-            <template #default="scope">
-              <el-tag
-                :type="getFileTypeTag(scope.row.filename)"
-                effect="plain"
-                size="small"
-              >
-                {{ getFileType(scope.row.filename) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-        </el-table>
+      <!-- 素材总数 (cyan) -->
+      <div class="stat-card stat-cyan">
+        <div class="stat-top">
+          <div class="stat-icon">
+            <el-icon><Document /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ contentStats.total }}</div>
+            <div class="stat-label">素材总数</div>
+          </div>
+        </div>
+        <div class="stat-bottom">
+          <div class="stat-detail">
+            <span>视频: {{ contentStats.videos }}</span>
+            <span class="divider"></span>
+            <span>图片: {{ contentStats.images }}</span>
+            <span class="divider"></span>
+            <span>其他: {{ contentStats.others }}</span>
+          </div>
+        </div>
+      </div>
 
-        <el-empty v-if="!loading && recentMaterials.length === 0" description="暂无素材数据" />
+      <!-- 今日发布 (green) -->
+      <div class="stat-card stat-green">
+        <div class="stat-top">
+          <div class="stat-icon">
+            <el-icon><Upload /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">&mdash;</div>
+            <div class="stat-label">今日发布</div>
+          </div>
+        </div>
+        <div class="stat-bottom">
+          <div class="stat-detail">
+            <span>成功率: &mdash;</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick actions row -->
+    <div class="quick-actions">
+      <div class="action-card" @click="navigateTo('/publish-center')">
+        <div class="action-icon action-icon-purple">
+          <el-icon><Upload /></el-icon>
+        </div>
+        <div class="action-title">快速发布</div>
+        <div class="action-desc">发布内容到各平台</div>
+      </div>
+      <div class="action-card" @click="navigateTo('/material-management')">
+        <div class="action-icon action-icon-blue">
+          <el-icon><Document /></el-icon>
+        </div>
+        <div class="action-title">上传素材</div>
+        <div class="action-desc">上传和管理视频素材</div>
+      </div>
+      <div class="action-card" @click="navigateTo('/task-center')">
+        <div class="action-icon action-icon-cyan">
+          <el-icon><Timer /></el-icon>
+        </div>
+        <div class="action-title">查看任务</div>
+        <div class="action-desc">查看所有发布任务</div>
+      </div>
+      <div class="action-card" @click="navigateTo('/account-management')">
+        <div class="action-icon action-icon-green">
+          <el-icon><UserFilled /></el-icon>
+        </div>
+        <div class="action-title">账号管理</div>
+        <div class="action-desc">管理所有平台账号</div>
+      </div>
+    </div>
+
+    <!-- Recent materials table -->
+    <div class="materials-card">
+      <div class="materials-header">
+        <h2>最近素材</h2>
+        <a class="view-all-link" @click="navigateTo('/material-management')">查看全部</a>
+      </div>
+
+      <el-table
+        :data="recentMaterials"
+        style="width: 100%"
+        v-loading="loading"
+        :header-cell-style="{ background: 'transparent', borderBottom: `1px solid ${$options.borderColor}` }"
+        class="materials-table"
+      >
+        <el-table-column prop="filename" label="文件名" min-width="260">
+          <template #default="scope">
+            <span class="filename-cell">{{ scope.row.filename }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="filesize" label="大小" width="120">
+          <template #default="scope">
+            <span class="size-cell">{{ scope.row.filesize }} MB</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="100">
+          <template #default="scope">
+            <span
+              class="type-tag"
+              :class="{
+                'type-video': getFileType(scope.row.filename) === '视频',
+                'type-image': getFileType(scope.row.filename) === '图片',
+                'type-other': getFileType(scope.row.filename) === '其他'
+              }"
+            >
+              {{ getFileType(scope.row.filename) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="upload_time" label="上传时间" width="200">
+          <template #default="scope">
+            <span class="time-cell">{{ scope.row.upload_time }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div v-if="!loading && recentMaterials.length === 0" class="empty-state">
+        暂无素材数据
       </div>
     </div>
   </div>
@@ -268,188 +282,374 @@ onMounted(() => {
 })
 </script>
 
+<script>
+// Expose border color for template usage
+export default {
+  borderColor: 'rgba(255,255,255,0.08)'
+}
+</script>
+
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
 .dashboard {
-  .page-header {
-    margin-bottom: 24px;
+  // Page title area
+  .page-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: $text-primary;
+    margin: 0;
+    letter-spacing: -0.5px;
+  }
 
-    h1 {
-      font-size: 26px;
-      font-weight: 700;
-      color: $text-primary;
-      margin: 0;
-      letter-spacing: -0.5px;
+  .page-subtitle {
+    font-size: 14px;
+    color: $text-muted;
+    margin: 4px 0 24px;
+  }
+
+  // ========== Stat Cards ==========
+  .stat-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+
+  .stat-card {
+    border-radius: $radius-card;
+    padding: 20px 24px;
+    transition: $transition-base;
+
+    &.stat-purple {
+      background: $stat-purple-bg;
+      border: 1px solid $stat-purple-border;
+
+      &:hover {
+        border-color: rgba($brand-start, 0.35);
+        box-shadow: 0 0 24px rgba($brand-start, 0.08);
+      }
+
+      .stat-icon {
+        background: rgba($brand-start, 0.2);
+        .el-icon { color: $brand-start; }
+      }
+    }
+
+    &.stat-blue {
+      background: $stat-blue-bg;
+      border: 1px solid $stat-blue-border;
+
+      &:hover {
+        border-color: rgba($brand-end, 0.35);
+        box-shadow: 0 0 24px rgba($brand-end, 0.08);
+      }
+
+      .stat-icon {
+        background: rgba($brand-end, 0.2);
+        .el-icon { color: $brand-end; }
+      }
+    }
+
+    &.stat-cyan {
+      background: $stat-cyan-bg;
+      border: 1px solid $stat-cyan-border;
+
+      &:hover {
+        border-color: rgba($accent-cyan, 0.35);
+        box-shadow: 0 0 24px rgba($accent-cyan, 0.08);
+      }
+
+      .stat-icon {
+        background: rgba($accent-cyan, 0.2);
+        .el-icon { color: $accent-cyan; }
+      }
+    }
+
+    &.stat-green {
+      background: $stat-green-bg;
+      border: 1px solid $stat-green-border;
+
+      &:hover {
+        border-color: rgba($accent-green, 0.35);
+        box-shadow: 0 0 24px rgba($accent-green, 0.08);
+      }
+
+      .stat-icon {
+        background: rgba($accent-green, 0.2);
+        .el-icon { color: $accent-green; }
+      }
+    }
+
+    .stat-top {
+      display: flex;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 16px;
+      flex-shrink: 0;
+
+      .el-icon {
+        font-size: 24px;
+      }
+    }
+
+    .stat-info {
+      .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        background: $gradient-brand;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1.2;
+        letter-spacing: -0.5px;
+      }
+
+      .stat-label {
+        font-size: 13px;
+        color: $text-secondary;
+        margin-top: 2px;
+      }
+    }
+
+    .stat-bottom {
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 12px;
+    }
+
+    .stat-detail {
+      display: flex;
+      align-items: center;
+      color: $text-secondary;
+      font-size: 13px;
+      gap: 8px;
+      flex-wrap: wrap;
+
+      .divider {
+        width: 1px;
+        height: 12px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+    }
+
+    .platform-tags {
+      gap: 6px;
+    }
+
+    .platform-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+
+      &.douyin {
+        color: $platform-douyin;
+        background: $platform-douyin-bg;
+      }
+
+      &.kuaishou {
+        color: $platform-kuaishou;
+        background: $platform-kuaishou-bg;
+      }
+
+      &.channels {
+        color: $platform-channels;
+        background: $platform-channels-bg;
+      }
+
+      &.xiaohongshu {
+        color: $platform-xiaohongshu;
+        background: $platform-xiaohongshu-bg;
+      }
     }
   }
 
-  .dashboard-content {
-    .stat-card {
-      height: 148px;
-      margin-bottom: 20px;
-      border: 1px solid $border-base;
-      background: linear-gradient(135deg, $bg-color-surface 0%, rgba($primary-color, 0.03) 100%);
+  // ========== Quick Actions ==========
+  .quick-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-top: 24px;
+  }
 
-      :deep(.el-card__body) {
-        padding: 20px 24px;
+  .action-card {
+    background: $bg-elevated;
+    border: 1px solid $border;
+    border-radius: $radius-card;
+    padding: 24px;
+    cursor: pointer;
+    transition: $transition-base;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+
+    &:hover {
+      transform: translateY(-4px);
+      border-color: $border-active;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba($brand-start, 0.15);
+    }
+
+    .action-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+
+      .el-icon {
+        font-size: 22px;
+        color: #fff;
       }
 
-      .stat-card-content {
-        display: flex;
-        align-items: center;
-        margin-bottom: 16px;
-
-        .stat-icon {
-          width: 52px;
-          height: 52px;
-          border-radius: 14px;
-          background-color: rgba($primary-color, 0.12);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          margin-right: 16px;
-
-          .el-icon {
-            font-size: 26px;
-            color: $primary-color;
-          }
-
-          &.platform-icon {
-            background-color: rgba(#3b82f6, 0.12);
-
-            .el-icon {
-              color: #3b82f6;
-            }
-          }
-
-          &.content-icon {
-            background-color: rgba(#f59e0b, 0.12);
-
-            .el-icon {
-              color: #f59e0b;
-            }
-          }
-        }
-
-        .stat-info {
-          .stat-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: $text-primary;
-            line-height: 1.2;
-            letter-spacing: -0.5px;
-          }
-
-          .stat-label {
-            font-size: 13px;
-            color: $text-secondary;
-            margin-top: 2px;
-          }
-        }
+      &.action-icon-purple {
+        background: linear-gradient(135deg, $brand-start, $brand-end);
       }
 
-      .stat-footer {
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
-        padding-top: 12px;
+      &.action-icon-blue {
+        background: linear-gradient(135deg, $brand-end, $accent-cyan);
+      }
 
-        .stat-detail {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          color: $text-secondary;
-          font-size: 13px;
+      &.action-icon-cyan {
+        background: linear-gradient(135deg, $accent-cyan, $accent-green);
+      }
 
-          .el-tag {
-            margin-right: 5px;
-            border-radius: 6px;
-          }
-        }
+      &.action-icon-green {
+        background: linear-gradient(135deg, $accent-green, $accent-amber);
       }
     }
 
-    .quick-actions {
-      margin: 28px 0 32px;
+    .action-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: $text-primary;
+      margin-bottom: 4px;
+    }
+
+    .action-desc {
+      font-size: 12px;
+      color: $text-muted;
+    }
+  }
+
+  // ========== Materials Table ==========
+  .materials-card {
+    background: $bg-elevated;
+    border: 1px solid $border;
+    border-radius: $radius-card;
+    padding: 24px;
+    margin-top: 24px;
+
+    .materials-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
 
       h2 {
         font-size: 18px;
         font-weight: 600;
-        margin-bottom: 16px;
         color: $text-primary;
+        margin: 0;
       }
 
-      .action-card {
-        height: 160px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+      .view-all-link {
+        font-size: 14px;
+        color: $brand-start;
         cursor: pointer;
-        transition: all 0.25s ease;
-        border: 1px solid $border-base;
+        transition: $transition-base;
 
         &:hover {
-          transform: translateY(-4px);
-          border-color: rgba($primary-color, 0.3);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba($primary-color, 0.1);
-        }
-
-        .action-icon {
-          width: 48px;
-          height: 48px;
-          border-radius: 14px;
-          background-color: rgba($primary-color, 0.1);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          margin-bottom: 14px;
-          transition: background-color 0.2s;
-
-          .el-icon {
-            font-size: 22px;
-            color: $primary-color;
-          }
-        }
-
-        &:hover .action-icon {
-          background-color: rgba($primary-color, 0.18);
-        }
-
-        .action-title {
-          font-size: 15px;
-          font-weight: 600;
-          color: $text-primary;
-          margin-bottom: 4px;
-        }
-
-        .action-desc {
-          font-size: 12px;
-          color: $text-muted;
-          text-align: center;
+          color: $brand-end;
         }
       }
     }
 
-    .recent-tasks {
-      margin-top: 32px;
+    .materials-table {
+      --el-table-bg-color: transparent;
+      --el-table-tr-bg-color: transparent;
+      --el-table-header-bg-color: transparent;
+      --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.03);
+      --el-table-border-color: #{$border};
+      --el-table-text-color: #{$text-secondary};
+      --el-table-header-text-color: #{$text-muted};
 
-      .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-
-        h2 {
-          font-size: 18px;
-          font-weight: 600;
-          color: $text-primary;
-          margin: 0;
-        }
-
-        .el-button {
-          font-weight: 500;
+      :deep(.el-table__inner-wrapper) {
+        &::before {
+          display: none;
         }
       }
+
+      :deep(th.el-table__cell) {
+        background: transparent !important;
+        font-weight: 500;
+        font-size: 13px;
+        border-bottom: 1px solid $border;
+      }
+
+      :deep(td.el-table__cell) {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      :deep(.el-table__empty-block) {
+        background: transparent;
+      }
+    }
+
+    .filename-cell {
+      color: $text-primary;
+      font-weight: 500;
+    }
+
+    .size-cell {
+      color: $text-secondary;
+    }
+
+    .time-cell {
+      color: $text-secondary;
+      font-size: 13px;
+    }
+
+    .type-tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+
+      &.type-video {
+        color: $accent-green;
+        background: rgba($accent-green, 0.12);
+      }
+
+      &.type-image {
+        color: $accent-amber;
+        background: rgba($accent-amber, 0.12);
+      }
+
+      &.type-other {
+        color: $text-muted;
+        background: rgba(255, 255, 255, 0.06);
+      }
+    }
+
+    .empty-state {
+      text-align: center;
+      color: $text-muted;
+      padding: 40px 0;
+      font-size: 14px;
     }
   }
 }

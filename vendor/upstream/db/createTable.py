@@ -20,9 +20,18 @@ CREATE TABLE IF NOT EXISTS user_info (
     type INTEGER NOT NULL,
     filePath TEXT NOT NULL,  -- 存储文件路径
     userName TEXT NOT NULL,
-    status INTEGER DEFAULT 0
+    status INTEGER DEFAULT 0,
+    avatar TEXT DEFAULT ''
 )
 ''')
+
+# 兼容已有数据库：如果表已存在但缺少 avatar 列，则添加
+try:
+    cursor.execute('ALTER TABLE user_info ADD COLUMN avatar TEXT DEFAULT ""')
+    conn.commit()
+    print("✅ avatar 列已添加")
+except sqlite3.OperationalError:
+    pass  # 列已存在
 
 # 创建文件记录表
 cursor.execute('''CREATE TABLE IF NOT EXISTS file_records (

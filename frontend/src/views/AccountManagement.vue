@@ -437,47 +437,48 @@ const connectSSE = (platform) => {
 
   eventSource.onmessage = (event) => {
     const data = event.data
-    if (!qrCodeData.value && data.length > 100) {
-      try {
-        qrCodeData.value = data.startsWith('data:image') ? data : `data:image/png;base64,${data}`
-      } catch (error) {}
-    } else if (data === '500') {
+
+    // 先尝试解析 JSON（登录成功响应）
+    try {
+      const result = JSON.parse(data)
+      if (result.status === '200') {
+        loginStatus.value = '200'
+        setTimeout(() => {
+          closeSSEConnection()
+          setTimeout(() => {
+            dialogVisible.value = false
+            sseConnecting.value = false
+            ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
+            ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
+            fetchAccounts().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
+          }, 1000)
+        }, 1000)
+        return
+      }
+    } catch (e) {}
+
+    if (data === '500') {
       loginStatus.value = '500'
       closeSSEConnection()
       setTimeout(() => { sseConnecting.value = false; qrCodeData.value = ''; loginStatus.value = '' }, 2000)
-    } else {
-      // 尝试解析 JSON 响应（包含自动同步的名称和头像）
+    } else if (!qrCodeData.value && data.length > 100) {
+      // 二维码图片
       try {
-        const result = JSON.parse(data)
-        if (result.status === '200') {
-          loginStatus.value = '200'
-          setTimeout(() => {
-            closeSSEConnection()
-            setTimeout(() => {
-              dialogVisible.value = false
-              sseConnecting.value = false
-              ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
-              ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
-              fetchAccounts().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
-            }, 1000)
-          }, 1000)
-        }
-      } catch (e) {
-        // 兼容旧格式
-        if (data === '200') {
-          loginStatus.value = '200'
-          setTimeout(() => {
-            closeSSEConnection()
-            setTimeout(() => {
-              dialogVisible.value = false
-              sseConnecting.value = false
-              ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
-              ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
-              fetchAccounts().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
-            }, 1000)
-          }, 1000)
-        }
-      }
+        qrCodeData.value = data.startsWith('data:image') ? data : `data:image/png;base64,${data}`
+      } catch (error) {}
+    } else if (data === '200') {
+      // 兼容旧格式
+      loginStatus.value = '200'
+      setTimeout(() => {
+        closeSSEConnection()
+        setTimeout(() => {
+          dialogVisible.value = false
+          sseConnecting.value = false
+          ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
+          ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
+          fetchAccounts().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
+        }, 1000)
+      }, 1000)
     }
   }
 

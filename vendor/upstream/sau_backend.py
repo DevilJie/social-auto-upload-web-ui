@@ -10,8 +10,8 @@ from flask_cors import CORS
 from myUtils.auth import check_cookie
 from flask import Flask, request, jsonify, Response, render_template, send_from_directory
 from conf import BASE_DIR
-from myUtils.login import get_tencent_cookie, douyin_cookie_gen, get_ks_cookie, xiaohongshu_cookie_gen
-from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs
+from myUtils.login import get_tencent_cookie, douyin_cookie_gen, get_ks_cookie, xiaohongshu_cookie_gen, sync_account_profile, bilibili_cookie_gen
+from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs, post_video_bilibili
 
 active_queues = {}
 app = Flask(__name__)
@@ -374,6 +374,119 @@ def delete_account():
         }), 500
 
 
+# 同步账号资料（头像+昵称）
+@app.route('/syncProfile', methods=['POST'])
+def sync_profile():
+    account_id = request.json.get('id')
+    if not account_id:
+        return jsonify({"code": 400, "msg": "缺少账号ID", "data": None}), 400
+
+    try:
+        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_info WHERE id = ?', (account_id,))
+            row = cursor.fetchone()
+            if not row:
+                return jsonify({"code": 404, "msg": "账号不存在", "data": None}), 404
+
+            record = dict(row)
+            platform_type = record['type']
+            cookie_file = record['filePath']
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        name, avatar = loop.run_until_complete(sync_account_profile(platform_type, cookie_file))
+        loop.close()
+
+        if name or avatar:
+            with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+                cursor = conn.cursor()
+                if name:
+                    cursor.execute('UPDATE user_info SET userName = ?, avatar = ? WHERE id = ?',
+                                   (name, avatar, account_id))
+                else:
+                    cursor.execute('UPDATE user_info SET avatar = ? WHERE id = ?',
+                                   (avatar, account_id))
+                conn.commit()
+
+        return jsonify({
+            "code": 200,
+            "msg": "同步成功",
+            "data": {"name": name, "avatar": avatar}
+        }), 200
+
+    except Exception as e:
+        print(f"同步资料失败: {str(e)}")
+        return jsonify({
+            "code": 500,
+            "msg": f"同步失败: {str(e)}",
+            "data": None
+        }), 500
+
+
+# 打开创作中心（用 Playwright 启动带cookie的浏览器）
+@app.route('/openCreatorCenter', methods=['POST'])
+def open_creator_center():
+    account_id = request.json.get('id')
+    if not account_id:
+        return jsonify({"code": 400, "msg": "缺少账号ID"}), 400
+
+    creator_urls = {
+        1: "https://creator.xiaohongshu.com/",
+        2: "https://channels.weixin.qq.com/platform",
+        3: "https://creator.douyin.com/",
+        4: "https://cp.kuaishou.com/article/publish/video",
+        5: "https://member.bilibili.com/platform/upload-manager/article",
+    }
+
+    try:
+        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_info WHERE id = ?', (account_id,))
+            row = cursor.fetchone()
+            if not row:
+                return jsonify({"code": 404, "msg": "账号不存在"}), 404
+
+            record = dict(row)
+            platform_type = record['type']
+            cookie_file = record['filePath']
+
+        url = creator_urls.get(platform_type)
+        if not url:
+            return jsonify({"code": 400, "msg": "不支持该平台"}), 400
+
+        cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
+
+        def launch_browser():
+            from playwright.sync_api import sync_playwright
+            pw = sync_playwright().start()
+            browser = pw.chromium.launch(headless=False)
+            context = browser.new_context(storage_state=cookie_path)
+            page = context.new_page()
+            page.goto(url)
+            try:
+                page.wait_for_event("close", timeout=0)
+            except Exception:
+                pass
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                pw.stop()
+
+        thread = threading.Thread(target=launch_browser, daemon=True)
+        thread.start()
+
+        return jsonify({"code": 200, "msg": "正在打开创作中心"}), 200
+
+    except Exception as e:
+        print(f"打开创作中心失败: {str(e)}")
+        return jsonify({"code": 500, "msg": f"打开失败: {str(e)}"}), 500
+
+
 # SSE 登录接口
 @app.route('/login')
 def login():
@@ -453,6 +566,9 @@ def postVideo():
                           start_days, thumbnail_path, productLink, productTitle)
             case 4:
                 post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
+                          start_days)
+            case 5:
+                post_video_bilibili(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
                           start_days)
             case _:
                 return jsonify({"code": 400, "msg": f"不支持的平台类型: {type}", "data": None}), 400
@@ -549,6 +665,9 @@ def postVideoBatch():
                           start_days, productLink, productTitle)
             case 4:
                 post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
+                          start_days)
+            case 5:
+                post_video_bilibili(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
                           start_days)
     # 返回响应给客户端
     return jsonify(
@@ -702,6 +821,11 @@ def run_async_function(type,id,status_queue):
             asyncio.set_event_loop(loop)
             loop.run_until_complete(get_ks_cookie(id,status_queue))
             loop.close()
+        case '5':
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(bilibili_cookie_gen(id,status_queue))
+            loop.close()
 
 # SSE 流生成器函数
 def sse_stream(status_queue):
@@ -713,5 +837,15 @@ def sse_stream(status_queue):
             # 避免 CPU 占满
             time.sleep(0.1)
 
+def migrate_db():
+    with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute('ALTER TABLE user_info ADD COLUMN avatar TEXT DEFAULT ""')
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
 if __name__ == '__main__':
+    migrate_db()
     app.run(host='0.0.0.0' ,port=5409)

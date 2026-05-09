@@ -116,8 +116,36 @@ async def check_cookie(type, file_path):
         # 快手
         case 4:
             return await cookie_auth_ks(Path(BASE_DIR / "cookiesFile" / file_path))
+        # B站
+        case 5:
+            return await cookie_auth_bilibili(Path(BASE_DIR / "cookiesFile" / file_path))
         case _:
             return False
 
-# a = asyncio.run(check_cookie(1,"3a6cfdc0-3d51-11f0-8507-44e51723d63c.json"))
-# print(a)
+
+async def cookie_auth_bilibili(account_file):
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        context = await browser.new_context(storage_state=account_file)
+        context = await set_init_script(context)
+        page = await context.new_page()
+        await page.goto("https://member.bilibili.com/platform/upload-manager/article")
+        try:
+            await page.wait_for_url("**/platform/**", timeout=5000)
+            # 如果被重定向到登录页，说明cookie失效
+            if "passport.bilibili.com" in page.url:
+                print("[+] B站 cookie 失效，需要重新登录")
+                return False
+            print("[+] B站 cookie 有效")
+            return True
+        except:
+            print("[+] B站等待5秒 cookie 检查超时")
+            await context.close()
+            await browser.close()
+            return False
+        finally:
+            try:
+                await context.close()
+                await browser.close()
+            except:
+                pass

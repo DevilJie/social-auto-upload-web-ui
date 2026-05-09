@@ -87,6 +87,42 @@ def post_video_xhs(title,files,tags,account_file,category=TencentZoneTypes.LIFES
             asyncio.run(app.main(), debug=False)
 
 
+def post_video_bilibili(title, files, tags, account_file, category=None,
+                        enableTimer=False, videos_per_day=1, daily_times=None,
+                        start_days=0):
+    """B站视频上传 — 使用 biliup CLI 工具"""
+    from uploader.bilibili_uploader.runtime import ensure_biliup_binary, run_biliup_command
+
+    # 确保 biliup 二进制文件存在
+    ensure_biliup_binary(force_check=False)
+
+    account_file = [Path(BASE_DIR / "cookiesFile" / file) for file in account_file]
+    files = [Path(BASE_DIR / "videoFile" / file) for file in files]
+
+    if enableTimer:
+        publish_datetimes = generate_schedule_time_next_day(len(files), videos_per_day, daily_times, start_days)
+    else:
+        publish_datetimes = [0 for _ in range(len(files))]
+
+    for index, file in enumerate(files):
+        for cookie in account_file:
+            print(f"视频文件名：{file}")
+            print(f"标题：{title}")
+            print(f"Hashtag：{tags}")
+
+            arguments = [
+                "-u", str(cookie),
+                "upload", str(file),
+                "--title", title,
+            ]
+
+            if tags:
+                arguments.extend(["--tag", ",".join(str(t) for t in tags)])
+
+            result = run_biliup_command(arguments)
+            if result.returncode != 0:
+                raise RuntimeError(f"B站上传失败: {result.stderr or result.stdout}")
+
 
 # post_video("333",["demo.mp4"],"d","d")
 # post_video_DouYin("333",["demo.mp4"],"d","d")

@@ -495,8 +495,8 @@ class TencentBaseUploader(BaseVideoUploader):
         await page.locator("div.input-editor").click()
 
     async def open_upload_page(self, page: Page) -> None:
-        await page.goto(TENCENT_UPLOAD_URL)
-        await page.wait_for_url(TENCENT_UPLOAD_URL)
+        await page.goto(TENCENT_UPLOAD_URL, timeout=60000)
+        await page.wait_for_url(TENCENT_UPLOAD_URL, timeout=60000)
 
     async def upload_video_file(self, page: Page, file_path: str) -> None:
         file_input = page.locator('input[type="file"]')
@@ -601,13 +601,13 @@ class TencentBaseUploader(BaseVideoUploader):
                     draft_button = page.locator('div.form-btns button:has-text("保存草稿")')
                     if await draft_button.count():
                         await draft_button.click()
-                    await page.wait_for_url("**/post/list**", timeout=5000)
+                    await page.wait_for_url("**/post/list**", timeout=30000)
                     tencent_logger.success(_msg("🥳", "视频草稿保存成功"))
                 else:
                     publish_button = page.locator('div.form-btns button:has-text("发表")')
                     if await publish_button.count():
                         await publish_button.click()
-                    await page.wait_for_url(TENCENT_MANAGE_URL, timeout=5000)
+                    await page.wait_for_url(TENCENT_MANAGE_URL, timeout=30000)
                     tencent_logger.success(_msg("🥳", "视频发布成功"))
                 break
             except Exception as exc:

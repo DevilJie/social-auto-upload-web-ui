@@ -111,5 +111,34 @@ def _after_publish(response):
     return response
 
 
+def find_available_port(start_port=5409, max_attempts=10):
+    """Find an available port starting from start_port."""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"Could not find available port in range {start_port}-{start_port + max_attempts}")
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5409)
+    import os
+    import socket
+    # Allow port override via environment variable (for dev convenience)
+    port = int(os.environ.get("SAU_PORT", "5409"))
+    # Check if the requested port is available, auto-increment if not
+    if port == 5409:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+        except OSError:
+            port = find_available_port(5409 + 1)
+            print(f"[Startup] Port 5409 in use, using port {port}")
+    print(f"[Startup] Starting Waitress server on port {port}")
+    from waitress import serve
+    # Expose port via environment variable for frontend
+    os.environ["SAU_PORT"] = str(port)
+    serve(app, host="0.0.0.0", port=port)

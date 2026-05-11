@@ -22,10 +22,6 @@
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
-    },
-    "webviewInstallMode": {
-      "type": "embedBootstrapper",
-      "silent": true
     }
   },
   "bundle": {
@@ -47,6 +43,10 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser"
+      },
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
       }
     }
   }

@@ -4,20 +4,33 @@ use std::path::PathBuf;
 pub fn check_webview2() -> Result<(), String> {
     use winreg::enums::*;
     use winreg::RegKey;
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu.open_subkey("SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
-        .or_else(|_| hkcu.open_subkey("SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"));
-    match key {
-        Ok(k) => {
-            let version: String = k.get_value("pv").unwrap_or_default();
-            if version.is_empty() {
-                Err("WebView2 not installed".to_string())
-            } else {
-                Ok(())
+
+    // Try multiple registry locations
+    let paths = [
+        "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+    ];
+
+    for path in &paths {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu.open_subkey(path) {
+            if let Ok(version) = key.get_value::<String, _>("pv") {
+                if !version.is_empty() {
+                    return Ok(());
+                }
             }
         }
-        Err(_) => Err("WebView2 not installed".to_string())
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        if let Ok(key) = hklm.open_subkey(path) {
+            if let Ok(version) = key.get_value::<String, _>("pv") {
+                if !version.is_empty() {
+                    return Ok(());
+                }
+            }
+        }
     }
+    Err("WebView2 not installed".to_string())
 }
 
 #[cfg(not(windows))]

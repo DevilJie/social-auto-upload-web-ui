@@ -43,7 +43,7 @@ async def cookie_auth(account_file: str) -> bool:
             )
         else:
             browser = await playwright.chromium.launch(
-                headless=LOGIN_HEADLESS, channel="chrome",
+                headless=LOGIN_HEADLESS,
             )
         try:
             context = await browser.new_context(storage_state=account_file)
@@ -463,7 +463,6 @@ class BilibiliVideo(BilibiliBaseUploader):
         else:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
-                channel="chrome",
             )
         context = await browser.new_context(storage_state=self.account_file)
         context = await set_init_script(context)

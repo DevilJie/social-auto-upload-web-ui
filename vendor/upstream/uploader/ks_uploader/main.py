@@ -155,7 +155,7 @@ async def cookie_auth(account_file):
         if LOCAL_CHROME_PATH:
             browser = await playwright.chromium.launch(headless=True, executable_path=LOCAL_CHROME_PATH)
         else:
-            browser = await playwright.chromium.launch(headless=True, channel="chrome")
+            browser = await playwright.chromium.launch(headless=True)
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
@@ -202,7 +202,7 @@ async def get_ks_cookie(
         if LOCAL_CHROME_PATH:
             browser = await playwright.chromium.launch(headless=headless, executable_path=LOCAL_CHROME_PATH)
         else:
-            browser = await playwright.chromium.launch(headless=headless, channel="chrome")
+            browser = await playwright.chromium.launch(headless=headless)
         context = await browser.new_context()
         context = await set_init_script(context)
         qrcode_path = None
@@ -427,7 +427,6 @@ class KSVideo(KSBaseUploader):
         else:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
-                channel="chrome",
             )
         context = await browser.new_context(storage_state=self.account_file)
         context = await set_init_script(context)
@@ -673,7 +672,6 @@ class KSNote(KSBaseUploader):
         else:
             browser = await playwright.chromium.launch(
                 headless=self.headless,
-                channel="chrome",
             )
         context = await browser.new_context(storage_state=self.account_file)
         context = await set_init_script(context)

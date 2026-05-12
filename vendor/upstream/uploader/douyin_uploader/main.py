@@ -50,7 +50,7 @@ def _build_login_result(success: bool, status: str, message: str, account_file: 
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True, channel="chrome")
+        browser = await playwright.chromium.launch(headless=True)
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
@@ -176,7 +176,7 @@ async def douyin_cookie_gen(
     headless: bool = LOCAL_CHROME_HEADLESS,
 ):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless, channel="chrome")
+        browser = await playwright.chromium.launch(headless=headless)
         context = await browser.new_context()
         context = await set_init_script(context)
         qrcode_path = None
@@ -471,7 +471,7 @@ class DouYinVideo(DouYinBaseUploader):
         await self.validate_upload_args()
         douyin_logger.info(_msg("🥳", "上传前检查通过"))
 
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chrome")
+        browser = await playwright.chromium.launch(headless=self.headless)
         context = await browser.new_context(
             storage_state=f"{self.account_file}",
             permissions=["geolocation"],
@@ -664,7 +664,7 @@ class DouYinNote(DouYinBaseUploader):
         await self.validate_upload_args()
         douyin_logger.info(_msg("🥳", "图文上传前检查通过"))
 
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chrome")
+        browser = await playwright.chromium.launch(headless=self.headless)
         context = await browser.new_context(
             storage_state=f"{self.account_file}",
             permissions=["geolocation"],

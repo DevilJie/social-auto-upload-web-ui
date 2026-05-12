@@ -159,6 +159,14 @@ def find_available_port(start_port=5409, max_attempts=10):
 if __name__ == "__main__":
     import os
     import socket
+
+    # 初始化数据库（建表 + 增量迁移）
+    print("[Startup] Initializing database...")
+    from init_db import init_database, migrate_database
+    init_database()
+    migrate_database()
+    print("[Startup] Database initialized OK")
+
     # Allow port override via environment variable (for dev convenience)
     port = int(os.environ.get("SAU_PORT", "5409"))
     # Check if the requested port is available, auto-increment if not

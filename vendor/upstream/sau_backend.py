@@ -509,7 +509,6 @@ def login():
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'  # 关键：禁用 Nginx 缓冲
     response.headers['Content-Type'] = 'text/event-stream'
-    response.headers['Connection'] = 'keep-alive'
     return response
 
 @app.route('/postVideo', methods=['POST'])

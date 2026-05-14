@@ -15,7 +15,10 @@ from utils.log import tiktok_logger
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        _opts = {'headless': LOCAL_CHROME_HEADLESS}
+        if LOCAL_CHROME_PATH:
+            _opts['executable_path'] = LOCAL_CHROME_PATH
+        browser = await playwright.chromium.launch(**_opts)
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         # 创建一个新的页面
@@ -51,14 +54,16 @@ async def tiktok_setup(account_file, handle=False):
 
 async def get_tiktok_cookie(account_file):
     async with async_playwright() as playwright:
-        options = {
+        _opts = {
             'args': [
                 '--lang en-GB',
             ],
             'headless': LOCAL_CHROME_HEADLESS,  # Set headless option here
         }
+        if LOCAL_CHROME_PATH:
+            _opts['executable_path'] = LOCAL_CHROME_PATH
         # Make sure to run headed.
-        browser = await playwright.chromium.launch(**options)
+        browser = await playwright.chromium.launch(**_opts)
         # Setup context however you like.
         context = await browser.new_context()  # Pass any options
         context = await set_init_script(context)

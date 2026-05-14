@@ -322,13 +322,6 @@ async def douyin_cookie_gen(id, status_queue):
         cookies_dir = Path(BASE_DIR / "cookiesFile")
         cookies_dir.mkdir(exist_ok=True)
         await context.storage_state(path=cookies_dir / f"{uuid_v1}.json")
-        result = await check_cookie(3, f"{uuid_v1}.json")
-        if not result:
-            status_queue.put("500")
-            await page.close()
-            await context.close()
-            await browser.close()
-            return None
         await page.close()
         await context.close()
         await browser.close()
@@ -393,13 +386,6 @@ async def get_tencent_cookie(id, status_queue):
         cookies_dir = Path(BASE_DIR / "cookiesFile")
         cookies_dir.mkdir(exist_ok=True)
         await context.storage_state(path=cookies_dir / f"{uuid_v1}.json")
-        result = await check_cookie(2, f"{uuid_v1}.json")
-        if not result:
-            status_queue.put("500")
-            await page.close()
-            await context.close()
-            await browser.close()
-            return None
         await page.close()
         await context.close()
         await browser.close()
@@ -465,13 +451,6 @@ async def get_ks_cookie(id, status_queue):
         cookies_dir = Path(BASE_DIR / "cookiesFile")
         cookies_dir.mkdir(exist_ok=True)
         await context.storage_state(path=cookies_dir / f"{uuid_v1}.json")
-        result = await check_cookie(4, f"{uuid_v1}.json")
-        if not result:
-            status_queue.put("500")
-            await page.close()
-            await context.close()
-            await browser.close()
-            return None
         await page.close()
         await context.close()
         await browser.close()
@@ -536,13 +515,6 @@ async def xiaohongshu_cookie_gen(id, status_queue):
         cookies_dir = Path(BASE_DIR / "cookiesFile")
         cookies_dir.mkdir(exist_ok=True)
         await context.storage_state(path=cookies_dir / f"{uuid_v1}.json")
-        result = await check_cookie(1, f"{uuid_v1}.json")
-        if not result:
-            status_queue.put("500")
-            await page.close()
-            await context.close()
-            await browser.close()
-            return None
         await page.close()
         await context.close()
         await browser.close()
@@ -573,7 +545,10 @@ async def sync_account_profile(platform_type, cookie_file):
         return "", ""
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        sync_opts = {'headless': True}
+        if LOCAL_CHROME_PATH:
+            sync_opts['executable_path'] = LOCAL_CHROME_PATH
+        browser = await playwright.chromium.launch(**sync_opts)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         context = await browser.new_context(storage_state=cookie_path)
         context = await set_init_script(context)
@@ -670,13 +645,6 @@ async def bilibili_cookie_gen(id, status_queue):
         cookies_dir = Path(BASE_DIR / "cookiesFile")
         cookies_dir.mkdir(exist_ok=True)
         await context.storage_state(path=cookies_dir / f"{uuid_v1}.json")
-        result = await check_cookie(5, f"{uuid_v1}.json")
-        if not result:
-            status_queue.put("500")
-            await page.close()
-            await context.close()
-            await browser.close()
-            return None
         await page.close()
         await context.close()
         await browser.close()

@@ -1,4 +1,6 @@
 # build-installer.ps1 — 构建完整的一键安装包
+# 使用 Python 官方 Embedded Distribution 实现真正的独立部署
+# 不依赖系统 Python，直接下载 python.org 的 embeddable 包
 # 包含: Python 运行环境 + Flask 后端 + 前端
 
 $ErrorActionPreference = "Stop"
@@ -7,47 +9,105 @@ $BACKEND_DIR = Join-Path $PROJECT_ROOT "backend"
 $FRONTEND_DIR = Join-Path $PROJECT_ROOT "frontend"
 $TAURI_DIR = Join-Path $PROJECT_ROOT "src-tauri"
 $PYTHON_DIR = Join-Path $PROJECT_ROOT "python"
-$VENV_DIR = Join-Path $BACKEND_DIR "venv"
-$VENV_SCRIPTS = Join-Path $VENV_DIR "Scripts"
-$VENV_PYTHON = Join-Path $VENV_SCRIPTS "python.exe"
+
+# Python 版本 — 直接从 python.org 下载，不依赖系统安装
+$PYTHON_FULL = "3.11.9"
+$PYTHON_VERSION_NODOT = "311"
 
 function Write-Step {
     param($msg)
     Write-Host "[BUILD] $msg" -ForegroundColor Cyan
 }
 
-Write-Step "Starting installer build..."
+Write-Step "Starting installer build (Python $PYTHON_FULL)..."
 
-# Step 1: 创建或更新 backend/venv
-Write-Step "Creating/updating Python venv..."
-if (Test-Path $VENV_DIR) {
-    Remove-Item $VENV_DIR -Recurse -Force
-}
-python -m venv $VENV_DIR
-
-# Step 2: 安装依赖
-Write-Step "Installing Python dependencies..."
-& "$VENV_PYTHON" -m pip install --upgrade pip
-& "$VENV_PYTHON" -m pip install -r "$BACKEND_DIR\requirements.txt"
-
-# Step 3: 复制 venv 到 src-tauri/python
-Write-Step "Copying venv to src-tauri/python..."
+# Clean up
 if (Test-Path $PYTHON_DIR) {
     Remove-Item $PYTHON_DIR -Recurse -Force
 }
-Copy-Item -Path $VENV_DIR -Destination $PYTHON_DIR -Recurse
 
-# 验证 Scripts/python.exe 存在
-$VENV_PYTHON_CHECK = Join-Path (Join-Path $PYTHON_DIR "Scripts") "python.exe"
-if (-not (Test-Path $VENV_PYTHON_CHECK)) {
-    Write-Host "[ERROR] venv copy failed! Scripts/python.exe not found at $VENV_PYTHON_CHECK" -ForegroundColor Red
-    Write-Host "This is NOT a venv! Check if backend/venv was created correctly." -ForegroundColor Red
-    Remove-Item $PYTHON_DIR -Recurse -Force -ErrorAction SilentlyContinue
+# Step 1: Download and extract Python embedded distribution
+# 这个包包含: python.exe (独立可执行文件), python311.zip (标准库), .pyd (C 扩展)
+Write-Step "Downloading Python $PYTHON_FULL embedded distribution..."
+$EMBED_URL = "https://www.python.org/ftp/python/$PYTHON_FULL/python-$PYTHON_FULL-embed-amd64.zip"
+$EMBED_ZIP = Join-Path $PROJECT_ROOT "python-embed.zip"
+Invoke-WebRequest -Uri $EMBED_URL -OutFile $EMBED_ZIP
+
+New-Item -ItemType Directory -Path $PYTHON_DIR -Force | Out-Null
+Expand-Archive -Path $EMBED_ZIP -DestinationPath $PYTHON_DIR -Force
+Remove-Item $EMBED_ZIP -Force
+Write-Host "[BUILD] Embedded dist extracted"
+
+# Step 2: Configure _pth file — enable site packages (needed for pip)
+# MUST use UTF-8 WITHOUT BOM, otherwise Python reads '﻿Lib' as the path
+$PTH_FILE = Join-Path $PYTHON_DIR "python$PYTHON_VERSION_NODOT._pth"
+$PTH_CONTENT = @"
+python311.zip
+.
+Lib\site-packages
+import site
+"@
+[System.IO.File]::WriteAllText($PTH_FILE, $PTH_CONTENT, [System.Text.UTF8Encoding]::new($false))
+
+# Step 3: Verify embedded Python works
+Write-Step "Verifying embedded Python..."
+$PYTHON_EXE = Join-Path $PYTHON_DIR "python.exe"
+$testOutput = & $PYTHON_EXE -c "import sys; print(sys.executable)" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Embedded Python is broken:" -ForegroundColor Red
+    Write-Host $testOutput
     exit 1
 }
-Write-Step "venv validated successfully!"
+Write-Host "[BUILD] python.exe: $testOutput"
 
-# Step 4: 构建前端
+# Step 4: Install pip
+Write-Step "Installing pip..."
+$GET_PIP = Join-Path $PYTHON_DIR "get-pip.py"
+Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $GET_PIP
+& $PYTHON_EXE $GET_PIP
+Remove-Item $GET_PIP -Force
+
+# Step 5: Install Python dependencies (force into embedded Python, not user site-packages)
+Write-Step "Installing Python dependencies..."
+$env:PYTHONNOUSERSITE = "1"
+& $PYTHON_EXE -m pip install --no-user --upgrade pip
+& $PYTHON_EXE -m pip install --no-user -r "$BACKEND_DIR\requirements.txt"
+Remove-Item Env:PYTHONNOUSERSITE
+
+# Step 6: Final verification
+Write-Step "Verifying critical packages..."
+& $PYTHON_EXE -c @"
+import sqlite3, pathlib, waitress, flask, flask_cors, loguru
+print('All critical packages OK')
+print(f'sqlite3: {sqlite3.sqlite_version}')
+import flask as _f
+assert 'site-packages' in _f.__file__, f'Flask not in embedded Python: {_f.__file__}'
+print(f'flask at: {_f.__file__}')
+"@
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Package verification failed" -ForegroundColor Red
+    exit 1
+}
+
+Write-Step "Python embedded distribution validated!"
+
+# Step 6.5: Install Playwright/patchright Chromium browser (bundled with app)
+Write-Step "Installing Playwright Chromium browser..."
+$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $PYTHON_DIR "ms-playwright"
+& $PYTHON_EXE -m patchright install chromium
+& $PYTHON_EXE -m playwright install chromium
+Remove-Item Env:PLAYWRIGHT_BROWSERS_PATH
+
+# Verify browser exists
+$chromiumDirs = Get-ChildItem (Join-Path $PYTHON_DIR "ms-playwright") -Directory -ErrorAction SilentlyContinue
+if (-not $chromiumDirs) {
+    Write-Host "[ERROR] Playwright Chromium not installed!" -ForegroundColor Red
+    exit 1
+}
+$browserSize = (Get-ChildItem (Join-Path $PYTHON_DIR "ms-playwright") -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+Write-Host "[BUILD] Playwright browsers: $([math]::Round($browserSize, 1)) MB"
+
+# Step 7: Build frontend
 Write-Step "Building frontend..."
 Set-Location $FRONTEND_DIR
 npm install

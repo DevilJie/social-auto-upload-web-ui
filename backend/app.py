@@ -6,6 +6,12 @@ print(f"[Startup] Python {sys.version} starting...")
 print(f"[Startup] Script: {__file__}")
 print(f"[Startup] SAU_PORT={os.environ.get('SAU_PORT')}, SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 
+# 确保 backend/ 目录在 sys.path 中（嵌入式 Python 的 _pth 文件可能不会自动添加脚本目录）
+BACKEND_DIR = Path(__file__).parent.resolve()
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+    print(f"[Startup] Added backend dir to sys.path: {BACKEND_DIR}")
+
 UPSTREAM_DIR = Path(__file__).parent.parent / "vendor" / "upstream"
 sys.path.insert(1, str(UPSTREAM_DIR))
 print(f"[Startup] Upstream dir: {UPSTREAM_DIR} (exists={UPSTREAM_DIR.exists()})")
@@ -25,7 +31,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 
-from flask import g, request, send_from_directory
+from flask import g, jsonify, request, send_from_directory
 
 # 覆盖 sau_backend 的前端静态文件路由，指向正确的前端目录
 # 打包后前端在 exe 同级的 frontend/ 目录
@@ -82,6 +88,31 @@ def _update_publish_result(task_id, status, finished_at, error_message=""):
             )
     except Exception as e:
         print(f"[History] 更新发布结果失败: {e}")
+
+
+@app.before_request
+def _ensure_db():
+    """确保数据库文件和目录存在，且表结构完整"""
+    db_path = _get_db_path()
+    need_init = False
+    if not db_path.exists():
+        need_init = True
+    else:
+        # 文件存在但可能没有表（空数据库）
+        try:
+            with sqlite3.connect(str(db_path)) as _c:
+                _c.execute("SELECT 1 FROM user_info LIMIT 1")
+        except sqlite3.OperationalError:
+            need_init = True
+    if need_init:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            from init_db import init_database, migrate_database
+            init_database()
+            migrate_database()
+            print(f"[DB] Initialized database at {db_path}")
+        except Exception as e:
+            print(f"[DB] Failed to initialize database: {e}")
 
 
 @app.before_request
@@ -156,6 +187,31 @@ def find_available_port(start_port=5409, max_attempts=10):
     raise RuntimeError(f"Could not find available port in range {start_port}-{start_port + max_attempts}")
 
 
+@app.route("/api/health", methods=['GET'])
+def health_check():
+    """诊断端点：检查环境、数据库路径和连接"""
+    import sqlite3 as _sqlite
+    from conf import BASE_DIR as _BASE_DIR
+    diag = {
+        "sau_data_dir": os.environ.get("SAU_DATA_DIR"),
+        "base_dir": str(_BASE_DIR),
+        "db_path": str(_get_db_path()),
+        "db_exists": _get_db_path().exists(),
+        "python": sys.executable,
+        "sys_prefix": sys.prefix,
+        "sys_base_prefix": sys.base_prefix,
+    }
+    try:
+        with _sqlite.connect(str(_get_db_path())) as _conn:
+            count = _conn.execute("SELECT COUNT(*) FROM user_info").fetchone()[0]
+            diag["db_user_count"] = count
+            diag["db_ok"] = True
+    except Exception as e:
+        diag["db_ok"] = False
+        diag["db_error"] = str(e)
+    return jsonify(diag)
+
+
 if __name__ == "__main__":
     import os
     import socket
@@ -166,6 +222,18 @@ if __name__ == "__main__":
     init_database()
     migrate_database()
     print("[Startup] Database initialized OK")
+
+    # 验证数据库可访问
+    try:
+        import sqlite3 as _sqlite
+        _test_path = _get_db_path()
+        print(f"[Startup] DB path: {_test_path} (exists={_test_path.exists()})")
+        with _sqlite.connect(str(_test_path)) as _conn:
+            _conn.execute("SELECT 1 FROM user_info LIMIT 1")
+        print("[Startup] DB verification OK")
+    except Exception as _e:
+        print(f"[Startup] DB verification FAILED: {_e}")
+        print(f"[Startup] SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 
     # Allow port override via environment variable (for dev convenience)
     port = int(os.environ.get("SAU_PORT", "5409"))

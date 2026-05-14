@@ -37,14 +37,10 @@ async def cookie_auth(account_file: str) -> bool:
     """校验 B站 cookie 是否有效"""
     from conf import LOGIN_HEADLESS
     async with async_playwright() as playwright:
+        _opts = {'headless': LOGIN_HEADLESS}
         if LOCAL_CHROME_PATH:
-            browser = await playwright.chromium.launch(
-                headless=LOGIN_HEADLESS, executable_path=LOCAL_CHROME_PATH,
-            )
-        else:
-            browser = await playwright.chromium.launch(
-                headless=LOGIN_HEADLESS,
-            )
+            _opts['executable_path'] = LOCAL_CHROME_PATH
+        browser = await playwright.chromium.launch(**_opts)
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
@@ -538,15 +534,10 @@ class BilibiliVideo(BilibiliBaseUploader):
         log_dir = Path(__file__).parent.parent.parent.parent / "data" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
+        _opts = {'headless': self.headless}
         if self.local_executable_path:
-            browser = await playwright.chromium.launch(
-                headless=self.headless,
-                executable_path=self.local_executable_path,
-            )
-        else:
-            browser = await playwright.chromium.launch(
-                headless=self.headless,
-            )
+            _opts['executable_path'] = self.local_executable_path
+        browser = await playwright.chromium.launch(**_opts)
         context = await browser.new_context(storage_state=self.account_file)
         context = await set_init_script(context)
 

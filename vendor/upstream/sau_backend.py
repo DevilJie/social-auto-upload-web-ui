@@ -461,8 +461,12 @@ def open_creator_center():
 
         def launch_browser():
             from playwright.sync_api import sync_playwright
+            from conf import LOCAL_CHROME_PATH
             pw = sync_playwright().start()
-            browser = pw.chromium.launch(headless=False)
+            opts = {'headless': False}
+            if LOCAL_CHROME_PATH:
+                opts['executable_path'] = LOCAL_CHROME_PATH
+            browser = pw.chromium.launch(**opts)
             context = browser.new_context(storage_state=cookie_path)
             page = context.new_page()
             page.goto(url)

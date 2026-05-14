@@ -5,16 +5,31 @@ import os
 from playwright.async_api import async_playwright
 from xhs import XhsClient
 
-from conf import BASE_DIR, LOCAL_CHROME_HEADLESS
+from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.log import tencent_logger, kuaishou_logger, douyin_logger
 from pathlib import Path
 from uploader.xhs_uploader.main import sign_local
 
 
+def _browser_launch_options():
+    """获取浏览器启动参数，优先使用系统 Chrome 而非 Playwright 自带的 Chromium"""
+    options = {
+        'headless': LOCAL_CHROME_HEADLESS,
+        'args': [
+            '--disable-blink-features=AutomationControlled',
+            '--lang=zh-CN',
+            '--disable-infobars',
+        ]
+    }
+    if LOCAL_CHROME_PATH:
+        options['executable_path'] = LOCAL_CHROME_PATH
+    return options
+
+
 async def cookie_auth_douyin(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(**_browser_launch_options())
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         # 创建一个新的页面
@@ -25,7 +40,7 @@ async def cookie_auth_douyin(account_file):
             await page.wait_for_url("https://creator.douyin.com/creator-micro/content/upload", timeout=5000)
             # 2024.06.17 抖音创作者中心改版
             # 判断
-            # 等待“扫码登录”元素出现，超时 5 秒（如果 5 秒没出现，说明 cookie 有效）
+            # 等待"扫码登录"元素出现，超时 5 秒（如果 5 秒没出现，说明 cookie 有效）
             try:
                 await page.get_by_text("扫码登录").wait_for(timeout=5000)
                 douyin_logger.error("[+] cookie 失效，需要扫码登录")
@@ -42,7 +57,7 @@ async def cookie_auth_douyin(account_file):
 
 async def cookie_auth_tencent(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(**_browser_launch_options())
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         # 创建一个新的页面
@@ -60,7 +75,7 @@ async def cookie_auth_tencent(account_file):
 
 async def cookie_auth_ks(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(**_browser_launch_options())
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         # 创建一个新的页面
@@ -79,7 +94,7 @@ async def cookie_auth_ks(account_file):
 
 async def cookie_auth_xhs(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(**_browser_launch_options())
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         # 创建一个新的页面
@@ -125,7 +140,7 @@ async def check_cookie(type, file_path):
 
 async def cookie_auth_bilibili(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
+        browser = await playwright.chromium.launch(**_browser_launch_options())
         context = await browser.new_context(storage_state=account_file)
         context = await set_init_script(context)
         page = await context.new_page()

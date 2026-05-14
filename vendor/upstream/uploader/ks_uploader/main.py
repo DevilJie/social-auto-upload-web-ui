@@ -152,10 +152,10 @@ async def _is_ks_login_page_gone(page: Page) -> bool:
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
+        _opts = {'headless': True}
         if LOCAL_CHROME_PATH:
-            browser = await playwright.chromium.launch(headless=True, executable_path=LOCAL_CHROME_PATH)
-        else:
-            browser = await playwright.chromium.launch(headless=True)
+            _opts['executable_path'] = LOCAL_CHROME_PATH
+        browser = await playwright.chromium.launch(**_opts)
         try:
             context = await browser.new_context(storage_state=account_file)
             context = await set_init_script(context)
@@ -199,10 +199,10 @@ async def get_ks_cookie(
         kuaishou_logger.info(_msg("🖼️", "快手登录将以无头模式运行，小人会输出终端二维码并保存本地二维码图片"))
 
     async with async_playwright() as playwright:
+        _opts = {'headless': headless}
         if LOCAL_CHROME_PATH:
-            browser = await playwright.chromium.launch(headless=headless, executable_path=LOCAL_CHROME_PATH)
-        else:
-            browser = await playwright.chromium.launch(headless=headless)
+            _opts['executable_path'] = LOCAL_CHROME_PATH
+        browser = await playwright.chromium.launch(**_opts)
         context = await browser.new_context()
         context = await set_init_script(context)
         qrcode_path = None
@@ -419,15 +419,10 @@ class KSVideo(KSBaseUploader):
         await self.validate_upload_args()
         kuaishou_logger.info(_msg("🥳", "上传前检查通过"))
 
+        _opts = {'headless': self.headless}
         if self.local_executable_path:
-            browser = await playwright.chromium.launch(
-                headless=self.headless,
-                executable_path=self.local_executable_path,
-            )
-        else:
-            browser = await playwright.chromium.launch(
-                headless=self.headless,
-            )
+            _opts['executable_path'] = self.local_executable_path
+        browser = await playwright.chromium.launch(**_opts)
         context = await browser.new_context(storage_state=self.account_file)
         context = await set_init_script(context)
 
@@ -664,15 +659,10 @@ class KSNote(KSBaseUploader):
         await self.validate_upload_args()
         kuaishou_logger.info(_msg("🥳", "图文上传前检查通过"))
 
+        _opts = {'headless': self.headless}
         if self.local_executable_path:
-            browser = await playwright.chromium.launch(
-                headless=self.headless,
-                executable_path=self.local_executable_path,
-            )
-        else:
-            browser = await playwright.chromium.launch(
-                headless=self.headless,
-            )
+            _opts['executable_path'] = self.local_executable_path
+        browser = await playwright.chromium.launch(**_opts)
         context = await browser.new_context(storage_state=self.account_file)
         context = await set_init_script(context)
 

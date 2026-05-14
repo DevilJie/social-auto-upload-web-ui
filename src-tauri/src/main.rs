@@ -35,12 +35,22 @@ fn main() {
     let port = find_available_port(5409);
     writeln!(log_file, "[{}] INFO: Using backend port: {}", unix_ts(), port).unwrap();
 
-    // Python path and backend path
-    let python_path = exe_dir.join("python").join("Scripts").join("python.exe");
+    // Python path — must be the embedded distribution's python.exe (NOT Scripts/python.exe which is a venv launcher)
+    let python_path = exe_dir.join("python").join("python.exe");
     let backend_path = exe_dir.join("backend").join("app.py");
     writeln!(log_file, "[{}] INFO: exe_dir: {:?}", unix_ts(), exe_dir).unwrap();
     writeln!(log_file, "[{}] INFO: Python path: {:?}", unix_ts(), python_path).unwrap();
     writeln!(log_file, "[{}] INFO: Backend path: {:?}", unix_ts(), backend_path).unwrap();
+
+    if !python_path.exists() {
+        let msg = format!("Python not found at {:?}. The embedded Python distribution is missing.", python_path);
+        writeln!(log_file, "[{}] ERROR: {}", unix_ts(), msg).unwrap();
+        eprintln!("ERROR: {}", msg);
+        std::process::exit(1);
+    }
+
+    // Playwright browsers path — bundled with the app
+    let playwright_browsers_path = exe_dir.join("python").join("ms-playwright");
 
     // Spawn Python backend
     // PYTHONUNBUFFERED=1 ensures stdout/stderr are flushed immediately so logs appear in real-time
@@ -48,6 +58,7 @@ fn main() {
         .arg(&backend_path)
         .env("SAU_PORT", port.to_string())
         .env("SAU_DATA_DIR", data_dir.to_str().unwrap())
+        .env("PLAYWRIGHT_BROWSERS_PATH", playwright_browsers_path.to_str().unwrap())
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

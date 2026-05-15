@@ -154,7 +154,7 @@ async def cookie_auth(account_file):
     async with async_playwright() as playwright:
         browser = await create_browser(playwright, headless=True)
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(KUAISHOU_UPLOAD_URL)
             if await _is_ks_cookie_invalid(page):
@@ -196,7 +196,7 @@ async def get_ks_cookie(
 
     async with async_playwright() as playwright:
         browser = await create_browser(playwright, headless=headless)
-        context = await browser.new_context()
+        context = await create_context(browser)
         qrcode_path = None
         qrcode_info = None
         result = _build_login_result(False, "failed", "快手登录失败", account_file)

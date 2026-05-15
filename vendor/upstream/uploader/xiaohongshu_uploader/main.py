@@ -152,7 +152,7 @@ async def cookie_auth(account_file):
     async with async_playwright() as playwright:
         browser = await create_browser(playwright, headless=True)
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(XHS_PUBLISH_VIDEO_URL)
             await page.wait_for_timeout(3000)

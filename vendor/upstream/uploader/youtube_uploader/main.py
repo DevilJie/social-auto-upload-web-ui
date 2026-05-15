@@ -2,7 +2,7 @@
 """
 YouTube Video Uploader
 
-基于 Playwright 浏览器自动化 + Cookie 认证的 YouTube 视频上传器
+基于 Patchright 浏览器自动化 + Cookie 认证的 YouTube 视频上传器
 
 上传地址: https://studio.youtube.com/channel/{channel_id}/videos/upload
 """

@@ -1,11 +1,18 @@
 # vendor/upstream/myUtils/browser.py
 """统一浏览器启动入口 — 基于 Patchright 反检测机制
 
-Patchright 已内置反检测机制，无需手动注入 stealth.js。
+双层防检测策略：
+1. Patchright：CDP 驱动层反检测（Runtime.enable leak、Console leak、Command Flags）
+2. stealth.min.js：JS 层指纹修补（navigator.webdriver、chrome 对象等）
+
 浏览器优先级：系统 Chrome/Chromium > Patchright 自带 Chromium。
 """
+from pathlib import Path
+
 from patchright.async_api import Playwright, Browser, BrowserContext
 from conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS, LOGIN_HEADLESS
+
+_STEALTH_JS_PATH = Path(__file__).parent.parent / "utils" / "stealth.min.js"
 
 
 def _build_launch_args(extra_args: list | None = None) -> list:
@@ -69,7 +76,9 @@ async def create_context(
     viewport: dict | None = None,
 ) -> BrowserContext:
     """
-    统一的上下文创建入口（不注入 stealth.js）。
+    统一的上下文创建入口。
+
+    自动注入 stealth.min.js 作为 JS 层额外防检测（与 Patchright CDP 层互补）。
 
     Args:
         browser: Browser 实例
@@ -84,4 +93,8 @@ async def create_context(
         opts['user_agent'] = user_agent
     if viewport:
         opts['viewport'] = viewport
-    return await browser.new_context(**opts)
+    context = await browser.new_context(**opts)
+    # 注入 stealth.js 作为 JS 层额外防检测
+    if _STEALTH_JS_PATH.exists():
+        await context.add_init_script(path=str(_STEALTH_JS_PATH))
+    return context

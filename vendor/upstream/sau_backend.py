@@ -428,7 +428,7 @@ def sync_profile():
         }), 500
 
 
-# 打开创作中心（用 Playwright 启动带cookie的浏览器）
+# 打开创作中心（用 Patchright 启动带cookie的浏览器）
 @app.route('/openCreatorCenter', methods=['POST'])
 def open_creator_center():
     account_id = request.json.get('id')

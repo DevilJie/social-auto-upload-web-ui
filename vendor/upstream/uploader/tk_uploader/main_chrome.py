@@ -5,13 +5,13 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from playwright.async_api import Playwright, async_playwright
+from patchright.async_api import Playwright, async_playwright
 import os
 import asyncio
 
-from conf import BASE_DIR, LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
+from conf import BASE_DIR, LOCAL_CHROME_HEADLESS
 from uploader.tk_uploader.tk_config import Tk_Locator
-from utils.base_social_media import set_init_script
+from myUtils.browser import create_browser, create_context
 from utils.files_times import get_absolute_path
 from utils.log import tiktok_logger
 
@@ -43,12 +43,8 @@ async def get_tiktok_cookie_wrapper(id, status_queue):
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
-        _opts = {'headless': LOCAL_CHROME_HEADLESS}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -83,21 +79,14 @@ async def tiktok_setup(account_file, handle=False):
 async def get_tiktok_cookie(account_file):
     """TikTok登录 - 检测登录完成并自动保存 cookie"""
     async with async_playwright() as playwright:
-        _opts = {
-            'args': [
-                '--lang en-GB',
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--proxy-server=http://127.0.0.1:7897',
-            ],
-            'headless': False,
-        }
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        _proxy = {"server": "http://127.0.0.1:7897"}
+        browser = await create_browser(
+            playwright,
+            headless=False,
+            proxy=_proxy,
+            extra_args=['--lang en-GB', '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        )
+        context = await create_context(browser)
         page = await context.new_page()
         await page.goto("https://www.tiktok.com/login?lang=en")
         tiktok_logger.info("TikTok登录页面已打开，请完成扫码登录...")
@@ -122,7 +111,6 @@ class TiktokVideo(object):
         self.publish_date = publish_date
         self.thumbnail_path = thumbnail_path
         self.account_file = account_file
-        self.local_executable_path = LOCAL_CHROME_PATH
         self.headless = LOCAL_CHROME_HEADLESS
         self.locator_base = None
 
@@ -191,9 +179,8 @@ class TiktokVideo(object):
         await file_chooser.set_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
-        context = await browser.new_context(storage_state=f"{self.account_file}")
-        # context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=f"{self.account_file}")
         page = await context.new_page()
 
         # change language to eng first

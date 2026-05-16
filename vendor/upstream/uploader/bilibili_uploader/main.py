@@ -498,77 +498,103 @@ class BilibiliVideo(BilibiliBaseUploader):
         bilibili_logger.info(_msg("🖼️", "开始设置B站封面"))
 
         try:
-            # Step 1: 点击 cover-item 打开封面编辑器
-            cover_item = page.locator('div.cover-item').first
-            await cover_item.wait_for(state="visible", timeout=10000)
-            await cover_item.click()
-            bilibili_logger.info(_msg("🖱️", "已点击封面区域，等待封面编辑器打开"))
-            await asyncio.sleep(2)
+            # Step 0: 截图记录当前页面状态
+            await page.screenshot(path=str(log_dir / "bilibili_cover_before.png"), full_page=True)
 
-            # 截图查看封面编辑器状态
+            # Step 1: 打开封面编辑器弹窗 — 多种触发器尝试
+            dialog_opened = False
+            trigger_selectors = [
+                'div.cover-item',
+                '.cover-item',
+                '.video-cover-container',
+                '.cover-wrap',
+                '.cover-add',
+                '[data-reporter-id="112"]',
+                '.upload-video-cover',
+                'div[class*="cover"] >> text=选择封面',
+                'div[class*="cover"] >> text=封面',
+            ]
+            for sel in trigger_selectors:
+                count = await page.locator(sel).count()
+                bilibili_logger.info(_msg("🔍", f"封面触发器 '{sel}': {count} 个"))
+                if count > 0:
+                    try:
+                        await page.locator(sel).first.click(timeout=3000)
+                        bilibili_logger.info(_msg("🖱️", f"已点击封面触发器: {sel}"))
+                        dialog_opened = True
+                        break
+                    except Exception as e:
+                        bilibili_logger.info(_msg("ℹ️", f"点击 '{sel}' 失败: {e}"))
+                        continue
+
+            if not dialog_opened:
+                bilibili_logger.warning(_msg("⚠️", "所有封面触发器均未成功，跳过封面设置"))
+                return
+
+            # 等待封面编辑器弹窗出现
+            dialog = page.locator('div.cover-editor.bcc-dialog__wrap').first
+            await dialog.wait_for(state="visible", timeout=15000)
+            bilibili_logger.info(_msg("✅", "封面编辑器弹窗已打开"))
+            await asyncio.sleep(1)
+
+            # 截图查看弹窗状态
             await page.screenshot(path=str(log_dir / "bilibili_cover_editor.png"), full_page=True)
 
-            # Step 2: 勾选"双比例同步改动"复选框
-            sync_checkbox = page.locator('.sync-checkbox input[type="checkbox"]').first
-            if await sync_checkbox.count() > 0:
-                checked = await sync_checkbox.is_checked()
-                if not checked:
-                    await sync_checkbox.check()
-                    bilibili_logger.info(_msg("✅", "已勾选双比例同步改动"))
-                else:
-                    bilibili_logger.info(_msg("✅", "双比例同步改动已处于勾选状态"))
-            else:
-                bilibili_logger.info(_msg("ℹ️", "未找到同步复选框，跳过"))
-            await asyncio.sleep(0.5)
+            # Step 2: 直接上传封面文件（隐藏 input 在弹窗内）
+            # .cover-upload .bcc-upload-wrapper > input[type="file"]
+            file_input = page.locator('.cover-upload input[type="file"]').first
+            file_count = await file_input.count()
+            bilibili_logger.info(_msg("🔍", f"封面文件 input: {file_count} 个"))
 
-            # Step 3: 选择 4:3 封面区域
-            canvas_4_3 = page.locator('div.cover-editor-panel-canvas-image.editor_4_3').first
-            if await canvas_4_3.count() > 0:
-                await canvas_4_3.click()
-                bilibili_logger.info(_msg("🖼️", "已选择 4:3 封面区域"))
-            else:
-                bilibili_logger.info(_msg("ℹ️", "未找到 4:3 区域选择器，跳过"))
-            await asyncio.sleep(0.5)
-
-            # Step 4: 上传封面文件
-            file_input = page.locator('.cover-upload input[accept="image/png, image/jpeg"]').first
-            if await file_input.count() > 0:
+            if file_count > 0:
                 await file_input.set_input_files(self.thumbnail_path)
                 bilibili_logger.info(_msg("📤", f"已选择封面文件: {os.path.basename(self.thumbnail_path)}"))
             else:
-                # 退而求其次：查找任意文件输入
+                # 备用：查找任意 image input
                 fallback_input = page.locator('input[accept*="image"]').first
                 if await fallback_input.count() > 0:
                     await fallback_input.set_input_files(self.thumbnail_path)
-                    bilibili_logger.info(_msg("📤", f"通过备用 input 选择封面文件: {os.path.basename(self.thumbnail_path)}"))
+                    bilibili_logger.info(_msg("📤", f"通过备用 input 选择封面文件"))
                 else:
                     bilibili_logger.error(_msg("❌", "未找到封面文件上传 input"))
                     return
 
             # 等待图片上传和处理
+            bilibili_logger.info(_msg("⏳", "等待封面图片上传处理..."))
             await asyncio.sleep(3)
 
-            # Step 5: 点击"完成"按钮
-            submit_btn = page.locator('div.button.submit').first
-            if await submit_btn.count() > 0:
+            # Step 3: 点击弹窗内"完成"按钮
+            submit_btn = page.locator('div.cover-editor div.button.submit').first
+            submit_count = await submit_btn.count()
+            bilibili_logger.info(_msg("🔍", f"完成按钮: {submit_count} 个"))
+            if submit_count > 0:
                 await submit_btn.click()
                 bilibili_logger.info(_msg("✅", "已点击完成按钮"))
             else:
                 bilibili_logger.warning(_msg("⚠️", "未找到完成按钮"))
             await asyncio.sleep(1)
 
-            # Step 6: 点击"确定"按钮确认封面
-            confirm_btn = page.locator('button.bcc-button--primary').first
-            if await confirm_btn.count() > 0:
+            # Step 4: 点击弹窗外层"确定"按钮
+            confirm_btn = page.locator('div.cover-editor button.bcc-button--primary').first
+            confirm_count = await confirm_btn.count()
+            bilibili_logger.info(_msg("🔍", f"确定按钮: {confirm_count} 个"))
+            if confirm_count > 0:
                 await confirm_btn.click()
                 bilibili_logger.info(_msg("✅", "已点击确定按钮"))
             else:
                 bilibili_logger.warning(_msg("⚠️", "未找到确定按钮"))
             await asyncio.sleep(1)
 
+            # 等待弹窗关闭
+            await asyncio.sleep(1)
             bilibili_logger.success(_msg("🥳", "B站封面设置完成"))
 
         except Exception as exc:
+            # 截图用于排查
+            try:
+                await page.screenshot(path=str(log_dir / "bilibili_cover_error.png"), full_page=True)
+            except Exception:
+                pass
             bilibili_logger.error(_msg("❌", f"封面设置失败: {exc}"))
             raise RuntimeError(f"封面设置失败: {exc}")
 

@@ -490,29 +490,45 @@ async def sync_account_profile(platform_type, cookie_file):
         3: "https://creator.douyin.com/",
         4: "https://cp.kuaishou.com/article/publish/video",
         5: "https://account.bilibili.com/account/home",
+        6: "https://baijiahao.baidu.com/builder/rc/home",
+        8: "https://studio.youtube.com",
     }
     url = platform_urls.get(platform_type)
     if not url:
         return "", ""
 
     async with async_playwright() as playwright:
-        browser = await create_browser(playwright, headless=True)
+        # YouTube 需要代理
+        proxy = None
+        if platform_type == 8:
+            from conf import _load_proxy_url
+            _proxy_url = _load_proxy_url()
+            if _proxy_url:
+                proxy = {"server": _proxy_url}
+
+        # YouTube 无头模式会被 Google 拦截，需要有头模式
+        headless = False if platform_type == 8 else True
+        browser = await create_browser(playwright, headless=headless, proxy=proxy)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         context = await create_context(browser, storage_state=cookie_path)
         page = await context.new_page()
         try:
             await page.goto(url, wait_until='networkidle', timeout=30000)
-            # 视频号页面头像加载慢，额外等待
             if platform_type == 2:
                 try:
                     await page.wait_for_selector('img.account-avatar, img[src*="finderhead"], img[src*="qlogo.cn"]', timeout=8000)
                 except Exception:
                     pass
                 await asyncio.sleep(2)
+                name, avatar = await _scrape_tencent_profile(page)
             elif platform_type == 5:
                 name, avatar = await _scrape_bilibili_profile(page)
-            elif platform_type == 2:
-                name, avatar = await _scrape_tencent_profile(page)
+            elif platform_type == 6:
+                from uploader.baijiahao_uploader.main import _scrape_baijiahao_profile
+                name, avatar = await _scrape_baijiahao_profile(page)
+            elif platform_type == 8:
+                from uploader.youtube_uploader.main import _scrape_youtube_profile
+                name, avatar = await _scrape_youtube_profile(page)
             else:
                 name, avatar = await scrape_user_profile(page)
             await page.close()
@@ -521,9 +537,12 @@ async def sync_account_profile(platform_type, cookie_file):
             return name, avatar
         except Exception as e:
             print(f"⚠️ 同步资料失败: {e}")
-            await page.close()
-            await context.close()
-            await browser.close()
+            try:
+                await page.close()
+                await context.close()
+                await browser.close()
+            except Exception:
+                pass
             return "", ""
 
 

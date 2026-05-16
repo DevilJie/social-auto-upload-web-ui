@@ -29,12 +29,53 @@ def _msg(emoji: str, text: str) -> str:
     return f"{emoji} {text}"
 
 
+async def _scrape_youtube_profile(page):
+    """从 YouTube Studio 页面抓取频道名称和头像（需有头模式，无头会被拦截）"""
+    name = ""
+    avatar = ""
+    try:
+        await page.wait_for_load_state('networkidle', timeout=15000)
+        await asyncio.sleep(5)
+
+        # Playwright locator 能穿透 Shadow DOM
+        # 昵称: div#entity-name
+        name_el = page.locator('div#entity-name').first
+        if await name_el.count():
+            name = (await name_el.text_content() or '').strip()
+
+        # 头像: img 含 ggpht.com
+        all_imgs = page.locator('img')
+        count = await all_imgs.count()
+        for i in range(count):
+            img = all_imgs.nth(i)
+            src = (await img.get_attribute('src') or '')
+            alt = (await img.get_attribute('alt') or '')
+            if 'ggpht.com' in src or 'googleusercontent' in src:
+                avatar = src
+                if not name and alt and len(alt) < 50:
+                    name = alt
+                break
+
+        # 备选：从页面标题获取
+        if not name:
+            title = await page.title()
+            if ' - ' in title:
+                candidate = title.split(' - ')[0].strip()
+                if candidate and candidate != 'YouTube':
+                    name = candidate
+
+        print(f"[YOUTUBE] 抓取结果 - name={name!r} avatar={avatar[:50] if avatar else 'None'}", flush=True)
+    except Exception as e:
+        print(f"[YOUTUBE] 抓取用户资料失败: {e}", flush=True)
+    return name, avatar
+
+
 async def cookie_auth(account_file: str) -> bool:
-    """校验 YouTube cookie 是否有效"""
-    from conf import LOGIN_HEADLESS, _load_proxy_url
+    """校验 YouTube cookie 是否有效（无头模式）"""
+    from conf import _load_proxy_url
     async with async_playwright() as playwright:
         _proxy = _load_proxy_url()
-        browser = await create_browser(playwright, headless=LOGIN_HEADLESS, proxy={"server": _proxy} if _proxy else None)
+        browser = await create_browser(playwright, headless=True, proxy={"server": _proxy} if _proxy else None)
         try:
             context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
@@ -105,6 +146,11 @@ async def youtube_cookie_gen(id, status_queue):
             except Exception:
                 youtube_logger.warning("登录检测异常")
 
+            # 抓取用户资料
+            user_name, avatar_url = await _scrape_youtube_profile(page)
+            if not user_name:
+                user_name = "YouTube用户"
+
             # 保存 cookie
             uuid_v1 = str(uuid.uuid1())
             cookies_dir = Path(BASE_DIR / "cookiesFile")
@@ -121,11 +167,11 @@ async def youtube_cookie_gen(id, status_queue):
                 cursor.execute('''
                                INSERT INTO user_info (type, filePath, userName, status, avatar)
                                VALUES (?, ?, ?, ?, ?)
-                               ''', (8, f"{uuid_v1}.json", "YouTube用户", 1, ""))
+                               ''', (8, f"{uuid_v1}.json", user_name, 1, avatar_url))
                 conn.commit()
 
             # 发送成功消息
-            status_queue.put(json.dumps({"status": "200", "name": "YouTube用户", "avatar": ""}))
+            status_queue.put(json.dumps({"status": "200", "name": user_name, "avatar": avatar_url}))
     except Exception as e:
         print(f"[YOUTUBE ERROR] {type(e).__name__}: {e}")
         youtube_logger.error(f"YouTube 登录失败: {e}")

@@ -30,8 +30,10 @@ async def baijiahao_cookie_gen_wrapper(id, status_queue):
     print(f"[BAIJIAHAO DEBUG] account_file={account_file}")
 
     print(f"[BAIJIAHAO DEBUG] 调用 baijiahao_cookie_gen...")
-    await baijiahao_cookie_gen(account_file)
-    print(f"[BAIJIAHAO DEBUG] baijiahao_cookie_gen 返回")
+    user_name, avatar_url = await baijiahao_cookie_gen(account_file)
+    if not user_name:
+        user_name = "百家号用户"
+    print(f"[BAIJIAHAO DEBUG] baijiahao_cookie_gen 返回 name={user_name}")
 
     # 登录成功后保存到数据库
     with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
@@ -39,19 +41,19 @@ async def baijiahao_cookie_gen_wrapper(id, status_queue):
         cursor.execute('''
                        INSERT INTO user_info (type, filePath, userName, status, avatar)
                        VALUES (?, ?, ?, ?, ?)
-                       ''', (6, f"{uuid_v1}.json", f"百家号用户", 1, ""))
+                       ''', (6, f"{uuid_v1}.json", user_name, 1, avatar_url))
         conn.commit()
     print(f"[BAIJIAHAO DEBUG] 数据库插入完成")
 
     # 发送成功消息
-    status_queue.put(json.dumps({"status": "200", "name": "百家号用户", "avatar": ""}))
+    status_queue.put(json.dumps({"status": "200", "name": user_name, "avatar": avatar_url}))
 
 
 async def baijiahao_cookie_gen(account_file):
-    """百家号登录 - 检测登录完成并自动保存 cookie"""
+    """百家号登录 - 检测登录完成并自动保存 cookie，返回 (name, avatar)"""
     import asyncio
     print(f"[BAIJIAHAO DEBUG] baijiahao_cookie_gen ENTRY, account_file={account_file}")
-        
+
     async with async_playwright() as playwright:
         print(f"[BAIJIAHAO DEBUG] launching browser (patchright)")
         browser = await create_browser(playwright, headless=False, login_mode=True)
@@ -70,8 +72,41 @@ async def baijiahao_cookie_gen(account_file):
             baijiahao_logger.warning("未检测到登录完成，将在 120 秒后保存当前状态")
             await asyncio.sleep(120)
 
+        # 抓取用户资料
+        name, avatar = await _scrape_baijiahao_profile(page)
+
         await context.storage_state(path=account_file)
         baijiahao_logger.success("百家号 cookie 已保存")
+        await page.close()
+        await context.close()
+        await browser.close()
+        return name, avatar
+
+
+async def _scrape_baijiahao_profile(page):
+    """从百家号账号设置页抓取用户昵称和头像"""
+    name = ""
+    avatar = ""
+    try:
+        # 导航到账号设置页，这里头像和昵称直接渲染在页面上
+        await page.goto("https://baijiahao.baidu.com/builder/rc/settings/accountSet", timeout=15000)
+        await page.wait_for_load_state('domcontentloaded', timeout=10000)
+        await asyncio.sleep(2)
+
+        # 头像: img 含 userImg 的 class
+        avatar_el = page.locator('img[class*="userImg"]').first
+        if await avatar_el.count():
+            avatar = (await avatar_el.get_attribute('src') or '').strip()
+
+        # 昵称: div 含 userName 的 class
+        name_el = page.locator('div[class*="userName"]').first
+        if await name_el.count():
+            name = (await name_el.text_content() or '').strip()
+
+        print(f"[BAIJIAHAO] 抓取结果 - name={name!r} avatar={avatar[:50] if avatar else 'None'}", flush=True)
+    except Exception as e:
+        print(f"[BAIJIAHAO] 抓取用户资料失败: {e}", flush=True)
+    return name, avatar
 
 
 async def cookie_auth(account_file):

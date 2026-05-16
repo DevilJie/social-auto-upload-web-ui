@@ -255,6 +255,30 @@ def getValidAccounts():
             "data": rows_list
         }), 200
 
+@app.route('/checkAccount', methods=['GET'])
+def check_account():
+    """检查单个账号的 cookie 是否有效"""
+    account_id = request.args.get('id')
+    if not account_id or not account_id.isdigit():
+        return jsonify({"code": 400, "msg": "无效的账号ID"}), 400
+
+    with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM user_info WHERE id = ?', (int(account_id),))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"code": 404, "msg": "账号不存在"}), 404
+
+        row_list = list(row)
+        valid = asyncio.run(check_cookie(row[1], row[2]))
+        new_status = 1 if valid else 0
+        row_list[4] = new_status
+        cursor.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, row[0]))
+        conn.commit()
+
+    msg = "Cookie 有效" if valid else "Cookie 已失效，请重新登录"
+    return jsonify({"code": 200, "msg": msg, "data": {"id": row[0], "status": new_status, "valid": valid}})
+
 @app.route('/deleteFile', methods=['GET'])
 def delete_file():
     file_id = request.args.get('id')
@@ -385,6 +409,7 @@ def sync_profile():
         return jsonify({"code": 400, "msg": "缺少账号ID", "data": None}), 400
 
     try:
+        import sys
         with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -397,10 +422,12 @@ def sync_profile():
             platform_type = record['type']
             cookie_file = record['filePath']
 
+        print(f"[SYNC] START platform={platform_type} cookie_file={cookie_file}", flush=True)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         name, avatar = loop.run_until_complete(sync_account_profile(platform_type, cookie_file))
         loop.close()
+        print(f"[SYNC] RESULT platform={platform_type} name={name!r} avatar={avatar[:80] if avatar else 'None'}", flush=True)
 
         if name or avatar:
             with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:

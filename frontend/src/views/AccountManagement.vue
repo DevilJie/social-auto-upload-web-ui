@@ -65,6 +65,11 @@
           <el-table-column label="操作" min-width="320">
             <template #default="scope">
               <div class="action-cell">
+                <button class="action-btn" @click="handleCheckAccount(scope.row)"
+                  :disabled="checkingIds.has(scope.row.id)">
+                  <el-icon v-if="checkingIds.has(scope.row.id)" class="is-loading"><Loading /></el-icon>
+                  {{ checkingIds.has(scope.row.id) ? '检查中' : '检查' }}
+                </button>
                 <button class="action-btn" @click="handleEdit(scope.row)">编辑</button>
                 <button class="action-btn primary" @click="handleSyncProfile(scope.row)"
                   :disabled="syncingIds.has(scope.row.id)">
@@ -274,6 +279,25 @@ const rules = {
 }
 
 const sseConnecting = ref(false)
+const checkingIds = ref(new Set())
+
+const handleCheckAccount = async (row) => {
+  checkingIds.value.add(row.id)
+  try {
+    const res = await http.get('/checkAccount', { id: row.id })
+    if (res.code === 200 && res.data) {
+      const { valid, status } = res.data
+      accountStore.updateAccount(row.id, { ...row, status: valid ? '正常' : '失效' })
+      ElMessage({ type: valid ? 'success' : 'warning', message: res.msg })
+    } else {
+      ElMessage.error(res.msg || '检查失败')
+    }
+  } catch (e) {
+    ElMessage.error('检查请求失败')
+  } finally {
+    checkingIds.value.delete(row.id)
+  }
+}
 const qrCodeData = ref('')
 const loginStatus = ref('')
 

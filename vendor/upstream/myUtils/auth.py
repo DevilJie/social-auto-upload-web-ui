@@ -117,6 +117,18 @@ async def check_cookie(type, file_path):
         # B站
         case 5:
             return await cookie_auth_bilibili(Path(BASE_DIR / "cookiesFile" / file_path))
+        # 百家号
+        case 6:
+            from uploader.baijiahao_uploader.main import cookie_auth as baijiahao_cookie_auth
+            return await baijiahao_cookie_auth(Path(BASE_DIR / "cookiesFile" / file_path))
+        # YouTube
+        case 8:
+            from uploader.youtube_uploader.main import cookie_auth as youtube_cookie_auth
+            return await youtube_cookie_auth(str(Path(BASE_DIR / "cookiesFile" / file_path)))
+        # TikTok
+        case 7:
+            from uploader.tk_uploader.main_chrome import cookie_auth as tiktok_cookie_auth
+            return await tiktok_cookie_auth(Path(BASE_DIR / "cookiesFile" / file_path))
         case _:
             return False
 

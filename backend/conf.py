@@ -36,3 +36,8 @@ LOCAL_CHROME_HEADLESS = True
 LOGIN_HEADLESS = False
 
 DEBUG_MODE = True
+
+
+def _load_proxy_url():
+    """代理配置（占位，返回 None 表示不使用代理）"""
+    return None

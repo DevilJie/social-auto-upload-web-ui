@@ -6,11 +6,13 @@
  */
 
 // Logo 文件使用 Vite 的静态资源导入
-import logoDouyin from '@/assets/logos/logo-douyin.svg'
-import logoKuaishou from '@/assets/logos/logo-kuaishou.svg'
-import logoXiaohongshu from '@/assets/logos/logo-xiaohongshu.svg'
-import logoChannels from '@/assets/logos/logo-channels.svg'
-import logoBilibili from '@/assets/logos/logo-bilibili.svg'
+import logoDouyin from '@/assets/logos/douyin.png'
+import logoKuaishou from '@/assets/logos/kuaishou.png'
+import logoXiaohongshu from '@/assets/logos/xiaohongshu.png'
+import logoChannels from '@/assets/logos/shipinhao.png'
+import logoBilibili from '@/assets/logos/bilibili.png'
+import logoBaijiahao from '@/assets/logos/baijiahao.png'
+import logoYoutube from '@/assets/logos/youtube.png'
 
 export const PLATFORMS = {
   XIAOHONGSHU: {
@@ -101,7 +103,7 @@ export const PLATFORMS = {
     settingsFields: [
       { key: 'productTitle', label: '商品名称', type: 'input', placeholder: '请输入商品名称' },
       { key: 'productLink', label: '商品链接', type: 'input', placeholder: '请输入商品链接' },
-      { key: 'aiContent', label: '包含AI生成内容', type: 'switch' },
+      { key: 'aiContent', label: '作者声明', type: 'select', placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
     ],
@@ -173,6 +175,79 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
     ],
     defaultSettings: { title: '', description: '', zone: '', tags: '', topic: '', aiContent: '', creationDeclaration: '', isOriginal: false, scheduleTime: '' },
+  },
+  BAIJIAHAO: {
+    id: 6,
+    key: 'baijiahao',
+    name: '百家号',
+    shortName: 'BJH',
+    letter: 'J',
+    logo: logoBaijiahao,
+    color: '#e64e3a',
+    bgColor: 'rgba(230, 78, 58, 0.15)',
+    cssClass: 'baijiahao',
+    creatorUrl: 'https://baijiahao.baidu.com/',
+    settingsFields: [
+      { key: 'aiContent', label: 'AI生成内容', type: 'switch' },
+      { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
+      { key: 'creationDeclaration', label: '必选声明', type: 'select', placeholder: '选择必选声明', options: [
+        { label: '无需声明', value: '无需声明' },
+        { label: '含AI生成内容', value: '含AI生成内容' },
+        { label: '内容为转载', value: '内容为转载' },
+        { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+        { label: '内容含营销信息', value: '内容含营销信息' },
+        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+      ] },
+      { key: 'supplementaryDeclaration', label: '补充声明', type: 'select', placeholder: '选择补充声明（可选）', options: [
+        { label: '不选择', value: '' },
+        { label: '内容可能引人不适', value: '内容可能引人不适' },
+        { label: '内容含有高危险行为', value: '内容含有高危险行为' },
+        { label: '请理性适度消费', value: '请理性适度消费' },
+        { label: '未成年人请在监护人指导下浏览', value: '未成年人请在监护人指导下浏览' },
+      ] },
+    ],
+    defaultSettings: { title: '', description: '', aiContent: false, isOriginal: false, creationDeclaration: '', supplementaryDeclaration: '' },
+  },
+  TIKTOK: {
+    id: 7,
+    key: 'tiktok',
+    name: 'TikTok',
+    shortName: 'TT',
+    letter: 'T',
+    logo: null,
+    color: '#000000',
+    bgColor: 'rgba(0, 0, 0, 0.15)',
+    cssClass: 'tiktok',
+    creatorUrl: 'https://www.tiktok.com/tiktokstudio/upload?lang=en',
+    settingsFields: [
+      { key: 'aiContent', label: 'AI生成内容', type: 'switch' },
+      { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+    ],
+    defaultSettings: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '' },
+  },
+  YOUTUBE: {
+    id: 8,
+    key: 'youtube',
+    name: 'YouTube',
+    shortName: 'YT',
+    letter: 'Y',
+    logo: logoYoutube,
+    color: '#ff0000',
+    bgColor: 'rgba(255, 0, 0, 0.15)',
+    cssClass: 'youtube',
+    creatorUrl: 'https://studio.youtube.com/',
+    settingsFields: [
+      { key: 'audience', label: '观众', type: 'radio',
+        description: '根据法律要求，无论你身在何处，都必须遵守《儿童在线隐私保护法》(COPPA) 和/或其他法律。你必须指明自己的视频是否为面向儿童的内容。\n面向儿童的视频不支持个性化广告和通知等功能。',
+        options: [{ label: '是，内容是面向儿童的', value: 'kids' }, { label: '否，内容不是面向儿童的', value: 'not_kids' }] },
+      { key: 'alteredContent', label: '加工的内容', type: 'radio',
+        description: '你的内容是否符合以下任何一项描述？\n• 呈现真实人物的言论或行为，但实际并非本人言行\n• 篡改有关真实事件或地点的视频片段\n• 生成逼真但与实情不符的场景\n\n按照 YouTube 的政策，如果你的内容看似真实，但实则经过加工或合成，则必须告知我们。其中包括使用 AI 或其他工具制作的逼真声音或画面。如果选择"是"，系统会为内容加上披露声明。',
+        options: [{ label: '是', value: true }, { label: '否', value: false }] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间',
+        description: '选择要将你的视频设为公开的日期和时间。视频在发布之前将处于私享状态。时区默认为 GMT+8（香港）。' },
+    ],
+    defaultSettings: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '' },
   },
 }
 

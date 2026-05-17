@@ -1,50 +1,118 @@
 # -*- coding: utf-8 -*-
+import json
 import random
+import sqlite3
 from datetime import datetime
+from pathlib import Path
 
-from playwright.async_api import Playwright, async_playwright, Page
+from patchright.async_api import Playwright, async_playwright, Page
 import os
 import time
 import asyncio
 
-from conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
-from utils.base_social_media import set_init_script
+from conf import LOCAL_CHROME_HEADLESS
+from myUtils.browser import create_browser, create_context
 from utils.log import baijiahao_logger
 from utils.network import async_retry
 
 
+async def baijiahao_cookie_gen_wrapper(id, status_queue):
+    """百家号登录包装函数 — 适配 sau_backend.run_async_function 接口"""
+    print(f"[BAIJIAHAO DEBUG] wrapper called with id={id}, status_queue={status_queue}")
+    baijiahao_logger.info(f"百家号登录开始... id={id}")
+    from conf import BASE_DIR
+    import uuid
+
+    uuid_v1 = str(uuid.uuid1())
+    cookies_dir = Path(BASE_DIR / "cookiesFile")
+    cookies_dir.mkdir(exist_ok=True)
+    account_file = str(cookies_dir / f"{uuid_v1}.json")
+    print(f"[BAIJIAHAO DEBUG] account_file={account_file}")
+
+    print(f"[BAIJIAHAO DEBUG] 调用 baijiahao_cookie_gen...")
+    user_name, avatar_url = await baijiahao_cookie_gen(account_file)
+    if not user_name:
+        user_name = "百家号用户"
+    print(f"[BAIJIAHAO DEBUG] baijiahao_cookie_gen 返回 name={user_name}")
+
+    # 登录成功后保存到数据库
+    with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+                       INSERT INTO user_info (type, filePath, userName, status, avatar)
+                       VALUES (?, ?, ?, ?, ?)
+                       ''', (6, f"{uuid_v1}.json", user_name, 1, avatar_url))
+        conn.commit()
+    print(f"[BAIJIAHAO DEBUG] 数据库插入完成")
+
+    # 发送成功消息
+    status_queue.put(json.dumps({"status": "200", "name": user_name, "avatar": avatar_url}))
+
+
 async def baijiahao_cookie_gen(account_file):
+    """百家号登录 - 检测登录完成并自动保存 cookie，返回 (name, avatar)"""
+    import asyncio
+    print(f"[BAIJIAHAO DEBUG] baijiahao_cookie_gen ENTRY, account_file={account_file}")
+
     async with async_playwright() as playwright:
-        _opts = {
-            'args': [
-                '--lang en-GB'
-            ],
-            'headless': LOCAL_CHROME_HEADLESS,  # Set headless option here
-        }
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        # Make sure to run headed.
-        browser = await playwright.chromium.launch(**_opts)
-        # Setup context however you like.
-        context = await browser.new_context()  # Pass any options
-        context = await set_init_script(context)
-        # Pause the page, and start recording manually.
+        print(f"[BAIJIAHAO DEBUG] launching browser (patchright)")
+        browser = await create_browser(playwright, headless=False, login_mode=True)
+        context = await create_context(browser)
         page = await context.new_page()
-        await page.goto("https://baijiahao.baidu.com/builder/theme/bjh/login")
-        await page.pause()
-        # 点击调试器的继续，保存cookie
+        print(f"[BAIJIAHAO DEBUG] navigating to login page...")
+        await page.goto("https://baijiahao.baidu.com/builder/theme/bjh/login", timeout=45000)
+        print(f"[BAIJIAHAO DEBUG] page loaded, url={page.url}")
+        baijiahao_logger.info("百家号登录页面已打开，请完成扫码登录...")
+
+        # 等待登录完成 - 百家号登录后通常会跳转到 home 页面
+        try:
+            await page.wait_for_url("**/builder/rc/home**", timeout=120000)
+            baijiahao_logger.info("检测到登录成功，正在保存 cookie...")
+        except Exception:
+            baijiahao_logger.warning("未检测到登录完成，将在 120 秒后保存当前状态")
+            await asyncio.sleep(120)
+
+        # 抓取用户资料
+        name, avatar = await _scrape_baijiahao_profile(page)
+
         await context.storage_state(path=account_file)
-        baijiahao_logger.success("cookie saved")
+        baijiahao_logger.success("百家号 cookie 已保存")
+        await page.close()
+        await context.close()
+        await browser.close()
+        return name, avatar
+
+
+async def _scrape_baijiahao_profile(page):
+    """从百家号账号设置页抓取用户昵称和头像"""
+    name = ""
+    avatar = ""
+    try:
+        # 导航到账号设置页，这里头像和昵称直接渲染在页面上
+        await page.goto("https://baijiahao.baidu.com/builder/rc/settings/accountSet", timeout=15000)
+        await page.wait_for_load_state('domcontentloaded', timeout=10000)
+        await asyncio.sleep(2)
+
+        # 头像: img 含 userImg 的 class
+        avatar_el = page.locator('img[class*="userImg"]').first
+        if await avatar_el.count():
+            avatar = (await avatar_el.get_attribute('src') or '').strip()
+
+        # 昵称: div 含 userName 的 class
+        name_el = page.locator('div[class*="userName"]').first
+        if await name_el.count():
+            name = (await name_el.text_content() or '').strip()
+
+        print(f"[BAIJIAHAO] 抓取结果 - name={name!r} avatar={avatar[:50] if avatar else 'None'}", flush=True)
+    except Exception as e:
+        print(f"[BAIJIAHAO] 抓取用户资料失败: {e}", flush=True)
+    return name, avatar
 
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
-        _opts = {'headless': LOCAL_CHROME_HEADLESS}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -68,16 +136,25 @@ async def baijiahao_setup(account_file, handle=False):
     return True
 
 class BaiJiaHaoVideo(object):
-    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, proxy_setting=None):
+    def __init__(self, title, file_path, tags, publish_date: datetime, account_file,
+                 proxy_setting=None, desc=None,
+                 thumbnail_landscape_path=None, thumbnail_portrait_path=None,
+                 creation_declaration='', supplementary_declaration='',
+                 ai_content=False, headless=None):
         self.title = title  # 视频标题
         self.file_path = file_path
         self.tags = tags
         self.publish_date = publish_date
         self.account_file = account_file
         self.date_format = '%Y年%m月%d日 %H:%M'
-        self.local_executable_path = LOCAL_CHROME_PATH
-        self.headless = LOCAL_CHROME_HEADLESS
+        self.headless = headless if headless is not None else LOCAL_CHROME_HEADLESS
         self.proxy_setting = proxy_setting
+        self.desc = desc
+        self.thumbnail_landscape_path = thumbnail_landscape_path
+        self.thumbnail_portrait_path = thumbnail_portrait_path
+        self.creation_declaration = creation_declaration or ''
+        self.supplementary_declaration = supplementary_declaration or ''
+        self.ai_content = ai_content
 
     async def set_schedule_time(self, page, publish_date):
         """
@@ -125,10 +202,13 @@ class BaiJiaHaoVideo(object):
 
     async def upload(self, playwright: Playwright) -> None:
         # 使用 Chromium 浏览器启动一个浏览器实例
-        browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path, proxy=self.proxy_setting)
+        browser = await create_browser(playwright, headless=self.headless, proxy=self.proxy_setting)
         # 创建一个浏览器上下文，使用指定的 cookie 文件
-        context = await browser.new_context(storage_state=f"{self.account_file}", user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36')
-        # context = await set_init_script(context)
+        context = await create_context(
+            browser,
+            storage_state=f"{self.account_file}",
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36',
+        )
         await context.grant_permissions(['geolocation'])
 
         # 创建一个新的页面
@@ -140,8 +220,11 @@ class BaiJiaHaoVideo(object):
         baijiahao_logger.info('正在打开主页...')
         await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/edit?type=videoV2", timeout=60000)
 
-        # 点击 "上传视频" 按钮
-        await page.locator("div[class^='video-main-container'] input").set_input_files(self.file_path)
+        # 上传视频文件 — 选择器适配百家号新 DOM（class 名为动态 hash）
+        video_input = page.locator("input[type='file'][accept*='.mp4']")
+        if await video_input.count() == 0:
+            video_input = page.locator("input[type='file']").first
+        await video_input.set_input_files(self.file_path)
 
         # 等待页面跳转到指定的 URL
         while True:
@@ -164,23 +247,45 @@ class BaiJiaHaoVideo(object):
             baijiahao_logger.error(f"发现上传出错了... 文件:{self.file_path}")
             raise
 
-        # 判断视频封面图是否生成成功
+        # 判断封面区域是否就绪（等 coverWrap 内至少 2 个 cover-container 出现）
         while True:
-            baijiahao_logger.info("正在确认封面完成, 准备去点击定时/发布...")
-            if await page.locator("div.cheetah-spin-container img").count():
-                baijiahao_logger.info("封面已完成，点击定时/发布...")
+            container_count = await page.locator("div[class*='coverWrap'] > div[class*='cover-container']").count()
+            if container_count >= 2:
+                baijiahao_logger.info(f"封面区域已就绪（找到 {container_count} 个 cover-container）")
                 break
             else:
-                baijiahao_logger.info("等待封面生成...")
+                baijiahao_logger.info(f"等待封面区域就绪（当前 {container_count} 个 cover-container）...")
                 await asyncio.sleep(3)
+
+        # 设置自定义封面
+        await self._set_cover(page)
+
+        # 设置创作声明
+        await self._set_creation_declaration(page)
 
         await self.publish_video(page, self.publish_date)
         await page.wait_for_timeout(2000)
-        if await page.locator('div.passMod_dialog-container >> text=百度安全验证:visible').count():
-            baijiahao_logger.error("出现验证，退出")
-            raise Exception("出现验证，退出")
-        await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/clue**", timeout=5000)
-        baijiahao_logger.success("视频发布成功")
+
+        # 人机校验处理：如果出现百度安全验证，等待用户手动完成
+        captcha_dialog = page.locator('div.passMod_dialog-container:visible')
+        if await captcha_dialog.count():
+            baijiahao_logger.warning("出现人机校验，请在浏览器中手动完成验证...")
+            try:
+                await captcha_dialog.wait_for(state="hidden", timeout=120000)
+                baijiahao_logger.info("人机校验已完成")
+                await asyncio.sleep(3)
+            except Exception:
+                baijiahao_logger.error("人机校验等待超时（120秒），退出")
+                raise Exception("人机校验等待超时")
+
+        # 等待发布成功跳转
+        try:
+            await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/clue**", timeout=30000)
+            baijiahao_logger.success("视频发布成功")
+        except Exception:
+            current_url = page.url
+            baijiahao_logger.error(f"发布后未跳转到成功页面, 当前URL: {current_url}")
+            raise Exception(f"视频发布后未成功跳转, 当前URL: {current_url}")
 
         await context.storage_state(path=self.account_file)  # 保存cookie
         baijiahao_logger.info('cookie更新完毕！')
@@ -236,18 +341,182 @@ class BaiJiaHaoVideo(object):
 
     async def direct_publish(self, page):
         try:
-            publish_button = page.locator("button >> text=发布")
+            # 用 data-testid 精确定位发布按钮，避免 strict mode
+            publish_button = page.locator("button[data-testid='publish-btn']")
             if await publish_button.count():
                 await publish_button.click()
+            else:
+                # 回退：文字匹配
+                publish_button = page.locator("button.cheetah-btn-primary:has-text('发布')")
+                if await publish_button.count():
+                    await publish_button.first.click()
         except Exception as e:
             baijiahao_logger.error(f"直接发布视频失败: {e}")
             raise  # 重新抛出异常，让重试装饰器捕获
 
     async def add_title_tags(self, page):
+        """填充作品描述 — 百家号发布页只有"作品描述"字段（Lexical 编辑器），没有独立标题"""
+        # 百家号用描述字段，优先 desc，回退 title
+        desc_text = (self.desc or self.title or "").strip()
+        if not desc_text:
+            baijiahao_logger.warning("无描述内容，跳过填充")
+            return
+        desc_text = desc_text[:50]
+
+        # Lexical contenteditable 编辑器（作品描述字段）
+        lexical_editor = page.locator('[data-lexical-editor="true"]')
+        if await lexical_editor.count():
+            editor = lexical_editor.first
+            await editor.click()
+            await asyncio.sleep(0.3)
+            await page.keyboard.press("Control+a")
+            await asyncio.sleep(0.1)
+            await page.keyboard.type(desc_text, delay=50)
+            baijiahao_logger.info(f"已填充作品描述: {desc_text}")
+            return
+
+        # 旧版回退：placeholder 方式
         title_container = page.get_by_placeholder('添加标题获得更多推荐')
-        if len(self.title) <= 8:
-            self.title += " 你不知道的"
-        await title_container.fill(self.title[:30])
+        if await title_container.count():
+            await title_container.fill(desc_text)
+            baijiahao_logger.info(f"已通过 placeholder 填充描述: {desc_text}")
+            return
+
+        baijiahao_logger.warning("未找到描述输入框，跳过填充")
+
+    async def _set_cover(self, page):
+        """上传自定义封面（横屏 + 竖屏）
+        用 cover-container 定位，第1个=横版，第2个=竖版。
+        流程：点击封面区域 → 弹窗打开 → 上传图片 → 点确定
+        """
+        import os as _os
+
+        containers = page.locator("div[class*='coverWrap'] > div[class*='cover-container']")
+        total = await containers.count()
+        baijiahao_logger.info(f"[封面] 找到 {total} 个 cover-container，开始逐个设置")
+
+        for idx, (cover_type, cover_path) in enumerate([
+            ("横屏封面", self.thumbnail_landscape_path),
+            ("竖屏封面", self.thumbnail_portrait_path),
+        ]):
+            baijiahao_logger.info(f"[封面] === 处理第 {idx+1} 个: {cover_type} ===")
+
+            if not cover_path or not _os.path.exists(cover_path):
+                baijiahao_logger.info(f"[封面] {cover_type} 无图片文件，跳过")
+                continue
+            if idx >= total:
+                baijiahao_logger.warning(f"[封面] cover-container 不足（{total}），跳过{cover_type}")
+                continue
+
+            baijiahao_logger.info(f"[封面] {cover_type} 图片: {_os.path.basename(cover_path)}")
+            try:
+                container = containers.nth(idx)
+
+                # 1. 点击封面区域（"选择封面" 或 "编辑封面"），打开弹窗
+                baijiahao_logger.info(f"[封面] 点击第 {idx+1} 个 cover-container ...")
+                await container.click()
+                baijiahao_logger.info(f"[封面] 已点击{cover_type}，等待弹窗打开...")
+
+                # 等待弹窗出现
+                await page.wait_for_selector("div.cheetah-modal:visible", timeout=10000)
+                baijiahao_logger.info(f"[封面] {cover_type}弹窗已出现")
+                await asyncio.sleep(1)
+
+                # 2. 在弹窗中找到 file input，上传图片
+                file_input_count = await page.locator("div.cheetah-modal:visible input[type='file']").count()
+                baijiahao_logger.info(f"[封面] 弹窗中找到 {file_input_count} 个 file input")
+
+                dialog_input = page.locator("div.cheetah-modal:visible input[type='file']").first
+                await dialog_input.set_input_files(cover_path)
+                baijiahao_logger.info(f"[封面] 已上传{cover_type}文件")
+                await asyncio.sleep(2)
+
+                # 3. 点击弹窗中的确定按钮
+                confirm_btn = page.locator("div.cheetah-modal:visible button.cheetah-btn-primary:has-text('确定')")
+                confirm_count = await confirm_btn.count()
+                baijiahao_logger.info(f"[封面] 弹窗中找到 {confirm_count} 个确定按钮")
+
+                if confirm_count:
+                    await confirm_btn.first.click()
+                    baijiahao_logger.info(f"[封面] 已点击确定提交{cover_type}")
+                else:
+                    baijiahao_logger.warning(f"[封面] {cover_type}弹窗未找到确定按钮")
+
+                await asyncio.sleep(2)
+                baijiahao_logger.success(f"[封面] {cover_type}设置完成")
+
+            except Exception as e:
+                baijiahao_logger.error(f"[封面] 设置{cover_type}失败: {e}")
+
+    async def _set_creation_declaration(self, page):
+        """设置创作声明（必选声明 + 补充声明）"""
+        if not self.creation_declaration and not self.supplementary_declaration:
+            return
+
+        baijiahao_logger.info(f"设置创作声明 - 必选: {self.creation_declaration}, 补充: {self.supplementary_declaration}")
+        try:
+            # 点击创作声明输入框
+            declaration_input = page.locator("input[placeholder='请选择创作声明']")
+            if not await declaration_input.count():
+                baijiahao_logger.info("未找到创作声明输入框，跳过")
+                return
+
+            await declaration_input.click()
+            baijiahao_logger.info("已点击创作声明输入框")
+            await asyncio.sleep(1)
+
+            # 用 role=dialog 精确定位创作声明弹窗
+            modal = page.get_by_role("dialog", name="创作声明")
+            await modal.wait_for(state="visible", timeout=5000)
+            baijiahao_logger.info("创作声明弹窗已出现")
+
+            # 选择必选声明 — 遍历 flex 行找匹配文字
+            if self.creation_declaration:
+                target_text = self.creation_declaration.strip()
+                count = await modal.locator("div.flex.items-center.cursor-pointer").count()
+                clicked = False
+                for i in range(count):
+                    row = modal.locator("div.flex.items-center.cursor-pointer").nth(i)
+                    row_text = (await row.inner_text() or "").strip()
+                    if row_text == target_text:
+                        await row.locator("input.cheetah-radio-input").click(force=True)
+                        baijiahao_logger.success(f"已选择必选声明: {row_text}")
+                        clicked = True
+                        break
+                if not clicked:
+                    baijiahao_logger.warning(f"未找到匹配的必选声明: {target_text}")
+                await asyncio.sleep(0.5)
+
+            # 选择补充声明
+            if self.supplementary_declaration:
+                target_text = self.supplementary_declaration.strip()
+                count = await modal.locator("div.flex.items-center.cursor-pointer").count()
+                clicked = False
+                for i in range(count):
+                    row = modal.locator("div.flex.items-center.cursor-pointer").nth(i)
+                    row_text = (await row.inner_text() or "").strip()
+                    if row_text == target_text:
+                        await row.locator("input.cheetah-radio-input").click(force=True)
+                        baijiahao_logger.success(f"已选择补充声明: {row_text}")
+                        clicked = True
+                        break
+                if not clicked:
+                    baijiahao_logger.warning(f"未找到匹配的补充声明: {target_text}")
+                await asyncio.sleep(0.5)
+
+            # 点击弹窗中的确定按钮
+            confirm_btn = modal.locator("button.cheetah-btn-primary:has-text('确定')")
+            if await confirm_btn.count():
+                await confirm_btn.click()
+                baijiahao_logger.info("已点击创作声明确定按钮")
+            else:
+                baijiahao_logger.warning("未找到创作声明确定按钮")
+
+            await asyncio.sleep(1)
+            baijiahao_logger.success("创作声明设置完成")
+
+        except Exception as e:
+            baijiahao_logger.warning(f"设置创作声明失败（不影响上传）: {e}")
 
     async def main(self):
         async with async_playwright() as playwright:
@@ -258,14 +527,14 @@ class BaiJiaHaoVideo(object):
     # 使用 AI成片 功能
     async def ai2video(self, playwright: Playwright) -> None:
         # 使用 Chromium 浏览器启动一个浏览器实例
-        browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path, proxy=self.proxy_setting)
+        browser = await create_browser(playwright, headless=self.headless, proxy=self.proxy_setting)
         # 创建一个浏览器上下文，使用指定的 cookie 文件
-        context = await browser.new_context(
-            viewport={"width": 1600, "height": 900},
+        context = await create_context(
+            browser,
             storage_state=f"{self.account_file}",
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36',
+            viewport={"width": 1600, "height": 900},
         )
-        # context = await set_init_script(context)
         await context.grant_permissions(['geolocation'])
 
         # 创建一个新的页面

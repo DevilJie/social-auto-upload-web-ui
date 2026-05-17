@@ -502,6 +502,17 @@ onMounted(() => {
     border-radius: $radius-card;
     padding: 24px;
     margin-top: 24px;
+    max-height: calc(100vh - 280px);
+    overflow-y: auto;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: $border;
+      border-radius: 3px;
+    }
 
     .history-table {
       --el-table-bg-color: transparent;

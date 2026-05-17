@@ -17,8 +17,8 @@ from patchright.async_api import Playwright
 from patchright.async_api import async_playwright
 
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
+from myUtils.browser import create_browser, create_context
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
 from utils.constant import VideoZoneTypes
 from utils.log import bilibili_logger
 
@@ -37,13 +37,9 @@ async def cookie_auth(account_file: str) -> bool:
     """校验 B站 cookie 是否有效"""
     from conf import LOGIN_HEADLESS
     async with async_playwright() as playwright:
-        _opts = {'headless': LOGIN_HEADLESS}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
+        browser = await create_browser(playwright, headless=LOGIN_HEADLESS)
         try:
-            context = await browser.new_context(storage_state=account_file)
-            context = await set_init_script(context)
+            context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(BILIBILI_UPLOAD_URL)
             if "passport.bilibili.com" in page.url:
@@ -77,7 +73,6 @@ class BilibiliBaseUploader(BaseVideoUploader):
         self.publish_strategy = publish_strategy
         self.debug = debug
         self.headless = headless
-        self.local_executable_path = LOCAL_CHROME_PATH
 
     async def validate_base_args(self):
         if not os.path.exists(self.account_file):
@@ -490,7 +485,7 @@ class BilibiliVideo(BilibiliBaseUploader):
             bilibili_logger.warning(_msg("⚠️", f"设置创作声明失败（不影响上传）: {exc}"))
 
     async def _set_thumbnail(self, page: Page):
-        """通过浏览器自动化方式上传封面"""
+        """通过封面编辑器对话框上传封面 — 匹配B站封面编辑器 DOM"""
         if not self.thumbnail_path:
             return
 
@@ -503,86 +498,130 @@ class BilibiliVideo(BilibiliBaseUploader):
         bilibili_logger.info(_msg("🖼️", "开始设置B站封面"))
 
         try:
-            # 截图调试
-            await page.screenshot(path=str(log_dir / "bilibili_before_cover.png"), full_page=True)
-            bilibili_logger.info(_msg("📸", "封面设置前截图已保存"))
+            # Step 0: 截图记录当前页面状态
+            await page.screenshot(path=str(log_dir / "bilibili_cover_before.png"), full_page=True)
 
-            # 根据用户提供的DOM，点击封面区域会打开上传界面
-            # 先点击封面上传区域，激活文件选择
-            click_selectors = [
-                ".cover-editor-panel-canvas-empty.ratio_16_9 .empty-uploader-wrap",
-                ".ratio_16_9 .empty-uploader-wrap",
-                ".cover-editor-panel-canvas-empty .empty-uploader-wrap",
-                "[class*='empty-uploader-wrap']",
+            # Step 1: 打开封面编辑器弹窗 — 多种触发器尝试
+            dialog_opened = False
+            trigger_selectors = [
+                'div.cover-item',
+                '.cover-item',
+                '.video-cover-container',
+                '.cover-wrap',
+                '.cover-add',
+                '[data-reporter-id="112"]',
+                '.upload-video-cover',
+                'div[class*="cover"] >> text=选择封面',
+                'div[class*="cover"] >> text=封面',
             ]
-
-            click_target = None
-            for sel in click_selectors:
+            for sel in trigger_selectors:
                 count = await page.locator(sel).count()
-                bilibili_logger.info(_msg("🔍", f"查找封面上传点击区域，使用选择器 '{sel}'，数量: {count}"))
+                bilibili_logger.info(_msg("🔍", f"封面触发器 '{sel}': {count} 个"))
                 if count > 0:
-                    click_target = page.locator(sel).first
-                    break
+                    try:
+                        await page.locator(sel).first.click(timeout=3000)
+                        bilibili_logger.info(_msg("🖱️", f"已点击封面触发器: {sel}"))
+                        dialog_opened = True
+                        break
+                    except Exception as e:
+                        bilibili_logger.info(_msg("ℹ️", f"点击 '{sel}' 失败: {e}"))
+                        continue
 
-            if not click_target:
-                bilibili_logger.error(_msg("❌", "未找到封面上传点击区域"))
+            if not dialog_opened:
+                bilibili_logger.warning(_msg("⚠️", "所有封面触发器均未成功，跳过封面设置"))
                 return
 
-            bilibili_logger.info(_msg("🖱", "点击封面上传区域"))
-            await click_target.click()
+            # 等待封面编辑器弹窗出现（B站弹窗 DOM: div.bcc-dialog）
+            dialog = page.locator('div.bcc-dialog:has-text("封面制作")').first
+            await dialog.wait_for(state="visible", timeout=15000)
+            bilibili_logger.info(_msg("✅", "封面编辑器弹窗已打开"))
             await asyncio.sleep(1)
 
-            # 点击后截图，查看弹窗情况
-            await page.screenshot(path=str(log_dir / "bilibili_after_cover_click.png"), full_page=True)
-            bilibili_logger.info(_msg("📸", "点击后截图已保存"))
+            # 截图查看弹窗状态
+            await page.screenshot(path=str(log_dir / "bilibili_cover_editor.png"), full_page=True)
 
-            # 查找文件输入框（可能是隐藏的）
-            file_input_selectors = [
-                "input[type='file'][accept*='image']",
-                "input[type='file']",
-            ]
+            # Step 2: 点击4:3区域选中它（首页推荐封面）
+            editor_4_3 = page.locator('div.cover-editor-panel-canvas-image.editor_4_3').first
+            if await editor_4_3.count() > 0:
+                await editor_4_3.click()
+                bilibili_logger.info(_msg("🖼️", "已点击选中4:3封面区域"))
+                await asyncio.sleep(0.5)
+            else:
+                bilibili_logger.warning(_msg("⚠️", "未找到4:3封面区域，继续后续步骤"))
 
-            file_input = None
-            for sel in file_input_selectors:
-                count = await page.locator(sel).count()
-                bilibili_logger.info(_msg("🔍", f"查找文件 input，使用选择器 '{sel}'，数量: {count}"))
-                if count > 0:
-                    file_input = page.locator(sel).first
-                    break
+            # Step 3: 勾选"双比例同步改动"复选框
+            sync_checkbox = page.locator('.sync-checkbox input[type="checkbox"]').first
+            if await sync_checkbox.count() > 0:
+                is_checked = await sync_checkbox.is_checked()
+                if not is_checked:
+                    # 点击 label 或 checkbox 的父级来切换状态
+                    sync_label = page.locator('.sync-checkbox').first
+                    await sync_label.click()
+                    bilibili_logger.info(_msg("✅", "已勾选'双比例同步改动'"))
+                else:
+                    bilibili_logger.info(_msg("✅", "'双比例同步改动'已经是勾选状态"))
+                await asyncio.sleep(0.5)
+            else:
+                bilibili_logger.warning(_msg("⚠️", "未找到'双比例同步改动'复选框"))
 
-            if not file_input:
-                bilibili_logger.error(_msg("❌", "未找到文件 input"))
-                return
+            # 截图确认选择状态
+            await page.screenshot(path=str(log_dir / "bilibili_cover_sync_checked.png"), full_page=True)
 
-            await file_input.set_input_files(self.thumbnail_path)
-            bilibili_logger.info(_msg("📤", f"已选择封面文件: {os.path.basename(self.thumbnail_path)}"))
+            # Step 4: 上传封面文件（隐藏 input 在弹窗内）
+            # .cover-upload .bcc-upload-wrapper > input[type="file"]
+            file_input = page.locator('.cover-upload input[type="file"]').first
+            file_count = await file_input.count()
+            bilibili_logger.info(_msg("🔍", f"封面文件 input: {file_count} 个"))
 
-            # 等待封面上传处理
-            await asyncio.sleep(2)
+            if file_count > 0:
+                await file_input.set_input_files(self.thumbnail_path)
+                bilibili_logger.info(_msg("📤", f"已选择封面文件: {os.path.basename(self.thumbnail_path)}"))
+            else:
+                # 备用：查找任意 image input
+                fallback_input = page.locator('input[accept*="image"]').first
+                if await fallback_input.count() > 0:
+                    await fallback_input.set_input_files(self.thumbnail_path)
+                    bilibili_logger.info(_msg("📤", f"通过备用 input 选择封面文件"))
+                else:
+                    bilibili_logger.error(_msg("❌", "未找到封面文件上传 input"))
+                    return
 
-            # 查找并点击确定按钮
-            confirm_selectors = [
-                "button:has-text('确定')",
-                "[class*='confirm']",
-                "[class*='submit']",
-            ]
-            confirm_button = None
-            for sel in confirm_selectors:
-                count = await page.locator(sel).count()
-                if count > 0:
-                    confirm_button = page.locator(sel).first
-                    bilibili_logger.info(_msg("🔘", f"找到确定按钮: {sel}"))
-                    break
+            # 等待图片上传和处理
+            bilibili_logger.info(_msg("⏳", "等待封面图片上传处理..."))
+            await asyncio.sleep(3)
 
-            if confirm_button:
-                await confirm_button.click()
+            # Step 5: 点击弹窗内"完成"按钮
+            submit_btn = page.locator('div.button.submit').first
+            submit_count = await submit_btn.count()
+            bilibili_logger.info(_msg("🔍", f"完成按钮: {submit_count} 个"))
+            if submit_count > 0:
+                await submit_btn.click()
+                bilibili_logger.info(_msg("✅", "已点击完成按钮"))
+            else:
+                bilibili_logger.warning(_msg("⚠️", "未找到完成按钮"))
+            await asyncio.sleep(1)
+
+            # Step 6: 点击弹窗外层"确定"按钮
+            confirm_btn = page.locator('button.bcc-button--primary').first
+            confirm_count = await confirm_btn.count()
+            bilibili_logger.info(_msg("🔍", f"确定按钮: {confirm_count} 个"))
+            if confirm_count > 0:
+                await confirm_btn.click()
                 bilibili_logger.info(_msg("✅", "已点击确定按钮"))
             else:
                 bilibili_logger.warning(_msg("⚠️", "未找到确定按钮"))
+            await asyncio.sleep(1)
 
+            # 等待弹窗关闭
+            await asyncio.sleep(1)
             bilibili_logger.success(_msg("🥳", "B站封面设置完成"))
 
         except Exception as exc:
+            # 截图用于排查
+            try:
+                await page.screenshot(path=str(log_dir / "bilibili_cover_error.png"), full_page=True)
+            except Exception:
+                pass
             bilibili_logger.error(_msg("❌", f"封面设置失败: {exc}"))
             raise RuntimeError(f"封面设置失败: {exc}")
 
@@ -594,12 +633,8 @@ class BilibiliVideo(BilibiliBaseUploader):
         log_dir = Path(__file__).parent.parent.parent.parent / "data" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        _opts = {'headless': self.headless}
-        if self.local_executable_path:
-            _opts['executable_path'] = self.local_executable_path
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(storage_state=self.account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=self.account_file)
 
         upload_success = False
         try:
@@ -734,29 +769,90 @@ class BilibiliVideo(BilibiliBaseUploader):
             bilibili_logger.info(_msg("✅", "浏览器已关闭"))
 
     async def _set_schedule_time(self, page: Page, publish_date: datetime):
-        """设置定时发布（容错）"""
+        """设置定时发布 — 通过日历网格和时间选择面板交互"""
         bilibili_logger.info(
             _msg("⏰", f"设置定时发布: {publish_date.strftime('%Y-%m-%d %H:%M')}")
         )
         try:
-            schedule_radio = page.locator(
-                'label:has-text("定时发布"), '
-                '[class*="radio"]:has-text("定时发布"), '
-                '[class*="schedule"]'
-            ).first
-            await schedule_radio.wait_for(state="visible", timeout=10000)
-            await schedule_radio.click()
+            # Step 1: 点击 switch-container 开关，启用定时发布
+            switch = page.locator('.switch-container').first
+            await switch.wait_for(state="visible", timeout=10000)
+            await switch.click()
+            bilibili_logger.info(_msg("⏰", "已点击定时发布开关"))
             await asyncio.sleep(1)
 
-            date_input = page.locator(
-                'input[placeholder*="日期"], input[placeholder*="时间"], '
-                '.ant-calendar-picker input, [class*="datepicker"] input'
-            ).first
-            if await date_input.count() > 0:
-                await date_input.click()
-                await page.keyboard.press("Control+KeyA")
-                await page.keyboard.type(publish_date.strftime("%Y-%m-%d %H:%M"))
-                await page.keyboard.press("Enter")
+            # Step 2: 打开日期选择器并选择日期
+            target_day = publish_date.day
+            date_trigger = page.locator('div.date-picker-date').first
+            await date_trigger.wait_for(state="visible", timeout=10000)
+            await date_trigger.click()
+            bilibili_logger.info(_msg("📅", f"已打开日期选择器，目标日期: {target_day}号"))
+            await asyncio.sleep(1)
+
+            # 在日历网格中找到并点击目标日期（排除禁用的）
+            # 可用日期: div.date-picker-body-item.date-item（不含 date-item-disabled）
+            target_date_el = page.locator(
+                'div.date-picker-body-item.date-item'
+            ).filter(has_text=str(target_day))
+            # 精确匹配：文本内容就是日期数字
+            date_set = False
+            count = await target_date_el.count()
+            bilibili_logger.info(_msg("🔍", f"日历中找到 {count} 个匹配 '{target_day}' 的日期元素"))
+            for i in range(count):
+                el = target_date_el.nth(i)
+                classes = await el.get_attribute("class") or ""
+                if "date-item-disabled" in classes:
+                    continue
+                # 确认文本精确匹配（避免 "1" 匹配到 "12"）
+                text = (await el.text_content() or "").strip()
+                if text == str(target_day):
+                    await el.click()
+                    date_set = True
+                    bilibili_logger.info(_msg("📅", f"已选择日期: {target_day}号"))
+                    break
+            if not date_set:
+                bilibili_logger.warning(_msg("⚠️", f"日历中未找到可点击的日期: {target_day}号"))
+            await asyncio.sleep(0.5)
+
+            # Step 3: 打开时间选择器并选择小时和分钟
+            target_hour = publish_date.strftime("%H")  # "00"-"23"
+            target_minute = publish_date.strftime("%M")  # "00","05","10",...
+            time_trigger = page.locator('div.date-picker-timer').first
+            await time_trigger.wait_for(state="visible", timeout=10000)
+            await time_trigger.click()
+            bilibili_logger.info(_msg("🕐", f"已打开时间选择器，目标: {target_hour}:{target_minute}"))
+            await asyncio.sleep(1)
+
+            # 选择小时 — 第一个 .time-picker-panel-select-wrp 面板
+            hour_panels = page.locator('.time-picker-panel-select-wrp')
+            hour_panel = hour_panels.nth(0)
+            hour_item = hour_panel.locator('span.time-picker-panel-select-item').filter(has_text=target_hour)
+            hour_count = await hour_item.count()
+            bilibili_logger.info(_msg("🔍", f"小时面板中找到 {hour_count} 个匹配 '{target_hour}' 的元素"))
+            if hour_count > 0:
+                await hour_item.first.click()
+                bilibili_logger.info(_msg("🕐", f"已选择小时: {target_hour}"))
+            else:
+                bilibili_logger.warning(_msg("⚠️", f"未找到小时选项: {target_hour}"))
+            await asyncio.sleep(0.3)
+
+            # 选择分钟 — 第二个 .time-picker-panel-select-wrp 面板
+            minute_panel = hour_panels.nth(1)
+            minute_item = minute_panel.locator('span.time-picker-panel-select-item').filter(has_text=target_minute)
+            minute_count = await minute_item.count()
+            bilibili_logger.info(_msg("🔍", f"分钟面板中找到 {minute_count} 个匹配 '{target_minute}' 的元素"))
+            if minute_count > 0:
+                await minute_item.first.click()
+                bilibili_logger.info(_msg("🕐", f"已选择分钟: {target_minute}"))
+            else:
+                bilibili_logger.warning(_msg("⚠️", f"未找到分钟选项: {target_minute}"))
+            await asyncio.sleep(0.3)
+
+            # 点击其他区域关闭时间选择器
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+
+            bilibili_logger.success(_msg("✅", "定时发布设置完成"))
         except Exception as exc:
             bilibili_logger.warning(_msg("⚠️", f"设置定时发布失败: {exc}"))
 

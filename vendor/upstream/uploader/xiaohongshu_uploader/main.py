@@ -12,8 +12,8 @@ from patchright.async_api import Playwright
 from patchright.async_api import async_playwright
 
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
+from myUtils.browser import create_browser, create_context
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
 from utils.login_qrcode import print_terminal_qrcode
@@ -150,13 +150,9 @@ async def cookie_auth(account_file):
         return False
 
     async with async_playwright() as playwright:
-        _opts = {'headless': True}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
+        browser = await create_browser(playwright, headless=True)
         try:
-            context = await browser.new_context(storage_state=account_file)
-            context = await set_init_script(context)
+            context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(XHS_PUBLISH_VIDEO_URL)
             await page.wait_for_timeout(3000)
@@ -220,12 +216,8 @@ async def xiaohongshu_cookie_gen(
     account_path.parent.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:
-        _opts = {'headless': headless}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=headless)
+        context = await create_context(browser)
         qrcode_path = None
         qrcode_info = None
         result = _build_login_result(False, "failed", "小红书登录失败", account_file)
@@ -290,7 +282,6 @@ class XiaoHongShuBaseUploader(BaseVideoUploader):
         self.publish_strategy = publish_strategy
         self.debug = debug
         self.date_format = "%Y年%m月%d日 %H:%M"
-        self.local_executable_path = LOCAL_CHROME_PATH
         self.headless = headless
 
     async def validate_base_args(self):
@@ -681,15 +672,12 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、视频文件、封面和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "上传前检查通过"))
-        _opts = {'headless': self.headless}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(
-            permissions=["geolocation"],
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(
+            browser,
             storage_state=self.account_file,
         )
-        context = await set_init_script(context)
+        await context.grant_permissions(['geolocation'])
 
         try:
             page = await context.new_page()
@@ -802,15 +790,12 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、图片和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "图文上传前检查通过"))
-        _opts = {'headless': self.headless}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(
-            permissions=["geolocation"],
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(
+            browser,
             storage_state=self.account_file,
         )
-        context = await set_init_script(context)
+        await context.grant_permissions(['geolocation'])
 
         try:
             page = await context.new_page()

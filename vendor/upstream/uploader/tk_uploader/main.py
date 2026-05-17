@@ -2,11 +2,11 @@
 import re
 from datetime import datetime
 
-from playwright.async_api import Playwright, async_playwright
+from patchright.async_api import Playwright, async_playwright
 import os
 import asyncio
 from uploader.tk_uploader.tk_config import Tk_Locator
-from utils.base_social_media import set_init_script
+from myUtils.browser import create_browser, create_context
 from utils.files_times import get_absolute_path
 from utils.log import tiktok_logger
 from conf import LOCAL_CHROME_HEADLESS
@@ -14,9 +14,8 @@ from conf import LOCAL_CHROME_HEADLESS
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.firefox.launch(headless=LOCAL_CHROME_HEADLESS)
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -50,17 +49,12 @@ async def tiktok_setup(account_file, handle=False):
 
 async def get_tiktok_cookie(account_file):
     async with async_playwright() as playwright:
-        options = {
-            'args': [
-                '--lang en-GB',
-            ],
-            'headless': LOCAL_CHROME_HEADLESS,  # Set headless option here
-        }
-        # Make sure to run headed.
-        browser = await playwright.firefox.launch(**options)
-        # Setup context however you like.
-        context = await browser.new_context()  # Pass any options
-        context = await set_init_script(context)
+        browser = await create_browser(
+            playwright,
+            headless=LOCAL_CHROME_HEADLESS,
+            extra_args=['--lang en-GB']
+        )
+        context = await create_context(browser)
         # Pause the page, and start recording manually.
         page = await context.new_page()
         await page.goto("https://www.tiktok.com/login?lang=en")
@@ -142,9 +136,8 @@ class TiktokVideo(object):
         await file_chooser.set_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.firefox.launch(headless=self.headless)
-        context = await browser.new_context(storage_state=f"{self.account_file}")
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=f"{self.account_file}")
         page = await context.new_page()
 
         await page.goto("https://www.tiktok.com/creator-center/upload")

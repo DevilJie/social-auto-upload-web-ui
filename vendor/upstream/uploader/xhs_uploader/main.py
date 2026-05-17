@@ -1,12 +1,12 @@
 import configparser
 import json
-import pathlib
 from time import sleep
 
 import requests
-from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright
 
 from conf import BASE_DIR, XHS_SERVER, LOCAL_CHROME_HEADLESS
+from myUtils.browser import create_browser_sync, create_context_sync
 
 config = configparser.RawConfigParser()
 config.read('accounts.ini')
@@ -16,14 +16,8 @@ def sign_local(uri, data=None, a1="", web_session=""):
     for _ in range(10):
         try:
             with sync_playwright() as playwright:
-                stealth_js_path = pathlib.Path(BASE_DIR / "utils/stealth.min.js")
-                chromium = playwright.chromium
-
-                # 如果一直失败可尝试设置成 False 让其打开浏览器，适当添加 sleep 可查看浏览器状态
-                browser = chromium.launch(headless=LOCAL_CHROME_HEADLESS)
-
-                browser_context = browser.new_context()
-                browser_context.add_init_script(path=stealth_js_path)
+                browser = create_browser_sync(playwright, headless=LOCAL_CHROME_HEADLESS)
+                browser_context = create_context_sync(browser)
                 context_page = browser_context.new_page()
                 context_page.goto("https://www.xiaohongshu.com")
                 browser_context.add_cookies([

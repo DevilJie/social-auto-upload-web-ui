@@ -2,36 +2,22 @@ import asyncio
 import configparser
 import os
 
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 from xhs import XhsClient
 
-from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
-from utils.base_social_media import set_init_script
+from conf import BASE_DIR, LOCAL_CHROME_HEADLESS
+from myUtils.browser import create_browser, create_context
 from utils.log import tencent_logger, kuaishou_logger, douyin_logger
 from pathlib import Path
 from uploader.xhs_uploader.main import sign_local
 
 
-def _browser_launch_options():
-    """获取浏览器启动参数，优先使用系统 Chrome 而非 Playwright 自带的 Chromium"""
-    options = {
-        'headless': LOCAL_CHROME_HEADLESS,
-        'args': [
-            '--disable-blink-features=AutomationControlled',
-            '--lang=zh-CN',
-            '--disable-infobars',
-        ]
-    }
-    if LOCAL_CHROME_PATH:
-        options['executable_path'] = LOCAL_CHROME_PATH
-    return options
 
 
 async def cookie_auth_douyin(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_browser_launch_options())
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -57,9 +43,8 @@ async def cookie_auth_douyin(account_file):
 
 async def cookie_auth_tencent(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_browser_launch_options())
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -75,9 +60,8 @@ async def cookie_auth_tencent(account_file):
 
 async def cookie_auth_ks(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_browser_launch_options())
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -94,9 +78,8 @@ async def cookie_auth_ks(account_file):
 
 async def cookie_auth_xhs(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_browser_launch_options())
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         # 创建一个新的页面
         page = await context.new_page()
         # 访问指定的 URL
@@ -134,15 +117,26 @@ async def check_cookie(type, file_path):
         # B站
         case 5:
             return await cookie_auth_bilibili(Path(BASE_DIR / "cookiesFile" / file_path))
+        # 百家号
+        case 6:
+            from uploader.baijiahao_uploader.main import cookie_auth as baijiahao_cookie_auth
+            return await baijiahao_cookie_auth(Path(BASE_DIR / "cookiesFile" / file_path))
+        # YouTube
+        case 8:
+            from uploader.youtube_uploader.main import cookie_auth as youtube_cookie_auth
+            return await youtube_cookie_auth(str(Path(BASE_DIR / "cookiesFile" / file_path)))
+        # TikTok
+        case 7:
+            from uploader.tk_uploader.main_chrome import cookie_auth as tiktok_cookie_auth
+            return await tiktok_cookie_auth(Path(BASE_DIR / "cookiesFile" / file_path))
         case _:
             return False
 
 
 async def cookie_auth_bilibili(account_file):
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_browser_launch_options())
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright)
+        context = await create_context(browser, storage_state=account_file)
         page = await context.new_page()
         await page.goto("https://member.bilibili.com/platform/upload-manager/article")
         try:

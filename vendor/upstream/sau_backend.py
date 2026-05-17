@@ -9,9 +9,14 @@ from queue import Queue
 from flask_cors import CORS
 from myUtils.auth import check_cookie
 from flask import Flask, request, jsonify, Response, render_template, send_from_directory
+import json as json_module
+
 from conf import BASE_DIR
 from myUtils.login import get_tencent_cookie, douyin_cookie_gen, get_ks_cookie, xiaohongshu_cookie_gen, sync_account_profile, bilibili_cookie_gen
-from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs, post_video_bilibili
+from myUtils.postVideo import post_video_tencent, post_video_DouYin, post_video_ks, post_video_xhs, post_video_bilibili, post_video_baijiahao, post_video_tiktok, post_video_youtube
+from uploader.baijiahao_uploader.main import baijiahao_cookie_gen_wrapper as baijiahao_cookie_gen
+from uploader.tk_uploader.main_chrome import get_tiktok_cookie_wrapper as get_tiktok_cookie
+from uploader.youtube_uploader.main import youtube_cookie_gen
 
 active_queues = {}
 app = Flask(__name__)
@@ -222,35 +227,57 @@ def getAccounts():
 
 
 @app.route("/getValidAccounts",methods=['GET'])
-async def getValidAccounts():
+def getValidAccounts():
     with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
         cursor = conn.cursor()
-        cursor.execute('''
-        SELECT * FROM user_info''')
+        cursor.execute('''SELECT * FROM user_info''')
         rows = cursor.fetchall()
         rows_list = [list(row) for row in rows]
         print("\n📋 当前数据表内容：")
         for row in rows:
             print(row)
         for row in rows_list:
-            flag = await check_cookie(row[1],row[2])
+            flag = asyncio.run(check_cookie(row[1], row[2]))
             if not flag:
                 row[4] = 0
                 cursor.execute('''
-                UPDATE user_info 
-                SET status = ? 
+                UPDATE user_info
+                SET status = ?
                 WHERE id = ?
-                ''', (0,row[0]))
+                ''', (0, row[0]))
                 conn.commit()
                 print("✅ 用户状态已更新")
         for row in rows:
             print(row)
-        return jsonify(
-                        {
-                            "code": 200,
-                            "msg": None,
-                            "data": rows_list
-                        }),200
+        return jsonify({
+            "code": 200,
+            "msg": None,
+            "data": rows_list
+        }), 200
+
+@app.route('/checkAccount', methods=['GET'])
+def check_account():
+    """检查单个账号的 cookie 是否有效"""
+    account_id = request.args.get('id')
+    if not account_id or not account_id.isdigit():
+        return jsonify({"code": 400, "msg": "无效的账号ID"}), 400
+
+    with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM user_info WHERE id = ?', (int(account_id),))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"code": 404, "msg": "账号不存在"}), 404
+
+        row_list = list(row)
+        valid = asyncio.run(check_cookie(row[1], row[2]))
+        new_status = 1 if valid else 0
+        row_list[4] = new_status
+        cursor.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, row[0]))
+        conn.commit()
+
+    msg = "Cookie 有效" if valid else "Cookie 已失效，请重新登录"
+    return jsonify({"code": 200, "msg": msg, "data": {"id": row[0], "status": new_status, "valid": valid}})
 
 @app.route('/deleteFile', methods=['GET'])
 def delete_file():
@@ -382,6 +409,7 @@ def sync_profile():
         return jsonify({"code": 400, "msg": "缺少账号ID", "data": None}), 400
 
     try:
+        import sys
         with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -394,10 +422,12 @@ def sync_profile():
             platform_type = record['type']
             cookie_file = record['filePath']
 
+        print(f"[SYNC] START platform={platform_type} cookie_file={cookie_file}", flush=True)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         name, avatar = loop.run_until_complete(sync_account_profile(platform_type, cookie_file))
         loop.close()
+        print(f"[SYNC] RESULT platform={platform_type} name={name!r} avatar={avatar[:80] if avatar else 'None'}", flush=True)
 
         if name or avatar:
             with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
@@ -425,7 +455,7 @@ def sync_profile():
         }), 500
 
 
-# 打开创作中心（用 Playwright 启动带cookie的浏览器）
+# 打开创作中心（用 Patchright 启动带cookie的浏览器）
 @app.route('/openCreatorCenter', methods=['POST'])
 def open_creator_center():
     account_id = request.json.get('id')
@@ -438,6 +468,9 @@ def open_creator_center():
         3: "https://creator.douyin.com/",
         4: "https://cp.kuaishou.com/article/publish/video",
         5: "https://member.bilibili.com/platform/upload-manager/article",
+        6: "https://baijiahao.baidu.com/",
+        7: "https://www.tiktok.com/tiktokstudio/upload?lang=en",
+        8: "https://studio.youtube.com/",
     }
 
     try:
@@ -460,14 +493,11 @@ def open_creator_center():
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
         def launch_browser():
-            from playwright.sync_api import sync_playwright
-            from conf import LOCAL_CHROME_PATH
+            from patchright.sync_api import sync_playwright
+            from myUtils.browser import create_browser_sync, create_context_sync
             pw = sync_playwright().start()
-            opts = {'headless': False}
-            if LOCAL_CHROME_PATH:
-                opts['executable_path'] = LOCAL_CHROME_PATH
-            browser = pw.chromium.launch(**opts)
-            context = browser.new_context(storage_state=cookie_path)
+            browser = create_browser_sync(pw, headless=False)
+            context = create_context_sync(browser, storage_state=cookie_path)
             page = context.new_page()
             page.goto(url)
             try:
@@ -575,10 +605,26 @@ def postVideo():
                           start_days, thumbnail_landscape_path=thumbnail_landscape_path, thumbnail_portrait_path=thumbnail_portrait_path, productLink=productLink, productTitle=productTitle, desc=desc, schedule_time_str=schedule_time_str, ai_content=ai_content)
             case 4:
                 post_video_ks(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
-                          start_days, thumbnail_path=thumbnail_portrait_path or thumbnail_path, desc=desc, schedule_time_str=schedule_time_str)
+                          start_days, thumbnail_path=thumbnail_landscape_path or thumbnail_path, desc=desc, schedule_time_str=schedule_time_str, author_declaration=ai_content)
             case 5:
                 post_video_bilibili(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
                           start_days, desc=desc, thumbnailLandscape=thumbnail_landscape_path, schedule_time_str=schedule_time_str, ai_content=ai_content, creation_declaration=creation_declaration)
+            case 6:
+                post_video_baijiahao(title, file_list, tags, account_list, enableTimer, videos_per_day, daily_times,
+                          start_days, thumbnail_landscape_path=thumbnail_landscape_path, thumbnail_portrait_path=thumbnail_portrait_path,
+                          desc=desc, schedule_time_str=schedule_time_str,
+                          creation_declaration=creation_declaration, supplementary_declaration=data.get('supplementaryDeclaration', ''),
+                          ai_content=ai_content)
+            case 7:
+                post_video_tiktok(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
+                          start_days, schedule_time_str=schedule_time_str)
+            case 8:
+                post_video_youtube(title, file_list, tags, account_list,
+                          enableTimer=enableTimer, videos_per_day=videos_per_day, daily_times=daily_times,
+                          start_days=start_days, schedule_time_str=schedule_time_str,
+                          audience=data.get('audience', 'not_kids'),
+                          altered_content=data.get('alteredContent', False),
+                          desc=desc, thumbnail_path=thumbnail_landscape_path or thumbnail_path)
             case _:
                 return jsonify({"code": 400, "msg": f"不支持的平台类型: {type}", "data": None}), 400
 
@@ -656,6 +702,11 @@ def postVideoBatch():
         productLink = data.get('productLink', '')
         productTitle = data.get('productTitle', '')
         is_draft = data.get('isDraft', False)
+        desc = data.get('description', '')
+        ai_content = data.get('aiContent', '')
+        thumbnail_landscape_path = data.get('thumbnailLandscape', '')
+        thumbnail_portrait_path = data.get('thumbnailPortrait', '')
+        creation_declaration = data.get('creationDeclaration', '')
 
         videos_per_day = data.get('videosPerDay')
         daily_times = data.get('dailyTimes')
@@ -679,6 +730,22 @@ def postVideoBatch():
             case 5:
                 post_video_bilibili(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
                           start_days, thumbnailLandscape=thumbnail_landscape_path, thumbnailPortrait=thumbnail_portrait_path, schedule_time_str=schedule_time_str)
+            case 6:
+                post_video_baijiahao(title, file_list, tags, account_list, enableTimer, videos_per_day, daily_times,
+                          start_days, thumbnail_landscape_path=thumbnail_landscape_path, thumbnail_portrait_path=thumbnail_portrait_path,
+                          desc=desc, schedule_time_str=schedule_time_str,
+                          creation_declaration=creation_declaration, supplementary_declaration=data.get('supplementaryDeclaration', ''),
+                          ai_content=ai_content)
+            case 7:
+                post_video_tiktok(title, file_list, tags, account_list, category, enableTimer, videos_per_day, daily_times,
+                          start_days, schedule_time_str=schedule_time_str)
+            case 8:
+                post_video_youtube(title, file_list, tags, account_list,
+                          enableTimer=enableTimer, videos_per_day=videos_per_day, daily_times=daily_times,
+                          start_days=start_days, schedule_time_str=schedule_time_str,
+                          audience=data.get('audience', 'not_kids'),
+                          altered_content=data.get('alteredContent', False),
+                          desc=desc, thumbnail_path=thumbnail_landscape_path or thumbnail_path)
     # 返回响应给客户端
     return jsonify(
         {
@@ -808,34 +875,66 @@ def download_cookie():
         }), 500
 
 
+# ── Settings API ──
+
+SETTINGS_FILE = Path(BASE_DIR) / "settings.json"
+
+def _read_settings():
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            return json_module.load(f)
+    return {}
+
+def _write_settings(data):
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        json_module.dump(data, f, ensure_ascii=False, indent=2)
+
+@app.route('/api/v2/settings', methods=['GET'])
+def api_get_settings():
+    return jsonify({"code": 200, "msg": None, "data": _read_settings()})
+
+@app.route('/api/v2/settings', methods=['PUT'])
+def api_update_settings():
+    data = request.get_json(force=True)
+    current = _read_settings()
+    current.update(data)
+    _write_settings(current)
+    return jsonify({"code": 200, "msg": "保存成功", "data": current})
+
 # 包装函数：在线程中运行异步函数
 def run_async_function(type,id,status_queue):
+    import json
     match type:
         case '1':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(xiaohongshu_cookie_gen(id, status_queue))
-            loop.close()
+            fn = xiaohongshu_cookie_gen
         case '2':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(get_tencent_cookie(id,status_queue))
-            loop.close()
+            fn = get_tencent_cookie
         case '3':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(douyin_cookie_gen(id,status_queue))
-            loop.close()
+            fn = douyin_cookie_gen
         case '4':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(get_ks_cookie(id,status_queue))
-            loop.close()
+            fn = get_ks_cookie
         case '5':
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(bilibili_cookie_gen(id,status_queue))
-            loop.close()
+            fn = bilibili_cookie_gen
+        case '6':
+            fn = baijiahao_cookie_gen
+        case '7':
+            fn = get_tiktok_cookie
+        case '8':
+            fn = youtube_cookie_gen
+        case _:
+            status_queue.put(json.dumps({"status": "500", "msg": f"不支持的平台类型: {type}"}))
+            return
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(fn(id, status_queue))
+    except Exception as e:
+        print(f"[LOGIN ERROR] type={type} id={id}: {type(e).__name__}: {e}")
+        status_queue.put(json.dumps({"status": "500", "msg": f"登录失败: {e}"}))
+    finally:
+        loop.close()
 
 # SSE 流生成器函数
 def sse_stream(status_queue):

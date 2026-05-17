@@ -12,8 +12,8 @@ from patchright.async_api import Playwright
 from patchright.async_api import async_playwright
 
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
+from myUtils.browser import create_browser, create_context
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
 from utils.files_times import get_absolute_path
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
@@ -152,13 +152,9 @@ async def _is_ks_login_page_gone(page: Page) -> bool:
 
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
-        _opts = {'headless': True}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
+        browser = await create_browser(playwright, headless=True)
         try:
-            context = await browser.new_context(storage_state=account_file)
-            context = await set_init_script(context)
+            context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(KUAISHOU_UPLOAD_URL)
             if await _is_ks_cookie_invalid(page):
@@ -199,12 +195,8 @@ async def get_ks_cookie(
         kuaishou_logger.info(_msg("🖼️", "快手登录将以无头模式运行，小人会输出终端二维码并保存本地二维码图片"))
 
     async with async_playwright() as playwright:
-        _opts = {'headless': headless}
-        if LOCAL_CHROME_PATH:
-            _opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=headless)
+        context = await create_context(browser)
         qrcode_path = None
         qrcode_info = None
         result = _build_login_result(False, "failed", "快手登录失败", account_file)
@@ -325,25 +317,32 @@ class KSBaseUploader(BaseVideoUploader):
         await asyncio.sleep(1)
 
     async def close_guide_overlay(self, page: Page) -> bool:
+        """关闭新手引导弹窗，支持新旧两种 DOM 结构"""
+        # 新版 DOM：div._tooltip + div[role="alertdialog"]
+        tooltip = page.locator('div[role="alertdialog"]:visible')
+        if await tooltip.count() > 0:
+            try:
+                close_btn = tooltip.locator('[data-action="skip"], [aria-label="Skip"]').first
+                if await close_btn.count():
+                    await close_btn.click(force=True)
+                    await asyncio.sleep(0.5)
+                    kuaishou_logger.info(_msg("✅", "已关闭新手引导弹窗"))
+                    return
+            except Exception:
+                pass
+
+        # 旧版 DOM：react-joyride
         joyride_tooltip = page.locator('div[id^="react-joyride-step"] div[role="alertdialog"]')
-
-        # 判断是否显示
         if await joyride_tooltip.count() > 0 and await joyride_tooltip.first.is_visible():
-            print("检测到 Joyride 引导遮罩，正在关闭...")
-
-            # 点击关闭按钮（X），使用多个可靠特征
-            close_button = page.locator('div[role="alertdialog"]').locator(
-                '[aria-label="Skip"], [data-action="skip"], button[title="Skip"]'
-            )
-
-            await close_button.click(force=True)
-
-            # 等待遮罩消失
-            await joyride_tooltip.wait_for(state="hidden", timeout=5000)
-
-            print("✅ 已关闭 Joyride 遮罩")
-        else:
-            print("未检测到 Joyride 遮罩，继续执行")
+            try:
+                close_button = page.locator('div[role="alertdialog"]').locator(
+                    '[aria-label="Skip"], [data-action="skip"], button[title="Skip"]'
+                )
+                await close_button.click(force=True)
+                await joyride_tooltip.wait_for(state="hidden", timeout=5000)
+                kuaishou_logger.info(_msg("✅", "已关闭 Joyride 遮罩"))
+            except Exception:
+                pass
 
 
 class KSVideo(KSBaseUploader):
@@ -359,6 +358,7 @@ class KSVideo(KSBaseUploader):
         headless: bool = LOCAL_CHROME_HEADLESS,
         thumbnail_path=None,
         desc: str | None = None,
+        author_declaration: str | None = None,
     ):
         super().__init__(
             publish_date=publish_date,
@@ -372,6 +372,7 @@ class KSVideo(KSBaseUploader):
         self.tags = tags or []
         self.thumbnail_path = thumbnail_path
         self.desc = desc or ""
+        self.author_declaration = author_declaration or ""
 
     async def validate_upload_args(self):
         await self.validate_base_args()
@@ -386,45 +387,148 @@ class KSVideo(KSBaseUploader):
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     async def set_thumbnail(self, page: Page):
+        """上传自定义封面
+        流程：点击封面设置区域 → 弹窗 → 点击"上传封面"TAB → 上传图片 → 选4:3比例 → 点确认
+        """
         if not self.thumbnail_path:
             return
 
         kuaishou_logger.info(_msg("🖼️", "小人准备设置封面"))
+        try:
+            # 1. 点击封面设置区域（_default-cover）打开弹窗
+            cover_area = page.locator("div[class*='default-cover']").first
+            await cover_area.click()
+            kuaishou_logger.info(_msg("🖼️", "已点击封面设置区域，等待弹窗"))
 
-        cover_label = page.locator("span").filter(has_text="封面设置")
-        await cover_label.wait_for(state="visible", timeout=30000)
-        await cover_label.locator("xpath=../following-sibling::div[1]").locator('div').nth(0).click()
+            # 2. 等待弹窗出现
+            modal = page.locator('div[role="document"].ant-modal:visible')
+            await modal.wait_for(state="visible", timeout=30000)
+            await asyncio.sleep(1)
 
-        modal = page.locator('div[role="document"].ant-modal')
-        await modal.wait_for(state="visible", timeout=30000)
+            # 3. 点击"上传封面" TAB（第二个 header-title-item）
+            upload_tab = modal.locator("div[class*='header-title-item']").nth(1)
+            await upload_tab.wait_for(state="visible", timeout=10000)
+            await upload_tab.click()
+            kuaishou_logger.info(_msg("🖼️", "已切换到上传封面 TAB"))
+            await asyncio.sleep(1)
 
-        upload_cover_tab = modal.get_by_text("上传封面", exact=True)
-        await upload_cover_tab.wait_for(state="visible", timeout=10000)
-        await upload_cover_tab.click()
+            # 4. 上传图片
+            file_input = modal.locator('input[type="file"]')
+            await file_input.wait_for(state="attached", timeout=30000)
+            await file_input.set_input_files(self.thumbnail_path)
+            kuaishou_logger.info(_msg("🖼️", "已上传封面文件"))
+            await asyncio.sleep(2)
 
-        file_input = modal.locator('input[type="file"]')
-        await file_input.wait_for(state="attached", timeout=30000)
-        await file_input.set_input_files(self.thumbnail_path)
-        await asyncio.sleep(1)
+            # 5. 选择 4:3 比例（第二个 ratio-item，带"推荐"标签）
+            ratio_4_3 = modal.locator("div[class*='ratio-item']").nth(1)
+            if await ratio_4_3.count():
+                await ratio_4_3.click()
+                kuaishou_logger.info(_msg("🖼️", "已选择 4:3 比例"))
+                await asyncio.sleep(1)
 
-        confirm_button = modal.get_by_role("button", name="确认", exact=True)
-        await confirm_button.wait_for(state="visible", timeout=10000)
-        await confirm_button.click()
+            # 6. 点击"确认"按钮
+            confirm_button = modal.get_by_role("button", name="确认", exact=True)
+            if await confirm_button.count():
+                await confirm_button.click()
+                kuaishou_logger.info(_msg("🖼️", "已点击确认"))
+            else:
+                # 回退：点击"去编辑"按钮
+                edit_button = modal.get_by_role("button", name="去编辑", exact=True)
+                if await edit_button.count():
+                    await edit_button.click()
+                    kuaishou_logger.info(_msg("🖼️", "已点击去编辑"))
 
-        await modal.wait_for(state="hidden", timeout=30000)
-        kuaishou_logger.success(_msg("🥳", "封面已经设置完成"))
+            await asyncio.sleep(2)
+
+            # 7. 等待弹窗关闭
+            try:
+                await modal.wait_for(state="hidden", timeout=30000)
+            except Exception:
+                pass
+
+            kuaishou_logger.success(_msg("🥳", "封面已经设置完成"))
+
+        except Exception as e:
+            kuaishou_logger.warning(_msg("😵", f"设置封面失败（不影响上传）: {e}"))
+
+    async def _set_author_declaration(self, page: Page):
+        """设置作者声明
+        点击作者声明下拉框 → 选择匹配选项
+        """
+        if not self.author_declaration:
+            return
+
+        kuaishou_logger.info(_msg("📋", f"小人准备设置作者声明: {self.author_declaration}"))
+        try:
+            # 策略1：通过 placeholder 找到 select
+            # 策略2：通过标签文本 "补充说明" / "作者声明" 找到相邻的 select
+            select_clicked = False
+
+            # 尝试多种 placeholder 匹配
+            for placeholder in ['为作品添加补充说明', '补充说明', '请选择']:
+                declaration_input = page.locator(f"input[placeholder*='{placeholder}']")
+                if await declaration_input.count():
+                    select_wrapper = declaration_input.locator("xpath=ancestor::div[contains(@class, 'ant-select')]").first
+                    await select_wrapper.click()
+                    select_clicked = True
+                    kuaishou_logger.info(_msg("📋", f"通过 placeholder '{placeholder}' 找到下拉框"))
+                    break
+
+            # 策略2：通过标签文本找 select
+            if not select_clicked:
+                for label_text in ['作者声明', '补充说明', '声明']:
+                    label = page.locator(f"label:text('{label_text}')")
+                    if await label.count():
+                        select_wrapper = label.locator("xpath=following-sibling::div//div[contains(@class, 'ant-select')]").first
+                        if await select_wrapper.count():
+                            await select_wrapper.click()
+                            select_clicked = True
+                            kuaishou_logger.info(_msg("📋", f"通过标签 '{label_text}' 找到下拉框"))
+                            break
+
+            # 策略3：直接找所有 ant-select，点击最后一个（通常是声明相关）
+            if not select_clicked:
+                all_selects = page.locator("div.ant-select")
+                count = await all_selects.count()
+                kuaishou_logger.info(_msg("📋", f"页面上找到 {count} 个 ant-select 组件"))
+                if count > 0:
+                    # 遍历找包含声明相关 placeholder 的
+                    for i in range(count):
+                        sel = all_selects.nth(i)
+                        input_el = sel.locator("input").first
+                        if await input_el.count():
+                            ph = await input_el.get_attribute("placeholder") or ""
+                            kuaishou_logger.info(_msg("📋", f"ant-select[{i}] placeholder='{ph}'"))
+                            if any(kw in ph for kw in ['补充', '声明', '说明', '选择']):
+                                await sel.click()
+                                select_clicked = True
+                                kuaishou_logger.info(_msg("📋", f"通过遍历找到匹配的 ant-select[{i}]"))
+                                break
+
+            if not select_clicked:
+                kuaishou_logger.warning(_msg("😵", "未能找到作者声明下拉框，跳过"))
+                return
+
+            await asyncio.sleep(1)
+
+            # 等待下拉选项出现，点击匹配项
+            # 使用 contains 文本匹配，避免精确匹配问题
+            option = page.locator(f"div.ant-select-item-option:has-text('{self.author_declaration}')").first
+            await option.wait_for(state="visible", timeout=5000)
+            await option.click()
+            kuaishou_logger.success(_msg("🥳", f"已选择作者声明: {self.author_declaration}"))
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            kuaishou_logger.warning(_msg("😵", f"设置作者声明失败（不影响上传）: {e}"))
 
     async def upload(self, playwright: Playwright) -> None:
         kuaishou_logger.info(_msg("🧍", "小人先检查 cookie、视频文件、封面和发布时间"))
         await self.validate_upload_args()
         kuaishou_logger.info(_msg("🥳", "上传前检查通过"))
 
-        _opts = {'headless': self.headless}
-        if self.local_executable_path:
-            _opts['executable_path'] = self.local_executable_path
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(storage_state=self.account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=self.account_file)
 
         upload_success = False
         try:
@@ -491,6 +595,8 @@ class KSVideo(KSBaseUploader):
                 kuaishou_logger.warning(_msg("😵", "超过最大重试次数，视频上传可能未完成"))
 
             await self.set_thumbnail(page)
+
+            await self._set_author_declaration(page)
 
             if self.publish_strategy == KUAISHOU_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
                 await self.set_schedule_time(page, self.publish_date)
@@ -659,12 +765,8 @@ class KSNote(KSBaseUploader):
         await self.validate_upload_args()
         kuaishou_logger.info(_msg("🥳", "图文上传前检查通过"))
 
-        _opts = {'headless': self.headless}
-        if self.local_executable_path:
-            _opts['executable_path'] = self.local_executable_path
-        browser = await playwright.chromium.launch(**_opts)
-        context = await browser.new_context(storage_state=self.account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=self.account_file)
 
         upload_success = False
         try:

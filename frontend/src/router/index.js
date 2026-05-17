@@ -3,7 +3,6 @@ import Dashboard from '../views/Dashboard.vue'
 import AccountManagement from '../views/AccountManagement.vue'
 import MaterialManagement from '../views/MaterialManagement.vue'
 import PublishCenter from '../views/PublishCenter.vue'
-import TaskCenter from '../views/TaskCenter.vue'
 import PublishHistory from '../views/PublishHistory.vue'
 import Settings from '../views/Settings.vue'
 
@@ -31,12 +30,6 @@ const routes = [
     name: 'PublishCenter',
     component: PublishCenter,
     meta: { icon: 'Upload', title: '发布中心' }
-  },
-  {
-    path: '/task-center',
-    name: 'TaskCenter',
-    component: TaskCenter,
-    meta: { icon: 'List', title: '任务中心' }
   },
   {
     path: '/publish-history',

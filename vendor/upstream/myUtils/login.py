@@ -2,13 +2,13 @@ import asyncio
 import json
 import sqlite3
 
-from playwright.async_api import async_playwright
+from patchright.async_api import async_playwright
 
 from myUtils.auth import check_cookie
-from utils.base_social_media import set_init_script
+from myUtils.browser import create_browser, create_context
 import uuid
 from pathlib import Path
-from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH, LOGIN_HEADLESS
+from conf import BASE_DIR, LOGIN_HEADLESS
 
 
 _SCRAPE_JS = '''() => {
@@ -247,38 +247,6 @@ async def scrape_user_profile(page):
     return name, avatar
 
 
-# 统一获取浏览器启动配置（防风控+引入本地浏览器）
-def get_browser_options():
-    options = {
-        'headless': LOCAL_CHROME_HEADLESS,
-        'args': [
-            '--disable-blink-features=AutomationControlled',
-            '--lang=zh-CN',
-            '--disable-infobars',
-            '--start-maximized'
-        ]
-    }
-    if LOCAL_CHROME_PATH:
-        options['executable_path'] = LOCAL_CHROME_PATH
-    return options
-
-
-# 登录专用浏览器配置（始终使用有头模式以便用户扫码）
-def get_login_browser_options():
-    options = {
-        'headless': LOGIN_HEADLESS,
-        'args': [
-            '--disable-blink-features=AutomationControlled',
-            '--lang=zh-CN',
-            '--disable-infobars',
-            '--start-maximized'
-        ]
-    }
-    if LOCAL_CHROME_PATH:
-        options['executable_path'] = LOCAL_CHROME_PATH
-    return options
-
-
 # 抖音登录
 async def douyin_cookie_gen(id, status_queue):
     url_changed_event = asyncio.Event()
@@ -288,10 +256,8 @@ async def douyin_cookie_gen(id, status_queue):
             url_changed_event.set()
 
     async with async_playwright() as playwright:
-        options = get_login_browser_options()
-        browser = await playwright.chromium.launch(**options)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, login_mode=True)
+        context = await create_context(browser)
         page = await context.new_page()
         await page.goto("https://creator.douyin.com/")
         original_url = page.url
@@ -345,13 +311,8 @@ async def get_tencent_cookie(id, status_queue):
             url_changed_event.set()
 
     async with async_playwright() as playwright:
-        options = {
-            'args': ['--lang en-GB'],
-            'headless': LOGIN_HEADLESS,
-        }
-        browser = await playwright.chromium.launch(**options)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, login_mode=True, extra_args=['--lang en-GB'])
+        context = await create_context(browser)
         page = await context.new_page()
         await page.goto("https://channels.weixin.qq.com")
         original_url = page.url
@@ -410,13 +371,8 @@ async def get_ks_cookie(id, status_queue):
             url_changed_event.set()
 
     async with async_playwright() as playwright:
-        options = {
-            'args': ['--lang en-GB'],
-            'headless': LOGIN_HEADLESS,
-        }
-        browser = await playwright.chromium.launch(**options)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, login_mode=True, extra_args=['--lang en-GB'])
+        context = await create_context(browser)
         page = await context.new_page()
         await page.goto("https://cp.kuaishou.com")
 
@@ -475,13 +431,8 @@ async def xiaohongshu_cookie_gen(id, status_queue):
             url_changed_event.set()
 
     async with async_playwright() as playwright:
-        options = {
-            'args': ['--lang en-GB'],
-            'headless': LOGIN_HEADLESS,
-        }
-        browser = await playwright.chromium.launch(**options)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, login_mode=True, extra_args=['--lang en-GB'])
+        context = await create_context(browser)
         page = await context.new_page()
         await page.goto("https://creator.xiaohongshu.com/")
         await page.locator('img.css-wemwzq').click()
@@ -539,33 +490,45 @@ async def sync_account_profile(platform_type, cookie_file):
         3: "https://creator.douyin.com/",
         4: "https://cp.kuaishou.com/article/publish/video",
         5: "https://account.bilibili.com/account/home",
+        6: "https://baijiahao.baidu.com/builder/rc/home",
+        8: "https://studio.youtube.com",
     }
     url = platform_urls.get(platform_type)
     if not url:
         return "", ""
 
     async with async_playwright() as playwright:
-        sync_opts = {'headless': True}
-        if LOCAL_CHROME_PATH:
-            sync_opts['executable_path'] = LOCAL_CHROME_PATH
-        browser = await playwright.chromium.launch(**sync_opts)
+        # YouTube 需要代理
+        proxy = None
+        if platform_type == 8:
+            from conf import _load_proxy_url
+            _proxy_url = _load_proxy_url()
+            if _proxy_url:
+                proxy = {"server": _proxy_url}
+
+        # YouTube 无头模式会被 Google 拦截，需要有头模式
+        headless = False if platform_type == 8 else True
+        browser = await create_browser(playwright, headless=headless, proxy=proxy)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        context = await browser.new_context(storage_state=cookie_path)
-        context = await set_init_script(context)
+        context = await create_context(browser, storage_state=cookie_path)
         page = await context.new_page()
         try:
             await page.goto(url, wait_until='networkidle', timeout=30000)
-            # 视频号页面头像加载慢，额外等待
             if platform_type == 2:
                 try:
                     await page.wait_for_selector('img.account-avatar, img[src*="finderhead"], img[src*="qlogo.cn"]', timeout=8000)
                 except Exception:
                     pass
                 await asyncio.sleep(2)
+                name, avatar = await _scrape_tencent_profile(page)
             elif platform_type == 5:
                 name, avatar = await _scrape_bilibili_profile(page)
-            elif platform_type == 2:
-                name, avatar = await _scrape_tencent_profile(page)
+            elif platform_type == 6:
+                from uploader.baijiahao_uploader.main import _scrape_baijiahao_profile
+                name, avatar = await _scrape_baijiahao_profile(page)
+            elif platform_type == 8:
+                from uploader.youtube_uploader.main import _scrape_youtube_profile
+                name, avatar = await _scrape_youtube_profile(page)
             else:
                 name, avatar = await scrape_user_profile(page)
             await page.close()
@@ -574,9 +537,12 @@ async def sync_account_profile(platform_type, cookie_file):
             return name, avatar
         except Exception as e:
             print(f"⚠️ 同步资料失败: {e}")
-            await page.close()
-            await context.close()
-            await browser.close()
+            try:
+                await page.close()
+                await context.close()
+                await browser.close()
+            except Exception:
+                pass
             return "", ""
 
 
@@ -589,10 +555,8 @@ async def bilibili_cookie_gen(id, status_queue):
             url_changed_event.set()
 
     async with async_playwright() as playwright:
-        options = get_login_browser_options()
-        browser = await playwright.chromium.launch(**options)
-        context = await browser.new_context()
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, login_mode=True)
+        context = await create_context(browser)
         page = await context.new_page()
         await page.goto("https://passport.bilibili.com/login")
         original_url = page.url

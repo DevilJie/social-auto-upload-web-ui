@@ -67,10 +67,8 @@
       <!-- Content -->
       <main class="content">
         <router-view v-slot="{ Component }">
-          <transition name="fade-slide" mode="out-in">
             <component :is="Component" :key="$route.path" />
-          </transition>
-        </router-view>
+          </router-view>
       </main>
     </div>
   </div>
@@ -81,7 +79,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, User, Picture, Upload,
-  List, Clock, Setting, Expand, Fold
+  Clock, Setting, Expand, Fold
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -94,7 +92,6 @@ const navItems = [
   { path: '/account-management', icon: User, title: '账号管理' },
   { path: '/material-management', icon: Picture, title: '素材管理' },
   { path: '/publish-center', icon: Upload, title: '发布中心' },
-  { path: '/task-center', icon: List, title: '任务中心' },
   { path: '/publish-history', icon: Clock, title: '发布历史' }
 ]
 
@@ -260,6 +257,13 @@ const pageTitle = computed(() => route.meta?.title || '')
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  .content {
+    flex: 1;
+    background: $bg-base;
+    padding: 0;
+    overflow-y: auto;
+  }
 }
 
 .header {
@@ -281,13 +285,6 @@ const pageTitle = computed(() => route.meta?.title || '')
   .header-right {
     // placeholder for future user area
   }
-}
-
-.content {
-  flex: 1;
-  background: $bg-base;
-  padding: 24px;
-  overflow-y: auto;
 }
 
 .fade-slide-enter-active,

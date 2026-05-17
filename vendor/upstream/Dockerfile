@@ -23,7 +23,7 @@ FROM python:3.10.19
 
 WORKDIR /app
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+ENV PATCHRIGHT_BROWSERS_PATH=/opt/patchright
 
 RUN apt-get update && apt-get install -y --no-install-recommends libnss3 \
     libnspr4 \
@@ -45,7 +45,7 @@ COPY requirements.txt requirements.txt
 
 RUN pip install -r requirements.txt
 
-RUN playwright install chromium-headless-shell
+RUN patchright install chromium
 
 COPY . .
 

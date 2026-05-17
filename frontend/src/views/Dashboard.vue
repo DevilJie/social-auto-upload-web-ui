@@ -16,6 +16,13 @@
             <div class="stat-value">{{ accountStats.total }}</div>
             <div class="stat-label">账号总数</div>
           </div>
+          <button class="batch-check-btn" @click="handleBatchCheck" :disabled="isChecking">
+            <el-icon v-if="isChecking" class="is-loading"><Loading /></el-icon>
+            <template v-else>
+              <el-icon><Refresh /></el-icon>
+              批量检查
+            </template>
+          </button>
         </div>
         <div class="stat-bottom">
           <div class="stat-detail">
@@ -103,12 +110,12 @@
         <div class="action-title">上传素材</div>
         <div class="action-desc">上传和管理视频素材</div>
       </div>
-      <div class="action-card" @click="navigateTo('/task-center')">
+      <div class="action-card" @click="navigateTo('/settings')">
         <div class="action-icon action-icon-cyan">
-          <el-icon><Timer /></el-icon>
+          <el-icon><Setting /></el-icon>
         </div>
-        <div class="action-title">查看任务</div>
-        <div class="action-desc">查看所有发布任务</div>
+        <div class="action-title">系统设置</div>
+        <div class="action-desc">配置系统参数和选项</div>
       </div>
       <div class="action-card" @click="navigateTo('/account-management')">
         <div class="action-icon action-icon-green">
@@ -176,8 +183,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   User, UserFilled, Platform, Document,
-  Upload, Timer, DataAnalysis
+  Upload, Timer, DataAnalysis, Loading, Refresh, Setting
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { materialApi } from '@/api/material'
 import { useAccountStore } from '@/stores/account'
@@ -188,6 +196,27 @@ const router = useRouter()
 const accountStore = useAccountStore()
 const appStore = useAppStore()
 const loading = ref(false)
+const isChecking = ref(false)
+
+// 批量检查账号
+const handleBatchCheck = async () => {
+  if (isChecking.value) return
+  isChecking.value = true
+  try {
+    const res = await accountApi.getValidAccounts()
+    if (res.code === 200 && res.data) {
+      accountStore.setAccounts(res.data)
+      ElMessage.success('账号检查完成')
+    } else {
+      ElMessage.error(res.msg || '检查失败')
+    }
+  } catch (error) {
+    console.error('批量检查失败:', error)
+    ElMessage.error('批量检查失败')
+  } finally {
+    isChecking.value = false
+  }
+}
 
 // 账号统计数据 - 从真实数据计算
 const accountStats = computed(() => {
@@ -384,6 +413,43 @@ export default {
       display: flex;
       align-items: center;
       margin-bottom: 16px;
+
+      .batch-check-btn {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 14px;
+        border: 1px solid rgba($success-color, 0.3);
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all $transition-base;
+        background: rgba($success-color, 0.1);
+        color: $success-color;
+        white-space: nowrap;
+        flex-shrink: 0;
+
+        .el-icon {
+          font-size: 14px;
+        }
+
+        &:hover:not(:disabled) {
+          background: rgba($success-color, 0.2);
+          border-color: rgba($success-color, 0.5);
+          transform: translateY(-1px);
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        &.is-loading .el-icon {
+          animation: rotate 1s linear infinite;
+        }
+      }
     }
 
     .stat-icon {
@@ -452,30 +518,38 @@ export default {
       border-radius: 6px;
       font-size: 12px;
       font-weight: 500;
+      color: #ffffff;
 
       &.douyin {
-        color: $platform-douyin;
         background: $platform-douyin-bg;
       }
 
       &.kuaishou {
-        color: $platform-kuaishou;
         background: $platform-kuaishou-bg;
       }
 
       &.channels {
-        color: $platform-channels;
         background: $platform-channels-bg;
       }
 
       &.xiaohongshu {
-        color: $platform-xiaohongshu;
         background: $platform-xiaohongshu-bg;
       }
 
       &.bilibili {
-        color: $platform-bilibili;
         background: $platform-bilibili-bg;
+      }
+
+      &.baijiahao {
+        background: $platform-baijiahao-bg;
+      }
+
+      &.tiktok {
+        background: rgba(0, 200, 150, 0.25);
+      }
+
+      &.youtube {
+        background: $platform-youtube-bg;
       }
     }
   }

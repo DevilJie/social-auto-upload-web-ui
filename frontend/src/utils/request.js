@@ -25,29 +25,43 @@ request.interceptors.request.use(
   }
 )
 
+/**
+ * 从后端错误信息中提取用户可读的消息（去掉 Python 堆栈）
+ * 规则：只取第一行；如果包含 "Error:" 或 "错误:" 则取其后面的部分
+ */
+function extractUserMessage(raw) {
+  if (!raw) return ''
+  const text = String(raw)
+  // 取第一行
+  const firstLine = text.split('\n')[0].trim()
+  // 如果包含典型错误前缀，取冒号后面的内容
+  const match = firstLine.match(/(?:Error|错误|失败|异常|Exception)[:：]\s*(.+)/)
+  return match ? match[1].trim() : firstLine
+}
+
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
     const { data } = response
-    
+
     // 根据后端接口规范处理响应
     if (data.code === 200 || data.success) {
       return data
     } else {
-      ElMessage.error(data.msg || data.message || '请求失败')
-      return Promise.reject(new Error(data.msg || data.message || '请求失败'))
+      const msg = extractUserMessage(data.msg || data.message) || '请求失败'
+      ElMessage.error(msg)
+      return Promise.reject(new Error(msg))
     }
   },
   (error) => {
     console.error('响应错误:', error)
-    
+
     // 处理HTTP错误状态码
     if (error.response) {
       const { status } = error.response
       switch (status) {
         case 401:
           ElMessage.error('未授权，请重新登录')
-          // 可以在这里处理登录跳转
           break
         case 403:
           ElMessage.error('拒绝访问')
@@ -55,16 +69,19 @@ request.interceptors.response.use(
         case 404:
           ElMessage.error('请求地址不存在')
           break
-        case 500:
-          ElMessage.error('服务器内部错误')
+        case 500: {
+          const rawMsg = error.response?.data?.msg || error.response?.data?.message || ''
+          const msg = extractUserMessage(rawMsg) || '服务器内部错误'
+          ElMessage.error(msg)
           break
+        }
         default:
           ElMessage.error('网络错误')
       }
     } else {
       ElMessage.error('网络连接失败')
     }
-    
+
     return Promise.reject(error)
   }
 )

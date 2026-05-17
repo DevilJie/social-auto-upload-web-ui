@@ -11,9 +11,9 @@ from patchright.async_api import Page
 from patchright.async_api import Playwright
 from patchright.async_api import async_playwright
 
-from conf import BASE_DIR, DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
+from conf import BASE_DIR, DEBUG_MODE, LOCAL_CHROME_HEADLESS
+from myUtils.browser import create_browser, create_context
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
 from utils.log import tencent_logger
 
 TENCENT_LOGIN_URL = "https://channels.weixin.qq.com"
@@ -65,13 +65,6 @@ def _build_login_result(
     }
 
 
-def _build_launch_kwargs(headless: bool) -> dict:
-    launch_kwargs = {"headless": headless}
-    if LOCAL_CHROME_PATH:
-        launch_kwargs["executable_path"] = LOCAL_CHROME_PATH
-    else:
-        launch_kwargs["channel"] = "chrome"
-    return launch_kwargs
 
 
 def _get_qrcode_utils():
@@ -106,10 +99,9 @@ def format_str_for_short_title(origin_title: str) -> str:
 async def cookie_auth(account_file):
     account_file = _resolve_account_file(account_file)
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=True))
+        browser = await create_browser(playwright, headless=True)
         try:
-            context = await browser.new_context(storage_state=account_file)
-            context = await set_init_script(context)
+            context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(TENCENT_UPLOAD_URL)
             await page.wait_for_url(TENCENT_UPLOAD_URL, timeout=5000)
@@ -350,8 +342,8 @@ async def tencent_cookie_gen(
     Path(account_file).parent.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=headless))
-        context = await browser.new_context()
+        browser = await create_browser(playwright, headless=headless)
+        context = await create_context(browser)
         qrcode_path = None
         result = _build_login_result(False, "failed", "视频号登录失败", account_file)
         try:
@@ -854,8 +846,8 @@ class TencentVideo(TencentBaseUploader):
         await self.validate_upload_args()
         tencent_logger.info(_msg("🥳", "上传前检查通过"))
 
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(storage_state=self.account_file)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=self.account_file)
 
         try:
             page = await context.new_page()
@@ -957,9 +949,8 @@ class TencentNote(TencentBaseUploader):
         await self.validate_upload_args()
         tencent_logger.info(_msg("🥳", "图文上传前检查通过"))
 
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(storage_state=self.account_file)
-        context = await set_init_script(context)
+        browser = await create_browser(playwright, headless=self.headless)
+        context = await create_context(browser, storage_state=self.account_file)
 
         try:
             page = await context.new_page()

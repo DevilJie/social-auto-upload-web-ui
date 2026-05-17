@@ -317,6 +317,8 @@ onMounted(() => {
 @use '@/styles/variables.scss' as *;
 
 .publish-history-page {
+  padding: 0 28px;
+
   // Page title area
   .page-title {
     font-size: 26px;

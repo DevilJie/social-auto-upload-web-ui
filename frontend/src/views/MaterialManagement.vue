@@ -437,6 +437,8 @@ onMounted(() => {
 
 // ========== Page Layout ==========
 .material-management {
+  padding: 0 28px;
+
   .page-header {
     margin-bottom: $spacing-lg;
 

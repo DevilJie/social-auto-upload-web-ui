@@ -323,6 +323,8 @@ export default {
 
 .dashboard {
   // Page title area
+  padding: 0 28px;
+
   .page-title {
     font-size: 26px;
     font-weight: 700;

@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>更新日志 | Social-Auto-Upload-Web-UI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary: #2563EB;
+      --secondary: #3B82F6;
+      --cta: #F97316;
+      --bg: #0F172A;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --border: rgba(255, 255, 255, 0.1);
+      --card-bg: rgba(255, 255, 255, 0.05);
+      --success: #10B981;
+      --purple: #8B5CF6;
+      --pink: #EC4899;
+    }
+
+    html {
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Navigation */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      transition: all 0.3s ease;
+    }
+
+    .nav.scrolled {
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-dots {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .nav-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .nav-dot:hover {
+      background: rgba(255, 255, 255, 0.4);
+    }
+
+    .nav-dot.active {
+      background: var(--primary);
+      transform: scale(1.2);
+    }
+
+    /* Section base */
+    .section {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 4rem 2rem;
+      scroll-snap-align: start;
+      position: relative;
+    }
+
+    .section-content {
+      max-width: 1000px;
+      width: 100%;
+      opacity: 0;
+      transform: translateY(40px);
+      transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .section.visible .section-content {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Page indicator */
+    .page-indicator {
+      position: fixed;
+      right: 2rem;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      z-index: 50;
+    }
+
+    .indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .indicator-dot:hover {
+      background: rgba(255, 255, 255, 0.4);
+      transform: scale(1.3);
+    }
+
+    .indicator-dot.active {
+      background: var(--cta);
+      height: 24px;
+      border-radius: 4px;
+    }
+
+    /* Section 1: Hero */
+    .hero {
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%);
+      text-align: center;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(circle at 30% 20%, rgba(37, 99, 235, 0.3) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 80%, rgba(139, 92, 246, 0.2) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(37, 99, 235, 0.2);
+      border: 1px solid rgba(37, 99, 235, 0.4);
+      border-radius: 100px;
+      color: #93C5FD;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 2rem;
+    }
+
+    .hero-badge svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .hero h1 {
+      font-size: clamp(3rem, 10vw, 6rem);
+      font-weight: 800;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--primary), var(--cta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: 1.5rem;
+      color: var(--text-muted);
+      max-width: 700px;
+      margin: 0 auto 3rem;
+    }
+
+    .hero-stats {
+      display: flex;
+      gap: 4rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 4rem;
+      font-weight: 800;
+      color: white;
+      line-height: 1;
+    }
+
+    .stat-number span {
+      color: var(--cta);
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .scroll-hint {
+      position: absolute;
+      bottom: 3rem;
+      left: 50%;
+      transform: translateX(-50%);
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      animation: bounce 2s infinite;
+    }
+
+    .scroll-hint svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    @keyframes bounce {
+      0%, 20%, 50%, 80%, 100% { transform: translateX(-50%) translateY(0); }
+      40% { transform: translateX(-50%) translateY(-15px); }
+      60% { transform: translateX(-50%) translateY(-8px); }
+    }
+
+    /* Section 2: Highlights */
+    .highlights {
+      background: linear-gradient(180deg, #0F172A 0%, #1a2332 100%);
+      justify-content: flex-start;
+      padding-top: 6rem;
+    }
+
+    .highlight-icon {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, var(--primary), var(--purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem;
+    }
+
+    .highlight-icon svg {
+      width: 40px;
+      height: 40px;
+      color: white;
+    }
+
+    .highlights h2 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .highlight-list {
+      list-style: none;
+      margin-top: 1.5rem;
+    }
+
+    .highlight-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 1.5rem;
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .highlight-item:last-child {
+      border-bottom: none;
+    }
+
+    .highlight-num {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .highlight-text h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .highlight-text p {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+
+    /* Section 3: Browser */
+    .browser {
+      background: linear-gradient(180deg, #1a2332 0%, #0F172A 100%);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+      flex-shrink: 0;
+    }
+
+    .section-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .section-icon svg {
+      width: 32px;
+      height: 32px;
+      color: white;
+    }
+
+    .section-icon.engine { background: linear-gradient(135deg, var(--primary), #1D4ED8); }
+    .section-icon.ui { background: linear-gradient(135deg, var(--success), #059669); }
+    .section-icon.feature { background: linear-gradient(135deg, var(--cta), #EA580C); }
+    .section-icon.bug { background: linear-gradient(135deg, var(--pink), #DB2777); }
+
+    .section-title {
+      font-size: 2.5rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .section-meta {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-left: auto;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.5rem 1rem;
+      border-radius: 100px;
+    }
+
+    /* Cards grid */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: var(--primary);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .card-tag {
+      padding: 0.25rem 0.75rem;
+      border-radius: 100px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .card-tag.feat { background: rgba(249, 115, 22, 0.2); color: #F97316; }
+    .card-tag.fix { background: rgba(16, 185, 129, 0.2); color: #10B981; }
+    .card-tag.refactor { background: rgba(139, 92, 246, 0.2); color: #8B5CF6; }
+
+    .card-desc {
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .card-desc ul {
+      margin-top: 0.75rem;
+      padding-left: 1.25rem;
+    }
+
+    .card-desc li {
+      margin-bottom: 0.5rem;
+    }
+
+    code {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875em;
+      color: #93C5FD;
+    }
+
+    /* Section 4: Uploaders */
+    .uploaders {
+      background: linear-gradient(180deg, #0F172A 0%, #1a2332 100%);
+    }
+
+    /* Section 5: UI */
+    .ui-section {
+      background: linear-gradient(180deg, #1a2332 0%, #0F172A 100%);
+    }
+
+    /* Section 6: Footer */
+    .footer {
+      background: #0F172A;
+      text-align: center;
+    }
+
+    .footer-logo {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, var(--primary), var(--cta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .footer p {
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      font-size: 1.25rem;
+    }
+
+    .footer-meta {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-top: 3rem;
+    }
+
+    /* Progress bar */
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary), var(--cta));
+      z-index: 200;
+      width: 0%;
+      transition: width 0.1s ease;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 {
+        font-size: 2.5rem;
+      }
+
+      .hero-subtitle {
+        font-size: 1.125rem;
+      }
+
+      .hero-stats {
+        gap: 2rem;
+      }
+
+      .stat-number {
+        font-size: 2.5rem;
+      }
+
+      .highlights h2 {
+        font-size: 1.75rem;
+      }
+
+      .highlight-text h3 {
+        font-size: 1.1rem;
+      }
+
+      .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+
+      .section-title {
+        font-size: 1.75rem;
+        white-space: normal;
+      }
+
+      .section-meta {
+        display: none;
+      }
+
+      .page-indicator {
+        right: 1rem;
+      }
+
+      .card-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .nav {
+        gap: 1rem;
+      }
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-snap-type: none;
+      }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* Keyboard navigation hint */
+    .keyboard-hint {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 0.75rem 1.5rem;
+      border-radius: 100px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: 50;
+    }
+
+    .keyboard-hint.visible {
+      opacity: 1;
+    }
+
+    .key {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <!-- Progress bar -->
+  <div class="progress-bar" id="progressBar"></div>
+
+  <!-- Navigation dots -->
+  <nav class="nav" id="nav">
+    <div class="nav-dots" id="navDots"></div>
+  </nav>
+
+  <!-- Page indicator -->
+  <div class="page-indicator" id="pageIndicator"></div>
+
+  <!-- Keyboard hint -->
+  <div class="keyboard-hint" id="keyboardHint">
+    <span class="key">↓</span> <span class="key">↑</span> 或滚动切换页面
+  </div>
+
+  <!-- Section 1: Hero -->
+  <section class="section hero" data-section="0">
+    <div class="hero-content section-content">
+      <div class="hero-badge">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        2026年第20周更新
+      </div>
+      <h1><span>Social-Auto-Upload</span><br>Web-UI</h1>
+      <p class="hero-subtitle">
+        全面完成浏览器引擎从 Playwright 到 Patchright 的迁移，<br>
+        带来更稳定的上传体验和全新界面优化
+      </p>
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-number">34<span>+</span></div>
+          <div class="stat-label">提交次数</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">6<span>+</span></div>
+          <div class="stat-label">平台支持</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">2<span>+</span></div>
+          <div class="stat-label">重大重构</div>
+        </div>
+      </div>
+    </div>
+    <div class="scroll-hint">
+      <span>向下滚动切换下一屏</span>
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- Section 2: Highlights -->
+  <section class="section highlights" data-section="1">
+    <div class="section-content">
+      <div class="highlight-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+        </svg>
+      </div>
+      <h2>核心亮点</h2>
+      <ul class="highlight-list">
+        <li class="highlight-item">
+          <div class="highlight-num">1</div>
+          <div class="highlight-text">
+            <h3>统一浏览器工厂</h3>
+            <p>所有上传器现在使用统一的浏览器工厂，支持 persistent_context 和 sync API，大幅提升稳定性</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">2</div>
+          <div class="highlight-text">
+            <h3>Patchright 迁移</h3>
+            <p>从 Playwright 全面迁移到 Patchright，获得更好的反检测能力和稳定性</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">3</div>
+          <div class="highlight-text">
+            <h3>增加 YouTube 百家号上传器完整实现</h3>
+            <p>YouTube 支持观众/加工内容设置、公开发布选择；百家号支持横版封面、人机验证后发布跳转</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">4</div>
+          <div class="highlight-text">
+            <h3>快手/B站上传器改造</h3>
+            <p>封面弹窗流程优化、日历网格交互、作者声明功能</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">5</div>
+          <div class="highlight-text">
+            <h3>界面统一优化</h3>
+            <p>仪表盘、素材管理、发布历史等页面增加左右间距，视觉更一致</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">6</div>
+          <div class="highlight-text">
+            <h3>所有渠道定时发布功能完善</h3>
+            <p>B站/快手/YouTube 等平台统一定时发布策略，优化日历网格+时间面板交互</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Section 3: Browser Architecture -->
+  <section class="section browser" data-section="2">
+    <div class="section-content">
+      <div class="section-header">
+        <div class="section-icon engine">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+        </div>
+        <h2 class="section-title">浏览器架构重构</h2>
+        <span class="section-meta">12 次提交</span>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">
+            统一浏览器工厂
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p>新建了 <code>myUtils/browser.py</code> 作为统一的浏览器工厂</p>
+            <ul>
+              <li>支持 persistent_context 持久上下文</li>
+              <li>支持 sync API 同步操作模式</li>
+              <li>内置 Patchright 反检测机制</li>
+              <li>Chrome 不可用时自动降级</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            Playwright → Patchright
+            <span class="card-tag refactor">重构</span>
+          </div>
+          <div class="card-desc">
+            <p>全面迁移到 Patchright，获得更好的反检测能力</p>
+            <ul>
+              <li>tk_uploader: Firefox → Chromium</li>
+              <li>xhs_uploader / sau_backend</li>
+              <li>baijiahao_uploader</li>
+              <li>auth.py / login.py</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            stealth.js 注入调整
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <p>移除 set_init_script 调用，解决与 Routes 机制冲突导致的 <code>ERR_CONNECTION_CLOSED</code> 错误</p>
+            <ul>
+              <li>恢复 stealth.min.js 双层防检测</li>
+              <li>补漏 6 处 browser.new_context()</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4: Uploaders -->
+  <section class="section uploaders" data-section="3">
+    <div class="section-content">
+      <div class="section-header">
+        <div class="section-icon feature">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+          </svg>
+        </div>
+        <h2 class="section-title">上传器改造</h2>
+        <span class="section-meta">8 次提交</span>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">
+            YouTube 上传器
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p>完整实现 YouTube 上传器</p>
+            <ul>
+              <li>观众/加工内容设置</li>
+              <li>公开发布选择</li>
+              <li>定时发布重写</li>
+              <li>头像昵称抓取</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            快手上传器
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p>全面改造快手上传器</p>
+            <ul>
+              <li>封面弹窗流程优化</li>
+              <li>作者声明功能</li>
+              <li>时区修复</li>
+              <li>错误信息展示改进</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            B站封面编辑器
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <p>日历网格+时间面板交互</p>
+            <ul>
+              <li>先选中 4:3 区域</li>
+              <li>双比例同步改动</li>
+              <li>多种触发器尝试</li>
+              <li>定时发布策略传递</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            小红书/抖音/百家号
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>create_context 不支持 permissions 参数</li>
+              <li>百家号横版封面设置失败</li>
+              <li>人机验证后发布跳转</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5: UI -->
+  <section class="section ui-section" data-section="4">
+    <div class="section-content">
+      <div class="section-header">
+        <div class="section-icon ui">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <h2 class="section-title">界面优化</h2>
+        <span class="section-meta">5 次提交</span>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">
+            账号管理/仪表盘
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p>优化账号管理和仪表盘界面，提升用户体验</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            页面间距统一调整
+            <span class="card-tag feat">界面</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>仪表盘</li>
+              <li>素材管理</li>
+              <li>发布历史</li>
+            </ul>
+            <p>增加左右间距，提升视觉一致性</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            关于作者页面
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p>新增关于作者页面，包含作者信息和头像（打包进 assets 目录）</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            系统设置页面
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <p>增加左右间距，移除关于作者卡片（已独立成页）</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 6: Footer -->
+  <section class="section footer" data-section="5">
+    <div class="section-content">
+      <div class="footer-logo">Social-Auto-Upload-Web-UI</div>
+      <p>让社交媒体内容上传变得更简单</p>
+      <div class="footer-meta">
+        最后更新于 2026年5月18日 · 共 34 次提交
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const sections = document.querySelectorAll('.section');
+    const nav = document.getElementById('nav');
+    const navDots = document.getElementById('navDots');
+    const pageIndicator = document.getElementById('pageIndicator');
+    const progressBar = document.getElementById('progressBar');
+    const keyboardHint = document.getElementById('keyboardHint');
+    let currentSection = 0;
+    let isScrolling = false;
+
+    // Create navigation dots
+    sections.forEach((_, index) => {
+      const dot = document.createElement('div');
+      dot.className = 'nav-dot' + (index === 0 ? ' active' : '');
+      dot.addEventListener('click', () => scrollToSection(index));
+      navDots.appendChild(dot);
+
+      const indicator = document.createElement('div');
+      indicator.className = 'indicator-dot' + (index === 0 ? ' active' : '');
+      indicator.addEventListener('click', () => scrollToSection(index));
+      pageIndicator.appendChild(indicator);
+    });
+
+    // Scroll to section
+    function scrollToSection(index) {
+      if (index >= 0 && index < sections.length) {
+        sections[index].scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    // Update active states
+    function updateActiveStates(index) {
+      document.querySelectorAll('.nav-dot').forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+      });
+      document.querySelectorAll('.indicator-dot').forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+      });
+      currentSection = index;
+
+      // Show keyboard hint on first section
+      if (index === 0) {
+        keyboardHint.classList.add('visible');
+        setTimeout(() => keyboardHint.classList.remove('visible'), 3000);
+      }
+    }
+
+    // Intersection Observer for sections
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+          const index = parseInt(entry.target.dataset.section);
+          entry.target.classList.add('visible');
+          updateActiveStates(index);
+        }
+      });
+    }, {
+      threshold: 0.5
+    });
+
+    sections.forEach(section => observer.observe(section));
+
+    // Progress bar
+    window.addEventListener('scroll', () => {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = (scrollTop / docHeight) * 100;
+      progressBar.style.width = progress + '%';
+
+      // Nav background
+      nav.classList.toggle('scrolled', scrollTop > 100);
+    });
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        scrollToSection(currentSection + 1);
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        scrollToSection(currentSection - 1);
+      }
+    });
+
+    // Show keyboard hint initially
+    setTimeout(() => {
+      keyboardHint.classList.add('visible');
+      setTimeout(() => keyboardHint.classList.remove('visible'), 3000);
+    }, 1000);
+  </script>
+</body>
+</html>

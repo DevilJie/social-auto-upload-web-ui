@@ -227,7 +227,14 @@ MIT License
 
 If this project is helpful to you, please give a ⭐ Star to show your support!
 
-[![Star History Chart](https://api.star-history.com/chart?repos=DevilJie/social-auto-upload-web-ui&type=timeline&legend=top-left)](https://www.star-history.com/?type=timeline&repos=DevilJie%2Fsocial-auto-upload-web-ui)
+
+<a href="https://www.star-history.com/?repos=DevilJie%2Fsocial-auto-upload-web-ui&type=timeline&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=DevilJie/social-auto-upload-web-ui&type=timeline&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=DevilJie/social-auto-upload-web-ui&type=timeline&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=DevilJie/social-auto-upload-web-ui&type=timeline&legend=top-left" />
+ </picture>
+</a>
 
 
 ---

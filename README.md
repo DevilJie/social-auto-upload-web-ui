@@ -227,7 +227,8 @@ MIT License
 
 If this project is helpful to you, please give a ⭐ Star to show your support!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=DevilJie/social-auto-upload-web-ui&type=Timeline)](https://star-history.com/#DevilJie/social-auto-upload-web-ui&Timeline)
+[![Star History Chart](https://api.star-history.com/chart?repos=DevilJie/social-auto-upload-web-ui&type=timeline&legend=top-left)](https://www.star-history.com/?type=timeline&repos=DevilJie%2Fsocial-auto-upload-web-ui)
+
 
 ---
 

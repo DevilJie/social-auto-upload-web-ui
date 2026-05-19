@@ -8,35 +8,48 @@
 
 ### Project Introduction
 
-This project is a **Web-UI interface** developed based on the open-source project [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload). The underlying functionality is built upon the original project with targeted optimizations and modifications to provide a more modern and user-friendly web interface.
+A modern **Web-UI interface** for multi-platform social media content auto-publishing. Built on [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload) with a completely redesigned frontend, providing a seamless, visual publishing experience across multiple platforms.
 
 ### Features
 
-- **Multi-Platform Support**: Support for Xiaohongshu (小红书), Douyin (抖音), Bilibili (B站), Kuaishou (快手), WeChat Video Account (视频号)
-- **Batch Publishing**: Publish content to multiple platforms simultaneously
-- **Account Management**: Manage accounts across all platforms in one place
-- **Material Management**: Upload and manage video materials
-- **Task Management**: Track publishing status and results
+- **多平台支持 / Multi-Platform**: Xiaohongshu (小红书), Douyin (抖音), Bilibili (B站), Kuaishou (快手), WeChat Video (视频号), YouTube
+- **批量发布 / Batch Publishing**: Publish to multiple platforms simultaneously in one operation
+- **智能账号管理 / Account Management**: Cookie-based authentication, visual login capture via browser automation
+- **素材管理 / Material Management**: Unified video/image library with cover editor for Bilibili
+- **任务中心 / Task Center**: Real-time publishing status tracking with async task queue
+- **定时发布 / Scheduled Publishing**: Calendar-based scheduling for future release
+- **浏览器工厂 / Browser Factory**: Auto-fallback from Chrome to Patchright's built-in Chromium when Chrome is unavailable
+- **封面编辑器 / Cover Editor**: Visual cover selector with multi-aspect-ratio support for Bilibili
+- **跨平台兼容 / Cross-Platform**: Web deployment + Tauri desktop app for Windows
+
+### Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | Vue 3 + Vite + Element Plus + Pinia + Vue Router |
+| Backend | Python Flask + flask-async + Waitress |
+| Browser Automation | Patchright + Playwright |
+| Desktop | Tauri (Rust) |
+| Image Processing | OpenCV |
 
 ### Prerequisites
 
-- **Python 3.10+** (Backend runtime)
-- **Node.js 18+** (Frontend build)
-- **npm** or **yarn** (Package management)
-- **Chrome/Chromium** browser (for account login automation)
+- **Python 3.10+**
+- **Node.js 18+**
+- **npm** or **yarn**
+- **Chrome/Chromium** (optional, Patchright built-in Chromium as fallback)
 
 ### Local Development Setup
 
-#### 1. Backend Setup
+#### 1. Backend
 
 ```bash
-# Navigate to backend directory
 cd backend
 
-# Create virtual environment (Python 3.10+)
+# Create virtual environment
 python -m venv venv
 
-# Activate virtual environment
+# Activate
 # Windows:
 venv\Scripts\activate
 # Linux/macOS:
@@ -44,51 +57,44 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Start backend server (http://localhost:8000)
+python app.py
 ```
 
-#### 2. Frontend Setup
+#### 2. Frontend
 
 ```bash
-# Navigate to frontend directory
 cd frontend
 
-# Install dependencies
 npm install
 
-# Start development server
 npm run dev
 ```
 
-#### 3. Access the Application
+#### 3. Access
 
-Open your browser and navigate to: **http://localhost:5173/**
+Open **http://localhost:5173** in your browser.
 
-### Building for Windows
+### Building Desktop App (Windows)
 
-#### Using Tauri (Desktop Application)
+```bash
+# Install Rust from https://rustup.rs/
 
-1. **Install Rust** (required by Tauri)
-   ```bash
-   # Download from https://rustup.rs/
-   ```
+cd src-tauri
+cargo tauri build
+```
 
-2. **Build the application**
-   ```bash
-   # From project root
-   cd src-tauri
-   cargo tauri build
-   ```
+Built executable: `src-tauri/target/release/`
 
-3. The built executable will be in `src-tauri/target/release/`
-
-#### Using Web Build Only
+### Building Web Only
 
 ```bash
 cd frontend
 npm run build
 ```
 
-The built files will be in `frontend/dist/`, which can be deployed to any web server.
+Output in `frontend/dist/`, deployable to any web server.
 
 ---
 
@@ -96,32 +102,45 @@ The built files will be in `frontend/dist/`, which can be deployed to any web se
 
 ### 项目介绍
 
-本项目是基于开源项目 [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload) 开发的 **Web-UI 界面**。底层功能基于原项目作了针对性的优化和修改，提供更现代化、更易用的网页界面。
+现代化的**网页界面**社交媒体自动发布工具。基于 [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload) 开发，完全重写了前端交互，提供跨多平台的视觉化发布体验。
 
 ### 功能特性
 
-- **多平台支持**：支持小红书、抖音、B站、快手、视频号
+- **多平台支持**：小红书、抖音、B站、快手、视频号、YouTube
 - **批量发布**：一次操作，同时发布内容到多个平台
-- **账号管理**：统一管理所有平台的账号
-- **素材管理**：上传和管理视频素材
-- **任务管理**：追踪发布状态和结果
+- **智能账号管理**：基于 Cookie 的认证体系，浏览器自动化可视化登录
+- **素材管理**：统一的视频/图片素材库，支持 B站封面编辑器
+- **任务中心**：实时发布状态追踪，异步任务队列
+- **定时发布**：日历式定时排程，灵活设置发布时间
+- **浏览器工厂**：Chrome 不可用时自动降级到 Patchright 内置 Chromium
+- **封面编辑器**：可视化封面选择，支持 B站多比例画幅
+- **跨平台兼容**：Web 部署 + Tauri 桌面应用（Windows）
+
+### 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 前端 | Vue 3 + Vite + Element Plus + Pinia + Vue Router |
+| 后端 | Python Flask + flask-async + Waitress |
+| 浏览器自动化 | Patchright + Playwright |
+| 桌面应用 | Tauri (Rust) |
+| 图片处理 | OpenCV |
 
 ### 准备工作
 
-- **Python 3.10+**（后端运行环境）
-- **Node.js 18+**（前端构建）
-- **npm** 或 **yarn**（包管理工具）
-- **Chrome/Chromium** 浏览器（用于账号登录自动化）
+- **Python 3.10+**
+- **Node.js 18+**
+- **npm** 或 **yarn**
+- **Chrome/Chromium**（可选，Patchright 内置 Chromium 作为备选）
 
 ### 本地启动
 
-#### 1. 后端设置
+#### 1. 后端
 
 ```bash
-# 进入后端目录
 cd backend
 
-# 创建虚拟环境 (Python 3.10+)
+# 创建虚拟环境
 python -m venv venv
 
 # 激活虚拟环境
@@ -132,44 +151,37 @@ source venv/bin/activate
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 启动后端服务 (http://localhost:8000)
+python app.py
 ```
 
-#### 2. 前端设置
+#### 2. 前端
 
 ```bash
-# 进入前端目录
 cd frontend
 
-# 安装依赖
 npm install
 
-# 启动开发服务器
 npm run dev
 ```
 
 #### 3. 访问应用
 
-打开浏览器访问：**http://localhost:5173/**
+打开浏览器访问：**http://localhost:5173**
 
-### Windows 系统打包
+### 打包桌面应用（Windows）
 
-#### 使用 Tauri（桌面应用）
+```bash
+# 从 https://rustup.rs/ 安装 Rust
 
-1. **安装 Rust**（Tauri 需要）
-   ```bash
-   # 从 https://rustup.rs/ 下载安装
-   ```
+cd src-tauri
+cargo tauri build
+```
 
-2. **构建应用**
-   ```bash
-   # 从项目根目录
-   cd src-tauri
-   cargo tauri build
-   ```
+构建产物：`src-tauri/target/release/`
 
-3. 构建完成的可执行文件在 `src-tauri/target/release/` 目录
-
-#### 仅构建 Web 版本
+### 仅构建 Web 版本
 
 ```bash
 cd frontend
@@ -180,11 +192,32 @@ npm run build
 
 ---
 
+## 项目结构
+
+```
+social-auto-upload-web-ui/
+├── frontend/              # Vue 3 前端应用
+│   ├── src/
+│   │   ├── views/        # 页面组件（仪表盘、账号管理、素材管理等）
+│   │   ├── components/    # 通用组件
+│   │   ├── router/        # 路由配置
+│   │   └── stores/         # Pinia 状态管理
+│   └── package.json
+├── backend/               # Python Flask 后端
+│   ├── app.py            # 主应用入口
+│   ├── playwright/       # 浏览器自动化（登录抓取）
+│   ├── ext_api/          # 平台 API 集成
+│   └── requirements.txt
+├── src-tauri/            # Tauri 桌面应用
+├── changelog/            # 更新日志
+└── data/                 # 工作数据（cookies、日志、视频文件）
+```
+
+---
+
 ## 许可证 / License
 
-本项目暂时采用 MIT License 开源许可证。
-
-This project is currently licensed under the MIT License.
+MIT License
 
 ---
 
@@ -194,7 +227,7 @@ This project is currently licensed under the MIT License.
 
 If this project is helpful to you, please give a ⭐ Star to show your support!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=DevilJie/socialUpload&type=Timeline)](https://star-history.com/#DevilJie/socialUpload&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=DevilJie/social-auto-upload-web-ui&type=Timeline)](https://star-history.com/#DevilJie/social-auto-upload-web-ui&Timeline)
 
 ---
 

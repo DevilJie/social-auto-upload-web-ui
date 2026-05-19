@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite:*)",
+      "Bash(curl -s http://localhost:5409/getFiles)",
+      "Bash(curl:*)",
+      "Bash(ls /home/czy/workspace/ai/social-auto-upload/data/videoFile/*.mp4)",
+      "Bash(xargs basename:*)",
+      "Bash(ls:*)",
+      "Bash(rm -rf ~/.claude/skills/gstack)",
+      "Bash(git clone:*)"
+    ]
+  }
+}

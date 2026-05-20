@@ -24,6 +24,8 @@ export default defineConfig({
       '/login': {
         target: 'http://localhost:5409',
         changeOrigin: true,
+        timeout: 120000,
+        proxyTimeout: 120000,
       },
       '/upload': {
         target: 'http://localhost:5409',
@@ -60,10 +62,14 @@ export default defineConfig({
       '/postVideo': {
         target: 'http://localhost:5409',
         changeOrigin: true,
+        timeout: 120000,
+        proxyTimeout: 120000,
       },
       '/postVideoBatch': {
         target: 'http://localhost:5409',
         changeOrigin: true,
+        timeout: 120000,
+        proxyTimeout: 120000,
       },
       '/updateUserinfo': {
         target: 'http://localhost:5409',
@@ -80,6 +86,8 @@ export default defineConfig({
       '/syncProfile': {
         target: 'http://localhost:5409',
         changeOrigin: true,
+        timeout: 120000,
+        proxyTimeout: 120000,
       },
       '/openCreatorCenter': {
         target: 'http://localhost:5409',
@@ -88,6 +96,8 @@ export default defineConfig({
       '/checkAccount': {
         target: 'http://localhost:5409',
         changeOrigin: true,
+        timeout: 120000,
+        proxyTimeout: 120000,
       },
       '/api/v2': {
         target: 'http://localhost:5409',

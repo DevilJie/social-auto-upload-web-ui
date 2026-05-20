@@ -1,6 +1,9 @@
+import asyncio
 import os
 import sys
+import threading
 from pathlib import Path
+from queue import Queue
 
 print(f"[Startup] Python {sys.version} starting...")
 print(f"[Startup] Script: {__file__}")
@@ -31,7 +34,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 
-from flask import g, jsonify, request, send_from_directory
+from flask import g, jsonify, request, Response, send_from_directory
 
 # 覆盖 sau_backend 的前端静态文件路由，指向正确的前端目录
 # 打包后前端在 exe 同级的 frontend/ 目录
@@ -44,6 +47,241 @@ if FRONTEND_DIR.exists():
     app.view_functions['custom_static'] = lambda filename: send_from_directory(str(FRONTEND_DIR / 'assets'), filename)
     app.view_functions['favicon'] = lambda: send_from_directory(str(FRONTEND_DIR), 'favicon.ico')
     app.view_functions['vite_svg'] = lambda: send_from_directory(str(FRONTEND_DIR), 'vite.svg')
+
+# ── 引擎模式路由覆盖 ──────────────────────────
+# 保存原始 view functions，dispatcher 内部每次请求判断引擎模式
+# 用户切换引擎模式后无需重启，下一次请求立即生效
+
+from impl.settings import get_engine_mode
+from impl.registry import get_platform
+
+
+def _get_account_record(account_id):
+    """根据 id 从 user_info 查账号记录，返回 dict 或 None"""
+    with sqlite3.connect(str(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM user_info WHERE id = ?', (account_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+_original_check = app.view_functions.get('check_account')
+_original_sync = app.view_functions.get('sync_profile')
+_original_center = app.view_functions.get('open_creator_center')
+_original_login = app.view_functions.get('login')
+_original_post = app.view_functions.get('postVideo')
+_original_batch = app.view_functions.get('postVideoBatch')
+
+
+def _override_check_account():
+    account_id = request.args.get('id')
+    if not account_id or not account_id.isdigit():
+        return jsonify({"code": 400, "msg": "无效的账号ID"}), 400
+
+    record = _get_account_record(int(account_id))
+    if not record:
+        return jsonify({"code": 404, "msg": "账号不存在"}), 404
+
+    platform = get_platform(record['type'])
+    if not platform:
+        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    valid = asyncio.run(platform.check_cookie(record['filePath']))
+    new_status = 1 if valid else 0
+    with sqlite3.connect(str(DB_PATH)) as conn:
+        conn.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, record['id']))
+        conn.commit()
+
+    msg = "Cookie 有效" if valid else "Cookie 已失效，请重新登录"
+    return jsonify({"code": 200, "msg": msg, "data": {"id": record['id'], "status": new_status, "valid": valid}})
+
+
+def _override_sync_profile():
+    account_id = request.json.get('id')
+    if not account_id:
+        return jsonify({"code": 400, "msg": "缺少账号ID", "data": None}), 400
+
+    record = _get_account_record(account_id)
+    if not record:
+        return jsonify({"code": 404, "msg": "账号不存在", "data": None}), 404
+
+    platform = get_platform(record['type'])
+    if not platform:
+        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    name, avatar = asyncio.run(platform.sync_profile(record['filePath']))
+    if name or avatar:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            if name:
+                conn.execute('UPDATE user_info SET userName = ?, avatar = ? WHERE id = ?',
+                             (name, avatar, account_id))
+            else:
+                conn.execute('UPDATE user_info SET avatar = ? WHERE id = ?', (avatar, account_id))
+            conn.commit()
+
+    return jsonify({"code": 200, "msg": "同步成功", "data": {"name": name, "avatar": avatar}})
+
+
+def _override_open_creator_center():
+    account_id = request.json.get('id')
+    if not account_id:
+        return jsonify({"code": 400, "msg": "缺少账号ID"}), 400
+
+    record = _get_account_record(account_id)
+    if not record:
+        return jsonify({"code": 404, "msg": "账号不存在"}), 404
+
+    platform = get_platform(record['type'])
+    if not platform:
+        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    thread = threading.Thread(
+        target=lambda: asyncio.run(platform.open_creator_center(record['filePath'])),
+        daemon=True
+    )
+    thread.start()
+    return jsonify({"code": 200, "msg": "正在打开创作中心"})
+
+
+def _override_login():
+    type_str = request.args.get('type')
+    id_str = request.args.get('id')
+    if not type_str or not id_str:
+        return jsonify({"code": 400, "msg": "缺少 type 或 id"}), 400
+
+    platform = get_platform(int(type_str))
+    if not platform:
+        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    import sau_backend
+    if not hasattr(sau_backend, 'active_queues') or not isinstance(sau_backend.active_queues, dict):
+        sau_backend.active_queues = {}
+    status_queue = Queue()
+    sau_backend.active_queues[id_str] = status_queue
+
+    def _cleanup():
+        sau_backend.active_queues.pop(id_str, None)
+
+    thread = threading.Thread(
+        target=lambda: asyncio.run(platform.login(id_str, status_queue)),
+        daemon=True
+    )
+    thread.start()
+
+    response = Response(sau_backend.sse_stream(status_queue), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['Content-Type'] = 'text/event-stream'
+    response.call_on_close(_cleanup)
+    return response
+
+
+def _override_post_video():
+    data = request.get_json()
+    if not data:
+        return jsonify({"code": 400, "msg": "请求数据不能为空", "data": None}), 400
+
+    platform = get_platform(data.get('type'))
+    if not platform:
+        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    try:
+        platform.publish_video(
+            title=data.get('title'),
+            files=data.get('fileList', []),
+            tags=data.get('tags'),
+            account_file=data.get('accountList', []),
+            category=data.get('category'),
+            enableTimer=data.get('enableTimer'),
+            videos_per_day=data.get('videosPerDay'),
+            daily_times=data.get('dailyTimes'),
+            start_days=data.get('startDays'),
+            thumbnail_path=data.get('thumbnail', ''),
+            thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
+            thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+            productLink=data.get('productLink', ''),
+            productTitle=data.get('productTitle', ''),
+            desc=data.get('description', ''),
+            schedule_time_str=data.get('scheduleTime', ''),
+            ai_content=data.get('aiContent', ''),
+            creation_declaration=data.get('creationDeclaration', ''),
+            supplementary_declaration=data.get('supplementaryDeclaration', ''),
+            is_draft=data.get('isDraft', False),
+            audience=data.get('audience', 'not_kids'),
+            altered_content=data.get('alteredContent', False),
+        )
+        return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
+    except Exception as e:
+        print(f"发布视频时出错: {str(e)}")
+        return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
+
+
+def _override_post_video_batch():
+    data_list = request.get_json()
+    if not isinstance(data_list, list):
+        return jsonify({"code": 400, "msg": "Expected a JSON array", "data": None}), 400
+
+    for data in data_list:
+        platform = get_platform(data.get('type'))
+        if not platform:
+            return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+        platform.publish_video(
+            title=data.get('title'),
+            files=data.get('fileList', []),
+            tags=data.get('tags'),
+            account_file=data.get('accountList', []),
+            category=data.get('category'),
+            enableTimer=data.get('enableTimer'),
+            videos_per_day=data.get('videosPerDay'),
+            daily_times=data.get('dailyTimes'),
+            start_days=data.get('startDays'),
+            thumbnail_path=data.get('thumbnail', ''),
+            thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
+            thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+            productLink=data.get('productLink', ''),
+            productTitle=data.get('productTitle', ''),
+            desc=data.get('description', ''),
+            schedule_time_str=data.get('scheduleTime', ''),
+            ai_content=data.get('aiContent', ''),
+            creation_declaration=data.get('creationDeclaration', ''),
+            supplementary_declaration=data.get('supplementaryDeclaration', ''),
+            is_draft=data.get('isDraft', False),
+            audience=data.get('audience', 'not_kids'),
+            altered_content=data.get('alteredContent', False),
+        )
+
+    return jsonify({"code": 200, "msg": None, "data": None}), 200
+
+
+def _make_dispatcher(original_fn, override_fn):
+    def dispatcher(*args, **kwargs):
+        mode = get_engine_mode()
+        print(f"[ENGINE] mode={mode} path={request.path}", flush=True)
+        if mode == 'new':
+            resp = override_fn(*args, **kwargs)
+        else:
+            resp = original_fn(*args, **kwargs) if original_fn else (jsonify({"code": 500, "msg": "旧版引擎不可用"}), 500)
+
+        # 给响应加标记头，方便 DevTools 识别当前引擎
+        if isinstance(resp, tuple):
+            body, status = resp
+            body.headers['X-Engine-Mode'] = mode
+        elif isinstance(resp, Response):
+            resp.headers['X-Engine-Mode'] = mode
+        return resp
+    dispatcher.__name__ = original_fn.__name__ if original_fn else 'dispatcher'
+    return dispatcher
+
+
+# 始终替换 view functions，dispatcher 内部每次请求判断引擎模式
+app.view_functions['check_account'] = _make_dispatcher(_original_check, _override_check_account)
+app.view_functions['sync_profile'] = _make_dispatcher(_original_sync, _override_sync_profile)
+app.view_functions['open_creator_center'] = _make_dispatcher(_original_center, _override_open_creator_center)
+app.view_functions['login'] = _make_dispatcher(_original_login, _override_login)
+app.view_functions['postVideo'] = _make_dispatcher(_original_post, _override_post_video)
+app.view_functions['postVideoBatch'] = _make_dispatcher(_original_batch, _override_post_video_batch)
 
 
 def _get_db_path():

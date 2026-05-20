@@ -1,0 +1,1 @@
+"""kuaishou platform implementation."""

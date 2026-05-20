@@ -1,0 +1,1 @@
+"""douyin platform implementation."""

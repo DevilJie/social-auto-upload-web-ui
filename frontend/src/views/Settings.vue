@@ -31,6 +31,26 @@
       </div>
     </div>
 
+    <!-- 引擎模式 -->
+    <div class="settings-card">
+      <h3 class="card-title">
+        <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        引擎模式
+      </h3>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">发布引擎</span>
+          <span class="setting-desc">新版引擎使用抽象化平台架构，便于维护和扩展。切换后立即生效。</span>
+        </div>
+        <div class="setting-control">
+          <el-radio-group v-model="settings.engineMode">
+            <el-radio value="old">旧版引擎 (legacy)</el-radio>
+            <el-radio value="new">新版引擎 (v2)</el-radio>
+          </el-radio-group>
+        </div>
+      </div>
+    </div>
+
     <!-- 关于系统 -->
     <div class="settings-card">
       <h3 class="card-title">
@@ -82,6 +102,7 @@ const saving = ref(false)
 
 const settings = reactive({
   proxyUrl: '',
+  engineMode: 'old',
 })
 
 // 海外平台列表
@@ -113,6 +134,7 @@ const fetchSettings = async () => {
     const res = await settingsApi.getSettings()
     if (res.code === 200 && res.data) {
       if (res.data.proxyUrl !== undefined) settings.proxyUrl = res.data.proxyUrl
+      if (res.data.engineMode !== undefined) settings.engineMode = res.data.engineMode
     }
   } catch (e) {
     console.error(e)
@@ -124,7 +146,10 @@ const fetchSettings = async () => {
 const handleSave = async () => {
   saving.value = true
   try {
-    const res = await settingsApi.updateSettings({ proxyUrl: settings.proxyUrl })
+    const res = await settingsApi.updateSettings({
+      proxyUrl: settings.proxyUrl,
+      engineMode: settings.engineMode,
+    })
     if (res.code === 200) {
       ElMessage.success('设置已保存')
     } else {

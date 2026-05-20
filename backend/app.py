@@ -211,6 +211,8 @@ def _override_post_video():
             audience=data.get('audience', 'not_kids'),
             altered_content=data.get('alteredContent', False),
         ))
+        return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
+    except Exception as e:
         print(f"发布视频时出错: {str(e)}")
         return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
 

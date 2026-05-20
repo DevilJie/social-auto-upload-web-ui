@@ -1434,10 +1434,12 @@ function saveDraft() {
     const draftData = {
       commonConfig: {
         topics: [...commonConfig.topics],
-        fileList: commonConfig.fileList.map(f => ({ name: f.name, path: f.path, url: f.url, size: f.size, type: f.type })),
+        videoLandscape: commonConfig.videoLandscape ? { name: commonConfig.videoLandscape.name, path: commonConfig.videoLandscape.path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type } : null,
+        videoPortrait: commonConfig.videoPortrait ? { name: commonConfig.videoPortrait.name, path: commonConfig.videoPortrait.path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type } : null,
         coverLandscape: commonConfig.coverLandscape ? { name: commonConfig.coverLandscape.name, path: commonConfig.coverLandscape.path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type } : null,
         coverPortrait: commonConfig.coverPortrait ? { name: commonConfig.coverPortrait.name, path: commonConfig.coverPortrait.path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type } : null,
       },
+      accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
       savedAt: new Date().toISOString(),
     }
@@ -1450,8 +1452,8 @@ function saveDraft() {
 
 async function publishAll() {
   // Validate
-  if (commonConfig.fileList.length === 0) {
-    ElMessage.error('请先上传视频文件')
+  if (!commonConfig.videoLandscape && !commonConfig.videoPortrait) {
+    ElMessage.error('请先上传至少一个视频文件')
     return
   }
 
@@ -1509,6 +1511,29 @@ async function publishAll() {
     currentPublishingAccount.value = account.name
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
+      // Get the effective videoFormat for this account
+      const override = accountOverrides[account.id] || {}
+      const videoFormat = override.videoFormat || platformSettings.videoFormat || ''
+
+      // Select video based on format
+      let selectedVideo
+      if (videoFormat === 'portrait') {
+        selectedVideo = commonConfig.videoPortrait
+      } else if (videoFormat === 'landscape') {
+        selectedVideo = commonConfig.videoLandscape
+      } else {
+        selectedVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
+      }
+
+      if (!selectedVideo) {
+        publishResults.value.push({
+          label: account.name,
+          status: 'error',
+          message: '未找到匹配的视频（请检查视频格式设置）',
+        })
+        continue
+      }
+
     try {
       // 解析平台自定义标签：支持 "#xx #xx" 和 "xx,xx" 两种格式
       const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
@@ -1519,7 +1544,8 @@ async function publishAll() {
         title: platformSettings.title,
         description: platformSettings.description || '',
         tags: allTags,
-        fileList: commonConfig.fileList.map(f => f.path),
+        fileList: [selectedVideo.path],
+        videoFormat: videoFormat,
         accountList: [account.filePath],
         thumbnailLandscape: commonConfig.coverLandscape ? commonConfig.coverLandscape.path : '',
         thumbnailPortrait: commonConfig.coverPortrait ? commonConfig.coverPortrait.path : '',

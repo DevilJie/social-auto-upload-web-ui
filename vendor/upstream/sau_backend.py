@@ -65,14 +65,30 @@ def upload_file():
             "msg": "No selected file"
         }), 400
     try:
-        # 保存文件到指定位置
         uuid_v1 = uuid.uuid1()
-        print(f"UUID v1: {uuid_v1}")
-        filepath = Path(BASE_DIR / "videoFile" / f"{uuid_v1}_{file.filename}")
+        final_filename = f"{uuid_v1}_{file.filename}"
+        filepath = Path(BASE_DIR / "videoFile" / final_filename)
         file.save(filepath)
-        return jsonify({"code":200,"msg": "File uploaded successfully", "data": f"{uuid_v1}_{file.filename}"}), 200
+
+        # 写入素材库
+        with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO file_records (filename, filesize, file_path) VALUES (?, ?, ?)',
+                (file.filename, round(float(os.path.getsize(filepath)) / (1024 * 1024), 2), final_filename)
+            )
+            conn.commit()
+
+        return jsonify({
+            "code": 200,
+            "msg": "File uploaded successfully",
+            "data": {
+                "filename": file.filename,
+                "filepath": final_filename,
+            }
+        }), 200
     except Exception as e:
-        return jsonify({"code":500,"msg": str(e),"data":None}), 500
+        return jsonify({"code": 500, "msg": str(e), "data": None}), 500
 
 @app.route('/getFile', methods=['GET'])
 def get_file():

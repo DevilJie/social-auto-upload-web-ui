@@ -868,6 +868,7 @@ const coverUploadDialogVisible = ref(false)
 const materialLibraryVisible = ref(false)
 const materialLibraryMode = ref('video') // 'video' | 'cover'
 const materialLibraryCoverTarget = ref('landscape') // 'landscape' | 'portrait'
+const materialLibraryVideoTarget = ref('landscape') // 'landscape' | 'portrait'
 const batchPublishDialogVisible = ref(false)
 
 // Account dialog state
@@ -1201,9 +1202,13 @@ function handleCoverFileChange(e) {
 
 // ========== Material Library ==========
 
-async function selectFromLibrary(mode = 'video', coverTarget = 'landscape') {
+async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape') {
   materialLibraryMode.value = mode
-  materialLibraryCoverTarget.value = coverTarget
+  if (mode === 'video') {
+    materialLibraryVideoTarget.value = videoOrCoverTarget
+  } else {
+    materialLibraryCoverTarget.value = videoOrCoverTarget
+  }
   if (materials.value.length === 0) {
     try {
       const response = await materialApi.getAllMaterials()
@@ -1247,7 +1252,7 @@ function confirmMaterialSelect() {
       ElMessage.success('封面已设置')
     }
   } else {
-    // 视频模式：取第一个素材放入对应格式位
+    // 素材库选择视频模式，只用第一个
     const material = materials.value.find(m => m.id === selectedMaterials.value[0])
     if (material) {
       const videoData = {
@@ -1257,13 +1262,13 @@ function confirmMaterialSelect() {
         size: material.filesize * 1024 * 1024,
         type: 'video/mp4',
       }
-      if (materialLibraryCoverTarget.value === 'portrait') {
+      if (materialLibraryVideoTarget.value === 'portrait') {
         commonConfig.videoPortrait = videoData
       } else {
         commonConfig.videoLandscape = videoData
       }
+      ElMessage.success('视频已设置')
     }
-    ElMessage.success('素材已添加')
   }
   materialLibraryVisible.value = false
   selectedMaterials.value = []

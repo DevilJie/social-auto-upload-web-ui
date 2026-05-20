@@ -38,14 +38,14 @@ def is_supported(platform_id: int) -> bool:
 
 def _populate_registry() -> None:
     imports = [
-        (1, ".xiaohongshu.uploader", "XiaohongshuPlatform"),
-        (2, ".channels.uploader", "ChannelsPlatform"),
-        (3, ".douyin.uploader", "DouyinPlatform"),
-        (4, ".kuaishou.uploader", "KuaishouPlatform"),
-        (5, ".bilibili.uploader", "BilibiliPlatform"),
-        (6, ".baijiahao.uploader", "BaijiahaoPlatform"),
-        (7, ".tiktok.uploader", "TiktokPlatform"),
-        (8, ".youtube.uploader", "YoutubePlatform"),
+        (1, ".xiaohongshu.platform", "XiaohongshuPlatform"),
+        (2, ".channels.platform", "ChannelsPlatform"),
+        (3, ".douyin.platform", "DouyinPlatform"),
+        (4, ".kuaishou.platform", "KuaishouPlatform"),
+        (5, ".bilibili.platform", "BilibiliPlatform"),
+        (6, ".baijiahao.platform", "BaijiahaoPlatform"),
+        (7, ".tiktok.platform", "TiktokPlatform"),
+        (8, ".youtube.platform", "YoutubePlatform"),
     ]
 
     import importlib

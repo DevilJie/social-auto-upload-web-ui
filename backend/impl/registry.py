@@ -41,14 +41,14 @@ def is_supported(platform_id: int) -> bool:
 
 def _populate_registry() -> None:
     imports = [
-        (1, ".platform_xiaohongshu", "XiaohongshuPlatform"),
-        (2, ".platform_shipinhao", "ShipinhaoPlatform"),
-        (3, ".platform_douyin", "DouyinPlatform"),
-        (4, ".platform_kuaishou", "KuaishouPlatform"),
-        (5, ".platform_bilibili", "BilibiliPlatform"),
-        (6, ".platform_baijiahao", "BaijiahaoPlatform"),
-        (7, ".platform_tiktok", "TiktokPlatform"),
-        (8, ".platform_youtube", "YoutubePlatform"),
+        (1, ".xiaohongshu.uploader", "XiaohongshuPlatform"),
+        (2, ".channels.uploader", "ChannelsPlatform"),
+        (3, ".douyin.uploader", "DouyinPlatform"),
+        (4, ".kuaishou.uploader", "KuaishouPlatform"),
+        (5, ".bilibili.uploader", "BilibiliPlatform"),
+        (6, ".baijiahao.uploader", "BaijiahaoPlatform"),
+        (7, ".tiktok.uploader", "TiktokPlatform"),
+        (8, ".youtube.uploader", "YoutubePlatform"),
     ]
 
     for pid, mod_path, cls_name in imports:

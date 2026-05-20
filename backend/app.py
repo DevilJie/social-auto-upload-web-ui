@@ -1,6 +1,9 @@
+import asyncio
 import os
 import sys
+import threading
 from pathlib import Path
+from queue import Queue
 
 print(f"[Startup] Python {sys.version} starting...")
 print(f"[Startup] Script: {__file__}")
@@ -48,10 +51,6 @@ if FRONTEND_DIR.exists():
 # ── 引擎模式路由覆盖 ──────────────────────────
 # 保存原始 view functions，dispatcher 内部每次请求判断引擎模式
 # 用户切换引擎模式后无需重启，下一次请求立即生效
-
-import asyncio
-import threading
-from queue import Queue
 
 from impl.settings import get_engine_mode
 from impl.registry import get_platform
@@ -156,8 +155,13 @@ def _override_login():
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
 
     import sau_backend
+    if not hasattr(sau_backend, 'active_queues') or not isinstance(sau_backend.active_queues, dict):
+        sau_backend.active_queues = {}
     status_queue = Queue()
     sau_backend.active_queues[id_str] = status_queue
+
+    def _cleanup():
+        sau_backend.active_queues.pop(id_str, None)
 
     thread = threading.Thread(
         target=lambda: asyncio.run(platform.login(id_str, status_queue)),
@@ -169,6 +173,7 @@ def _override_login():
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Content-Type'] = 'text/event-stream'
+    response.call_on_close(_cleanup)
     return response
 
 

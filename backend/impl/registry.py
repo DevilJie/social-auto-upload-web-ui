@@ -1,12 +1,9 @@
-"""
-Platform registry and factory.
-
-All platform classes are registered at module load time via late imports
-so that the registry package is self-contained even when individual platform
-modules do not yet exist (they will be added in later tasks).
-"""
+"""Platform registry and factory."""
+import logging
 
 from .base_platform import BasePlatform
+
+logger = logging.getLogger(__name__)
 
 _registry: dict[int, type[BasePlatform]] = {}
 
@@ -58,8 +55,8 @@ def _populate_registry() -> None:
             mod = importlib.import_module(mod_path, package=__package__)
             cls = getattr(mod, cls_name)
             register(pid, cls)
-        except (ImportError, AttributeError):
-            pass  # Module not yet created -- will be populated later
+        except (ImportError, AttributeError) as e:
+            logger.warning("Platform %d (%s) skipped: %s", pid, mod_path, e)
 
 
 _populate_registry()

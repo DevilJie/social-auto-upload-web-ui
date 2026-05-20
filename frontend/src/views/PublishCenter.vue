@@ -87,53 +87,56 @@
           <!-- Video Section -->
           <div class="media-section">
             <div class="section-label">视频</div>
-            <!-- Empty state -->
-            <div v-if="commonConfig.fileList.length === 0" class="video-empty">
-              <div class="empty-icon">
-                <el-icon :size="40"><VideoCameraFilled /></el-icon>
-              </div>
-              <div class="empty-text">暂无视频，请上传或从素材库选择</div>
-              <div class="empty-actions">
-                <button class="cover-action-btn" @click="triggerUploadVideo">
-                  <el-icon :size="15"><Upload /></el-icon><span>本地选择</span>
-                </button>
-                <button class="cover-action-btn" @click="selectFromLibrary">
-                  <el-icon :size="15"><Picture /></el-icon><span>素材库</span>
-                </button>
-              </div>
-            </div>
-            <!-- Filled state: video player + actions -->
-            <div v-else class="video-filled">
-              <div class="video-player-wrap">
-                <video
-                  :src="commonConfig.fileList[0].url"
-                  controls
-                  preload="metadata"
-                  class="video-player"
-                ></video>
-              </div>
-              <div class="video-sidebar">
-                <div class="video-file-list">
-                  <div
-                    v-for="(file, idx) in commonConfig.fileList"
-                    :key="idx"
-                    :class="['video-file-item', { active: activeVideoIdx === idx }]"
-                    @click="activeVideoIdx = idx"
-                  >
-                    <span class="file-name">{{ file.name }}</span>
-                    <span class="file-size">{{ formatSize(file.size) }}</span>
-                    <el-icon class="remove-icon cursor-pointer" @click.stop="removeVideo(idx)"><Close /></el-icon>
+            <div class="video-dual-grid">
+              <!-- Landscape -->
+              <div class="video-card">
+                <div class="video-card-label">
+                  <span>横版视频</span>
+                  <span class="video-ratio">16:9</span>
+                </div>
+                <div v-if="!commonConfig.videoLandscape" class="video-card-empty" @click="triggerUploadVideo('landscape')">
+                  <el-icon :size="28"><Upload /></el-icon>
+                  <span class="video-card-empty-text">上传横版视频</span>
+                </div>
+                <div v-else class="video-card-preview">
+                  <video :src="commonConfig.videoLandscape.url" controls preload="metadata" class="video-player"></video>
+                  <div class="video-card-overlay">
+                    <button class="overlay-btn" @click="triggerUploadVideo('landscape')">替换</button>
+                    <button class="overlay-btn danger" @click="clearVideo('landscape')">移除</button>
                   </div>
                 </div>
-                <div class="video-actions">
-                  <button class="cover-action-btn" @click="triggerUploadVideo">
-                    <el-icon :size="15"><Upload /></el-icon><span>本地选择</span>
+                <div class="video-card-actions">
+                  <button class="cover-action-btn" @click="triggerUploadVideo('landscape')">
+                    <el-icon :size="14"><Upload /></el-icon><span>本地上传</span>
                   </button>
-                  <button class="cover-action-btn" @click="selectFromLibrary">
-                    <el-icon :size="15"><Picture /></el-icon><span>素材库</span>
+                  <button class="cover-action-btn" @click="selectFromLibrary('video', 'landscape')">
+                    <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
                   </button>
-                  <button class="cover-action-btn danger" @click="clearAllVideos">
-                    <el-icon :size="15"><Close /></el-icon><span>移除全部</span>
+                </div>
+              </div>
+              <!-- Portrait -->
+              <div class="video-card">
+                <div class="video-card-label">
+                  <span>竖版视频</span>
+                  <span class="video-ratio">9:16</span>
+                </div>
+                <div v-if="!commonConfig.videoPortrait" class="video-card-empty" @click="triggerUploadVideo('portrait')">
+                  <el-icon :size="28"><Upload /></el-icon>
+                  <span class="video-card-empty-text">上传竖版视频</span>
+                </div>
+                <div v-else class="video-card-preview">
+                  <video :src="commonConfig.videoPortrait.url" controls preload="metadata" class="video-player"></video>
+                  <div class="video-card-overlay">
+                    <button class="overlay-btn" @click="triggerUploadVideo('portrait')">替换</button>
+                    <button class="overlay-btn danger" @click="clearVideo('portrait')">移除</button>
+                  </div>
+                </div>
+                <div class="video-card-actions">
+                  <button class="cover-action-btn" @click="triggerUploadVideo('portrait')">
+                    <el-icon :size="14"><Upload /></el-icon><span>本地上传</span>
+                  </button>
+                  <button class="cover-action-btn" @click="selectFromLibrary('video', 'portrait')">
+                    <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
                   </button>
                 </div>
               </div>
@@ -530,7 +533,7 @@
     <!-- Video Upload Dialog -->
     <el-dialog
       v-model="videoUploadDialogVisible"
-      title="上传视频"
+      :title="'上传' + (videoUploadTarget === 'portrait' ? '竖版' : '横版') + '视频'"
       width="600px"
       class="video-upload-dialog"
     >
@@ -538,10 +541,9 @@
         class="video-upload"
         drag
         :auto-upload="true"
-        :action="`${apiBaseUrl}/upload`"
+        :action="`${apiBaseUrl}/uploadSave`"
         :on-success="handleVideoUploadSuccess"
         :on-error="handleUploadError"
-        multiple
         accept="video/*"
         :headers="authHeaders"
       >
@@ -550,7 +552,7 @@
           将视频文件拖到此处，或<em>点击上传</em>
         </div>
         <template #tip>
-          <div class="el-upload__tip">支持MP4、AVI等视频格式，可上传多个文件</div>
+          <div class="el-upload__tip">支持MP4、AVI等视频格式</div>
         </template>
       </el-upload>
 
@@ -713,14 +715,6 @@
 
     <!-- Hidden file inputs -->
     <input
-      ref="videoInputRef"
-      type="file"
-      accept="video/*"
-      multiple
-      style="display: none"
-      @change="handleVideoFileChange"
-    />
-    <input
       ref="coverInputRef"
       type="file"
       accept="image/*"
@@ -837,7 +831,7 @@ function getAccountSettings(accountId, platformKey) {
   // 账号级覆盖优先，其次渠道默认
   const merged = { ...platform }
   for (const key of Object.keys(merged)) {
-    if (override[key] !== undefined && override[key] !== '' && override[key] !== false) {
+    if (override[key] !== undefined && override[key] !== '') {
       merged[key] = override[key]
     }
   }
@@ -869,6 +863,7 @@ if (firstGroup) {
 const accountDialogVisible = ref(false)
 const topicDialogVisible = ref(false)
 const videoUploadDialogVisible = ref(false)
+const videoUploadTarget = ref('landscape') // 'landscape' | 'portrait'
 const coverUploadDialogVisible = ref(false)
 const materialLibraryVisible = ref(false)
 const materialLibraryMode = ref('video') // 'video' | 'cover'
@@ -924,8 +919,6 @@ const publishResults = ref([])
 const currentPublishingAccount = ref('')
 const isCancelled = ref(false)
 
-// File input refs
-const videoInputRef = ref(null)
 const coverInputRef = ref(null)
 
 // ========== Sidebar Methods ==========
@@ -961,7 +954,8 @@ function selectAccount(account, group) {
 
 // ========== Upload Methods ==========
 
-function triggerUploadVideo() {
+function triggerUploadVideo(target = 'landscape') {
+  videoUploadTarget.value = target
   videoUploadDialogVisible.value = true
 }
 
@@ -1153,15 +1147,21 @@ function applyCrop() {
 
 function handleVideoUploadSuccess(response, file) {
   if (response.code === 200) {
-    const filePath = response.data.path || response.data
+    const filePath = response.data.filepath || response.data
     const filename = filePath.split('/').pop()
-    commonConfig.fileList.push({
+    const videoData = {
       name: file.name,
       url: materialApi.getMaterialPreviewUrl(filename),
       path: filePath,
       size: file.size,
       type: file.type,
-    })
+    }
+    if (videoUploadTarget.value === 'portrait') {
+      commonConfig.videoPortrait = videoData
+    } else {
+      commonConfig.videoLandscape = videoData
+    }
+    videoUploadDialogVisible.value = false
     ElMessage.success('视频上传成功')
   } else {
     ElMessage.error(response.msg || '上传失败')
@@ -1193,10 +1193,6 @@ function handleCoverUploadSuccess(response, file) {
 
 function handleUploadError() {
   ElMessage.error('文件上传失败')
-}
-
-function handleVideoFileChange(e) {
-  // handled by el-upload dialog
 }
 
 function handleCoverFileChange(e) {
@@ -1251,22 +1247,23 @@ function confirmMaterialSelect() {
       ElMessage.success('封面已设置')
     }
   } else {
-    selectedMaterials.value.forEach(materialId => {
-      const material = materials.value.find(m => m.id === materialId)
-      if (material) {
-        const exists = commonConfig.fileList.some(f => f.path === material.file_path)
-        if (!exists) {
-          commonConfig.fileList.push({
-            name: material.filename,
-            url: materialApi.getMaterialPreviewUrl(material.file_path.split('/').pop()),
-            path: material.file_path,
-            size: material.filesize * 1024 * 1024,
-            type: 'video/mp4',
-          })
-        }
+    // 视频模式：取第一个素材放入对应格式位
+    const material = materials.value.find(m => m.id === selectedMaterials.value[0])
+    if (material) {
+      const videoData = {
+        name: material.filename,
+        url: materialApi.getMaterialPreviewUrl(material.file_path.split('/').pop()),
+        path: material.file_path,
+        size: material.filesize * 1024 * 1024,
+        type: 'video/mp4',
       }
-    })
-    ElMessage.success(`已添加 ${selectedMaterials.value.length} 个素材`)
+      if (materialLibraryCoverTarget.value === 'portrait') {
+        commonConfig.videoPortrait = videoData
+      } else {
+        commonConfig.videoLandscape = videoData
+      }
+    }
+    ElMessage.success('素材已添加')
   }
   materialLibraryVisible.value = false
   selectedMaterials.value = []
@@ -2012,6 +2009,104 @@ function formatSize(bytes) {
         justify-content: center;
       }
     }
+  }
+}
+
+// ----- Video Dual Card Grid -----
+.video-dual-grid {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.video-card {
+  flex: 1;
+  border: 1px dashed $border;
+  border-radius: $radius-base;
+  overflow: hidden;
+  transition: $transition-base;
+
+  &:hover {
+    border-color: $border-active;
+  }
+
+  .video-card-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 12px;
+    font-weight: 500;
+    color: $text-secondary;
+
+    .video-ratio {
+      font-size: 10px;
+      color: $text-muted;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  }
+
+  .video-card-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 40px 0;
+    color: $text-muted;
+    cursor: pointer;
+    transition: $transition-base;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.03);
+      color: $brand-start;
+      .video-card-empty-text { color: $brand-start; }
+    }
+
+    .video-card-empty-text { font-size: 12px; transition: $transition-fast; }
+  }
+
+  .video-card-preview {
+    position: relative;
+    video {
+      width: 100%;
+      display: block;
+      max-height: 200px;
+      outline: none;
+    }
+    .video-card-overlay {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      padding: 8px 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.7));
+      opacity: 0;
+      transition: $transition-base;
+      .overlay-btn {
+        padding: 3px 10px;
+        border: none; border-radius: 4px;
+        background: rgba(255,255,255,0.15);
+        color: #fff; font-size: 12px;
+        cursor: pointer; transition: $transition-fast;
+        outline: none; font-family: inherit;
+        &:hover { background: rgba(255,255,255,0.25); }
+        &.danger:hover { background: rgba($danger-color,0.6); }
+      }
+    }
+    &:hover .video-card-overlay { opacity: 1; }
+  }
+
+  .video-card-actions {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    .cover-action-btn { flex: 1; }
   }
 }
 

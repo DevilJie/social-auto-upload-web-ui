@@ -313,82 +313,105 @@
           </div>
 
           <div class="settings-grid">
-            <div
-              v-for="field in currentPlatformConfig.settingsFields"
-              :key="field.key"
-              class="setting-card"
-              :style="{
-                borderColor: currentPlatformConfig.color + '26',
-                background: currentPlatformConfig.color + '0a'
-              }"
-            >
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">{{ field.label }}</div>
-              <div v-if="field.description" class="setting-desc">{{ field.description }}</div>
-
-              <!-- Input field -->
-              <el-input
-                v-if="field.type === 'input'"
-                v-model="currentSettings[field.key]"
-                :placeholder="field.placeholder"
-                size="small"
-              />
-
-              <!-- Switch field -->
-              <el-switch
-                v-else-if="field.type === 'switch'"
-                v-model="currentSettings[field.key]"
-              />
-
-              <!-- Radio field -->
-              <div v-else-if="field.type === 'radio'" class="radio-row">
-                <label
-                  v-for="opt in field.options"
-                  :key="String(opt.value)"
-                  class="radio-item cursor-pointer"
-                >
-                  <input
-                    type="radio"
-                    :name="selectedPlatform + '-' + field.key"
-                    :value="opt.value"
-                    v-model="currentSettings[field.key]"
-                    class="cursor-pointer"
-                  />
-                  <span
-                    :class="['radio-text', { on: currentSettings[field.key] === opt.value }]"
-                    :style="currentSettings[field.key] === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
-                  >{{ opt.label }}</span>
-                </label>
+            <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
+              <!-- ===== Special rendering for videoFormat ===== -->
+              <div v-if="field.key === 'videoFormat'" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">{{ field.label }}</div>
+                <div class="radio-row">
+                  <label
+                    v-for="opt in videoFormatOptions"
+                    :key="opt.value"
+                    :class="['radio-item', 'cursor-pointer', { disabled: opt.disabled }]"
+                  >
+                    <input
+                      type="radio"
+                      :name="selectedPlatform + '-videoFormat'"
+                      :value="opt.value"
+                      v-model="currentSettings['videoFormat']"
+                      :disabled="opt.disabled"
+                      class="cursor-pointer"
+                    />
+                    <span
+                      :class="['radio-text', { on: currentSettings['videoFormat'] === opt.value, muted: opt.disabled }]"
+                      :style="currentSettings['videoFormat'] === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    >{{ opt.label }}</span>
+                  </label>
+                </div>
+                <div v-if="!commonConfig.videoLandscape && !commonConfig.videoPortrait" class="setting-desc" style="font-size: 12px; color: $text-muted;">
+                  请先上传视频
+                </div>
               </div>
 
-              <!-- Select field -->
-              <el-select
-                v-else-if="field.type === 'select'"
-                v-model="currentSettings[field.key]"
-                :placeholder="field.placeholder"
-                size="small"
-                clearable
-                class="cursor-pointer"
-              >
-                <el-option
-                  v-for="opt in (field.options || [])"
-                  :key="opt.value"
-                  :label="opt.label"
-                  :value="opt.value"
-                />
-                <el-option v-if="!field.options || field.options.length === 0" label="暂无可选项" :value="''" disabled />
-              </el-select>
+              <!-- ===== General field rendering ===== -->
+              <div v-else class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">{{ field.label }}</div>
+                <div v-if="field.description" class="setting-desc">{{ field.description }}</div>
 
-              <!-- DateTime field -->
-              <el-date-picker
-                v-else-if="field.type === 'datetime'"
-                v-model="currentSettings[field.key]"
-                type="datetime"
-                :placeholder="field.placeholder"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                size="small"
-                class="cursor-pointer"
-              />
-            </div>
+                <!-- Input field -->
+                <el-input
+                  v-if="field.type === 'input'"
+                  v-model="currentSettings[field.key]"
+                  :placeholder="field.placeholder"
+                  size="small"
+                />
+
+                <!-- Switch field -->
+                <el-switch
+                  v-else-if="field.type === 'switch'"
+                  v-model="currentSettings[field.key]"
+                />
+
+                <!-- Radio field -->
+                <div v-else-if="field.type === 'radio'" class="radio-row">
+                  <label
+                    v-for="opt in field.options"
+                    :key="String(opt.value)"
+                    class="radio-item cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      :name="selectedPlatform + '-' + field.key"
+                      :value="opt.value"
+                      v-model="currentSettings[field.key]"
+                      class="cursor-pointer"
+                    />
+                    <span
+                      :class="['radio-text', { on: currentSettings[field.key] === opt.value }]"
+                      :style="currentSettings[field.key] === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    >{{ opt.label }}</span>
+                  </label>
+                </div>
+
+                <!-- Select field -->
+                <el-select
+                  v-else-if="field.type === 'select'"
+                  v-model="currentSettings[field.key]"
+                  :placeholder="field.placeholder"
+                  size="small"
+                  clearable
+                  class="cursor-pointer"
+                >
+                  <el-option
+                    v-for="opt in (field.options || [])"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                  <el-option v-if="!field.options || field.options.length === 0" label="暂无可选项" :value="''" disabled />
+                </el-select>
+
+                <!-- DateTime field -->
+                <el-date-picker
+                  v-else-if="field.type === 'datetime'"
+                  v-model="currentSettings[field.key]"
+                  type="datetime"
+                  :placeholder="field.placeholder"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  size="small"
+                  class="cursor-pointer"
+                />
+              </div>
+            </template>
           </div>
         </div>
 
@@ -802,14 +825,14 @@ const cropSelectionStyle = computed(() => ({
 
 // ========== Per-platform Config ==========
 const platformConfigs = reactive({
-  douyin: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true },
-  xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '' },
-  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: false, isOriginal: false, scheduleTime: '' },
-  bilibili: { title: '', description: '', zone: '', tags: '', topic: '', aiContent: '', creationDeclaration: '', isOriginal: false, scheduleTime: '' },
-  channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false },
-  baijiahao: { title: '', description: '', aiContent: false, isOriginal: false },
-  tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '' },
-  youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '' },
+  douyin: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '' },
+  xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
+  bilibili: { title: '', description: '', zone: '', tags: '', topic: '', aiContent: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+  channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '' },
+  baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '' },
+  tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
+  youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '' },
 })
 
 // ========== Account-level Overrides (账号级覆盖, 优先级高于渠道默认) ==========
@@ -818,6 +841,23 @@ const accountOverrides = reactive({})
 const currentSettings = computed(() =>
   selectedPlatform.value ? platformConfigs[selectedPlatform.value] || {} : {}
 )
+
+// ========== Video Format Helpers ==========
+const videoFormatOptions = computed(() => {
+  const hasLandscape = !!commonConfig.videoLandscape
+  const hasPortrait = !!commonConfig.videoPortrait
+  const options = [
+    { label: '横版', value: 'landscape', disabled: !hasLandscape && hasPortrait },
+    { label: '竖版', value: 'portrait', disabled: !hasPortrait && hasLandscape },
+  ]
+  return options
+})
+
+const effectiveVideoFormat = computed(() => {
+  if (commonConfig.videoLandscape && !commonConfig.videoPortrait) return 'landscape'
+  if (commonConfig.videoPortrait && !commonConfig.videoLandscape) return 'portrait'
+  return ''
+})
 
 // ========== Account-level Settings Merging ==========
 /**
@@ -2504,6 +2544,12 @@ function formatSize(bytes) {
         color: $brand-start;
         background: rgba(139, 92, 246, 0.06);
       }
+    }
+
+    &.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      .radio-text.muted { opacity: 0.5; }
     }
   }
 }

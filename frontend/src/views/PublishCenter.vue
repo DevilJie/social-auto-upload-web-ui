@@ -777,7 +777,8 @@ const currentPlatformConfig = computed(() =>
 
 // ========== Public Config (shared across all accounts) ==========
 const commonConfig = reactive({
-  fileList: [],
+  videoLandscape: null,  // { name, url, path, size, type }
+  videoPortrait: null,   // { name, url, path, size, type }
   coverLandscape: null, // 横版封面 16:9
   coverPortrait: null,  // 竖版封面 3:4
   topics: [],
@@ -817,9 +818,31 @@ const platformConfigs = reactive({
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '' },
 })
 
+// ========== Account-level Overrides (账号级覆盖, 优先级高于渠道默认) ==========
+const accountOverrides = reactive({})
+
 const currentSettings = computed(() =>
   selectedPlatform.value ? platformConfigs[selectedPlatform.value] || {} : {}
 )
+
+// ========== Account-level Settings Merging ==========
+/**
+ * 获取合并后的账号设置：账号级覆盖优先，其次渠道默认
+ * @param {string} accountId
+ * @param {string} platformKey
+ */
+function getAccountSettings(accountId, platformKey) {
+  const platform = platformConfigs[platformKey] || {}
+  const override = accountOverrides[accountId] || {}
+  // 账号级覆盖优先，其次渠道默认
+  const merged = { ...platform }
+  for (const key of Object.keys(merged)) {
+    if (override[key] !== undefined && override[key] !== '' && override[key] !== false) {
+      merged[key] = override[key]
+    }
+  }
+  return merged
+}
 
 // ========== Batch title/description sync ==========
 const batchTitle = ref('')
@@ -955,16 +978,10 @@ function captureFromVideo() {
   ElMessage.info('视频截取功能开发中')
 }
 
-function removeVideo(idx) {
-  commonConfig.fileList.splice(idx, 1)
-  if (activeVideoIdx.value >= commonConfig.fileList.length) {
-    activeVideoIdx.value = Math.max(0, commonConfig.fileList.length - 1)
-  }
-}
-
-function clearAllVideos() {
-  commonConfig.fileList = []
-  activeVideoIdx.value = 0
+function clearVideo(type) {
+  // type: 'landscape' | 'portrait'
+  if (type === 'landscape') commonConfig.videoLandscape = null
+  else commonConfig.videoPortrait = null
 }
 
 function openCropDialog(target) {

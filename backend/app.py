@@ -257,9 +257,20 @@ def _override_post_video_batch():
 
 def _make_dispatcher(original_fn, override_fn):
     def dispatcher(*args, **kwargs):
-        if get_engine_mode() == 'new':
-            return override_fn(*args, **kwargs)
-        return original_fn(*args, **kwargs) if original_fn else (jsonify({"code": 500, "msg": "旧版引擎不可用"}), 500)
+        mode = get_engine_mode()
+        print(f"[ENGINE] mode={mode} path={request.path}", flush=True)
+        if mode == 'new':
+            resp = override_fn(*args, **kwargs)
+        else:
+            resp = original_fn(*args, **kwargs) if original_fn else (jsonify({"code": 500, "msg": "旧版引擎不可用"}), 500)
+
+        # 给响应加标记头，方便 DevTools 识别当前引擎
+        if isinstance(resp, tuple):
+            body, status = resp
+            body.headers['X-Engine-Mode'] = mode
+        elif isinstance(resp, Response):
+            resp.headers['X-Engine-Mode'] = mode
+        return resp
     dispatcher.__name__ = original_fn.__name__ if original_fn else 'dispatcher'
     return dispatcher
 

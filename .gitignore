@@ -31,3 +31,4 @@ frontend-dist/
 # Embedded Python
 python/
 .gstack/
+docs/superpowers/

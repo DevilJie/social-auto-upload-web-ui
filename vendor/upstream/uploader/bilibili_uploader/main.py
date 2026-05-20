@@ -35,9 +35,8 @@ def _msg(emoji: str, text: str) -> str:
 
 async def cookie_auth(account_file: str) -> bool:
     """校验 B站 cookie 是否有效"""
-    from conf import LOGIN_HEADLESS
     async with async_playwright() as playwright:
-        browser = await create_browser(playwright, headless=LOGIN_HEADLESS)
+        browser = await create_browser(playwright, headless=True)
         try:
             context = await create_context(browser, storage_state=account_file)
             page = await context.new_page()
@@ -601,8 +600,8 @@ class BilibiliVideo(BilibiliBaseUploader):
                 bilibili_logger.warning(_msg("⚠️", "未找到完成按钮"))
             await asyncio.sleep(1)
 
-            # Step 6: 点击弹窗外层"确定"按钮
-            confirm_btn = page.locator('button.bcc-button--primary').first
+            # Step 6: 点击弹窗外层"确定"按钮（限定在弹窗内，避免误点"添加分P"等）
+            confirm_btn = dialog.locator('button.bcc-button--primary').first
             confirm_count = await confirm_btn.count()
             bilibili_logger.info(_msg("🔍", f"确定按钮: {confirm_count} 个"))
             if confirm_count > 0:
@@ -614,6 +613,11 @@ class BilibiliVideo(BilibiliBaseUploader):
 
             # 等待弹窗关闭
             await asyncio.sleep(1)
+
+            # 按 Escape 确保关闭任何可能误触的文件选择弹窗
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+
             bilibili_logger.success(_msg("🥳", "B站封面设置完成"))
 
         except Exception as exc:

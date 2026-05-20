@@ -294,7 +294,7 @@
             <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标题</div>
               <el-input
-                v-model="resolvedAccountSettings.title"
+                v-model="form.title"
                 placeholder="请输入标题..."
                 maxlength="100"
                 show-word-limit
@@ -303,7 +303,7 @@
             <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">描述</div>
               <el-input
-                v-model="resolvedAccountSettings.description"
+                v-model="form.description"
                 type="textarea"
                 :rows="5"
                 placeholder="请输入描述..."
@@ -313,39 +313,38 @@
             </div>
           </div>
 
+          <!-- 视频格式选择 -->
+          <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a', marginBottom: '12px' }">
+            <div class="setting-label" :style="{ color: currentPlatformConfig.color }">视频格式</div>
+            <div class="radio-row">
+              <label
+                v-for="opt in videoFormatOptions"
+                :key="opt.value"
+                :class="['radio-item', 'cursor-pointer', { disabled: opt.disabled }]"
+              >
+                <input
+                  type="radio"
+                  :name="(selectedAccountId || selectedPlatform) + '-videoFormat'"
+                  :value="opt.value"
+                  v-model="form.videoFormat"
+                  :disabled="opt.disabled"
+                  class="cursor-pointer"
+                />
+                <span
+                  :class="['radio-text', { on: form.videoFormat === opt.value, muted: opt.disabled }]"
+                  :style="form.videoFormat === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                >{{ opt.label }}</span>
+              </label>
+            </div>
+            <div v-if="!commonConfig.videoLandscape && !commonConfig.videoPortrait" class="setting-desc" style="font-size: 12px;">
+              请先上传视频
+            </div>
+          </div>
+
           <div class="settings-grid">
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
-              <!-- videoFormat 特殊渲染 -->
-              <template v-if="field.key === 'videoFormat'">
-                <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                  <div class="setting-label" :style="{ color: currentPlatformConfig.color }">{{ field.label }}</div>
-                  <div class="radio-row">
-                    <label
-                      v-for="opt in videoFormatOptions"
-                      :key="opt.value"
-                      :class="['radio-item', 'cursor-pointer', { disabled: opt.disabled }]"
-                    >
-                      <input
-                        type="radio"
-                        :name="(selectedAccountId || selectedPlatform) + '-videoFormat'"
-                        :value="opt.value"
-                        v-model="resolvedAccountSettings.videoFormat"
-                        :disabled="opt.disabled"
-                        class="cursor-pointer"
-                      />
-                      <span
-                        :class="['radio-text', { on: resolvedAccountSettings.videoFormat === opt.value, muted: opt.disabled }]"
-                        :style="resolvedAccountSettings.videoFormat === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
-                      >{{ opt.label }}</span>
-                    </label>
-                  </div>
-                  <div v-if="!commonConfig.videoLandscape && !commonConfig.videoPortrait" class="setting-desc" style="font-size: 12px;">
-                    请先上传视频
-                  </div>
-                </div>
-              </template>
-              <!-- 其他字段通用渲染 -->
-              <template v-else-if="field.key !== 'title' && field.key !== 'description'">
+              <!-- 其他字段通用渲染（排除 title, description, videoFormat） -->
+              <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
                   class="setting-card"
                   :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
@@ -355,13 +354,13 @@
 
                   <el-input
                     v-if="field.type === 'input'"
-                    v-model="resolvedAccountSettings[field.key]"
+                    v-model="form[field.key]"
                     :placeholder="field.placeholder"
                     size="small"
                   />
                   <el-switch
                     v-else-if="field.type === 'switch'"
-                    v-model="resolvedAccountSettings[field.key]"
+                    v-model="form[field.key]"
                   />
                   <div v-else-if="field.type === 'radio'" class="radio-row">
                     <label
@@ -373,18 +372,18 @@
                         type="radio"
                         :name="(selectedAccountId || selectedPlatform) + '-' + field.key"
                         :value="opt.value"
-                        v-model="resolvedAccountSettings[field.key]"
+                        v-model="form[field.key]"
                         class="cursor-pointer"
                       />
                       <span
-                        :class="['radio-text', { on: resolvedAccountSettings[field.key] === opt.value }]"
-                        :style="resolvedAccountSettings[field.key] === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                        :class="['radio-text', { on: form[field.key] === opt.value }]"
+                        :style="form[field.key] === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
                       >{{ opt.label }}</span>
                     </label>
                   </div>
                   <el-select
                     v-else-if="field.type === 'select'"
-                    v-model="resolvedAccountSettings[field.key]"
+                    v-model="form[field.key]"
                     :placeholder="field.placeholder"
                     size="small"
                     clearable
@@ -400,7 +399,7 @@
                   </el-select>
                   <el-date-picker
                     v-else-if="field.type === 'datetime'"
-                    v-model="resolvedAccountSettings[field.key]"
+                    v-model="form[field.key]"
                     type="datetime"
                     :placeholder="field.placeholder"
                     value-format="YYYY-MM-DD HH:mm:ss"
@@ -882,30 +881,50 @@ function hasAccountOverride(accountId) {
   return Object.values(override).some(v => v !== undefined && v !== '' && v !== false)
 }
 
-// 当前账号的设置（合并渠道默认 + 账号覆盖）
-const resolvedAccountSettings = computed({
-  get: () => {
-    const platformKey = selectedPlatform.value
-    if (!platformKey) return {}
-    const platform = platformConfigs[platformKey] || {}
+// 表单数据（reactive 对象，支持 v-model 绑定到属性）
+const form = reactive({})
 
-    if (selectedAccountId.value) {
-      const override = accountOverrides[selectedAccountId.value]
-      if (override && Object.keys(override).length > 0) {
-        return {
-          ...platform,
-          ...Object.fromEntries(
-            Object.entries(override).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
-          ),
-        }
+// 获取当前合并后的设置
+function getMergedSettings() {
+  const platformKey = selectedPlatform.value
+  if (!platformKey) return {}
+  const platform = platformConfigs[platformKey] || {}
+  if (selectedAccountId.value) {
+    const override = accountOverrides[selectedAccountId.value]
+    if (override && Object.keys(override).length > 0) {
+      return {
+        ...platform,
+        ...Object.fromEntries(
+          Object.entries(override).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+        ),
       }
     }
-    // Always return a copy to avoid mutating platformConfigs directly
-    return { ...platform }
-  },
-  set: (newVal) => {
-    if (!selectedAccountId.value || !selectedPlatform.value) return
-    const platform = platformConfigs[selectedPlatform.value] || {}
+  }
+  return { ...platform }
+}
+
+// 切换平台/账号时重新填充表单
+watch([selectedPlatform, selectedAccountId], () => {
+  const merged = getMergedSettings()
+  for (const key of Object.keys(merged)) {
+    form[key] = merged[key]
+  }
+  // 清理不存在的字段
+  for (const key of Object.keys(form)) {
+    if (!(key in merged)) {
+      delete form[key]
+    }
+  }
+}, { immediate: true })
+
+// 表单变更时同步到 store
+watch(form, (newVal) => {
+  const platformKey = selectedPlatform.value
+  if (!platformKey) return
+  const platform = platformConfigs[platformKey] || {}
+
+  if (selectedAccountId.value) {
+    // 账号级：计算与渠道默认的差异，存入 accountOverrides
     const diff = {}
     for (const key of Object.keys(newVal)) {
       if (newVal[key] !== platform[key]) {
@@ -913,12 +932,17 @@ const resolvedAccountSettings = computed({
       }
     }
     if (Object.keys(diff).length > 0) {
-      accountOverrides[selectedAccountId.value] = diff
+      accountOverrides[selectedAccountId.value] = { ...diff }
     } else {
       delete accountOverrides[selectedAccountId.value]
     }
-  },
-})
+  } else {
+    // 渠道级：直接写入 platformConfigs
+    for (const key of Object.keys(newVal)) {
+      platform[key] = newVal[key]
+    }
+  }
+}, { deep: true })
 
 function getAccountName(accountId) {
   const account = accountStore.accounts.find(a => a.id === accountId)
@@ -1265,7 +1289,7 @@ function handleVideoUploadSuccess(response, file) {
 
 function handleCoverUploadSuccess(response, file) {
   if (response.code === 200) {
-    const filePath = response.data.path || response.data
+    const filePath = response.data.filepath || response.data
     const filename = filePath.split('/').pop()
     const coverData = {
       name: file.name,
@@ -1303,21 +1327,20 @@ async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape
   } else {
     materialLibraryCoverTarget.value = videoOrCoverTarget
   }
-  if (materials.value.length === 0) {
-    try {
-      const response = await materialApi.getAllMaterials()
-      if (response.code === 200) {
-        appStore.setMaterials(response.data)
-      } else {
-        ElMessage.error('获取素材列表失败')
-        return
+  // 每次打开素材库都重新加载，确保看到最新上传的文件
+  try {
+    const response = await materialApi.getAllMaterials()
+    if (response.code === 200) {
+      appStore.setMaterials(response.data)
+    } else {
+      ElMessage.error('获取素材列表失败')
+      return
       }
     } catch (error) {
       console.error('获取素材列表出错:', error)
       ElMessage.error('获取素材列表失败')
       return
     }
-  }
   selectedMaterials.value = []
   materialLibraryVisible.value = true
 }
@@ -1447,18 +1470,24 @@ async function publishAll() {
     return
   }
 
-  // Check each platform with selected accounts has a title
-  const platformsWithoutTitle = []
+  // Check each selected account has a title (platform-level or account-level)
+  const accountsWithoutTitle = []
   for (const group of accountGroups.value) {
     if (group.accounts.length === 0) continue
-    if (!group.accounts.some(a => publishAccountIds.has(a.id))) continue
-    const pSettings = platformConfigs[group.key]
-    if (!pSettings || !pSettings.title.trim()) {
-      platformsWithoutTitle.push(group.name)
+    const pSettings = platformConfigs[group.key] || {}
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      // 合并账号级覆盖后检查标题
+      const accountOverride = accountOverrides[account.id]
+      const mergedTitle = (accountOverride && accountOverride.title)
+        || pSettings.title
+      if (!mergedTitle || !mergedTitle.trim()) {
+        accountsWithoutTitle.push(`${account.name}(${group.name})`)
+      }
     }
   }
-  if (platformsWithoutTitle.length > 0) {
-    ElMessage.error(`以下平台未设置标题：${platformsWithoutTitle.join('、')}`)
+  if (accountsWithoutTitle.length > 0) {
+    ElMessage.error(`以下账号未设置标题：${accountsWithoutTitle.join('、')}`)
     return
   }
 
@@ -1476,7 +1505,14 @@ async function publishAll() {
     const pSettings = platformConfigs[group.key] || {}
     for (const account of group.accounts) {
       if (!publishAccountIds.has(account.id)) continue
-      allTasks.push({ account, group, platformSettings: { ...pSettings } })
+      // 合并账号级覆盖
+      const accountOverride = accountOverrides[account.id]
+      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
+        ? { ...pSettings, ...Object.fromEntries(
+            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+          )}
+        : { ...pSettings }
+      allTasks.push({ account, group, platformSettings: mergedSettings })
     }
   }
 
@@ -1501,21 +1537,20 @@ async function publishAll() {
     currentPublishingAccount.value = account.name
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
-      // Get the effective videoFormat for this account
-      const override = accountOverrides[account.id] || {}
-      const videoFormat = override.videoFormat || platformSettings.videoFormat || ''
+    // 获取视频格式（已包含账号级覆盖）
+    const videoFormat = platformSettings.videoFormat || ''
 
-      // Select video based on format
-      let selectedVideo
-      if (videoFormat === 'portrait') {
-        selectedVideo = commonConfig.videoPortrait
-      } else if (videoFormat === 'landscape') {
-        selectedVideo = commonConfig.videoLandscape
-      } else {
-        selectedVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
-      }
+    // 根据格式选择视频
+    let selectedVideo
+    if (videoFormat === 'portrait') {
+      selectedVideo = commonConfig.videoPortrait
+    } else if (videoFormat === 'landscape') {
+      selectedVideo = commonConfig.videoLandscape
+    } else {
+      selectedVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
+    }
 
-      if (!selectedVideo) {
+    if (!selectedVideo) {
         publishResults.value.push({
           label: account.name,
           status: 'error',

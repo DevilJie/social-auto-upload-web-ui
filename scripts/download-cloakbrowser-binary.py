@@ -28,7 +28,6 @@ def main():
     print("Downloading CloakBrowser stealth Chromium binary...")
     binary_path = ensure_binary()
     shutil.copy2(binary_path, dest)
-    dest.chmod(0o755)
     info = binary_info()
     print(f"[OK] CloakBrowser v{info['version']} copied to {dest}")
     print(f"     Platform: {info['platform']}")

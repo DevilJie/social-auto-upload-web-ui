@@ -15,6 +15,30 @@ from conf import LOCAL_CHROME_HEADLESS, LOGIN_HEADLESS
 
 logger = logging.getLogger(__name__)
 
+# Set to True after successful CloakBrowser binary download
+_using_cloakbrowser = False
+
+
+def init():
+    """Pre-download CloakBrowser binary at startup.
+
+    Should be called once during backend startup (in ``app.py``).
+    Logs whether CloakBrowser or Playwright fallback will be used.
+    """
+    global _using_cloakbrowser
+
+    try:
+        from cloakbrowser import ensure_binary
+
+        ensure_binary()
+        _using_cloakbrowser = True
+        logger.info("CloakBrowser stealth binary ready")
+    except Exception as e:
+        _using_cloakbrowser = False
+        logger.warning(
+            "CloakBrowser unavailable (%s), will use Playwright fallback", e
+        )
+
 
 def _patch_close(browser, pw):
     """Patch browser.close() to also stop the Playwright instance.

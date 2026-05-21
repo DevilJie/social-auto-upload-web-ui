@@ -29,6 +29,11 @@ from ext_api import ext_api  # noqa: E402
 app.register_blueprint(ext_api)
 print("[Startup] ext_api registered OK")
 
+# 初始化新引擎浏览器（预下载 CloakBrowser binary，不阻塞启动）
+print("[Startup] Initializing browser engine...")
+from impl._browser import init as init_browser
+init_browser()
+
 import json
 import sqlite3
 import uuid

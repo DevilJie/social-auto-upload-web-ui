@@ -52,6 +52,10 @@ fn main() {
     // Playwright browsers path — bundled with the app
     let playwright_browsers_path = exe_dir.join("python").join("ms-playwright");
 
+    // CloakBrowser stealth binary — bundled with the app
+    let cloakbrowser_binary_name = if cfg!(windows) { "chrome.exe" } else { "chrome" };
+    let cloakbrowser_binary_path = exe_dir.join("cloakbrowser").join(cloakbrowser_binary_name);
+
     // Spawn Python backend
     // PYTHONUNBUFFERED=1 ensures stdout/stderr are flushed immediately so logs appear in real-time
     let child = match Command::new(&python_path)
@@ -59,6 +63,7 @@ fn main() {
         .env("SAU_PORT", port.to_string())
         .env("SAU_DATA_DIR", data_dir.to_str().unwrap())
         .env("PLAYWRIGHT_BROWSERS_PATH", playwright_browsers_path.to_str().unwrap())
+        .env("CLOAKBROWSER_BINARY_PATH", cloakbrowser_binary_path.to_str().unwrap())
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

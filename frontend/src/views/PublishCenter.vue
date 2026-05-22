@@ -847,6 +847,7 @@ const platformConfigs = reactive({
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '' },
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '' },
+  tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '' },
 })
 
 // ========== Account-level Overrides (账号级覆盖, 优先级高于渠道默认) ==========
@@ -952,7 +953,10 @@ watch([selectedPlatform, selectedAccountId], () => {
 watch(form, (newVal) => {
   const platformKey = selectedPlatform.value
   if (!platformKey) return
-  const platform = platformConfigs[platformKey] || {}
+  if (!platformConfigs[platformKey]) {
+    platformConfigs[platformKey] = {}
+  }
+  const platform = platformConfigs[platformKey]
 
   if (selectedAccountId.value) {
     // 账号级：计算与渠道默认的差异，存入 accountOverrides

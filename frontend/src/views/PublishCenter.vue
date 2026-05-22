@@ -1750,28 +1750,28 @@ function formatSize(bytes) {
     }
 
     .platform-badge {
-      width: 26px;
-      height: 26px;
+      width: 32px;
+      height: 32px;
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
       flex-shrink: 0;
       overflow: hidden;
 
       .platform-badge-img {
-        width: 20px;
-        height: 20px;
+        width: 24px;
+        height: 24px;
         object-fit: contain;
       }
     }
 
     .group-name {
       flex: 1;
-      font-size: 14px;
+      font-size: 15px;
       color: $text-secondary;
       font-weight: 500;
       overflow: hidden;
@@ -2618,19 +2618,19 @@ function formatSize(bytes) {
     }
 
     .dialog-platform-list {
-      width: 140px;
+      width: 160px;
       flex-shrink: 0;
       border-right: 1px solid $border;
       background: rgba(0, 0, 0, 0.2);
       overflow-y: auto;
 
       .dialog-platform-item {
-        padding: 12px 14px;
-        font-size: 14px;
+        padding: 14px 16px;
+        font-size: 15px;
         color: $text-secondary;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
         transition: $transition-base;
 
         &:hover {
@@ -2644,21 +2644,21 @@ function formatSize(bytes) {
         }
 
         .dialog-platform-badge {
-          width: 22px;
-          height: 22px;
-          border-radius: 4px;
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
           display: flex;
           align-items: center;
           justify-content: center;
           color: #fff;
-          font-size: 10px;
+          font-size: 11px;
           font-weight: 700;
           flex-shrink: 0;
           overflow: hidden;
 
           .dialog-platform-badge-img {
-            width: 17px;
-            height: 17px;
+            width: 22px;
+            height: 22px;
             object-fit: contain;
           }
         }

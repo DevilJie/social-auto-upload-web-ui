@@ -91,13 +91,14 @@ async def get_tiktok_cookie(account_file):
         await page.goto("https://www.tiktok.com/login?lang=en")
         tiktok_logger.info("TikTok登录页面已打开，请完成扫码登录...")
 
-        # 等待登录完成
+        # 等待登录完成 — TikTok 登录后可能跳转到 foryou、foryou 或 upload 等页面
         try:
-            await page.wait_for_url("**/upload**", timeout=120000)
+            await page.wait_for_url(re.compile(r"/(foryou|following|upload|@)"), timeout=120000)
             tiktok_logger.info("检测到登录成功，正在保存 cookie...")
         except Exception:
-            tiktok_logger.warning("未检测到登录完成，将在 120 秒后保存当前状态")
-            await asyncio.sleep(120)
+            tiktok_logger.warning("未检测到登录跳转，将保存当前状态")
+            # 给页面一点时间完成 cookie 写入
+            await asyncio.sleep(3)
 
         await context.storage_state(path=account_file)
         tiktok_logger.success("TikTok cookie 已保存")

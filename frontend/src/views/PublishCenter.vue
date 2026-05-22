@@ -2614,7 +2614,7 @@ function formatSize(bytes) {
       border: 1px solid $border;
       border-radius: $radius-base;
       overflow: hidden;
-      min-height: 320px;
+      height: 420px;
     }
 
     .dialog-platform-list {

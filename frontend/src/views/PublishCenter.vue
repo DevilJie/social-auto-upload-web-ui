@@ -846,6 +846,7 @@ const platformConfigs = reactive({
   baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '' },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '' },
+  iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '' },
 })
 
 // ========== Account-level Overrides (账号级覆盖, 优先级高于渠道默认) ==========
@@ -1617,6 +1618,8 @@ async function publishAll() {
         creationDeclaration: Array.isArray(platformSettings.creationDeclaration)
           ? platformSettings.creationDeclaration.join(',')
           : platformSettings.creationDeclaration || '',
+        riskWarning: platformSettings.riskWarning || '',
+        enableCashActivity: platformSettings.enableCashActivity || false,
         audience: platformSettings.audience || 'not_kids',
         alteredContent: platformSettings.alteredContent || false,
       }

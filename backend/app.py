@@ -83,7 +83,7 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺"}
 
 
 def _get_account_record(account_id):
@@ -517,6 +517,8 @@ def postVideo():
             schedule_time_str=data.get('scheduleTime', ''),
             ai_content=data.get('aiContent', ''),
             creation_declaration=data.get('creationDeclaration', ''),
+            risk_warning=data.get('riskWarning', ''),
+            enable_cash_activity=data.get('enableCashActivity', False),
             supplementary_declaration=data.get('supplementaryDeclaration', ''),
             is_draft=data.get('isDraft', False),
             audience=data.get('audience', 'not_kids'),
@@ -558,6 +560,8 @@ def postVideoBatch():
             schedule_time_str=data.get('scheduleTime', ''),
             ai_content=data.get('aiContent', ''),
             creation_declaration=data.get('creationDeclaration', ''),
+            risk_warning=data.get('riskWarning', ''),
+            enable_cash_activity=data.get('enableCashActivity', False),
             supplementary_declaration=data.get('supplementaryDeclaration', ''),
             is_draft=data.get('isDraft', False),
             audience=data.get('audience', 'not_kids'),

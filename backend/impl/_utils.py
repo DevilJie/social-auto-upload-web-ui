@@ -534,6 +534,8 @@ PLATFORM_SYNC_URLS = {
     6: "https://baijiahao.baidu.com/builder/rc/home",
     7: "https://www.tiktok.com/",
     8: "https://studio.youtube.com",
+    9: "https://mp.v.qq.com/",
+    10: "https://creator.iqiyi.com/",
 }
 
 

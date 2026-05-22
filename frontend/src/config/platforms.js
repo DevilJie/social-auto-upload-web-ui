@@ -14,6 +14,7 @@ import logoBilibili from '@/assets/logos/bilibili.png'
 import logoBaijiahao from '@/assets/logos/baijiahao.png'
 import logoYoutube from '@/assets/logos/youtube.png'
 import logoTencentVideo from '@/assets/logos/tengxunshipin.png'
+import logoIqiyi from '@/assets/logos/aiqiyi.png'
 
 export const PLATFORMS = {
   XIAOHONGSHU: {
@@ -281,6 +282,38 @@ export const PLATFORMS = {
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', creationDeclaration: '', scheduleTime: '', videoFormat: '' },
+  },
+  IQIYI: {
+    id: 10,
+    key: 'iqiyi',
+    name: '爱奇艺',
+    shortName: 'IQY',
+    letter: 'i',
+    logo: logoIqiyi,
+    color: '#00d442',
+    bgColor: 'rgba(0, 212, 66, 0.15)',
+    cssClass: 'iqiyi',
+    creatorUrl: 'https://creator.iqiyi.com/',
+    settingsFields: [
+      { key: 'creationDeclaration', label: '创作声明（必填）', type: 'select', placeholder: '请选择创作声明', options: [
+        { label: '含AI生成内容', value: '含AI生成内容' },
+        { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+        { label: '内容含营销信息', value: '内容含营销信息' },
+        { label: '内容为转载', value: '内容为转载' },
+        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+        { label: '内容无需标注', value: '内容无需标注' },
+      ] },
+      { key: 'riskWarning', label: '风险提示（选填）', type: 'select', placeholder: '选择风险提示', options: [
+        { label: '内容可能引人不适，请谨慎观看', value: '内容可能引人不适，请谨慎观看' },
+        { label: '内容含有高危险行为，请勿模仿', value: '内容含有高危险行为，请勿模仿' },
+        { label: '请理性适度消费', value: '请理性适度消费' },
+        { label: '未成年人请在监护人指导下浏览', value: '未成年人请在监护人指导下浏览' },
+      ] },
+      { key: 'enableCashActivity', label: '参与打卡挑战赛', type: 'switch', description: '参与当月打卡挑战赛获取奖励' },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+    ],
+    defaultSettings: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '' },
   },
 }
 

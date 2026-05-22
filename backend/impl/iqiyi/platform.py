@@ -284,9 +284,10 @@ class IqiyiPlatform(BasePlatform):
             kwargs.get("start_days", 0),
         )
 
+        overall_success = True
         for file_index, file_path in enumerate(file_paths):
             for cookie_path in account_paths:
-                await self._upload_one_video(
+                ok = await self._upload_one_video(
                     title=title,
                     file_path=file_path,
                     tags=tags,
@@ -300,7 +301,9 @@ class IqiyiPlatform(BasePlatform):
                     enable_cash_activity=enable_cash_activity,
                     desc=desc,
                 )
-        return True
+                if not ok:
+                    overall_success = False
+        return overall_success
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -381,11 +384,16 @@ class IqiyiPlatform(BasePlatform):
                     await self._set_schedule_time(page, publish_date)
 
                 # Step 10: Click publish / submit
-                await self._click_publish(page)
+                publish_ok = await self._click_publish(page)
 
-                # Save updated cookie state
+                # Save updated cookie state regardless
                 await context.storage_state(path=account_file)
                 logger.info("Cookie state updated after publish")
+
+                if not publish_ok:
+                    logger.error("Publish failed for %s", account_file)
+                    return False
+                return True
             finally:
                 await context.close()
         finally:
@@ -558,94 +566,110 @@ class IqiyiPlatform(BasePlatform):
         landscape_path=None,
         **kwargs,
     ):
-        """Upload cover image on the publish page.
+        """Upload cover images on the iQiyi publish page.
 
-        iQiyi cover dialog flow (Plupload/moxie):
-        1. Click "选择封面" → opens crop dialog, default portrait tab active
-        2. Click ".upload-btn-wrap" → triggers Plupload file chooser → upload portrait
-        3. Wait for portrait upload to fully complete on server
-        4. Click "设置横封面" button to switch to landscape tab
-        5. Click ".upload-btn-wrap" → triggers Plupload file chooser → upload landscape
-        6. Wait for landscape upload to fully complete
-        7. Click "完成" to confirm
+        Dialog DOM structure (image-crop-dialog):
+          - Tab bar: "竖封面" (portrait, default active) | "横封面" (landscape)
+          - Two ``.crop-content`` panels — first visible (portrait), second hidden (landscape)
+          - Each panel has a hidden ``input[type=file]`` (via Plupload/moxie shim)
+          - Footer: "完成" (confirm) | "设置横封面" (alternative switch, NOT used here)
+
+        Workflow:
+          1. Click "选择封面" trigger → opens the crop dialog
+          2. Upload portrait cover via the visible file input (first panel)
+          3. Wait for server-side upload to complete
+          4. Click the "横封面" tab to switch to the landscape panel
+          5. Upload landscape cover via the now-visible file input (second panel)
+          6. Wait for server-side upload to complete
+          7. Click "完成" to confirm and close the dialog
         """
         portrait_path = portrait_path or kwargs.get("cover_path")
         landscape_path = landscape_path or kwargs.get("landscape_path")
 
-        print(f"[COVER] START — portrait={portrait_path}, landscape={landscape_path}", flush=True)
+        logger.info("Cover upload: portrait=%s, landscape=%s", portrait_path, landscape_path)
 
         try:
-            # Step 1: Click "选择封面" to open the cover selection dialog
-            print("[COVER] Step 1: Clicking '选择封面'...", flush=True)
+            # ---------------------------------------------------------------
+            # Step 1: Click "选择封面" to open the cover crop dialog
+            # ---------------------------------------------------------------
+            logger.info("Step 1: Opening cover dialog...")
             trigger = page.locator('div.main-edit-bar').first
             if await trigger.count() == 0:
-                print("[COVER] Step 1: '选择封面' not found, abort", flush=True)
+                logger.warning("'选择封面' trigger not found, aborting cover upload")
                 return
-
             await trigger.scroll_into_view_if_needed()
             await trigger.wait_for(state="visible", timeout=10000)
             await trigger.evaluate("el => el.click()")
-            print("[COVER] Step 1: Clicked OK", flush=True)
 
-            # Wait for crop dialog
-            dialog_body = page.locator('.el-dialog__body').first
-            await dialog_body.wait_for(state="visible", timeout=10000)
-            print("[COVER] Step 1: Dialog opened", flush=True)
+            dialog = page.locator('.image-crop-dialog')
+            await dialog.wait_for(state="visible", timeout=10000)
+            logger.info("Step 1: Cover dialog opened")
             await asyncio.sleep(2)
 
-            # Step 2: Upload portrait cover via file chooser
+            # ---------------------------------------------------------------
+            # Step 2: Upload portrait cover (竖封面)
+            # ---------------------------------------------------------------
             if portrait_path:
-                print(f"[COVER] Step 2: Uploading portrait via file chooser: {portrait_path}", flush=True)
-                upload_btn = dialog_body.locator('.upload-btn-wrap').first
-                await upload_btn.wait_for(state="visible", timeout=10000)
+                logger.info("Step 2: Uploading portrait cover: %s", portrait_path)
+                # The first visible .crop-content panel contains the portrait upload
+                portrait_panel = page.locator(
+                    '.crop-content:not([style*="display: none"])'
+                ).first
+                await portrait_panel.wait_for(state="visible", timeout=5000)
+
+                upload_btn = portrait_panel.locator('.upload-btn-wrap').first
                 async with page.expect_file_chooser() as fc_info:
                     await upload_btn.click()
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(portrait_path)
-                print("[COVER] Step 2: File chosen, waiting 10s for server upload...", flush=True)
+                logger.info("Step 2: Portrait file set, waiting for upload...")
                 await asyncio.sleep(10)
-                print("[COVER] Step 2: Portrait upload wait done", flush=True)
+                logger.info("Step 2: Portrait upload complete")
             else:
-                print("[COVER] Step 2: SKIPPED (no portrait_path)", flush=True)
+                logger.info("Step 2: SKIPPED — no portrait_path")
 
-            # Step 3: Click "设置横封面" to switch to landscape tab
+            # ---------------------------------------------------------------
+            # Step 3: Switch to landscape tab and upload (横封面)
+            # ---------------------------------------------------------------
             if landscape_path:
-                print("[COVER] Step 3: Clicking '设置横封面'...", flush=True)
-                set_landscape_btn = page.locator('button:has-text("设置横封面")').first
-                if await set_landscape_btn.count() > 0:
-                    await set_landscape_btn.wait_for(state="visible", timeout=10000)
-                    await set_landscape_btn.click()
-                    print("[COVER] Step 3: Clicked OK, waiting 3s...", flush=True)
-                    await asyncio.sleep(3)
+                logger.info("Step 3: Switching to landscape tab...")
+                landscape_tab = page.locator('.tab-item:has-text("横封面")').first
+                if await landscape_tab.count() > 0:
+                    await landscape_tab.click()
+                    logger.info("Step 3: Landscape tab clicked")
+                    await asyncio.sleep(2)
 
-                    # Upload landscape cover via file chooser
-                    print(f"[COVER] Step 3: Uploading landscape: {landscape_path}", flush=True)
-                    upload_btn = dialog_body.locator('.upload-btn-wrap').first
-                    await upload_btn.wait_for(state="visible", timeout=10000)
+                    logger.info("Step 3: Uploading landscape cover: %s", landscape_path)
+                    landscape_panel = page.locator(
+                        '.crop-content:not([style*="display: none"])'
+                    ).first
+                    await landscape_panel.wait_for(state="visible", timeout=5000)
+
+                    upload_btn = landscape_panel.locator('.upload-btn-wrap').first
                     async with page.expect_file_chooser() as fc_info:
                         await upload_btn.click()
                     file_chooser = await fc_info.value
                     await file_chooser.set_files(landscape_path)
-                    print("[COVER] Step 3: File chosen, waiting 10s for server upload...", flush=True)
+                    logger.info("Step 3: Landscape file set, waiting for upload...")
                     await asyncio.sleep(10)
-                    print("[COVER] Step 3: Landscape upload wait done", flush=True)
+                    logger.info("Step 3: Landscape upload complete")
                 else:
-                    print("[COVER] Step 3: '设置横封面' button NOT found", flush=True)
+                    logger.warning("Step 3: Landscape tab not found")
             else:
-                print("[COVER] Step 3: SKIPPED (no landscape_path)", flush=True)
+                logger.info("Step 3: SKIPPED — no landscape_path")
 
+            # ---------------------------------------------------------------
             # Step 4: Click "完成" to confirm
-            print("[COVER] Step 4: Clicking '完成'...", flush=True)
+            # ---------------------------------------------------------------
+            logger.info("Step 4: Clicking '完成'...")
             done_btn = page.locator('button:has-text("完成")').first
             if await done_btn.count() > 0:
-                await done_btn.wait_for(state="visible", timeout=10000)
                 await done_btn.click()
-                print("[COVER] Step 4: Clicked '完成' — cover done", flush=True)
+                logger.info("Step 4: '完成' clicked — cover upload complete")
                 await asyncio.sleep(2)
             else:
-                print("[COVER] Step 4: '完成' button NOT found", flush=True)
+                logger.warning("Step 4: '完成' button not found")
         except Exception as e:
-            print(f"[COVER] EXCEPTION: {e}", flush=True)
             logger.warning("Cover upload failed: %s", e, exc_info=True)
 
     @staticmethod
@@ -694,10 +718,11 @@ class IqiyiPlatform(BasePlatform):
             )
 
     @staticmethod
-    async def _click_publish(page):
+    async def _click_publish(page) -> bool:
         """Click the publish button and wait for navigation to the success page.
 
-        iQiyi redirects away from ``/publish/video/wemedia`` on success.
+        Returns ``True`` if the page navigates away from the publish URL
+        (indicating success), ``False`` otherwise.
         """
         logger.info("Clicking publish button")
         try:
@@ -712,27 +737,21 @@ class IqiyiPlatform(BasePlatform):
             logger.info("Publish button clicked, waiting for navigation")
 
             # Wait for navigation away from the publish URL
-            success = False
             try:
                 await page.wait_for_url(
                     lambda url: "creator.iqiyi.com/publish/video/wemedia"
                     not in url,
                     timeout=60000,
                 )
-                logger.info(
-                    "Navigated to success page: %s", page.url
-                )
-                success = True
+                logger.info("Navigated to success page: %s", page.url)
+                await asyncio.sleep(2)
+                logger.info("Video published successfully")
+                return True
             except Exception:
                 logger.warning(
-                    "Navigation timeout — still on publish page, "
-                    "may still succeed"
+                    "Publish failed — still on publish page after timeout"
                 )
-
-            await asyncio.sleep(2)
-
-            if success:
-                logger.info("Video published successfully")
+                return False
         except Exception as e:
             logger.warning("Publish click failed: %s", e)
             raise

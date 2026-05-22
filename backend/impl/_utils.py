@@ -18,7 +18,7 @@ from conf import BASE_DIR
 
 # ---------------------------------------------------------------------------
 # JS injection script for generic profile scraping
-# Source: vendor/upstream/myUtils/login.py lines 14-172
+# Source: original login.py JS injection script
 # ---------------------------------------------------------------------------
 
 _SCRAPE_JS = '''() => {
@@ -399,7 +399,7 @@ async def scrape_youtube_profile(page):
 
 # ---------------------------------------------------------------------------
 # Schedule time parser
-# Source: vendor/upstream/myUtils/postVideo.py lines 14-42
+# Source: original postVideo.py schedule parser
 # ---------------------------------------------------------------------------
 
 def parse_schedule_time(schedule_time_str, total_files, enableTimer,

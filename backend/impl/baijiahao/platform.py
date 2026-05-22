@@ -4,10 +4,6 @@ Baijiahao (百家号) platform implementation -- 100% CloakBrowser.
 All browser operations go through ``BasePlatform.create_browser()`` /
 ``BasePlatform.create_context()`` which delegate to CloakBrowser (stealth
 Chromium) with automatic Playwright fallback.
-
-Publish logic is inlined from ``vendor/upstream/uploader/baijiahao_uploader/main.py``
-(``BaiJiaHaoVideo`` class) so that no legacy ``patchright`` or ``myUtils`` imports
-are needed.
 """
 
 import asyncio

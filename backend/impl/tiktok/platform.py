@@ -1,7 +1,6 @@
 """
-TikTok platform implementation.
+TikTok platform implementation — CloakBrowser automation.
 
-Fully self-contained CloakBrowser automation — no legacy vendor imports.
 All browser operations go through BasePlatform's CloakBrowser entry points.
 """
 
@@ -280,10 +279,7 @@ class TiktokPlatform(BasePlatform):
         account_file: str,
         thumbnail_path: str | None = None,
     ) -> None:
-        """Upload one video to one TikTok account.
-
-        Mirrors the logic in ``vendor/.../tk_uploader/main_chrome.py::TiktokVideo``
-        but uses CloakBrowser via BasePlatform.
+        """Upload one video to one TikTok account using CloakBrowser.
         """
         proxy = self._get_proxy()
         browser = await self.create_browser(

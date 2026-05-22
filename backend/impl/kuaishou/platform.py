@@ -1,7 +1,6 @@
 """
-Kuaishou platform implementation.
+Kuaishou platform implementation — 100% CloakBrowser.
 
-100 % CloakBrowser — no legacy vendor imports for browser operations.
 Uses ``BasePlatform`` browser entry points and shared utilities from
 ``backend/impl/_utils.py``.
 """
@@ -213,7 +212,7 @@ class KuaishouPlatform(BasePlatform):
         thread.start()
 
     # ------------------------------------------------------------------
-    # Publish video — full CloakBrowser rewrite from vendor KSVideo
+    # Publish video
     # ------------------------------------------------------------------
 
     def publish_video(self, **kwargs) -> bool:
@@ -241,7 +240,7 @@ class KuaishouPlatform(BasePlatform):
         return True
 
     # ------------------------------------------------------------------
-    # Internal async implementation (mirrors vendor KSVideo.upload)
+    # Internal async implementation
     # ------------------------------------------------------------------
 
     async def _publish_video_async(self, **kwargs):
@@ -282,7 +281,7 @@ class KuaishouPlatform(BasePlatform):
                 )
 
     # ------------------------------------------------------------------
-    # Single upload — mirrors vendor KSVideo.upload()
+    # Single upload
     # ------------------------------------------------------------------
 
     async def _upload_single(

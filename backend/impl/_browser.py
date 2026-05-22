@@ -1,9 +1,6 @@
 """New engine browser factory — CloakBrowser stealth layer.
 
-Replaces ``vendor/upstream/myUtils/browser.py`` for the new engine.
-Old engine (vendor/) continues to use the original patchright-based factory.
-
-All new engine browser creation goes through this module.
+All browser creation goes through this module.
 
 Falls back to standard Playwright when CloakBrowser binary is unavailable
 (e.g. during development without a bundled binary).

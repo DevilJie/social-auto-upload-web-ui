@@ -196,11 +196,7 @@ class BilibiliPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def open_creator_center(self, cookie_file: str) -> None:
-        """Open the Bilibili creator centre in a visible browser window.
-
-        Uses the same synchronous Playwright pattern as the legacy
-        ``sau_backend.py`` ``open_creator_center`` route.
-        """
+        """Open the Bilibili creator centre in a visible browser window."""
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = "https://member.bilibili.com/platform/upload-manager/article"
 
@@ -336,11 +332,7 @@ class BilibiliPlatform(BasePlatform):
         ai_content: str = "",
         creation_declaration: str = "",
     ):
-        """Upload a single video to Bilibili using CloakBrowser.
-
-        Mirrors the logic from ``BilibiliVideo.upload()`` in the vendor
-        uploader, but uses the new engine's browser factory.
-        """
+        """Upload a single video to Bilibili using CloakBrowser."""
         log_dir = Path(BASE_DIR / "data" / "logs")
         log_dir.mkdir(parents=True, exist_ok=True)
 

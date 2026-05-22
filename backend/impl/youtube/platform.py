@@ -237,8 +237,7 @@ class YoutubePlatform(BasePlatform):
         thread.start()
 
     # ------------------------------------------------------------------
-    # publish_video — full CloakBrowser implementation with Polymer
-    # Shadow DOM handling (ported from vendor YouTubeVideo class)
+    # publish_video — CloakBrowser implementation with Polymer Shadow DOM
     # ------------------------------------------------------------------
 
     async def publish_video(self, **kwargs) -> bool:

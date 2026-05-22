@@ -362,7 +362,6 @@ def get_settings():
             "maxConcurrent": "2",
             "browserMode": "headed",
             "heartbeatInterval": "3600",
-            "engineMode": "old",
         }
         defaults.update(settings)
         return jsonify({"code": 200, "data": defaults})

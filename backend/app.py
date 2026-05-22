@@ -1,27 +1,46 @@
 import asyncio
+import json
 import os
+import sqlite3
 import sys
 import threading
+import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from queue import Queue
+
+from flask import Flask, Response, g, jsonify, request, send_from_directory
+from flask_cors import CORS
 
 print(f"[Startup] Python {sys.version} starting...")
 print(f"[Startup] Script: {__file__}")
 print(f"[Startup] SAU_PORT={os.environ.get('SAU_PORT')}, SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 
-# 确保 backend/ 目录在 sys.path 中（嵌入式 Python 的 _pth 文件可能不会自动添加脚本目录）
 BACKEND_DIR = Path(__file__).parent.resolve()
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
     print(f"[Startup] Added backend dir to sys.path: {BACKEND_DIR}")
 
-UPSTREAM_DIR = Path(__file__).parent.parent / "vendor" / "upstream"
-sys.path.insert(1, str(UPSTREAM_DIR))
-print(f"[Startup] Upstream dir: {UPSTREAM_DIR} (exists={UPSTREAM_DIR.exists()})")
+from conf import BASE_DIR
+from impl.registry import get_platform
 
-print("[Startup] Importing sau_backend...")
-from sau_backend import app  # noqa: E402
-print("[Startup] sau_backend imported OK")
+app = Flask(__name__)
+CORS(app)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024
+
+# SSE login status queues (keyed by account id)
+active_queues: dict[str, Queue] = {}
+
+
+def sse_stream(status_queue):
+    while True:
+        if not status_queue.empty():
+            msg = status_queue.get()
+            yield f"data: {msg}\n\n"
+        else:
+            time.sleep(0.1)
+
 
 # 注册阶段二扩展 API Blueprint
 print("[Startup] Importing ext_api...")
@@ -29,35 +48,45 @@ from ext_api import ext_api  # noqa: E402
 app.register_blueprint(ext_api)
 print("[Startup] ext_api registered OK")
 
-import json
-import sqlite3
-import uuid
-from datetime import datetime
-
-from flask import g, jsonify, request, Response, send_from_directory
-
-# 覆盖 sau_backend 的前端静态文件路由，指向正确的前端目录
-# 打包后前端在 exe 同级的 frontend/ 目录
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 print(f"[Startup] Frontend dir: {FRONTEND_DIR} (exists={FRONTEND_DIR.exists()})")
 
-if FRONTEND_DIR.exists():
-    # 覆盖已有的 view functions，不重复注册路由
-    app.view_functions['index'] = lambda: send_from_directory(str(FRONTEND_DIR), 'index.html')
-    app.view_functions['custom_static'] = lambda filename: send_from_directory(str(FRONTEND_DIR / 'assets'), filename)
-    app.view_functions['favicon'] = lambda: send_from_directory(str(FRONTEND_DIR), 'favicon.ico')
-    app.view_functions['vite_svg'] = lambda: send_from_directory(str(FRONTEND_DIR), 'vite.svg')
 
-# ── 引擎模式路由覆盖 ──────────────────────────
-# 保存原始 view functions，dispatcher 内部每次请求判断引擎模式
-# 用户切换引擎模式后无需重启，下一次请求立即生效
+@app.route('/')
+def index():
+    if FRONTEND_DIR.exists():
+        return send_from_directory(str(FRONTEND_DIR), 'index.html')
+    return jsonify({"code": 200, "msg": "API server running"}), 200
 
-from impl.settings import get_engine_mode
-from impl.registry import get_platform
+
+@app.route('/assets/<path:filename>')
+def custom_static(filename):
+    return send_from_directory(str(FRONTEND_DIR / 'assets'), filename)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(str(FRONTEND_DIR), 'favicon.ico')
+
+
+@app.route('/vite.svg')
+def vite_svg():
+    return send_from_directory(str(FRONTEND_DIR), 'vite.svg')
+
+
+# ── Helper ──────────────────────────────────────────────────
+
+def _get_db_path():
+    if data_dir := os.environ.get("SAU_DATA_DIR"):
+        return Path(data_dir) / "db" / "database.db"
+    return Path(__file__).parent.parent / "data" / "db" / "database.db"
+
+
+DB_PATH = _get_db_path()
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube"}
 
 
 def _get_account_record(account_id):
-    """根据 id 从 user_info 查账号记录，返回 dict 或 None"""
     with sqlite3.connect(str(DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -66,15 +95,298 @@ def _get_account_record(account_id):
         return dict(row) if row else None
 
 
-_original_check = app.view_functions.get('check_account')
-_original_sync = app.view_functions.get('sync_profile')
-_original_center = app.view_functions.get('open_creator_center')
-_original_login = app.view_functions.get('login')
-_original_post = app.view_functions.get('postVideo')
-_original_batch = app.view_functions.get('postVideoBatch')
+# ── File management ─────────────────────────────────────────
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"code": 400, "data": None, "msg": "No file part in the request"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"code": 400, "data": None, "msg": "No selected file"}), 400
+    try:
+        uuid_v1 = uuid.uuid1()
+        final_filename = f"{uuid_v1}_{file.filename}"
+        filepath = Path(BASE_DIR / "videoFile" / final_filename)
+        file.save(filepath)
+
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute(
+                'INSERT INTO file_records (filename, filesize, file_path) VALUES (?, ?, ?)',
+                (file.filename, round(float(os.path.getsize(filepath)) / (1024 * 1024), 2), final_filename)
+            )
+
+        return jsonify({
+            "code": 200, "msg": "File uploaded successfully",
+            "data": {"filename": file.filename, "filepath": final_filename}
+        }), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e), "data": None}), 500
 
 
-def _override_check_account():
+@app.route('/getFile', methods=['GET'])
+def get_file():
+    filename = request.args.get('filename')
+    if not filename:
+        return jsonify({"code": 400, "msg": "filename is required", "data": None}), 400
+    if '..' in filename or filename.startswith('/'):
+        return jsonify({"code": 400, "msg": "Invalid filename", "data": None}), 400
+    return send_from_directory(str(Path(BASE_DIR / "videoFile")), filename)
+
+
+@app.route('/uploadSave', methods=['POST'])
+def upload_save():
+    if 'file' not in request.files:
+        return jsonify({"code": 400, "data": None, "msg": "No file part in the request"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"code": 400, "data": None, "msg": "No selected file"}), 400
+
+    custom_filename = request.form.get('filename', None)
+    if custom_filename:
+        filename = custom_filename + "." + file.filename.split('.')[-1]
+    else:
+        filename = file.filename
+
+    try:
+        uuid_v1 = uuid.uuid1()
+        final_filename = f"{uuid_v1}_{filename}"
+        filepath = Path(BASE_DIR / "videoFile" / final_filename)
+        file.save(filepath)
+
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute(
+                'INSERT INTO file_records (filename, filesize, file_path) VALUES (?, ?, ?)',
+                (filename, round(float(os.path.getsize(filepath)) / (1024 * 1024), 2), final_filename)
+            )
+
+        return jsonify({
+            "code": 200, "msg": "File uploaded and saved successfully",
+            "data": {"filename": filename, "filepath": final_filename}
+        }), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"upload failed: {e}", "data": None}), 500
+
+
+@app.route('/getFiles', methods=['GET'])
+def get_all_files():
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM file_records")
+            rows = cursor.fetchall()
+
+            data = []
+            for row in rows:
+                row_dict = dict(row)
+                if row_dict.get('file_path'):
+                    file_path_parts = row_dict['file_path'].split('_', 1)
+                    row_dict['uuid'] = file_path_parts[0] if file_path_parts else ''
+                else:
+                    row_dict['uuid'] = ''
+                data.append(row_dict)
+
+        return jsonify({"code": 200, "msg": "success", "data": data}), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": "get file failed!", "data": None}), 500
+
+
+@app.route('/deleteFile', methods=['GET'])
+def delete_file():
+    file_id = request.args.get('id')
+    if not file_id or not file_id.isdigit():
+        return jsonify({"code": 400, "msg": "Invalid or missing file ID", "data": None}), 400
+
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM file_records WHERE id = ?", (file_id,))
+            record = cursor.fetchone()
+
+            if not record:
+                return jsonify({"code": 404, "msg": "File not found", "data": None}), 404
+
+            record = dict(record)
+            file_path = Path(BASE_DIR / "videoFile" / record['file_path'])
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                except Exception as e:
+                    print(f"[WARN] 删除实际文件失败: {e}")
+
+            cursor.execute("DELETE FROM file_records WHERE id = ?", (file_id,))
+            conn.commit()
+
+        return jsonify({
+            "code": 200, "msg": "File deleted successfully",
+            "data": {"id": record['id'], "filename": record['filename']}
+        }), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": "delete failed!", "data": None}), 500
+
+
+# ── Account management ──────────────────────────────────────
+
+@app.route("/getAccounts", methods=['GET'])
+def getAccounts():
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_info')
+            rows = cursor.fetchall()
+            rows_list = [list(row) for row in rows]
+        return jsonify({"code": 200, "msg": None, "data": rows_list}), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"获取账号列表失败: {str(e)}", "data": None}), 500
+
+
+@app.route("/getValidAccounts", methods=['GET'])
+def getValidAccounts():
+    """获取所有账号并使用新引擎逐个验证 cookie 有效性"""
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM user_info')
+            rows = cursor.fetchall()
+            rows_list = [list(row) for row in rows]
+
+        for row in rows_list:
+            platform = get_platform(row[1])
+            if platform:
+                try:
+                    valid = asyncio.run(platform.check_cookie(row[2]))
+                except Exception:
+                    valid = False
+                new_status = 1 if valid else 0
+                row[4] = new_status
+                with sqlite3.connect(str(DB_PATH)) as conn:
+                    conn.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, row[0]))
+
+        return jsonify({"code": 200, "msg": None, "data": rows_list}), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"获取账号列表失败: {str(e)}", "data": None}), 500
+
+
+@app.route('/deleteAccount', methods=['GET'])
+def delete_account():
+    account_id = request.args.get('id')
+    if not account_id or not account_id.isdigit():
+        return jsonify({"code": 400, "msg": "Invalid or missing account ID", "data": None}), 400
+
+    account_id = int(account_id)
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM user_info WHERE id = ?", (account_id,))
+            record = cursor.fetchone()
+
+            if not record:
+                return jsonify({"code": 404, "msg": "account not found", "data": None}), 404
+
+            record = dict(record)
+            if record.get('filePath'):
+                cookie_file_path = Path(BASE_DIR / "cookiesFile" / record['filePath'])
+                if cookie_file_path.exists():
+                    try:
+                        cookie_file_path.unlink()
+                    except Exception as e:
+                        print(f"[WARN] 删除Cookie文件失败: {e}")
+
+            cursor.execute("DELETE FROM user_info WHERE id = ?", (account_id,))
+            conn.commit()
+
+        return jsonify({"code": 200, "msg": "account deleted successfully", "data": None}), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"delete failed: {str(e)}", "data": None}), 500
+
+
+@app.route('/updateUserinfo', methods=['POST'])
+def updateUserinfo():
+    data = request.get_json()
+    user_id = data.get('id')
+    type_ = data.get('type')
+    userName = data.get('userName')
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute(
+                'UPDATE user_info SET type = ?, userName = ? WHERE id = ?',
+                (type_, userName, user_id)
+            )
+            conn.commit()
+        return jsonify({"code": 200, "msg": "account update successfully", "data": None}), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": "update failed!", "data": None}), 500
+
+
+# ── Cookie file management ──────────────────────────────────
+
+@app.route('/uploadCookie', methods=['POST'])
+def upload_cookie():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"code": 400, "msg": "没有找到Cookie文件", "data": None}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"code": 400, "msg": "Cookie文件名不能为空", "data": None}), 400
+        if not file.filename.endswith('.json'):
+            return jsonify({"code": 400, "msg": "Cookie文件必须是JSON格式", "data": None}), 400
+
+        account_id = request.form.get('id')
+        platform = request.form.get('platform')
+        if not account_id or not platform:
+            return jsonify({"code": 400, "msg": "缺少账号ID或平台信息", "data": None}), 400
+
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT filePath FROM user_info WHERE id = ?', (account_id,))
+            result = cursor.fetchone()
+
+        if not result:
+            return jsonify({"code": 404, "msg": "账号不存在", "data": None}), 404
+
+        cookie_file_path = Path(BASE_DIR / "cookiesFile" / result['filePath'])
+        cookie_file_path.parent.mkdir(parents=True, exist_ok=True)
+        file.save(str(cookie_file_path))
+
+        return jsonify({"code": 200, "msg": "Cookie文件上传成功", "data": None}), 200
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"上传Cookie文件失败: {str(e)}", "data": None}), 500
+
+
+@app.route('/downloadCookie', methods=['GET'])
+def download_cookie():
+    try:
+        file_path = request.args.get('filePath')
+        if not file_path:
+            return jsonify({"code": 400, "msg": "缺少文件路径参数", "data": None}), 400
+
+        cookie_file_path = Path(BASE_DIR / "cookiesFile" / file_path).resolve()
+        base_path = Path(BASE_DIR / "cookiesFile").resolve()
+
+        if not cookie_file_path.is_relative_to(base_path):
+            return jsonify({"code": 400, "msg": "非法文件路径", "data": None}), 400
+        if not cookie_file_path.exists():
+            return jsonify({"code": 404, "msg": "Cookie文件不存在", "data": None}), 404
+
+        return send_from_directory(
+            directory=str(cookie_file_path.parent),
+            path=cookie_file_path.name,
+            as_attachment=True
+        )
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"下载Cookie文件失败: {str(e)}", "data": None}), 500
+
+
+# ── Core platform routes (new engine) ───────────────────────
+
+@app.route('/checkAccount', methods=['GET'])
+def check_account():
     account_id = request.args.get('id')
     if not account_id or not account_id.isdigit():
         return jsonify({"code": 400, "msg": "无效的账号ID"}), 400
@@ -91,13 +403,13 @@ def _override_check_account():
     new_status = 1 if valid else 0
     with sqlite3.connect(str(DB_PATH)) as conn:
         conn.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, record['id']))
-        conn.commit()
 
     msg = "Cookie 有效" if valid else "Cookie 已失效，请重新登录"
     return jsonify({"code": 200, "msg": msg, "data": {"id": record['id'], "status": new_status, "valid": valid}})
 
 
-def _override_sync_profile():
+@app.route('/syncProfile', methods=['POST'])
+def sync_profile():
     account_id = request.json.get('id')
     if not account_id:
         return jsonify({"code": 400, "msg": "缺少账号ID", "data": None}), 400
@@ -108,7 +420,7 @@ def _override_sync_profile():
 
     platform = get_platform(record['type'])
     if not platform:
-        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+        return jsonify({"code": 400, "msg": "不支持的平台类型", "data": None}), 400
 
     name, avatar = asyncio.run(platform.sync_profile(record['filePath']))
     if name or avatar:
@@ -118,12 +430,12 @@ def _override_sync_profile():
                              (name, avatar, account_id))
             else:
                 conn.execute('UPDATE user_info SET avatar = ? WHERE id = ?', (avatar, account_id))
-            conn.commit()
 
     return jsonify({"code": 200, "msg": "同步成功", "data": {"name": name, "avatar": avatar}})
 
 
-def _override_open_creator_center():
+@app.route('/openCreatorCenter', methods=['POST'])
+def open_creator_center():
     account_id = request.json.get('id')
     if not account_id:
         return jsonify({"code": 400, "msg": "缺少账号ID"}), 400
@@ -144,7 +456,8 @@ def _override_open_creator_center():
     return jsonify({"code": 200, "msg": "正在打开创作中心"})
 
 
-def _override_login():
+@app.route('/login')
+def login():
     type_str = request.args.get('type')
     id_str = request.args.get('id')
     if not type_str or not id_str:
@@ -154,14 +467,11 @@ def _override_login():
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
 
-    import sau_backend
-    if not hasattr(sau_backend, 'active_queues') or not isinstance(sau_backend.active_queues, dict):
-        sau_backend.active_queues = {}
     status_queue = Queue()
-    sau_backend.active_queues[id_str] = status_queue
+    active_queues[id_str] = status_queue
 
     def _cleanup():
-        sau_backend.active_queues.pop(id_str, None)
+        active_queues.pop(id_str, None)
 
     thread = threading.Thread(
         target=lambda: asyncio.run(platform.login(id_str, status_queue)),
@@ -169,7 +479,7 @@ def _override_login():
     )
     thread.start()
 
-    response = Response(sau_backend.sse_stream(status_queue), mimetype='text/event-stream')
+    response = Response(sse_stream(status_queue), mimetype='text/event-stream')
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Content-Type'] = 'text/event-stream'
@@ -177,7 +487,8 @@ def _override_login():
     return response
 
 
-def _override_post_video():
+@app.route('/postVideo', methods=['POST'])
+def postVideo():
     data = request.get_json()
     if not data:
         return jsonify({"code": 400, "msg": "请求数据不能为空", "data": None}), 400
@@ -217,7 +528,8 @@ def _override_post_video():
         return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
 
 
-def _override_post_video_batch():
+@app.route('/postVideoBatch', methods=['POST'])
+def postVideoBatch():
     data_list = request.get_json()
     if not isinstance(data_list, list):
         return jsonify({"code": 400, "msg": "Expected a JSON array", "data": None}), 400
@@ -255,49 +567,41 @@ def _override_post_video_batch():
     return jsonify({"code": 200, "msg": None, "data": None}), 200
 
 
-def _make_dispatcher(original_fn, override_fn):
-    def dispatcher(*args, **kwargs):
-        mode = get_engine_mode()
-        print(f"[ENGINE] mode={mode} path={request.path}", flush=True)
-        if mode == 'new':
-            resp = override_fn(*args, **kwargs)
-        else:
-            resp = original_fn(*args, **kwargs) if original_fn else (jsonify({"code": 500, "msg": "旧版引擎不可用"}), 500)
+# ── Settings (file-based, for proxy etc.) ───────────────────
 
-        # 给响应加标记头，方便 DevTools 识别当前引擎
-        if isinstance(resp, tuple):
-            body, status = resp
-            body.headers['X-Engine-Mode'] = mode
-        elif isinstance(resp, Response):
-            resp.headers['X-Engine-Mode'] = mode
-        return resp
-    dispatcher.__name__ = original_fn.__name__ if original_fn else 'dispatcher'
-    return dispatcher
+SETTINGS_FILE = BASE_DIR / "settings.json"
 
 
-# 始终替换 view functions，dispatcher 内部每次请求判断引擎模式
-app.view_functions['check_account'] = _make_dispatcher(_original_check, _override_check_account)
-app.view_functions['sync_profile'] = _make_dispatcher(_original_sync, _override_sync_profile)
-app.view_functions['open_creator_center'] = _make_dispatcher(_original_center, _override_open_creator_center)
-app.view_functions['login'] = _make_dispatcher(_original_login, _override_login)
-app.view_functions['postVideo'] = _make_dispatcher(_original_post, _override_post_video)
-app.view_functions['postVideoBatch'] = _make_dispatcher(_original_batch, _override_post_video_batch)
+def _read_settings():
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
 
 
-def _get_db_path():
-    """Get DB path from SAU_DATA_DIR env var, with fallback."""
-    if data_dir := os.environ.get("SAU_DATA_DIR"):
-        return Path(data_dir) / "db" / "database.db"
-    # Fallback: dev environment (repo root/data/db/)
-    return Path(__file__).parent.parent / "data" / "db" / "database.db"
+def _write_settings(data):
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube"}
+@app.route('/api/v2/settings', methods=['GET'])
+def api_get_settings():
+    return jsonify({"code": 200, "msg": None, "data": _read_settings()})
 
+
+@app.route('/api/v2/settings', methods=['PUT'])
+def api_update_settings():
+    data = request.get_json(force=True)
+    current = _read_settings()
+    current.update(data)
+    _write_settings(current)
+    return jsonify({"code": 200, "msg": "保存成功", "data": current})
+
+
+# ── Publish history tracking ────────────────────────────────
 
 def _record_publish(task_id, platform, account_name, video_path, title, description, tags, status, started_at, finished_at=None, error_message=""):
-    """记录发布历史到 publish_tasks 表"""
     try:
         with sqlite3.connect(str(DB_PATH)) as conn:
             conn.execute(
@@ -315,13 +619,10 @@ def _record_publish(task_id, platform, account_name, video_path, title, descript
 
 
 def _update_publish_result(task_id, status, finished_at, error_message=""):
-    """更新发布结果"""
     try:
         with sqlite3.connect(str(DB_PATH)) as conn:
             conn.execute(
-                """UPDATE publish_tasks
-                   SET status=?, finished_at=?, error_message=?
-                   WHERE id=?""",
+                "UPDATE publish_tasks SET status=?, finished_at=?, error_message=? WHERE id=?",
                 (status, finished_at, error_message, task_id)
             )
     except Exception as e:
@@ -330,13 +631,11 @@ def _update_publish_result(task_id, status, finished_at, error_message=""):
 
 @app.before_request
 def _ensure_db():
-    """确保数据库文件和目录存在，且表结构完整"""
     db_path = _get_db_path()
     need_init = False
     if not db_path.exists():
         need_init = True
     else:
-        # 文件存在但可能没有表（空数据库）
         try:
             with sqlite3.connect(str(db_path)) as _c:
                 _c.execute("SELECT 1 FROM user_info LIMIT 1")
@@ -355,7 +654,6 @@ def _ensure_db():
 
 @app.before_request
 def _before_publish():
-    """在 /postVideo 请求前记录发布开始"""
     if request.path == '/postVideo' and request.method == 'POST':
         data = request.get_json(silent=True)
         if not data:
@@ -366,7 +664,6 @@ def _before_publish():
         account_list = data.get('accountList', [])
         file_list = data.get('fileList', [])
 
-        # 从 cookie 文件路径提取账号名
         account_name = ''
         if account_list:
             account_path = account_list[0]
@@ -389,7 +686,6 @@ def _before_publish():
 
 @app.after_request
 def _after_publish(response):
-    """在 /postVideo 请求后更新发布结果"""
     if request.path == '/postVideo' and hasattr(g, 'publish_task_id'):
         now = datetime.now().isoformat()
         if response.status_code == 200:
@@ -412,27 +708,14 @@ def _after_publish(response):
     return response
 
 
-def find_available_port(start_port=5409, max_attempts=10):
-    """Find an available port starting from start_port."""
-    import socket
-    for port in range(start_port, start_port + max_attempts):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", port))
-                return port
-        except OSError:
-            continue
-    raise RuntimeError(f"Could not find available port in range {start_port}-{start_port + max_attempts}")
-
+# ── Health / diagnostics ────────────────────────────────────
 
 @app.route("/api/health", methods=['GET'])
 def health_check():
-    """诊断端点：检查环境、数据库路径和连接"""
     import sqlite3 as _sqlite
-    from conf import BASE_DIR as _BASE_DIR
     diag = {
         "sau_data_dir": os.environ.get("SAU_DATA_DIR"),
-        "base_dir": str(_BASE_DIR),
+        "base_dir": str(BASE_DIR),
         "db_path": str(_get_db_path()),
         "db_exists": _get_db_path().exists(),
         "python": sys.executable,
@@ -450,18 +733,29 @@ def health_check():
     return jsonify(diag)
 
 
+# ── Server entry ────────────────────────────────────────────
+
+def find_available_port(start_port=5409, max_attempts=10):
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"Could not find available port in range {start_port}-{start_port + max_attempts}")
+
+
 if __name__ == "__main__":
-    import os
     import socket
 
-    # 初始化数据库（建表 + 增量迁移）
     print("[Startup] Initializing database...")
     from init_db import init_database, migrate_database
     init_database()
     migrate_database()
     print("[Startup] Database initialized OK")
 
-    # 验证数据库可访问
     try:
         import sqlite3 as _sqlite
         _test_path = _get_db_path()
@@ -473,9 +767,7 @@ if __name__ == "__main__":
         print(f"[Startup] DB verification FAILED: {_e}")
         print(f"[Startup] SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 
-    # Allow port override via environment variable (for dev convenience)
     port = int(os.environ.get("SAU_PORT", "5409"))
-    # Check if the requested port is available, auto-increment if not
     if port == 5409:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -485,6 +777,5 @@ if __name__ == "__main__":
             print(f"[Startup] Port 5409 in use, using port {port}")
     print(f"[Startup] Starting Waitress server on port {port}")
     from waitress import serve
-    # Expose port via environment variable for frontend
     os.environ["SAU_PORT"] = str(port)
     serve(app, host="0.0.0.0", port=port)

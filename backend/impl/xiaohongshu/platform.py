@@ -21,7 +21,7 @@ from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 from ..base_platform import BasePlatform
 
 # ---------------------------------------------------------------------------
-# Constants (from vendor reference)
+# Constants
 # ---------------------------------------------------------------------------
 
 _XHS_LOGIN_URL = "https://creator.xiaohongshu.com/login"
@@ -183,11 +183,7 @@ class XiaohongshuPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def open_creator_center(self, cookie_file: str) -> None:
-        """Open the Xiaohongshu creator centre in a visible browser window.
-
-        Uses the same synchronous Playwright pattern as the legacy
-        ``sau_backend.py`` ``open_creator_center`` route.
-        """
+        """Open the Xiaohongshu creator centre in a visible browser window."""
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = _XHS_CREATOR_URL
 
@@ -296,7 +292,7 @@ class XiaohongshuPlatform(BasePlatform):
 
 
 # ======================================================================
-# Internal publish helper -- mirrors XiaoHongShuVideo from vendor
+# Internal publish helper
 # ======================================================================
 
 async def _publish_single_video(

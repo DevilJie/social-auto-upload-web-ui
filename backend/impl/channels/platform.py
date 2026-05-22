@@ -204,7 +204,7 @@ async def _is_login_completed(page) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Upload helpers (port from vendor TencentVideo)
+# Upload helpers
 # ---------------------------------------------------------------------------
 
 async def _upload_video_file(page, file_path: str) -> None:
@@ -316,7 +316,7 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
     """Poll until the publish button becomes enabled (upload finished).
 
     If an upload error is detected, the failed file is deleted and
-    re-uploaded automatically (matching the vendor TencentVideo behavior).
+    re-uploaded automatically.
     """
     while True:
         try:
@@ -734,11 +734,7 @@ class ChannelsPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def open_creator_center(self, cookie_file: str) -> None:
-        """Open the Channels (视频号) creator centre in a visible browser window.
-
-        Uses the same synchronous Playwright pattern as the legacy
-        ``sau_backend.py`` ``open_creator_center`` route.
-        """
+        """Open the Channels (视频号) creator centre in a visible browser window."""
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = "https://channels.weixin.qq.com/platform"
 

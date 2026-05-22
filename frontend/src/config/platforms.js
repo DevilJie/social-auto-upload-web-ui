@@ -13,6 +13,7 @@ import logoChannels from '@/assets/logos/shipinhao.png'
 import logoBilibili from '@/assets/logos/bilibili.png'
 import logoBaijiahao from '@/assets/logos/baijiahao.png'
 import logoYoutube from '@/assets/logos/youtube.png'
+import logoTencentVideo from '@/assets/logos/tengxunshipin.png'
 
 export const PLATFORMS = {
   XIAOHONGSHU: {
@@ -256,6 +257,23 @@ export const PLATFORMS = {
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '' },
+  },
+  TENCENT_VIDEO: {
+    id: 9,
+    key: 'tencent_video',
+    name: '腾讯视频',
+    shortName: 'TX',
+    letter: 'Q',
+    logo: logoTencentVideo,
+    color: '#FF6A00',
+    bgColor: 'rgba(255, 106, 0, 0.15)',
+    cssClass: 'tencent-video',
+    creatorUrl: 'https://mp.v.qq.com/',
+    settingsFields: [
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+    ],
+    defaultSettings: { title: '', description: '', scheduleTime: '', videoFormat: '' },
   },
 }
 

@@ -191,8 +191,344 @@ class TencentVideoPlatform(BasePlatform):
                 pass
 
     # ------------------------------------------------------------------
-    # publish_video — stub (TODO)
+    # publish_video — full Tencent Video upload pipeline
     # ------------------------------------------------------------------
 
-    async def publish_video(self, **kwargs):
-        raise NotImplementedError("腾讯视频发布功能尚未实现")
+    async def publish_video(self, **kwargs) -> bool:
+        """Publish a video to Tencent Video via CloakBrowser.
+
+        Accepted keyword arguments:
+
+        - ``title`` (*str*) -- video title
+        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``tags`` (*list[str]*) -- hashtags
+        - ``account_file`` (*list[str]*) -- cookie file names
+        - ``enableTimer`` (*bool*, optional)
+        - ``schedule_time_str`` (*str*, optional)
+        - ``desc`` (*str*, optional)
+        - ``thumbnail_landscape_path`` (*str*, optional) -- cover image path
+        - ``creation_declaration`` (*str|list*) -- creation declaration(s)
+        - ``videos_per_day`` (*int*, optional)
+        - ``daily_times`` (*list*, optional)
+        - ``start_days`` (*int*, optional)
+        """
+        title = kwargs.get("title", "")
+        files = kwargs.get("files", [])
+        tags = kwargs.get("tags", []) or []
+        account_file = kwargs.get("account_file", [])
+        enableTimer = kwargs.get("enableTimer", False)
+        schedule_time_str = kwargs.get("schedule_time_str", "")
+        thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
+        creation_declaration = kwargs.get("creation_declaration", "")
+        desc = kwargs.get("desc", "")
+
+        # Resolve full paths
+        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
+        file_paths = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        if thumbnail_landscape_path:
+            thumbnail_landscape_path = str(
+                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
+            )
+
+        # Parse creation declaration(s)
+        declarations = []
+        if creation_declaration:
+            if isinstance(creation_declaration, list):
+                declarations = creation_declaration
+            elif isinstance(creation_declaration, str):
+                declarations = [
+                    d.strip() for d in creation_declaration.split(",") if d.strip()
+                ]
+
+        # Parse schedule times
+        publish_datetimes = parse_schedule_time(
+            schedule_time_str,
+            len(file_paths),
+            enableTimer,
+            kwargs.get("videos_per_day", 1),
+            kwargs.get("daily_times"),
+            kwargs.get("start_days", 0),
+        )
+
+        for file_index, file_path in enumerate(file_paths):
+            for cookie_path in account_paths:
+                await self._upload_one_video(
+                    title=title,
+                    file_path=file_path,
+                    tags=tags,
+                    publish_date=publish_datetimes[file_index],
+                    account_file=cookie_path,
+                    enableTimer=enableTimer,
+                    thumbnail_landscape_path=thumbnail_landscape_path or None,
+                    creation_declarations=declarations,
+                    desc=desc,
+                )
+        return True
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _upload_one_video(
+        self,
+        title: str,
+        file_path: str,
+        tags: list,
+        publish_date,
+        account_file: str,
+        enableTimer: bool = False,
+        thumbnail_landscape_path=None,
+        creation_declarations=None,
+        desc="",
+    ):
+        """Upload a single video to one Tencent Video account."""
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(browser, storage_state=account_file)
+            try:
+                page = await context.new_page()
+                await page.goto(_PUBLISH_URL)
+                await page.wait_for_load_state("networkidle")
+
+                # Step 1: Upload video file via input[type=file]
+                logger.info("Uploading video file: %s", file_path)
+                file_input = page.locator('input[type="file"]').first
+                await file_input.set_input_files(file_path)
+                logger.info("Video file set, waiting for upload to complete...")
+
+                # Step 2: Wait for the publish form to appear after upload
+                # The form title "视频1" signals upload is done
+                await page.wait_for_selector(
+                    'div[class*="formTitle"]:has-text("视频")',
+                    timeout=120000,
+                )
+                logger.info("Video upload complete, publish form ready")
+                await asyncio.sleep(2)
+
+                # Step 3: Fill title
+                await self._fill_title(page, title or desc)
+
+                # Step 4: Upload cover image if provided
+                if thumbnail_landscape_path:
+                    await self._upload_cover(page, thumbnail_landscape_path)
+
+                # Step 5: Set creation declarations (checkboxes)
+                if creation_declarations:
+                    await self._set_creation_declarations(
+                        page, creation_declarations
+                    )
+
+                # Step 6: Handle scheduled publishing
+                if enableTimer and publish_date != 0:
+                    await self._set_schedule_time(page, publish_date)
+
+                # Step 7: Click publish
+                await self._click_publish(page)
+
+                # Save updated cookie state
+                await context.storage_state(path=account_file)
+                logger.info("Cookie state updated after publish")
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+
+    @staticmethod
+    async def _fill_title(page, title: str):
+        """Fill the video title in the contenteditable div."""
+        if not title:
+            return
+        title_container = page.locator(
+            'div[data-field-name="videos.0.title"]'
+        ).first
+        if await title_container.count() == 0:
+            logger.warning("Title field not found")
+            return
+
+        title_div = title_container.locator(
+            'div.ProseMirror.ExEditor-cc-title-input'
+        ).first
+        if await title_div.count() == 0:
+            logger.warning("Title contenteditable div not found")
+            return
+
+        await title_div.wait_for(state="visible", timeout=10000)
+        await title_div.click()
+        # Clear existing content
+        await page.keyboard.press("Control+KeyA")
+        await asyncio.sleep(0.2)
+        await page.keyboard.press("Delete")
+        await asyncio.sleep(0.2)
+        # Type the title (max 80 chars per the platform)
+        await page.keyboard.type(title[:80])
+        logger.info("Title filled: %s", title[:80])
+
+    @staticmethod
+    async def _upload_cover(page, cover_path: str):
+        """Upload cover image via the cover modal."""
+        logger.info("Uploading cover image: %s", cover_path)
+        try:
+            # Click the "上传横版封面" button area
+            upload_area = page.locator(
+                'div[class*="uploadAddArea"]:has-text("上传横版封面")'
+            ).first
+            if await upload_area.count() == 0:
+                logger.warning("Cover upload area not found")
+                return
+
+            await upload_area.wait_for(state="visible", timeout=10000)
+            await upload_area.click()
+            await asyncio.sleep(1)
+
+            # Wait for the modal and find the hidden file input
+            cover_input = page.locator('input#uploadCoverBtn')
+            await cover_input.wait_for(state="visible", timeout=10000)
+            await cover_input.set_input_files(cover_path)
+            logger.info("Cover image uploaded to modal")
+            await asyncio.sleep(2)
+
+            # Click the "使用" (use) button in the modal
+            use_btn = page.locator(
+                'div.ReactModal__Content button:has-text("使用")'
+            ).first
+            if await use_btn.count() > 0:
+                await use_btn.click()
+                logger.info("Cover confirmed with '使用' button")
+                await asyncio.sleep(1)
+            else:
+                logger.warning("Cover '使用' button not found")
+        except Exception as e:
+            logger.warning("Cover upload failed (non-blocking): %s", e)
+
+    @staticmethod
+    async def _set_creation_declarations(page, declarations: list):
+        """Check the specified creation declaration checkboxes."""
+        logger.info("Setting creation declarations: %s", declarations)
+        for decl in declarations:
+            if decl not in CREATION_DECLARATIONS:
+                logger.warning("Unknown declaration: %s", decl)
+                continue
+            try:
+                # Find the checkbox by its label text
+                checkbox = page.locator(
+                    f'label[class*="checkboxItem"]:has-text("{decl}")'
+                ).first
+                if await checkbox.count() == 0:
+                    logger.warning("Declaration checkbox not found: %s", decl)
+                    continue
+
+                await checkbox.wait_for(state="visible", timeout=5000)
+                # Check if already checked
+                chk_input = checkbox.locator('input[type="checkbox"]')
+                if await chk_input.is_checked():
+                    logger.info("Declaration already checked: %s", decl)
+                    continue
+
+                await checkbox.click()
+                logger.info("Declaration checked: %s", decl)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.warning(
+                    "Failed to set declaration '%s' (non-blocking): %s",
+                    decl, e,
+                )
+
+    @staticmethod
+    async def _set_schedule_time(page, publish_date):
+        """Enable scheduled publishing and set the date/time."""
+        logger.info("Setting schedule time: %s", publish_date)
+        try:
+            # Find the toggle switch - check if already enabled
+            switch = page.locator('button[role="switch"]').first
+            if await switch.count() > 0:
+                is_checked = await switch.get_attribute("aria-checked")
+                if is_checked != "true":
+                    await switch.click()
+                    logger.info("Scheduled publish toggled ON")
+                    await asyncio.sleep(1)
+
+            # Click the datetime trigger to open the picker
+            datetime_trigger = page.locator(
+                'div[class*="dateTimeSelect"]'
+            ).first
+            if await datetime_trigger.count() == 0:
+                logger.warning("Datetime trigger not found")
+                return
+
+            await datetime_trigger.click()
+            await asyncio.sleep(1)
+
+            # Wait for the popup to appear
+            popup = page.locator('div[class*="popupWrap"]').first
+            if await popup.count() == 0:
+                logger.warning("Datetime popup not found")
+                return
+
+            # Format date components as they appear in the popup
+            date_str = publish_date.strftime("%Y-%m-%d")
+            hour_str = f"{publish_date.hour}时"
+            minute_str = f"{publish_date.minute}分"
+
+            # Select date in the first list
+            date_item = popup.locator(
+                f'div[class*="itemWrap"]:has-text("{date_str}")'
+            ).first
+            if await date_item.count() > 0:
+                await date_item.click()
+                await asyncio.sleep(0.3)
+
+            # Select hour in the second list
+            hour_item = popup.locator(
+                f'div[class*="itemWrap"]:has-text("{hour_str}")'
+            ).first
+            if await hour_item.count() > 0:
+                await hour_item.click()
+                await asyncio.sleep(0.3)
+
+            # Select minute in the third list
+            minute_item = popup.locator(
+                f'div[class*="itemWrap"]:has-text("{minute_str}")'
+            ).first
+            if await minute_item.count() > 0:
+                await minute_item.click()
+                await asyncio.sleep(0.3)
+
+            # Click "确定" (confirm) button in the popup footer
+            confirm_btn = popup.locator('button:has-text("确定")').first
+            if await confirm_btn.count() > 0:
+                await confirm_btn.click()
+                logger.info("Schedule time confirmed: %s", publish_date)
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning(
+                "Schedule time setup failed (non-blocking): %s", e
+            )
+
+    @staticmethod
+    async def _click_publish(page):
+        """Click the publish button and wait for completion."""
+        logger.info("Clicking publish button")
+        try:
+            publish_btn = page.locator(
+                'button[dt-mpid="video_submit_click"]'
+            ).first
+            await publish_btn.wait_for(state="visible", timeout=10000)
+            await publish_btn.click()
+            logger.info("Publish button clicked, waiting for publish to complete")
+
+            # Wait for the page to change / success indicator
+            try:
+                await page.wait_for_url(
+                    "https://mp.v.qq.com/**",
+                    timeout=30000,
+                )
+                logger.info("Page navigated after publish — likely success")
+            except Exception:
+                logger.info(
+                    "Page did not navigate after publish (may still succeed)"
+                )
+
+            await asyncio.sleep(3)
+        except Exception as e:
+            logger.warning("Publish click failed: %s", e)
+            raise

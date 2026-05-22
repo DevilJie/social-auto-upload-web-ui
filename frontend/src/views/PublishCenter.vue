@@ -397,6 +397,25 @@
                     />
                     <el-option v-if="!field.options || field.options.length === 0" label="暂无可选项" :value="''" disabled />
                   </el-select>
+                  <el-select
+                    v-else-if="field.type === 'multiSelect'"
+                    v-model="form[field.key]"
+                    :placeholder="field.placeholder"
+                    size="small"
+                    multiple
+                    collapse-tags
+                    collapse-tags-tooltip
+                    clearable
+                    class="cursor-pointer"
+                  >
+                    <el-option
+                      v-for="opt in (field.options || [])"
+                      :key="opt.value"
+                      :label="opt.label"
+                      :value="opt.value"
+                    />
+                    <el-option v-if="!field.options || field.options.length === 0" label="暂无可选项" :value="''" disabled />
+                  </el-select>
                   <el-date-picker
                     v-else-if="field.type === 'datetime'"
                     v-model="form[field.key]"
@@ -913,6 +932,17 @@ watch([selectedPlatform, selectedAccountId], () => {
   for (const key of Object.keys(form)) {
     if (!(key in merged)) {
       delete form[key]
+    }
+  }
+  // 多选字段初始化为数组
+  const platformKey = selectedPlatform.value
+  if (platformKey) {
+    const platform = platformConfigs[platformKey] || {}
+    const fields = platform.settingsFields || []
+    for (const field of fields) {
+      if (field.type === 'multiSelect' && !Array.isArray(form[field.key])) {
+        form[field.key] = []
+      }
     }
   }
 }, { immediate: true })
@@ -1584,7 +1614,9 @@ async function publishAll() {
         productTitle: platformSettings.productTitle || '',
         isDraft: platformSettings.isDraft || false,
         aiContent: platformSettings.aiContent || '',
-        creationDeclaration: platformSettings.creationDeclaration || '',
+        creationDeclaration: Array.isArray(platformSettings.creationDeclaration)
+          ? platformSettings.creationDeclaration.join(',')
+          : platformSettings.creationDeclaration || '',
         audience: platformSettings.audience || 'not_kids',
         alteredContent: platformSettings.alteredContent || false,
       }

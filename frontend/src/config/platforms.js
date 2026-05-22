@@ -270,10 +270,17 @@ export const PLATFORMS = {
     cssClass: 'tencent-video',
     creatorUrl: 'https://mp.v.qq.com/',
     settingsFields: [
+      { key: 'creationDeclaration', label: '创作声明', type: 'multiSelect', placeholder: '请选择创作声明（可多选）', options: [
+        { label: '剧情演绎，仅供娱乐', value: '剧情演绎，仅供娱乐' },
+        { label: '取材网络，谨慎甄别', value: '取材网络，谨慎甄别' },
+        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+        { label: '未成年人请勿学习模仿', value: '未成年人请勿学习模仿' },
+        { label: '内容由AI生成', value: '内容由AI生成' },
+      ] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', creationDeclaration: '', scheduleTime: '', videoFormat: '' },
   },
 }
 

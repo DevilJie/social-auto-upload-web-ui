@@ -736,11 +736,11 @@ class IqiyiPlatform(BasePlatform):
             await publish_btn.click()
             logger.info("Publish button clicked, waiting for navigation")
 
-            # Wait for navigation away from the publish URL
+            # Wait for navigation away from the publish URL (max 60s)
+            # Use wait_for_function instead of wait_for_url for reliable JS eval
             try:
-                await page.wait_for_url(
-                    lambda url: "creator.iqiyi.com/publish/video/wemedia"
-                    not in url,
+                await page.wait_for_function(
+                    '!window.location.href.includes("/publish/video/wemedia")',
                     timeout=60000,
                 )
                 logger.info("Navigated to success page: %s", page.url)
@@ -749,7 +749,12 @@ class IqiyiPlatform(BasePlatform):
                 return True
             except Exception:
                 logger.warning(
-                    "Publish failed — still on publish page after timeout"
+                    "Publish failed — still on publish page after timeout. "
+                    "URL: %s", page.url
+                )
+                # Log visible error messages to help diagnose field issues
+                await page.evaluate(
+                    "console.error('PUBLISH BLOCKED — validation errors on page')"
                 )
                 return False
         except Exception as e:

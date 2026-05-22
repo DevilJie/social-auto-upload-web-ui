@@ -498,7 +498,7 @@ def postVideo():
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
 
     try:
-        asyncio.run(platform.publish_video(
+        result = asyncio.run(platform.publish_video(
             title=data.get('title'),
             files=data.get('fileList', []),
             tags=data.get('tags'),
@@ -524,7 +524,10 @@ def postVideo():
             audience=data.get('audience', 'not_kids'),
             altered_content=data.get('alteredContent', False),
         ))
-        return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
+        if result:
+            return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
+        else:
+            return jsonify({"code": 500, "msg": "发布失败：页面未跳转，表单校验未通过", "data": None}), 500
     except Exception as e:
         print(f"发布视频时出错: {str(e)}")
         return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
@@ -536,38 +539,47 @@ def postVideoBatch():
     if not isinstance(data_list, list):
         return jsonify({"code": 400, "msg": "Expected a JSON array", "data": None}), 400
 
-    for data in data_list:
+    failures = []
+    for idx, data in enumerate(data_list):
         platform = get_platform(data.get('type'))
         if not platform:
-            return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+            failures.append({"index": idx, "reason": "不支持的平台类型"})
+            continue
 
-        asyncio.run(platform.publish_video(
-            title=data.get('title'),
-            files=data.get('fileList', []),
-            tags=data.get('tags'),
-            account_file=data.get('accountList', []),
-            category=data.get('category'),
-            enableTimer=data.get('enableTimer'),
-            videos_per_day=data.get('videosPerDay'),
-            daily_times=data.get('dailyTimes'),
-            start_days=data.get('startDays'),
-            thumbnail_path=data.get('thumbnail', ''),
-            thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
-            thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
-            productLink=data.get('productLink', ''),
-            productTitle=data.get('productTitle', ''),
-            desc=data.get('description', ''),
-            schedule_time_str=data.get('scheduleTime', ''),
-            ai_content=data.get('aiContent', ''),
-            creation_declaration=data.get('creationDeclaration', ''),
-            risk_warning=data.get('riskWarning', ''),
-            enable_cash_activity=data.get('enableCashActivity', False),
-            supplementary_declaration=data.get('supplementaryDeclaration', ''),
-            is_draft=data.get('isDraft', False),
-            audience=data.get('audience', 'not_kids'),
-            altered_content=data.get('alteredContent', False),
-        ))
+        try:
+            result = asyncio.run(platform.publish_video(
+                title=data.get('title'),
+                files=data.get('fileList', []),
+                tags=data.get('tags'),
+                account_file=data.get('accountList', []),
+                category=data.get('category'),
+                enableTimer=data.get('enableTimer'),
+                videos_per_day=data.get('videosPerDay'),
+                daily_times=data.get('dailyTimes'),
+                start_days=data.get('startDays'),
+                thumbnail_path=data.get('thumbnail', ''),
+                thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
+                thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+                productLink=data.get('productLink', ''),
+                productTitle=data.get('productTitle', ''),
+                desc=data.get('description', ''),
+                schedule_time_str=data.get('scheduleTime', ''),
+                ai_content=data.get('aiContent', ''),
+                creation_declaration=data.get('creationDeclaration', ''),
+                risk_warning=data.get('riskWarning', ''),
+                enable_cash_activity=data.get('enableCashActivity', False),
+                supplementary_declaration=data.get('supplementaryDeclaration', ''),
+                is_draft=data.get('isDraft', False),
+                audience=data.get('audience', 'not_kids'),
+                altered_content=data.get('alteredContent', False),
+            ))
+            if not result:
+                failures.append({"index": idx, "reason": "发布失败：页面未跳转"})
+        except Exception as e:
+            failures.append({"index": idx, "reason": str(e)})
 
+    if failures:
+        return jsonify({"code": 500, "msg": f"{len(failures)} 个发布失败", "errors": failures}), 500
     return jsonify({"code": 200, "msg": None, "data": None}), 200
 
 

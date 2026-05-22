@@ -527,7 +527,12 @@ class TencentVideoPlatform(BasePlatform):
 
     @staticmethod
     async def _click_publish(page):
-        """Click the publish button and wait for completion."""
+        """Click the publish button and wait for completion.
+
+        Waits for either:
+        1. URL change to a different mp.v.qq.com page (success redirect)
+        2. "提交成功" / "发布成功" text appearing on the page
+        """
         logger.info("Clicking publish button")
         try:
             publish_btn = page.locator(
@@ -535,21 +540,46 @@ class TencentVideoPlatform(BasePlatform):
             ).first
             await publish_btn.wait_for(state="visible", timeout=10000)
             await publish_btn.click()
-            logger.info("Publish button clicked, waiting for publish to complete")
+            logger.info("Publish button clicked, waiting for publish result")
 
-            # Wait for the page to change / success indicator
-            try:
-                await page.wait_for_url(
-                    "https://mp.v.qq.com/**",
-                    timeout=30000,
-                )
-                logger.info("Page navigated after publish — likely success")
-            except Exception:
-                logger.info(
-                    "Page did not navigate after publish (may still succeed)"
+            # Wait up to 60s for success indicators
+            success = False
+            for _ in range(60):
+                try:
+                    # Check for success text on the page
+                    success_text = page.locator(
+                        'text=提交成功, text=发布成功, text=投稿成功'
+                    ).first
+                    if await success_text.count() > 0 and await success_text.is_visible():
+                        logger.info("Publish success text detected!")
+                        success = True
+                        break
+                except Exception:
+                    pass
+
+                # Also check if URL changed away from publish page
+                try:
+                    current_url = page.url
+                    if "publishVideo" not in current_url:
+                        logger.info(
+                            "Navigated away from publish page: %s", current_url
+                        )
+                        success = True
+                        break
+                except Exception:
+                    pass
+
+                await asyncio.sleep(1)
+
+            if success:
+                logger.info("Video published successfully")
+            else:
+                logger.warning(
+                    "Publish indicator not found within timeout, "
+                    "may still succeed"
                 )
 
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
         except Exception as e:
             logger.warning("Publish click failed: %s", e)
             raise

@@ -197,9 +197,6 @@ class DouyinPlatform(BasePlatform):
     async def publish_video(self, **kwargs) -> bool:
         """Publish a video to Douyin via CloakBrowser.
 
-        All logic from ``vendor/.../douyin_uploader/main.py::DouYinVideo`` is
-        inlined here so the new engine is self-contained.
-
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title

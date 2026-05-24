@@ -544,11 +544,11 @@
       <h1><span>Social-Auto-Upload</span><br>Web-UI</h1>
       <p class="hero-subtitle">
         腾讯视频 + 爱奇艺双平台接入 · 全平台 CloakBrowser 迁移完成 ·<br>
-        发布界面 UI/UX 全面优化
+        发布界面 UI/UX 全面优化 · 打包流程精简
       </p>
       <div class="hero-stats">
         <div class="stat">
-          <div class="stat-number">17<span>+</span></div>
+          <div class="stat-number">21<span>+</span></div>
           <div class="stat-label">提交次数</div>
         </div>
         <div class="stat">
@@ -590,14 +590,14 @@
           <div class="highlight-num">2</div>
           <div class="highlight-text">
             <h3>爱奇艺平台接入</h3>
-            <p>完整发布流水线：视频上传→标题描述→创作声明→风险提示→打卡挑战赛→封面设置→定时发布</p>
+            <p>完整发布流水线：视频上传 → 标题描述 → 创作声明 → 风险提示 → 打卡挑战赛 → 封面设置 → 定时发布</p>
           </div>
         </li>
         <li class="highlight-item">
           <div class="highlight-num">3</div>
           <div class="highlight-text">
             <h3>CloakBrowser 全平台迁移完成</h3>
-            <p>全部 10 个平台 100% 使用 CloakBrowser 隐身引擎，移除旧 vendor 依赖，统一反检测策略</p>
+            <p>全部 10 个平台 100% 使用 CloakBrowser 隐身引擎，移除旧 vendor 依赖，统一反检测策略，打包体积大幅缩减</p>
           </div>
         </li>
         <li class="highlight-item">
@@ -610,8 +610,8 @@
         <li class="highlight-item">
           <div class="highlight-num">5</div>
           <div class="highlight-text">
-            <h3>封面上传交互重写</h3>
-            <p>爱奇艺封面上传改用 tab 切换竖封面/横封面，分别通过各自面板内的文件上传控件完成，等待服务端处理完毕</p>
+            <h3>打包流程精简</h3>
+            <p>print 统一为 logging 规范日志输出，打包脚本自动清理 Playwright 浏览器目录，安装包体积更小</p>
           </div>
         </li>
       </ul>
@@ -751,8 +751,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
           </svg>
         </div>
-        <h2 class="section-title">全平台 CloakBrowser 迁移</h2>
-        <span class="section-meta">3 次提交</span>
+        <h2 class="section-title">CloakBrowser 引擎集成</h2>
+        <span class="section-meta">5 次提交</span>
       </div>
 
       <div class="card-grid">
@@ -773,7 +773,7 @@
         </div>
         <div class="card">
           <div class="card-title">
-            移除旧引擎
+            移除旧引擎 & 日志规范
             <span class="card-tag refactor">重构</span>
           </div>
           <div class="card-desc">
@@ -781,18 +781,22 @@
               <li>移除 vendor/ 目录依赖</li>
               <li>移除旧引擎模式切换代码</li>
               <li>清理 <code>X-Engine-Mode</code> 路由分发</li>
+              <li><code>print</code> 统一替换为 <code>logging</code> 规范日志</li>
+              <li>启动信息通过 logger 输出，便于日志采集</li>
             </ul>
           </div>
         </div>
         <div class="card">
           <div class="card-title">
-            YouTube 修复
-            <span class="card-tag fix">修复</span>
+            打包优化
+            <span class="card-tag refactor">重构</span>
           </div>
           <div class="card-desc">
             <ul>
-              <li>sync_profile 改用有头模式避免被检测</li>
-              <li>profile 抓取策略优化</li>
+              <li>CloakBrowser 替代 Playwright Chromium，节省 ~683MB</li>
+              <li>构建脚本自动清理 <code>ms-playwright</code> 目录</li>
+              <li>排除安装包中不需要的依赖项</li>
+              <li>YouTube <code>sync_profile</code> 改用有头模式避免被检测</li>
             </ul>
           </div>
         </div>
@@ -880,7 +884,7 @@
       <div class="footer-logo">Social-Auto-Upload-Web-UI</div>
       <p>让社交媒体内容上传变得更简单</p>
       <div class="footer-meta">
-        最后更新于 2026年5月23日 · 共 17 次提交 · 10 个平台
+        最后更新于 2026年5月24日 · 共 21 次提交 · 10 个平台
       </div>
     </div>
   </section>

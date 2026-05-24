@@ -111,6 +111,14 @@ if (-not (Test-Path (Join-Path $cloakBrowserDir "chrome.dll"))) {
 $cloakSize = (Get-ChildItem $cloakBrowserDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
 Write-Host "[BUILD] CloakBrowser: $([math]::Round($cloakSize, 1)) MB"
 
+# Step 6.6: Remove Playwright browsers — no longer needed (CloakBrowser provides its own Chromium)
+$playwrightDir = Join-Path $PYTHON_DIR "ms-playwright"
+if (Test-Path $playwrightDir) {
+    $pwSize = (Get-ChildItem $playwrightDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+    Remove-Item $playwrightDir -Recurse -Force
+    Write-Host "[BUILD] Removed ms-playwright ($([math]::Round($pwSize, 1)) MB freed)"
+}
+
 # Step 7: Build frontend
 Write-Step "Building frontend..."
 Set-Location $FRONTEND_DIR

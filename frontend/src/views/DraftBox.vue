@@ -35,10 +35,10 @@
         <div class="card-body">
           <div class="card-title">{{ draft.title || '无标题' }}</div>
 
-          <!-- Channels summary -->
-          <div class="card-channels">
-            <template v-for="ch in draft.channels_summary" :key="ch.platform">
-              <span class="channel-tag">
+          <!-- Channels summary (single line with marquee) -->
+          <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
+            <div class="channels-track" :class="{ 'channels-marquee': isOverflow(draft.id) }" :ref="el => setChannelRef(draft.id, el)">
+              <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
                 <img
                   v-if="getPlatformLogo(ch.platform)"
                   :src="getPlatformLogo(ch.platform)"
@@ -46,7 +46,7 @@
                 />
                 {{ ch.name }} × {{ ch.count }}
               </span>
-            </template>
+            </div>
           </div>
 
           <!-- Meta info -->
@@ -56,14 +56,14 @@
           </div>
         </div>
 
-        <!-- Card actions -->
+        <!-- Card actions - full width at bottom -->
         <div class="card-actions">
-          <el-button size="small" type="primary" @click="editDraft(draft.id)">
+          <button class="action-btn action-edit" @click="editDraft(draft.id)">
             <el-icon><Edit /></el-icon> 编辑
-          </el-button>
-          <el-button size="small" @click="confirmDelete(draft.id)">
+          </button>
+          <button class="action-btn action-delete" @click="confirmDelete(draft.id)">
             <el-icon><Delete /></el-icon> 删除
-          </el-button>
+          </button>
         </div>
       </div>
     </div>
@@ -71,7 +71,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Edit, Delete } from '@element-plus/icons-vue'
@@ -81,6 +81,8 @@ import { getPlatformByKey } from '@/config/platforms'
 const router = useRouter()
 const drafts = ref([])
 const loading = ref(true)
+const channelRefs = {}
+const overflowMap = ref({})
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 
@@ -126,6 +128,19 @@ function formatTime(isoString) {
 
 function editDraft(id) {
   router.push(`/publish-center?draft=${id}`)
+}
+
+function setChannelRef(draftId, el) {
+  if (el) {
+    channelRefs[draftId] = el
+    nextTick(() => {
+      overflowMap.value[draftId] = el.scrollWidth > el.parentElement.clientWidth
+    })
+  }
+}
+
+function isOverflow(draftId) {
+  return overflowMap.value[draftId]
 }
 
 async function confirmDelete(id) {
@@ -203,6 +218,8 @@ onMounted(loadDrafts)
   border-radius: $radius-lg;
   overflow: hidden;
   transition: $transition-base;
+  display: flex;
+  flex-direction: column;
 
   &:hover {
     border-color: rgba(255, 255, 255, 0.15);
@@ -246,6 +263,7 @@ onMounted(loadDrafts)
 
 .card-body {
   padding: 12px 16px;
+  flex: 1;
 }
 
 .card-title {
@@ -259,10 +277,18 @@ onMounted(loadDrafts)
 }
 
 .card-channels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  overflow: hidden;
   margin-bottom: 8px;
+}
+
+.channels-track {
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.channels-marquee {
+  animation: marquee-scroll 8s linear infinite;
 }
 
 .channel-tag {
@@ -274,12 +300,18 @@ onMounted(loadDrafts)
   background: rgba(255, 255, 255, 0.06);
   padding: 2px 8px;
   border-radius: 10px;
+  flex-shrink: 0;
 }
 
 .channel-icon {
   width: 14px;
   height: 14px;
   border-radius: 2px;
+}
+
+@keyframes marquee-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .card-meta {
@@ -291,7 +323,37 @@ onMounted(loadDrafts)
 
 .card-actions {
   display: flex;
-  gap: 8px;
-  padding: 0 16px 12px;
+  border-top: 1px solid $border;
+  margin-top: auto;
+}
+
+.action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  color: $text-secondary;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: $transition-base;
+
+  &:first-child {
+    border-right: 1px solid $border;
+  }
+
+  &.action-edit:hover {
+    background: rgba(64, 158, 255, 0.1);
+    color: #409eff;
+  }
+
+  &.action-delete:hover {
+    background: rgba(245, 108, 108, 0.1);
+    color: #f56c6c;
+  }
 }
 </style>

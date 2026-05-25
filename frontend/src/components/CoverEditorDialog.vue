@@ -68,7 +68,7 @@
 import { ref, reactive, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
-import http from '@/utils/request'
+import { http } from '@/utils/request'
 import { materialApi } from '@/api/material'
 import { frameApi } from '@/api/frame'
 import VideoTimeline from './VideoTimeline.vue'

@@ -48,6 +48,27 @@
       </div>
     </div>
 
+    <!-- 缓存管理 -->
+    <div class="settings-card">
+      <h3 class="card-title">
+        <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        缓存管理
+      </h3>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">清理抽帧缓存</span>
+          <span class="setting-desc">清除 data/frames/ 目录下所有已提取的视频帧画面，释放磁盘空间</span>
+        </div>
+        <div class="setting-control">
+          <span v-if="cacheInfo.frames.count > 0" class="cache-size">{{ cacheInfo.frames.count }} 个文件 · {{ formatSize(cacheInfo.frames.size) }}</span>
+          <span v-else class="cache-size empty">无缓存</span>
+          <button class="cache-btn" :disabled="clearingCache || cacheInfo.frames.count === 0" @click="handleClearCache">
+            {{ clearingCache ? '清理中...' : '清理缓存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 关于系统 -->
     <div class="settings-card">
       <h3 class="card-title">
@@ -55,6 +76,10 @@
         技术栈
       </h3>
       <div class="tech-grid">
+        <div class="tech-section">
+          <h4 class="tech-section-title">版本</h4>
+          <div class="version-badge">v{{ appVersion }}</div>
+        </div>
         <div class="tech-section">
           <h4 class="tech-section-title">前端</h4>
           <div class="tech-item" v-for="item in frontendStack" :key="item.name">
@@ -90,12 +115,64 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { settingsApi } from '@/api/v2'
 import { platformList } from '@/config/platforms'
+import { http } from '@/utils/request'
 
 const loading = ref(false)
 const saving = ref(false)
+const clearingCache = ref(false)
+const appVersion = ref('--')
+const cacheInfo = reactive({
+  frames: { count: 0, size: 0 },
+})
+
+const fetchSystemInfo = async () => {
+  try {
+    const res = await http.get('/api/system-info')
+    if (res.code === 200 && res.data) {
+      appVersion.value = res.data.version || '--'
+      if (res.data.cache) {
+        cacheInfo.frames = res.data.cache.frames || { count: 0, size: 0 }
+      }
+    }
+  } catch {}
+}
+
+const formatSize = (bytes) => {
+  if (!bytes) return '0B'
+  if (bytes < 1024) return bytes + 'B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB'
+  return (bytes / 1024 / 1024).toFixed(1) + 'MB'
+}
+
+const handleClearCache = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要清理所有缓存数据吗？清理后下次使用封面功能时会重新提取视频帧。',
+      '确认清理',
+      { confirmButtonText: '确定清理', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  clearingCache.value = true
+  try {
+    const res = await http.post('/api/clear-cache', { targets: ['frames'] })
+    if (res.code === 200) {
+      const info = res.data?.frames
+      ElMessage.success(info ? `已清理 ${info.cleared} 个缓存文件` : '缓存已清理')
+      fetchSystemInfo()
+    } else {
+      ElMessage.error(res.msg || '清理失败')
+    }
+  } catch {
+    ElMessage.error('清理失败')
+  } finally {
+    clearingCache.value = false
+  }
+}
 
 const settings = reactive({
   proxyUrl: '',
@@ -161,6 +238,7 @@ const handleSave = async () => {
 
 onMounted(() => {
   fetchSettings()
+  fetchSystemInfo()
 })
 </script>
 
@@ -240,6 +318,44 @@ onMounted(() => {
       .setting-control {
         flex-shrink: 0;
         margin-left: $spacing-lg;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .cache-size {
+        font-size: 12px;
+        color: $text-muted;
+        font-family: 'Fira Code', monospace;
+        white-space: nowrap;
+
+        &.empty {
+          opacity: 0.5;
+        }
+      }
+
+      .cache-btn {
+        padding: 8px 20px;
+        border: 1px solid rgba($danger-color, 0.3);
+        border-radius: $radius-base;
+        background: rgba($danger-color, 0.06);
+        color: $danger-color;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: $transition-base;
+        font-family: inherit;
+        outline: none;
+
+        &:hover:not(:disabled) {
+          background: rgba($danger-color, 0.12);
+          border-color: rgba($danger-color, 0.5);
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
       }
     }
 
@@ -273,7 +389,7 @@ onMounted(() => {
   // ── Tech stack section ──
   .tech-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: $spacing-lg;
 
     @media (max-width: 768px) {
@@ -281,6 +397,19 @@ onMounted(() => {
     }
 
     .tech-section {
+      .version-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 20px;
+        border-radius: 8px;
+        background: $gradient-brand;
+        color: #fff;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: 'Fira Code', monospace;
+        letter-spacing: 0.5px;
+      }
+
       .tech-section-title {
         font-size: 12px;
         font-weight: 600;
@@ -317,7 +446,9 @@ onMounted(() => {
 
   .save-bar {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 16px;
     padding: $spacing-lg 0;
 
     .save-btn {

@@ -222,7 +222,7 @@ export const PLATFORMS = {
     name: 'TikTok',
     shortName: 'TT',
     letter: 'T',
-    logo: null,
+    logo: new URL('../assets/logos/tiktok.png', import.meta.url).href,
     color: '#000000',
     bgColor: 'rgba(0, 0, 0, 0.15)',
     cssClass: 'tiktok',

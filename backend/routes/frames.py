@@ -1,6 +1,8 @@
 import os
+import shutil
 
 from flask import Blueprint, request, jsonify, send_file
+from pathlib import Path
 
 from conf import BASE_DIR
 from services.ffmpeg_service import (
@@ -94,3 +96,63 @@ def get_frame_image():
         return jsonify({"code": 404, "msg": "Frame not found"}), 404
 
     return send_file(image_path, mimetype='image/jpeg')
+
+
+@frames_bp.post('/api/clear-cache')
+def clear_cache():
+    """Clear cached data: extracted frames, etc."""
+    data = request.get_json(force=True) if request.is_json else {}
+    targets = data.get('targets', ['frames'])
+
+    results = {}
+
+    if 'frames' in targets:
+        frames_dir = os.path.join(str(BASE_DIR), 'frames')
+        if os.path.isdir(frames_dir):
+            file_count = sum(len(files) for _, _, files in os.walk(frames_dir))
+            shutil.rmtree(frames_dir)
+            os.makedirs(frames_dir, exist_ok=True)
+            results['frames'] = {'cleared': file_count, 'unit': 'files'}
+        else:
+            results['frames'] = {'cleared': 0, 'unit': 'files'}
+
+    return jsonify({"code": 200, "data": results})
+
+
+@frames_bp.get('/api/system-info')
+def system_info():
+    """Return version and cache size info."""
+    # Read version from versions file
+    version = 'unknown'
+    for candidate in [
+        os.path.join(str(BASE_DIR), '..', 'versions'),
+        os.path.join(str(BASE_DIR), 'versions'),
+    ]:
+        if os.path.isfile(candidate):
+            with open(candidate, 'r') as f:
+                version = f.read().strip()
+            break
+
+    # Calculate frames cache size
+    frames_dir = os.path.join(str(BASE_DIR), 'frames')
+    frames_size = 0
+    frames_count = 0
+    if os.path.isdir(frames_dir):
+        for dirpath, _, filenames in os.walk(frames_dir):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                try:
+                    frames_size += os.path.getsize(fp)
+                    frames_count += 1
+                except OSError:
+                    pass
+
+    return jsonify({
+        "code": 200,
+        "data": {
+            "version": version,
+            "cache": {
+                "frames": {"count": frames_count, "size": frames_size},
+            },
+        },
+    })

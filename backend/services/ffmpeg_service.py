@@ -73,13 +73,17 @@ def _find_ffmpeg() -> str:
     return _find_binary("ffmpeg")
 
 
-def _find_ffprobe() -> str:
-    return _find_binary("ffprobe")
+def _find_ffprobe() -> str | None:
+    try:
+        return _find_binary("ffprobe")
+    except FileNotFoundError:
+        logger.warning("ffprobe not found — duration detection will be unavailable")
+        return None
 
 
 # Module-level constants resolved at import time.
 FFMPEG: str = _find_ffmpeg()
-FFPROBE: str = _find_ffprobe()
+FFPROBE: str | None = _find_ffprobe()
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +92,8 @@ FFPROBE: str = _find_ffprobe()
 
 def get_video_duration(video_path: str) -> float:
     """Return the duration of *video_path* in seconds."""
+    if FFPROBE is None:
+        return 0.0
     cmd = [
         FFPROBE,
         "-v", "error",

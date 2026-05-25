@@ -132,6 +132,7 @@ function onTrackMouseDown(e) {
   position: relative;
   height: 18px;
   margin-top: 2px;
+  overflow: hidden;
 }
 .time-marker {
   position: absolute;

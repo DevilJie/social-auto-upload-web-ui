@@ -19,67 +19,62 @@ from loguru import logger
 # Binary discovery
 # ---------------------------------------------------------------------------
 
-def _find_ffmpeg() -> str:
-    """Locate the ffmpeg binary.
+def _validate_binary(path: str) -> bool:
+    """Check that a binary actually exists and is executable."""
+    try:
+        result = subprocess.run(
+            [path, "-version"],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _find_binary(name: str) -> str:
+    """Locate a binary (ffmpeg or ffprobe).
 
     Priority order:
-      1. PyInstaller bundle: sys._MEIPASS/bin/ffmpeg
-      2. Local bundle: backend/bin/ffmpeg
-      3. System PATH via shutil.which
+      1. System PATH via shutil.which (user's installed version)
+      2. Local bundle: backend/bin/<name>
+      3. PyInstaller bundle: sys._MEIPASS/bin/<name>
 
-    Raises:
-        FileNotFoundError: if ffmpeg cannot be found anywhere.
+    Validates each candidate actually runs before accepting.
     """
-    # 1. PyInstaller bundle
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        candidate = os.path.join(meipass, "bin", "ffmpeg")
-        if os.path.isfile(candidate):
-            logger.debug("Found ffmpeg in PyInstaller bundle: {}", candidate)
-            return candidate
+    # 1. System PATH — prefer user's installed version
+    found = shutil.which(name)
+    if found and _validate_binary(found):
+        logger.debug("Found {} on system PATH: {}", name, found)
+        return found
+    if found:
+        logger.debug("{} on PATH ({}) is not a valid binary, skipping", name, found)
 
-    # 2. Local bundle relative to this file's parent (backend/)
-    local_bin = Path(__file__).resolve().parent / "bin" / "ffmpeg"
-    if local_bin.is_file():
-        logger.debug("Found ffmpeg in local bundle: {}", local_bin)
+    # 2. Local bundle: backend/bin/
+    local_bin = Path(__file__).resolve().parent.parent / "bin" / name
+    if local_bin.exists() and _validate_binary(str(local_bin)):
+        logger.debug("Found {} in local bundle: {}", name, local_bin)
         return str(local_bin)
 
-    # 3. System PATH
-    found = shutil.which("ffmpeg")
-    if found:
-        logger.debug("Found ffmpeg on system PATH: {}", found)
-        return found
+    # 3. PyInstaller bundle
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidate = os.path.join(meipass, "bin", name)
+        if os.path.isfile(candidate) and _validate_binary(candidate):
+            logger.debug("Found {} in PyInstaller bundle: {}", name, candidate)
+            return candidate
 
     raise FileNotFoundError(
-        "ffmpeg not found. Install ffmpeg or place the binary in backend/bin/"
+        f"{name} not found or not executable. "
+        f"Install {name} system-wide or place the binary in backend/bin/"
     )
+
+
+def _find_ffmpeg() -> str:
+    return _find_binary("ffmpeg")
 
 
 def _find_ffprobe() -> str:
-    """Locate the ffprobe binary.
-
-    Same priority order as _find_ffmpeg().
-    """
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        candidate = os.path.join(meipass, "bin", "ffprobe")
-        if os.path.isfile(candidate):
-            logger.debug("Found ffprobe in PyInstaller bundle: {}", candidate)
-            return candidate
-
-    local_bin = Path(__file__).resolve().parent / "bin" / "ffprobe"
-    if local_bin.is_file():
-        logger.debug("Found ffprobe in local bundle: {}", local_bin)
-        return str(local_bin)
-
-    found = shutil.which("ffprobe")
-    if found:
-        logger.debug("Found ffprobe on system PATH: {}", found)
-        return found
-
-    raise FileNotFoundError(
-        "ffprobe not found. Install ffmpeg or place the binary in backend/bin/"
-    )
+    return _find_binary("ffprobe")
 
 
 # Module-level constants resolved at import time.

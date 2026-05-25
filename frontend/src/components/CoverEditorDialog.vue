@@ -6,6 +6,7 @@
     class="cover-editor-dialog"
     :close-on-click-modal="false"
     @closed="onClosed"
+    append-to-body
   >
     <div class="cover-editor-tabs">
       <button :class="['tab-btn', { active: activeTab === 'landscape' }]" @click="switchTab('landscape')">横版 16:9</button>
@@ -326,6 +327,33 @@ function onClosed() {
 defineExpose({ open })
 </script>
 
+<!-- Unscoped styles for Element Plus dialog overrides -->
+<style lang="scss">
+@use '@/styles/variables' as *;
+
+.cover-editor-dialog {
+  .el-dialog {
+    background: $bg-elevated;
+    border: 1px solid $border;
+    border-radius: $radius-dialog;
+  }
+  .el-dialog__header {
+    border-bottom: 1px solid $border;
+    padding: 16px 20px;
+    .el-dialog__title { color: $text-primary; }
+  }
+  .el-dialog__body {
+    padding: 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .el-dialog__footer {
+    border-top: 1px solid $border;
+    padding: 12px 20px;
+  }
+}
+</style>
+
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 
@@ -350,7 +378,10 @@ defineExpose({ open })
   }
 }
 .cover-editor-body { display: flex; gap: 16px; }
-.editor-main { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.editor-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.timeline-section {
+  overflow: hidden;
+}
 .crop-area {
   background: #0a0a1a;
   border-radius: $radius-base;
@@ -378,6 +409,7 @@ defineExpose({ open })
 .editor-upload { display: flex; gap: 8px; }
 .editor-sidebar {
   width: 180px;
+  flex-shrink: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   padding-left: 12px;
   overflow-y: auto;

@@ -99,6 +99,22 @@ export default defineConfig({
         timeout: 120000,
         proxyTimeout: 120000,
       },
+      '/api/extract-frames': {
+        target: 'http://localhost:5409',
+        changeOrigin: true,
+      },
+      '/api/frames-status': {
+        target: 'http://localhost:5409',
+        changeOrigin: true,
+      },
+      '/api/frames': {
+        target: 'http://localhost:5409',
+        changeOrigin: true,
+      },
+      '/api/frame-image': {
+        target: 'http://localhost:5409',
+        changeOrigin: true,
+      },
       '/api/v2': {
         target: 'http://localhost:5409',
         changeOrigin: true,

@@ -32,6 +32,18 @@ def _db_conn():
     return conn
 
 
+def _to_beijing_time(utc_str):
+    """将 SQLite UTC 时间字符串转换为北京时间 ISO 格式"""
+    if not utc_str:
+        return utc_str
+    try:
+        dt = datetime.strptime(str(utc_str), '%Y-%m-%d %H:%M:%S')
+        dt = dt + timedelta(hours=8)
+        return dt.strftime('%Y-%m-%dT%H:%M:%S+08:00')
+    except (ValueError, TypeError):
+        return utc_str
+
+
 # ========== 任务管理 ==========
 
 @ext_api.route('/tasks', methods=['GET'])
@@ -408,6 +420,8 @@ def get_drafts():
                 d['channels_summary'] = json.loads(d.get('channels_summary', '[]'))
             except json.JSONDecodeError:
                 d['channels_summary'] = []
+            d['created_at'] = _to_beijing_time(d.get('created_at'))
+            d['updated_at'] = _to_beijing_time(d.get('updated_at'))
             drafts.append(d)
         conn.close()
         return jsonify({"code": 200, "data": drafts})
@@ -460,6 +474,12 @@ def get_draft(draft_id):
             d['channels_summary'] = json.loads(d.get('channels_summary', '[]'))
         except json.JSONDecodeError:
             d['channels_summary'] = []
+        try:
+            d['draft_data'] = json.loads(d.get('draft_data', '{}'))
+        except json.JSONDecodeError:
+            d['draft_data'] = {}
+        d['created_at'] = _to_beijing_time(d.get('created_at'))
+        d['updated_at'] = _to_beijing_time(d.get('updated_at'))
         return jsonify({"code": 200, "data": d})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
@@ -526,12 +546,15 @@ def _extract_draft_title(draft_data):
 
 
 def _extract_draft_cover(draft_data):
-    """从草稿数据中提取封面路径"""
+    """从草稿数据中提取封面路径或URL"""
     cc = draft_data.get('commonConfig', {})
     for key in ['coverPortrait', 'coverLandscape']:
         cover = cc.get(key)
-        if cover and cover.get('path'):
-            return cover['path']
+        if cover:
+            if cover.get('path'):
+                return cover['path']
+            if cover.get('url'):
+                return cover['url']
     return ''
 
 

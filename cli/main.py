@@ -3,13 +3,13 @@ from pathlib import Path
 
 import typer
 
-# Add backend/ to sys.path so backend modules can be imported
+# Add backend/ to sys.path so backend modules can be imported (dev mode only)
 _BACKEND_DIR = Path(__file__).parent.parent / "backend"
-if str(_BACKEND_DIR) not in sys.path:
+if _BACKEND_DIR.is_dir() and str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from cli.state import state
-from cli.commands import config, account, login, material, publish, draft
+from cli.commands import config, account, material, draft
 
 app = typer.Typer(
     name="sau",

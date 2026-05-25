@@ -32,6 +32,5 @@ python/
 .gstack/
 docs/superpowers/.claude/
 .claude/
-docs/
 src-tauri/bundle-resources/*
 src-tauri/*.exe

@@ -31,6 +31,23 @@
       </div>
     </div>
 
+    <!-- 发布设置 -->
+    <div class="settings-card">
+      <h3 class="card-title">
+        <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        发布设置
+      </h3>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">上传视频后自动填充标题</span>
+          <span class="setting-desc">上传视频成功后，自动将文件名填入所有渠道的标题字段</span>
+        </div>
+        <div class="setting-control">
+          <el-switch v-model="settings.autoFillTitle" />
+        </div>
+      </div>
+    </div>
+
     <!-- 关于系统 -->
     <div class="settings-card">
       <h3 class="card-title">
@@ -82,6 +99,7 @@ const saving = ref(false)
 
 const settings = reactive({
   proxyUrl: '',
+  autoFillTitle: true,
 })
 
 // 海外平台列表
@@ -113,6 +131,7 @@ const fetchSettings = async () => {
     const res = await settingsApi.getSettings()
     if (res.code === 200 && res.data) {
       if (res.data.proxyUrl !== undefined) settings.proxyUrl = res.data.proxyUrl
+      if (res.data.autoFillTitle !== undefined) settings.autoFillTitle = res.data.autoFillTitle
     }
   } catch (e) {
     console.error(e)
@@ -126,6 +145,7 @@ const handleSave = async () => {
   try {
     const res = await settingsApi.updateSettings({
       proxyUrl: settings.proxyUrl,
+      autoFillTitle: settings.autoFillTitle,
     })
     if (res.code === 200) {
       ElMessage.success('设置已保存')

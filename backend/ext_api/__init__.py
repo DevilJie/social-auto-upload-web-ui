@@ -389,3 +389,201 @@ def update_settings():
         return jsonify({"code": 200, "msg": "设置已更新"})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+# ========== 草稿箱 ==========
+
+@ext_api.route('/drafts', methods=['GET'])
+def get_drafts():
+    """获取草稿列表"""
+    try:
+        conn = _db_conn()
+        rows = conn.execute(
+            "SELECT id, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
+        ).fetchall()
+        drafts = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d['channels_summary'] = json.loads(d.get('channels_summary', '[]'))
+            except json.JSONDecodeError:
+                d['channels_summary'] = []
+            drafts.append(d)
+        conn.close()
+        return jsonify({"code": 200, "data": drafts})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@ext_api.route('/drafts', methods=['POST'])
+def create_draft():
+    """创建草稿"""
+    data = request.get_json()
+    if not data or not data.get('draft_data'):
+        return jsonify({"code": 400, "msg": "草稿数据不能为空"}), 400
+
+    draft_data = data['draft_data']
+    title = _extract_draft_title(draft_data)
+    cover_path = _extract_draft_cover(draft_data)
+    channels_summary = _extract_channels_summary(draft_data)
+    video_duration = _extract_video_duration(draft_data)
+    video_file_size = _extract_video_file_size(draft_data)
+
+    try:
+        conn = _db_conn()
+        cursor = conn.execute(
+            """INSERT INTO drafts (title, cover_path, draft_data, channels_summary, video_duration, video_file_size)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+             json.dumps(channels_summary, ensure_ascii=False),
+             video_duration, video_file_size)
+        )
+        conn.commit()
+        draft_id = cursor.lastrowid
+        conn.close()
+        return jsonify({"code": 200, "data": {"id": draft_id, "title": title}})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@ext_api.route('/drafts/<int:draft_id>', methods=['GET'])
+def get_draft(draft_id):
+    """获取草稿详情"""
+    try:
+        conn = _db_conn()
+        row = conn.execute("SELECT * FROM drafts WHERE id = ?", (draft_id,)).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"code": 404, "msg": "草稿不存在"}), 404
+        d = dict(row)
+        try:
+            d['channels_summary'] = json.loads(d.get('channels_summary', '[]'))
+        except json.JSONDecodeError:
+            d['channels_summary'] = []
+        return jsonify({"code": 200, "data": d})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@ext_api.route('/drafts/<int:draft_id>', methods=['PUT'])
+def update_draft(draft_id):
+    """更新草稿"""
+    data = request.get_json()
+    if not data or not data.get('draft_data'):
+        return jsonify({"code": 400, "msg": "草稿数据不能为空"}), 400
+
+    draft_data = data['draft_data']
+    title = _extract_draft_title(draft_data)
+    cover_path = _extract_draft_cover(draft_data)
+    channels_summary = _extract_channels_summary(draft_data)
+    video_duration = _extract_video_duration(draft_data)
+    video_file_size = _extract_video_file_size(draft_data)
+
+    try:
+        conn = _db_conn()
+        changes = conn.execute(
+            """UPDATE drafts SET title=?, cover_path=?, draft_data=?, channels_summary=?,
+               video_duration=?, video_file_size=?, updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+            (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+             json.dumps(channels_summary, ensure_ascii=False),
+             video_duration, video_file_size, draft_id)
+        ).rowcount
+        conn.commit()
+        conn.close()
+        if changes == 0:
+            return jsonify({"code": 404, "msg": "草稿不存在"}), 404
+        return jsonify({"code": 200, "data": {"id": draft_id, "title": title}})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@ext_api.route('/drafts/<int:draft_id>', methods=['DELETE'])
+def delete_draft(draft_id):
+    """删除草稿"""
+    try:
+        conn = _db_conn()
+        changes = conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,)).rowcount
+        conn.commit()
+        conn.close()
+        if changes == 0:
+            return jsonify({"code": 404, "msg": "草稿不存在"}), 404
+        return jsonify({"code": 200, "msg": "草稿已删除"})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+# ---------- Draft metadata extraction helpers ----------
+
+def _extract_draft_title(draft_data):
+    """从草稿数据中提取标题（第一个非空的平台标题）"""
+    pc = draft_data.get('platformConfigs', {})
+    for key in ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'channels',
+                'baijiahao', 'tiktok', 'youtube', 'iqiyi', 'tencent_video']:
+        title = pc.get(key, {}).get('title', '')
+        if title and title.strip():
+            return title.strip()[:100]
+    return '无标题'
+
+
+def _extract_draft_cover(draft_data):
+    """从草稿数据中提取封面路径"""
+    cc = draft_data.get('commonConfig', {})
+    for key in ['coverPortrait', 'coverLandscape']:
+        cover = cc.get(key)
+        if cover and cover.get('path'):
+            return cover['path']
+    return ''
+
+
+def _extract_channels_summary(draft_data):
+    """从草稿数据中提取渠道摘要（按平台分组计数）"""
+    account_ids = draft_data.get('publishAccountIds', [])
+    if not account_ids:
+        return []
+
+    platform_map = {
+        'xiaohongshu': '小红书', 'channels': '视频号', 'douyin': '抖音',
+        'kuaishou': '快手', 'bilibili': 'B站', 'baijiahao': '百家号',
+        'tiktok': 'TikTok', 'youtube': 'YouTube', 'iqiyi': '爱奇艺',
+        'tencent_video': '腾讯视频',
+    }
+
+    try:
+        conn = _db_conn()
+        placeholders = ','.join(['?'] * len(account_ids))
+        rows = conn.execute(
+            f"SELECT id, type FROM user_info WHERE id IN ({placeholders})",
+            account_ids
+        ).fetchall()
+        conn.close()
+
+        type_to_platform = {v: k for k, v in {
+            'xiaohongshu': 1, 'channels': 2, 'douyin': 3,
+            'kuaishou': 4, 'bilibili': 5,
+        }.items()}
+
+        platform_counts = {}
+        for row in rows:
+            pkey = type_to_platform.get(row['type'])
+            if pkey:
+                platform_counts[pkey] = platform_counts.get(pkey, 0) + 1
+
+        return [{"platform": k, "name": platform_map.get(k, k), "count": v}
+                for k, v in platform_counts.items()]
+    except Exception:
+        return []
+
+
+def _extract_video_duration(draft_data):
+    """从草稿数据中提取视频时长（暂存0，后续可从抽帧结果中获取）"""
+    return 0
+
+
+def _extract_video_file_size(draft_data):
+    """从草稿数据中提取视频文件大小"""
+    cc = draft_data.get('commonConfig', {})
+    for key in ['videoPortrait', 'videoLandscape']:
+        video = cc.get(key)
+        if video and video.get('size'):
+            return video['size']
+    return 0

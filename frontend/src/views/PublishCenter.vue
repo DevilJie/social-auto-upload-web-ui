@@ -758,6 +758,7 @@ import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platfo
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
 const appStore = useAppStore()
+appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 const authHeaders = computed(() => ({ 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }))
 

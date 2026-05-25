@@ -160,6 +160,7 @@
                 ratio-label="16:9"
                 v-model="commonConfig.coverLandscape"
                 :recommended-frames="landscapeFrames"
+                :video-path="commonConfig.videoLandscape?.path || commonConfig.videoPortrait?.path || ''"
                 @edit="openCoverEditor('landscape')"
                 @open-library="selectFromLibrary('cover', 'landscape')"
               />
@@ -168,6 +169,7 @@
                 ratio-label="9:16"
                 v-model="commonConfig.coverPortrait"
                 :recommended-frames="portraitFrames"
+                :video-path="commonConfig.videoPortrait?.path || commonConfig.videoLandscape?.path || ''"
                 @edit="openCoverEditor('portrait')"
                 @open-library="selectFromLibrary('cover', 'portrait')"
               />

@@ -8,19 +8,18 @@
     <!-- Recommended frames row -->
     <div v-if="recommendedFrames.length > 0" class="recommended-frames">
       <div
-        v-for="frame in recommendedFrames"
+        v-for="(frame, index) in recommendedFrames"
         :key="frame.seconds"
         :class="['frame-thumb', { active: isSelected(frame.seconds) }]"
         @click="onFrameClick(frame)"
       >
         <img :src="frame.url" />
         <div v-if="isSelected(frame.seconds)" class="frame-check">
-          <el-icon :size="12"><Check /></el-icon>
+          <el-icon :size="10"><Check /></el-icon>
         </div>
       </div>
       <button class="frame-thumb edit-btn" @click="$emit('edit')">
-        <el-icon :size="20"><Edit /></el-icon>
-        <span>编辑</span>
+        <el-icon :size="16"><Edit /></el-icon>
       </button>
     </div>
 
@@ -34,7 +33,7 @@
       </div>
     </div>
     <div v-else-if="recommendedFrames.length === 0" class="cover-empty" @click="triggerUpload">
-      <el-icon :size="28"><Picture /></el-icon>
+      <el-icon :size="24"><Picture /></el-icon>
       <span class="cover-empty-text">上传{{ label }}</span>
     </div>
 
@@ -58,12 +57,14 @@ import { ElMessage } from 'element-plus'
 import { Picture, Upload, Edit, Check } from '@element-plus/icons-vue'
 import { http } from '@/utils/request'
 import { materialApi } from '@/api/material'
+import { frameApi } from '@/api/frame'
 
 const props = defineProps({
   label: { type: String, default: '横版封面' },
   ratioLabel: { type: String, default: '16:9' },
   modelValue: { type: Object, default: null },
   recommendedFrames: { type: Array, default: () => [] },
+  videoPath: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'edit', 'open-library'])
@@ -73,10 +74,15 @@ function isSelected(seconds) {
   return props.modelValue?._fromFrame === seconds
 }
 
-function onFrameClick(frame) {
+async function onFrameClick(frame) {
+  // Fetch HD frame for better quality cover
+  const hdUrl = props.videoPath
+    ? frameApi.getFrameImageUrl(props.videoPath, frame.seconds, false)
+    : frame.url
+
   const coverData = {
     name: `frame_${frame.seconds}s.jpg`,
-    url: frame.url,
+    url: hdUrl,
     path: '',
     size: 0,
     type: 'image/jpeg',
@@ -128,93 +134,87 @@ async function onFileSelected(e) {
   border-radius: $radius-base;
   overflow: hidden;
   transition: $transition-base;
-
   &:hover { border-color: $border-active; }
+}
 
-  :deep(.cover-card-label) {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.03);
-    font-size: 12px;
-    font-weight: 500;
-    color: $text-secondary;
+.cover-card-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  font-weight: 500;
+  color: $text-secondary;
+}
 
-    :deep(.cover-ratio) {
-      font-size: 10px;
-      color: $text-muted;
-      background: rgba(255, 255, 255, 0.06);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-  }
+.cover-ratio {
+  font-size: 10px;
+  color: $text-muted;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .recommended-frames {
   display: flex;
   gap: 4px;
-  padding: 6px 12px;
+  padding: 8px 10px;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+  &::-webkit-scrollbar { height: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
 }
 
 .frame-thumb {
-  width: 52px;
-  height: 36px;
+  width: 48px;
+  height: 32px;
   border-radius: 4px;
   overflow: hidden;
   cursor: pointer;
   border: 2px solid transparent;
   flex-shrink: 0;
   position: relative;
+  transition: border-color 0.15s;
 
   img { width: 100%; height: 100%; object-fit: cover; }
   &.active { border-color: $brand-start; }
-  &:hover { border-color: rgba($brand-start, 0.5); }
+  &:hover:not(.active) { border-color: rgba($brand-start, 0.4); }
 }
 
 .frame-check {
   position: absolute;
-  top: 2px; right: 2px;
-  background: $brand-start;
-  color: #fff;
-  border-radius: 50%;
-  width: 16px; height: 16px;
+  inset: 0;
+  background: rgba($brand-start, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #fff;
 }
 
 .edit-btn {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.03);
   border: 1px dashed $border;
   border-radius: 4px;
-  font-size: 10px;
   color: $text-muted;
-  gap: 2px;
-  transition: $transition-base;
-
-  &:hover {
-    border-color: $border-active;
-    color: $brand-start;
-  }
+  transition: $transition-fast;
+  &:hover { border-color: $border-active; color: $brand-start; }
 }
 
 .cover-preview-wrap {
   position: relative;
   display: flex;
   justify-content: center;
+  background: rgba(0,0,0,0.2);
 }
 
 .cover-preview {
   display: block;
-  height: 240px;
+  height: 200px;
   width: auto;
   max-width: 100%;
   object-fit: contain;
@@ -225,16 +225,13 @@ async function onFileSelected(e) {
   bottom: 0; left: 0; right: 0;
   display: flex;
   justify-content: center;
-  gap: 12px;
-  padding: 8px 0;
+  gap: 10px;
+  padding: 6px 0;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
   opacity: 0;
-  transition: $transition-base;
+  transition: opacity 0.2s;
 }
-
-.cover-preview-wrap:hover .cover-preview-overlay {
-  opacity: 1;
-}
+.cover-preview-wrap:hover .cover-preview-overlay { opacity: 1; }
 
 .overlay-btn {
   padding: 3px 10px;
@@ -245,9 +242,6 @@ async function onFileSelected(e) {
   font-size: 12px;
   cursor: pointer;
   transition: $transition-fast;
-  outline: none;
-  font-family: inherit;
-
   &:hover { background: rgba(255, 255, 255, 0.25); }
   &.danger:hover { background: rgba($danger-color, 0.6); }
 }
@@ -258,26 +252,19 @@ async function onFileSelected(e) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 32px 0;
+  padding: 28px 0;
   color: $text-muted;
   cursor: pointer;
   transition: $transition-base;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.03);
-    color: $brand-start;
-  }
+  &:hover { background: rgba(255, 255, 255, 0.03); color: $brand-start; }
 }
 
-.cover-empty-text {
-  font-size: 12px;
-  transition: $transition-fast;
-}
+.cover-empty-text { font-size: 12px; }
 
 .cover-card-actions {
   display: flex;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 6px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -286,33 +273,21 @@ async function onFileSelected(e) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 6px 14px;
+  gap: 4px;
+  padding: 5px 12px;
   border: 1px solid $border;
-  border-radius: $radius-sm;
-  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
   color: $text-secondary;
   font-size: 12px;
   cursor: pointer;
-  transition: $transition-base;
+  transition: $transition-fast;
   outline: none;
   font-family: inherit;
-  line-height: 1;
-
-  :deep(.el-icon) {
-    flex-shrink: 0;
-    color: $text-muted;
-    transition: $transition-base;
-  }
-
   &:hover {
-    border-color: rgba($brand-start, 0.35);
-    background: linear-gradient(135deg, rgba($brand-start, 0.08), rgba($brand-end, 0.06));
+    border-color: rgba($brand-start, 0.3);
+    background: linear-gradient(135deg, rgba($brand-start, 0.06), rgba($brand-end, 0.04));
     color: $text-primary;
-
-    :deep(.el-icon) { color: $brand-start; }
   }
-
-  &:active { transform: scale(0.97); }
 }
 </style>

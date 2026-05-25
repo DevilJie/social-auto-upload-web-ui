@@ -2,22 +2,28 @@
   <el-dialog
     v-model="visible"
     title="编辑封面"
-    width="900px"
+    width="960px"
     class="cover-editor-dialog"
     :close-on-click-modal="false"
     @closed="onClosed"
     append-to-body
   >
     <div class="cover-editor-tabs">
-      <button :class="['tab-btn', { active: activeTab === 'landscape' }]" @click="switchTab('landscape')">横版 16:9</button>
-      <button :class="['tab-btn', { active: activeTab === 'portrait' }]" @click="switchTab('portrait')">竖版 9:16</button>
+      <button :class="['tab-btn', { active: activeTab === 'landscape' }]" @click="switchTab('landscape')">
+        <span class="tab-icon">▦</span> 横版 16:9
+      </button>
+      <button :class="['tab-btn', { active: activeTab === 'portrait' }]" @click="switchTab('portrait')">
+        <span class="tab-icon">▥</span> 竖版 9:16
+      </button>
     </div>
 
     <div class="cover-editor-body">
       <div class="editor-main">
+        <!-- Crop area -->
         <div class="crop-area">
           <div v-if="!currentImageSrc" class="crop-empty">
-            <span>选择时间轴帧、上传图片或从右侧素材库选取</span>
+            <el-icon :size="32"><Picture /></el-icon>
+            <span>选择时间轴帧、上传图片或从素材库选取</span>
           </div>
           <div v-else class="crop-canvas-wrap" ref="canvasWrapRef">
             <canvas ref="cropCanvasRef" class="crop-canvas"></canvas>
@@ -26,40 +32,58 @@
               <div class="crop-handle top-right" data-handle="tr"></div>
               <div class="crop-handle bottom-left" data-handle="bl"></div>
               <div class="crop-handle bottom-right" data-handle="br"></div>
+              <div class="crop-ratio-badge">{{ activeTab === 'portrait' ? '9:16' : '16:9' }}</div>
             </div>
-          </div>
-          <div v-if="currentImageSrc" class="crop-info">
-            <span>{{ activeTab === 'portrait' ? '9:16' : '16:9' }}</span>
           </div>
         </div>
 
+        <!-- Timeline -->
         <div class="timeline-section" v-if="frames.length > 0">
+          <div class="section-label-row">
+            <span class="section-label-text">视频时间轴</span>
+            <span class="section-label-hint">拖动选择帧画面</span>
+          </div>
           <VideoTimeline :frames="frames" :duration="videoDuration" v-model="selectedSecond" @update:modelValue="onTimelineSelect" />
         </div>
 
-        <div class="editor-upload">
+        <!-- Upload button -->
+        <div class="editor-actions">
           <el-button size="small" @click="triggerLocalUpload">
             <el-icon><Upload /></el-icon> 上传图片
           </el-button>
-          <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
         </div>
+        <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
       </div>
 
+      <!-- Material library sidebar -->
       <div class="editor-sidebar">
-        <div class="sidebar-title">素材库</div>
-        <div class="sidebar-grid" v-if="imageMaterials.length > 0">
-          <div v-for="mat in imageMaterials" :key="mat.id" class="sidebar-thumb" @click="onMaterialClick(mat)">
-            <img :src="getMaterialUrl(mat)" :alt="mat.filename" />
+        <div class="sidebar-header">
+          <span class="sidebar-title">素材库</span>
+          <span class="sidebar-count">{{ imageMaterials.length }}</span>
+        </div>
+        <div class="sidebar-scroll">
+          <div class="sidebar-grid" v-if="imageMaterials.length > 0">
+            <div v-for="mat in imageMaterials" :key="mat.id" class="sidebar-thumb" @click="onMaterialClick(mat)">
+              <img :src="getMaterialUrl(mat)" :alt="mat.filename" />
+              <div class="thumb-overlay">
+                <el-icon :size="12"><Check /></el-icon>
+              </div>
+            </div>
+          </div>
+          <div v-else class="sidebar-empty">
+            <el-icon :size="20"><Picture /></el-icon>
+            <span>暂无图片素材</span>
           </div>
         </div>
-        <div v-else class="sidebar-empty">暂无图片素材</div>
       </div>
     </div>
 
     <template #footer>
-      <div class="dialog-footer-right">
+      <div class="dialog-footer">
         <el-button @click="visible = false">取消</el-button>
-        <el-button type="primary" @click="confirmCrop">确认</el-button>
+        <el-button type="primary" @click="confirmCrop">
+          <el-icon><Check /></el-icon> 确认裁剪
+        </el-button>
       </div>
     </template>
   </el-dialog>
@@ -68,7 +92,7 @@
 <script setup>
 import { ref, reactive, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Upload } from '@element-plus/icons-vue'
+import { Upload, Picture, Check } from '@element-plus/icons-vue'
 import { http } from '@/utils/request'
 import { materialApi } from '@/api/material'
 import { frameApi } from '@/api/frame'
@@ -168,8 +192,15 @@ function loadTabState() {
   } else {
     const cover = activeTab.value === 'landscape' ? props.coverLandscape : props.coverPortrait
     if (cover?.url) {
-      currentImageSrc.value = cover.url
-      loadImageToCanvas(cover.url)
+      let src = cover.url
+      if (cover._fromFrame !== undefined) {
+        const videoPath = currentVideoPath()
+        if (videoPath) {
+          src = frameApi.getFrameImageUrl(videoPath, cover._fromFrame, false)
+        }
+      }
+      currentImageSrc.value = src
+      loadImageToCanvas(src)
     } else {
       currentImageSrc.value = ''
       cropImage.value = null
@@ -262,23 +293,59 @@ function startCropDrag(e) {
     if (!img) return
     const ratio = aspectRatio.value
     const type = cropDragState.value.type
+    const imgW = img.width, imgH = img.height
+    const minSize = 60
+
     if (type === 'move') {
-      cropRect.x = Math.max(0, Math.min(img.width - orig.w, orig.x + dx))
-      cropRect.y = Math.max(0, Math.min(img.height - orig.h, orig.y + dy))
+      cropRect.x = Math.max(0, Math.min(imgW - orig.w, orig.x + dx))
+      cropRect.y = Math.max(0, Math.min(imgH - orig.h, orig.y + dy))
     } else {
-      let newW = orig.w, newH = orig.h
-      if (type === 'br') { newW = orig.w + dx; newH = newW / ratio }
-      else if (type === 'bl') { newW = orig.w - dx; newH = newW / ratio }
-      else if (type === 'tr') { newW = orig.w + dx; newH = newW / ratio }
-      else if (type === 'tl') { newW = orig.w - dx; newH = newW / ratio }
-      newW = Math.max(60, newW); newH = newW / ratio
-      if (type === 'tl' || type === 'bl') cropRect.x = orig.x + orig.w - newW
-      if (type === 'tl' || type === 'tr') cropRect.y = orig.y + orig.h - newH
-      cropRect.x = Math.max(0, cropRect.x); cropRect.y = Math.max(0, cropRect.y)
-      if (cropRect.x + newW > img.width) newW = img.width - cropRect.x
-      if (cropRect.y + newH > img.height) newH = img.height - cropRect.y
+      let newW, newX, newY
+      if (type === 'br') {
+        newW = Math.max(minSize, orig.w + dx)
+        newX = orig.x
+      } else if (type === 'bl') {
+        newW = Math.max(minSize, orig.w - dx)
+        newX = orig.x + orig.w - newW
+      } else if (type === 'tr') {
+        newW = Math.max(minSize, orig.w + dx)
+        newX = orig.x
+      } else if (type === 'tl') {
+        newW = Math.max(minSize, orig.w - dx)
+        newX = orig.x + orig.w - newW
+      }
+      let newH = newW / ratio
+
+      if (newX < 0) { newX = 0; newW = orig.x + orig.w; newH = newW / ratio }
+      if (newX + newW > imgW) { newW = imgW - newX; newH = newW / ratio }
+
+      if (type === 'tl' || type === 'tr') {
+        newY = orig.y + orig.h - newH
+      } else {
+        newY = orig.y
+      }
+
+      if (newY < 0) {
+        newY = 0
+        newH = orig.y + orig.h
+        newW = newH * ratio
+        if (type === 'tl' || type === 'bl') { newX = orig.x + orig.w - newW }
+        if (newX < 0) { newX = 0; newW = Math.min(newW, imgW); newH = newW / ratio }
+      }
+      if (newY + newH > imgH) {
+        newH = imgH - newY
+        newW = newH * ratio
+        if (type === 'tl' || type === 'bl') { newX = orig.x + orig.w - newW }
+        if (newX < 0) { newX = 0; newW = Math.min(newW, imgW); newH = newW / ratio }
+      }
+
+      newW = Math.max(minSize, newW)
       newH = newW / ratio
-      cropRect.w = newW; cropRect.h = newH
+
+      cropRect.x = newX
+      cropRect.y = newY
+      cropRect.w = newW
+      cropRect.h = newH
     }
   }
   const onUp = () => {
@@ -336,20 +403,31 @@ defineExpose({ open })
     background: $bg-elevated;
     border: 1px solid $border;
     border-radius: $radius-dialog;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    overflow: hidden;
   }
   .el-dialog__header {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
     border-bottom: 1px solid $border;
-    padding: 16px 20px;
-    .el-dialog__title { color: $text-primary; }
+    padding: 18px 24px;
+    margin-right: 0;
+    .el-dialog__title {
+      color: $text-primary;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .el-dialog__headerbtn .el-dialog__close {
+      color: $text-muted;
+      &:hover { color: $text-primary; }
+    }
   }
   .el-dialog__body {
-    padding: 20px;
-    max-height: 70vh;
-    overflow-y: auto;
+    padding: 0;
   }
   .el-dialog__footer {
     border-top: 1px solid $border;
-    padding: 12px 20px;
+    padding: 14px 24px;
+    background: rgba(0, 0, 0, 0.15);
   }
 }
 </style>
@@ -357,77 +435,282 @@ defineExpose({ open })
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 
-.cover-editor-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.cover-editor-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 16px 24px 0;
+  border-bottom: 1px solid $border;
+  margin-bottom: 0;
+}
+
 .tab-btn {
-  padding: 6px 16px;
-  border: 1px solid $border;
-  border-radius: $radius-sm;
-  background: rgba(255, 255, 255, 0.03);
-  color: $text-secondary;
+  padding: 10px 20px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: $text-muted;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   transition: $transition-base;
-  &.active {
-    background: $gradient-brand;
-    color: #fff;
-    border-color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  outline: none;
+
+  .tab-icon {
+    font-size: 14px;
+    opacity: 0.6;
   }
+
   &:hover:not(.active) {
-    border-color: $border-active;
-    color: $text-primary;
+    color: $text-secondary;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  &.active {
+    color: $brand-start;
+    border-bottom-color: $brand-start;
+    background: rgba($brand-start, 0.06);
   }
 }
-.cover-editor-body { display: flex; gap: 16px; }
-.editor-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.cover-editor-body {
+  display: flex;
+  gap: 0;
+  padding: 20px 24px;
+  max-height: 70vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+}
+
+.editor-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+
+  .section-label-text {
+    font-size: 12px;
+    font-weight: 500;
+    color: $text-secondary;
+  }
+  .section-label-hint {
+    font-size: 11px;
+    color: $text-muted;
+  }
+}
+
 .timeline-section {
   overflow: hidden;
 }
+
 .crop-area {
-  background: #0a0a1a;
+  background: $bg-base;
+  border: 1px solid $border;
   border-radius: $radius-base;
-  min-height: 240px;
+  min-height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  position: relative;
 }
-.crop-empty { color: $text-muted; font-size: 13px; }
-.crop-canvas-wrap { position: relative; display: inline-block; }
-.crop-canvas { display: block; max-width: 100%; }
-.crop-selection { position: absolute; border: 2px solid $brand-start; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); cursor: move; }
+
+.crop-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: $text-muted;
+  font-size: 13px;
+  padding: 30px;
+
+  .el-icon { opacity: 0.3; }
+}
+
+.crop-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.crop-canvas {
+  display: block;
+  max-width: 100%;
+}
+
+.crop-selection {
+  position: absolute;
+  border: 2px solid $brand-start;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  cursor: move;
+  transition: box-shadow 0.15s;
+}
+
 .crop-handle {
   position: absolute;
-  width: 10px; height: 10px;
-  background: $brand-start;
-  border: 1px solid #fff;
-  border-radius: 50%;
-  &.top-left { top: -5px; left: -5px; cursor: nw-resize; }
-  &.top-right { top: -5px; right: -5px; cursor: ne-resize; }
-  &.bottom-left { bottom: -5px; left: -5px; cursor: sw-resize; }
-  &.bottom-right { bottom: -5px; right: -5px; cursor: se-resize; }
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px solid $brand-start;
+  border-radius: 2px;
+  z-index: 2;
+  transition: transform 0.1s;
+
+  &:hover { transform: scale(1.3); }
+
+  &.top-left { top: -6px; left: -6px; cursor: nw-resize; }
+  &.top-right { top: -6px; right: -6px; cursor: ne-resize; }
+  &.bottom-left { bottom: -6px; left: -6px; cursor: sw-resize; }
+  &.bottom-right { bottom: -6px; right: -6px; cursor: se-resize; }
 }
-.crop-info { text-align: center; color: $text-muted; font-size: 12px; margin-top: 4px; }
-.editor-upload { display: flex; gap: 8px; }
+
+.crop-ratio-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+  font-family: monospace;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 8px;
+
+  :deep(.el-button) {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: $border;
+    color: $text-secondary;
+
+    &:hover {
+      border-color: $border-active;
+      color: $brand-start;
+      background: rgba($brand-start, 0.06);
+    }
+  }
+}
+
+// ===== Sidebar =====
 .editor-sidebar {
-  width: 180px;
+  width: 160px;
   flex-shrink: 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  padding-left: 12px;
+  border-left: 1px solid $border;
+  margin-left: 20px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+
+  .sidebar-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-secondary;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .sidebar-count {
+    font-size: 10px;
+    color: $text-muted;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 6px;
+    border-radius: 8px;
+  }
+}
+
+.sidebar-scroll {
+  flex: 1;
   overflow-y: auto;
   max-height: 420px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  &::-webkit-scrollbar { width: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
 }
-.sidebar-title { font-size: 13px; font-weight: 500; margin-bottom: 8px; color: $text-secondary; }
-.sidebar-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+.sidebar-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
 .sidebar-thumb {
   aspect-ratio: 1;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
   border: 2px solid transparent;
   transition: $transition-fast;
-  &:hover { border-color: $brand-start; }
-  img { width: 100%; height: 100%; object-fit: cover; }
+  position: relative;
+
+  img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .thumb-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba($brand-start, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  &:hover {
+    border-color: rgba($brand-start, 0.5);
+    .thumb-overlay { opacity: 1; }
+  }
 }
-.sidebar-empty { color: $text-muted; font-size: 12px; text-align: center; padding: 20px 0; }
+
+.sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 30px 0;
+  text-align: center;
+
+  .el-icon { opacity: 0.25; }
+}
+
+// ===== Footer =====
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  :deep(.el-button--primary) {
+    background: $gradient-brand;
+    border: none;
+    &:hover { opacity: 0.9; }
+  }
+}
 </style>

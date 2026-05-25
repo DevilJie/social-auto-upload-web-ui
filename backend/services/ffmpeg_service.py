@@ -138,14 +138,16 @@ def _frames_dir(base_dir: Path, video_path: str) -> Path:
 def _extract_frames_sync(base_dir, video_path: str) -> None:
     """Extract 1-fps thumbnails in a background thread.
 
-    Runs ffmpeg to produce scaled-down JPEG frames at 1 fps.
-    Updates ``_extraction_tasks`` with progress / result.
+    Extracts one frame per second using time-based seeking (-ss) for
+    frame accuracy with VFR and B-frame video. Updates
+    ``_extraction_tasks`` with progress / result.
     """
     try:
         output_dir = _frames_dir(base_dir, video_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         duration = get_video_duration(video_path)
+        total_seconds = int(duration) + 1
 
         with _lock:
             _extraction_tasks[video_path] = {
@@ -154,19 +156,25 @@ def _extract_frames_sync(base_dir, video_path: str) -> None:
                 "duration": duration,
             }
 
-        output_pattern = str(output_dir / "frame_%d.jpg")
-        cmd = [
-            FFMPEG,
-            "-i", video_path,
-            "-vf", "fps=1,scale=320:-1",
-            "-q:v", "3",
-            "-y",
-            output_pattern,
-        ]
-        logger.info("Extracting frames: {}", " ".join(cmd))
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info("Extracting {} frames for {}", total_seconds, video_path)
 
-        # Count resulting frame files
+        for sec in range(total_seconds):
+            output_file = str(output_dir / f"frame_{sec + 1}.jpg")
+            cmd = [
+                FFMPEG,
+                "-ss", str(sec),
+                "-i", video_path,
+                "-frames:v", "1",
+                "-vf", "scale=320:-1",
+                "-q:v", "3",
+                "-y",
+                output_file,
+            ]
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError:
+                logger.warning("Failed to extract frame at {}s, skipping", sec)
+
         frame_files = sorted(output_dir.glob("frame_*.jpg"))
         total_frames = len(frame_files)
 

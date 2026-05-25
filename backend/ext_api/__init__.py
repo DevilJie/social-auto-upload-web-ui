@@ -618,7 +618,9 @@ def _extract_video_file_size(draft_data):
 def get_changelog():
     """获取更新日志列表（按文件名倒序）"""
     import os
-    changelog_dir = BASE_DIR / "changelog"
+    changelog_dir = Path(__file__).parent.parent.parent / "changelog"
+    if not changelog_dir.exists():
+        changelog_dir = BASE_DIR / "changelog"
     if not changelog_dir.exists():
         return jsonify({"code": 200, "data": []})
 

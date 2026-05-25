@@ -44,7 +44,7 @@ pub fn get_data_dir() -> PathBuf {
         std::env::var("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."))
-            .join("AI Social Auto Upload Web UI")
+            .join("Social Auto Upload Web UI")
     }
     #[cfg(not(windows))]
     {
@@ -60,4 +60,36 @@ pub fn create_data_dirs(data_dir: &PathBuf) -> std::io::Result<()> {
     std::fs::create_dir_all(data_dir.join("videoFile"))?;
     std::fs::create_dir_all(data_dir.join("data").join("logs"))?;
     Ok(())
+}
+
+pub fn sync_resource_to_data(exe_dir: &PathBuf, data_dir: &PathBuf) {
+    let resources = [("versions", false), ("changelog", true)];
+    for (name, is_dir) in &resources {
+        let src = exe_dir.join(name);
+        let dst = data_dir.join(name);
+        if src.exists() {
+            if *is_dir {
+                if src.is_dir() {
+                    let _ = std::fs::create_dir_all(&dst);
+                    if let Ok(entries) = std::fs::read_dir(&src) {
+                        for entry in entries.flatten() {
+                            let src_file = entry.path();
+                            if src_file.is_file() {
+                                let dst_file = dst.join(src_file.file_name().unwrap());
+                                if !dst_file.exists() {
+                                    let _ = std::fs::copy(&src_file, &dst_file);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                if !dst.exists() || std::fs::read_to_string(&src).unwrap_or_default()
+                    != std::fs::read_to_string(&dst).unwrap_or_default()
+                {
+                    let _ = std::fs::copy(&src, &dst);
+                }
+            }
+        }
+    }
 }

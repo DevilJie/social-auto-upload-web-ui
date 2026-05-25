@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use social_auto_upload_web_ui_lib::{create_data_dirs, get_data_dir};
+use social_auto_upload_web_ui_lib::{create_data_dirs, get_data_dir, sync_resource_to_data};
 use tauri::{Manager, WindowEvent};
 
 fn main() {
@@ -30,6 +30,9 @@ fn main() {
         writeln!(log_file, "[{}] ERROR: Could not create data directory: {}", unix_ts(), e).unwrap();
         std::process::exit(1);
     }
+
+    sync_resource_to_data(&exe_dir, &data_dir);
+    writeln!(log_file, "[{}] INFO: Synced resources to data directory", unix_ts()).unwrap();
 
     // Find available port
     let port = find_available_port(5409);

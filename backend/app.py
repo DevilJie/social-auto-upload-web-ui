@@ -83,7 +83,32 @@ def vite_svg():
 
 @app.route('/changelog/<path:filename>')
 def serve_changelog(filename):
-    return send_from_directory(str(BASE_DIR / "changelog"), filename)
+    changelog_dir = Path(__file__).parent.parent / "changelog"
+    if not changelog_dir.exists():
+        changelog_dir = BASE_DIR / "changelog"
+    return send_from_directory(str(changelog_dir), filename)
+
+
+_VIDEOFILE_DIR = None
+
+def _get_videofile_dir():
+    global _VIDEOFILE_DIR
+    if _VIDEOFILE_DIR is None:
+        _VIDEOFILE_DIR = str(BASE_DIR / "videoFile")
+        Path(_VIDEOFILE_DIR).mkdir(parents=True, exist_ok=True)
+    return _VIDEOFILE_DIR
+
+
+@app.route('/<path:filename>')
+def serve_videofile(filename):
+    """Serve files from videoFile directory (covers, etc.)"""
+    if '..' in filename or filename.startswith('/'):
+        return jsonify({"code": 400, "msg": "Invalid filename"}), 400
+    vf_dir = _get_videofile_dir()
+    fpath = Path(vf_dir) / filename
+    if fpath.exists():
+        return send_from_directory(vf_dir, filename)
+    return jsonify({"code": 404, "msg": "File not found"}), 404
 
 
 # ── Helper ──────────────────────────────────────────────────

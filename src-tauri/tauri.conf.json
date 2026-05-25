@@ -31,7 +31,9 @@
       "../python": "python",
       "../backend": "backend",
       "bundle-resources/cloakbrowser": "cloakbrowser",
-      "../frontend/dist": "frontend"
+      "../frontend/dist": "frontend",
+      "../changelog": "changelog",
+      "../versions": "versions"
     },
     "icon": [
       "icons/icon.ico"

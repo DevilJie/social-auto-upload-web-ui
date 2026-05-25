@@ -35,3 +35,4 @@ docs/superpowers/.claude/
 src-tauri/bundle-resources/*
 src-tauri/*.exe
 data/frames/*
+backend/bin/

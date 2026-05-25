@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use ai_social_auto_upload_lib::{create_data_dirs, get_data_dir};
+use social_auto_upload_web_ui_lib::{create_data_dirs, get_data_dir};
 use tauri::{Manager, WindowEvent};
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
     let log_path = exe_dir.join("app.log");
 
     let mut log_file = std::fs::File::create(&log_path).unwrap();
-    writeln!(log_file, "[{}] INFO: Starting AI Social Auto Upload", unix_ts()).unwrap();
+    writeln!(log_file, "[{}] INFO: Starting Social Auto Upload Web UI", unix_ts()).unwrap();
     writeln!(log_file, "[{}] INFO: Log file: {:?}", unix_ts(), log_path).unwrap();
 
     // NOTE: WebView2 check removed - Tauri will auto-install via embedBootstrapper when window opens

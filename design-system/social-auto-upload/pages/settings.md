@@ -214,7 +214,7 @@
 │  Components                                               │
 │  Vue Frontend     v3.5.x          ✓ Up to date          │
 │  Flask Backend    v3.1.x          ✓ Up to date          │
-│  Patchright       v1.58.x         ✓ Up to date         │
+│  CloakBrowser     v0.3.x          ✓ Up to date         │
 │  Chromium         v125.x          ✓ Up to date          │
 │                                                          │
 │  [Check for Updates]                                     │

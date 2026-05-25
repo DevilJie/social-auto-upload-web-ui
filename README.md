@@ -18,7 +18,7 @@ A modern **Web-UI interface** for multi-platform social media content auto-publi
 - **素材管理 / Material Management**: Unified video/image library with cover editor for Bilibili
 - **任务中心 / Task Center**: Real-time publishing status tracking with async task queue
 - **定时发布 / Scheduled Publishing**: Calendar-based scheduling for future release
-- **浏览器工厂 / Browser Factory**: Auto-fallback from Chrome to Patchright's built-in Chromium when Chrome is unavailable
+- **浏览器工厂 / Browser Factory**: CloakBrowser stealth Chromium for anti-detection browser automation
 - **封面编辑器 / Cover Editor**: Visual cover selector with multi-aspect-ratio support for Bilibili
 - **跨平台兼容 / Cross-Platform**: Web deployment + Tauri desktop app for Windows
 
@@ -28,7 +28,7 @@ A modern **Web-UI interface** for multi-platform social media content auto-publi
 |-------|------------|
 | Frontend | Vue 3 + Vite + Element Plus + Pinia + Vue Router |
 | Backend | Python Flask + flask-async + Waitress |
-| Browser Automation | Patchright + Playwright |
+| Browser Automation | CloakBrowser |
 | Desktop | Tauri (Rust) |
 | Image Processing | OpenCV |
 
@@ -37,7 +37,7 @@ A modern **Web-UI interface** for multi-platform social media content auto-publi
 - **Python 3.10+**
 - **Node.js 18+**
 - **npm** or **yarn**
-- **Chrome/Chromium** (optional, Patchright built-in Chromium as fallback)
+- **Chrome/Chromium** (optional, CloakBrowser provides stealth Chromium)
 
 ### Local Development Setup
 
@@ -144,7 +144,7 @@ Output in `frontend/dist/`, deployable to any web server.
 - **素材管理**：统一的视频/图片素材库，支持 B站封面编辑器
 - **任务中心**：实时发布状态追踪，异步任务队列
 - **定时发布**：日历式定时排程，灵活设置发布时间
-- **浏览器工厂**：Chrome 不可用时自动降级到 Patchright 内置 Chromium
+- **浏览器工厂**：CloakBrowser 隐身 Chromium，反检测浏览器自动化
 - **封面编辑器**：可视化封面选择，支持 B站多比例画幅
 - **跨平台兼容**：Web 部署 + Tauri 桌面应用（Windows）
 
@@ -154,7 +154,7 @@ Output in `frontend/dist/`, deployable to any web server.
 |------|------|
 | 前端 | Vue 3 + Vite + Element Plus + Pinia + Vue Router |
 | 后端 | Python Flask + flask-async + Waitress |
-| 浏览器自动化 | Patchright + Playwright |
+| 浏览器自动化 | CloakBrowser |
 | 桌面应用 | Tauri (Rust) |
 | 图片处理 | OpenCV |
 
@@ -163,7 +163,7 @@ Output in `frontend/dist/`, deployable to any web server.
 - **Python 3.10+**
 - **Node.js 18+**
 - **npm** 或 **yarn**
-- **Chrome/Chromium**（可选，Patchright 内置 Chromium 作为备选）
+- **Chrome/Chromium**（可选，CloakBrowser 提供隐身 Chromium）
 
 ### 本地启动
 

@@ -44,12 +44,12 @@ pub fn get_data_dir() -> PathBuf {
         std::env::var("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."))
-            .join("AI Social Auto Upload")
+            .join("AI Social Auto Upload Web UI")
     }
     #[cfg(not(windows))]
     {
         std::env::var("HOME").map(|h| PathBuf::from(h)).unwrap_or_else(|_| PathBuf::from("."))
-            .join(".local/share/ai-social-auto-upload")
+            .join(".local/share/social-auto-upload-web-ui")
     }
 }
 

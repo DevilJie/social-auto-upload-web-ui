@@ -1,7 +1,7 @@
 # build-installer.ps1 — 构建完整的一键安装包
 # 使用 Python 官方 Embedded Distribution 实现真正的独立部署
 # 不依赖系统 Python，直接下载 python.org 的 embeddable 包
-# 包含: Python 运行环境 + Flask 后端 + 前端
+# 包含: Python 运行环境 + Flask 后端 + 前端 + ffmpeg/ffprobe + CloakBrowser
 
 $ErrorActionPreference = "Stop"
 $PROJECT_ROOT = Split-Path $PSScriptRoot -Parent
@@ -9,10 +9,15 @@ $BACKEND_DIR = Join-Path $PROJECT_ROOT "backend"
 $FRONTEND_DIR = Join-Path $PROJECT_ROOT "frontend"
 $TAURI_DIR = Join-Path $PROJECT_ROOT "src-tauri"
 $PYTHON_DIR = Join-Path $PROJECT_ROOT "python"
+$BIN_DIR = Join-Path $BACKEND_DIR "bin"
 
 # Python 版本 — 直接从 python.org 下载，不依赖系统安装
 $PYTHON_FULL = "3.11.9"
 $PYTHON_VERSION_NODOT = "311"
+
+# FFmpeg 版本 (Windows essentials build from GitHub releases)
+$FFMPEG_VERSION = "8.1.1"
+$FFMPEG_URL = "https://github.com/GyanD/codexffmpeg/releases/download/$FFMPEG_VERSION/ffmpeg-$FFMPEG_VERSION-essentials_build.zip"
 
 function Write-Step {
     param($msg)
@@ -91,8 +96,46 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Python embedded distribution validated!"
 
-# Step 6.5: Download CloakBrowser stealth Chromium (full directory, includes DLLs)
-# CloakBrowser bundles its own stealth Chromium — no need for Playwright's Chromium (saves ~683 MB)
+# Step 7: Download ffmpeg/ffprobe to backend/bin/
+Write-Step "Setting up ffmpeg/ffprobe..."
+New-Item -ItemType Directory -Path $BIN_DIR -Force | Out-Null
+
+$FFMPEG_EXE = Join-Path $BIN_DIR "ffmpeg.exe"
+$FFPROBE_EXE = Join-Path $BIN_DIR "ffprobe.exe"
+
+if ((Test-Path $FFMPEG_EXE) -and (Test-Path $FFPROBE_EXE)) {
+    Write-Host "[BUILD] ffmpeg/ffprobe already exist in backend/bin/, skipping download"
+} else {
+    Write-Step "Downloading FFmpeg $FFMPEG_VERSION..."
+    $FFMPEG_DL_ZIP = Join-Path $PROJECT_ROOT "ffmpeg-download.zip"
+    Invoke-WebRequest -Uri $FFMPEG_URL -OutFile $FFMPEG_DL_ZIP
+
+    Write-Step "Extracting ffmpeg/ffprobe binaries..."
+    $FFMPEG_TEMP = Join-Path $PROJECT_ROOT "ffmpeg-temp"
+    Expand-Archive -Path $FFMPEG_DL_ZIP -DestinationPath $FFMPEG_TEMP -Force
+    Remove-Item $FFMPEG_DL_ZIP -Force
+
+    # Find the bin directory inside the extracted folder (structure: ffmpeg-8.1.1-essentials_build/bin/)
+    $FFMPEG_BIN = Get-ChildItem -Path $FFMPEG_TEMP -Recurse -Filter "ffmpeg.exe" |
+        Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
+
+    if (-not $FFMPEG_BIN) {
+        Write-Host "[ERROR] ffmpeg.exe not found in downloaded archive!" -ForegroundColor Red
+        exit 1
+    }
+
+    Copy-Item (Join-Path $FFMPEG_BIN "ffmpeg.exe") $FFMPEG_EXE -Force
+    Copy-Item (Join-Path $FFMPEG_BIN "ffprobe.exe") $FFPROBE_EXE -Force
+    Remove-Item $FFMPEG_TEMP -Recurse -Force
+
+    Write-Host "[BUILD] ffmpeg/ffprobe copied to backend/bin/"
+}
+
+# Verify ffmpeg works
+$ffmpegVersion = & $FFMPEG_EXE -version 2>&1 | Select-Object -First 1
+Write-Host "[BUILD] $ffmpegVersion"
+
+# Step 8: Download CloakBrowser stealth Chromium (full directory, includes DLLs)
 Write-Step "Downloading CloakBrowser stealth Chromium..."
 & $PYTHON_EXE (Join-Path $PROJECT_ROOT "scripts\download-cloakbrowser-binary.py")
 if ($LASTEXITCODE -ne 0) {
@@ -111,7 +154,7 @@ if (-not (Test-Path (Join-Path $cloakBrowserDir "chrome.dll"))) {
 $cloakSize = (Get-ChildItem $cloakBrowserDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
 Write-Host "[BUILD] CloakBrowser: $([math]::Round($cloakSize, 1)) MB"
 
-# Step 7: Build frontend
+# Step 9: Build frontend
 Write-Step "Building frontend..."
 Set-Location $FRONTEND_DIR
 npm install

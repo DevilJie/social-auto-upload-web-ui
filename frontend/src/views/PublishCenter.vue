@@ -78,7 +78,10 @@
           </span>
         </div>
         <div class="header-right">
-          <span class="text-btn cursor-pointer" @click="saveDraft">保存草稿</span>
+          <button class="draft-btn" @click="saveDraft">
+            <el-icon><Document /></el-icon>
+            {{ currentDraftId ? '更新草稿' : '保存草稿' }}
+          </button>
           <button class="publish-btn" @click="publishAll" :disabled="publishing">
             {{ publishing ? '发布中...' : '一键发布' }}
           </button>
@@ -641,8 +644,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, watch } from 'vue'
-import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete } from '@element-plus/icons-vue'
+import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
+import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -653,11 +656,14 @@ import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platfo
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import { frameApi } from '@/api/frame'
+import { draftApi } from '@/api/draft'
+import { useRoute } from 'vue-router'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
 const appStore = useAppStore()
 appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
+const route = useRoute()
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 const authHeaders = computed(() => ({ 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }))
 
@@ -974,6 +980,7 @@ function toggleGroup(key) {
 
 // Selected accounts for publishing (default empty)
 const publishAccountIds = reactive(new Set())
+const currentDraftId = ref(null) // null = 新草稿, number = 编辑已有草稿
 
 function togglePublishAccount(account, group) {
   selectedPlatform.value = group.key
@@ -1210,26 +1217,124 @@ function confirmAccountSelection() {
 
 // ========== Publish Methods ==========
 
-function saveDraft() {
+async function saveDraft() {
   try {
     const draftData = {
       commonConfig: {
         topics: [...commonConfig.topics],
-        videoLandscape: commonConfig.videoLandscape ? { name: commonConfig.videoLandscape.name, path: commonConfig.videoLandscape.path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type } : null,
-        videoPortrait: commonConfig.videoPortrait ? { name: commonConfig.videoPortrait.name, path: commonConfig.videoPortrait.path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type } : null,
-        coverLandscape: commonConfig.coverLandscape ? { name: commonConfig.coverLandscape.name, path: commonConfig.coverLandscape.path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type } : null,
-        coverPortrait: commonConfig.coverPortrait ? { name: commonConfig.coverPortrait.name, path: commonConfig.coverPortrait.path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type } : null,
+        videoLandscape: commonConfig.videoLandscape
+          ? { name: commonConfig.videoLandscape.name, path: commonConfig.videoLandscape.path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
+          : null,
+        videoPortrait: commonConfig.videoPortrait
+          ? { name: commonConfig.videoPortrait.name, path: commonConfig.videoPortrait.path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type }
+          : null,
+        coverLandscape: commonConfig.coverLandscape
+          ? { name: commonConfig.coverLandscape.name, path: commonConfig.coverLandscape.path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type, _fromFrame: commonConfig.coverLandscape._fromFrame }
+          : null,
+        coverPortrait: commonConfig.coverPortrait
+          ? { name: commonConfig.coverPortrait.name, path: commonConfig.coverPortrait.path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type, _fromFrame: commonConfig.coverPortrait._fromFrame }
+          : null,
       },
-      accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
-      savedAt: new Date().toISOString(),
+      accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
+      publishAccountIds: [...publishAccountIds],
+      selectedPlatform: selectedPlatform.value,
+      selectedAccountId: selectedAccountId.value,
+      expandedGroups: [...expandedGroups.value],
+      videoModeTab: videoModeTab.value,
     }
-    localStorage.setItem('publishDraft', JSON.stringify(draftData))
-    ElMessage.success('草稿已保存')
+
+    if (currentDraftId.value) {
+      await draftApi.updateDraft(currentDraftId.value, { draft_data: draftData })
+      ElMessage.success('草稿已更新')
+    } else {
+      const resp = await draftApi.createDraft({ draft_data: draftData })
+      currentDraftId.value = resp.data.id
+      ElMessage.success('草稿已保存')
+    }
   } catch (e) {
     ElMessage.error('草稿保存失败')
   }
 }
+
+async function restoreDraft(draftId) {
+  try {
+    const resp = await draftApi.getDraft(draftId)
+    const data = resp.data
+    const dd = data.draft_data
+    if (!dd) {
+      ElMessage.error('草稿数据为空')
+      return
+    }
+
+    // 恢复 commonConfig
+    if (dd.commonConfig) {
+      if (dd.commonConfig.topics) commonConfig.topics = dd.commonConfig.topics
+      if (dd.commonConfig.videoLandscape) commonConfig.videoLandscape = dd.commonConfig.videoLandscape
+      if (dd.commonConfig.videoPortrait) commonConfig.videoPortrait = dd.commonConfig.videoPortrait
+      if (dd.commonConfig.coverLandscape) commonConfig.coverLandscape = dd.commonConfig.coverLandscape
+      if (dd.commonConfig.coverPortrait) commonConfig.coverPortrait = dd.commonConfig.coverPortrait
+    }
+
+    // 恢复 platformConfigs（深度合并以保留可能新增的字段）
+    if (dd.platformConfigs) {
+      for (const [key, val] of Object.entries(dd.platformConfigs)) {
+        if (platformConfigs[key]) {
+          Object.assign(platformConfigs[key], val)
+        }
+      }
+    }
+
+    // 恢复 accountOverrides
+    if (dd.accountOverrides) {
+      Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
+      Object.assign(accountOverrides, dd.accountOverrides)
+    }
+
+    // 恢复 publishAccountIds
+    if (dd.publishAccountIds) {
+      publishAccountIds.clear()
+      dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
+    }
+
+    // 恢复 expandedGroups
+    if (dd.expandedGroups) {
+      expandedGroups.value = new Set(dd.expandedGroups)
+    }
+
+    // 恢复 selectedPlatform
+    if (dd.selectedPlatform) {
+      selectedPlatform.value = dd.selectedPlatform
+    }
+
+    // 恢复 videoModeTab
+    if (dd.videoModeTab) {
+      videoModeTab.value = dd.videoModeTab
+    }
+
+    // 设置草稿编辑模式
+    currentDraftId.value = draftId
+
+    // 重新提取视频抽帧（异步，不阻塞）
+    if (commonConfig.videoLandscape) {
+      triggerFrameExtraction(commonConfig.videoLandscape, 'landscape')
+    }
+    if (commonConfig.videoPortrait) {
+      triggerFrameExtraction(commonConfig.videoPortrait, 'portrait')
+    }
+
+    ElMessage.success('草稿已恢复')
+  } catch (e) {
+    ElMessage.error('草稿恢复失败')
+  }
+}
+
+onMounted(() => {
+  const draftId = route.query.draft
+  if (draftId) {
+    restoreDraft(Number(draftId))
+  }
+})
 
 async function publishAll() {
   // Validate
@@ -1769,6 +1874,28 @@ function formatSize(bytes) {
       &:disabled {
         opacity: 0.6;
         cursor: not-allowed;
+      }
+    }
+
+    .draft-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 16px;
+      height: 36px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: $radius-base;
+      background: rgba(255, 255, 255, 0.06);
+      color: $text-secondary;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: $transition-base;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.25);
+        color: $text-primary;
       }
     }
   }

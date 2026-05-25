@@ -138,16 +138,14 @@ def _frames_dir(base_dir: Path, video_path: str) -> Path:
 def _extract_frames_sync(base_dir, video_path: str) -> None:
     """Extract 1-fps thumbnails in a background thread.
 
-    Extracts one frame per second using time-based seeking (-ss) for
-    frame accuracy with VFR and B-frame video. Updates
-    ``_extraction_tasks`` with progress / result.
+    Uses a single ffmpeg pass with ``fps=1`` filter for fast extraction.
+    Outputs ``frame_1.jpg`` … ``frame_N.jpg`` (1-indexed, one per second).
     """
     try:
         output_dir = _frames_dir(base_dir, video_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         duration = get_video_duration(video_path)
-        total_seconds = int(duration) + 1
 
         with _lock:
             _extraction_tasks[video_path] = {
@@ -156,26 +154,22 @@ def _extract_frames_sync(base_dir, video_path: str) -> None:
                 "duration": duration,
             }
 
-        logger.info("Extracting {} frames for {}", total_seconds, video_path)
+        output_pattern = str(output_dir / "frame_%d.jpg")
+        cmd = [
+            FFMPEG,
+            "-i", video_path,
+            "-vf", "fps=1,scale=320:-1",
+            "-q:v", "3",
+            "-y",
+            output_pattern,
+        ]
+        logger.info("Extracting frames: {}", " ".join(cmd))
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-        for sec in range(total_seconds):
-            output_file = str(output_dir / f"frame_{sec + 1}.jpg")
-            cmd = [
-                FFMPEG,
-                "-ss", str(sec),
-                "-i", video_path,
-                "-frames:v", "1",
-                "-vf", "scale=320:-1",
-                "-q:v", "3",
-                "-y",
-                output_file,
-            ]
-            try:
-                subprocess.run(cmd, capture_output=True, text=True, check=True)
-            except subprocess.CalledProcessError:
-                logger.warning("Failed to extract frame at {}s, skipping", sec)
-
-        frame_files = sorted(output_dir.glob("frame_*.jpg"))
+        frame_files = sorted(
+            output_dir.glob("frame_*.jpg"),
+            key=lambda f: int(f.stem.split("_", 1)[1]),
+        )
         total_frames = len(frame_files)
 
         with _lock:
@@ -260,7 +254,10 @@ def get_frame_list(base_dir, video_path: str) -> dict:
         task = _extraction_tasks.get(video_path, {})
         duration = task.get("duration", 0.0)
 
-    frame_files = sorted(output_dir.glob("frame_*.jpg"))
+    frame_files = sorted(
+        output_dir.glob("frame_*.jpg"),
+        key=lambda f: int(f.stem.split("_", 1)[1]),
+    )
     for f in frame_files:
         # Extract the frame number from filename like "frame_5.jpg"
         stem = f.stem  # e.g. "frame_5"

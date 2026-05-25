@@ -62,6 +62,9 @@
 
     <!-- ========== RIGHT MAIN AREA ========== -->
     <main class="publish-main">
+      <div class="main-body">
+      <!-- Left: form + content -->
+      <div class="main-form-col">
       <!-- Top bar -->
       <div class="main-header">
         <div class="header-left">
@@ -92,86 +95,27 @@
             <span class="hint">所有账号共享</span>
           </div>
 
-          <!-- Video Section -->
-          <div class="media-section">
-            <div class="section-label">视频</div>
-            <div class="video-dual-grid">
-              <!-- Landscape -->
-              <div class="video-card">
-                <div class="video-card-label">
-                  <span>横版视频</span>
-                  <span class="video-ratio">16:9</span>
-                </div>
-                <div v-if="!commonConfig.videoLandscape" class="video-card-empty" @click="triggerUploadVideo('landscape')">
-                  <el-icon :size="28"><Upload /></el-icon>
-                  <span class="video-card-empty-text">上传横版视频</span>
-                </div>
-                <div v-else class="video-card-preview">
-                  <video :src="commonConfig.videoLandscape.url" controls preload="metadata" class="video-player"></video>
-                  <div class="video-card-overlay">
-                    <button class="overlay-btn" @click="triggerUploadVideo('landscape')">替换</button>
-                    <button class="overlay-btn danger" @click="clearVideo('landscape')">移除</button>
-                  </div>
-                </div>
-                <div class="video-card-actions">
-                  <button class="cover-action-btn" @click="triggerUploadVideo('landscape')">
-                    <el-icon :size="14"><Upload /></el-icon><span>本地上传</span>
-                  </button>
-                  <button class="cover-action-btn" @click="selectFromLibrary('video', 'landscape')">
-                    <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
-                  </button>
-                </div>
-              </div>
-              <!-- Portrait -->
-              <div class="video-card">
-                <div class="video-card-label">
-                  <span>竖版视频</span>
-                  <span class="video-ratio">9:16</span>
-                </div>
-                <div v-if="!commonConfig.videoPortrait" class="video-card-empty" @click="triggerUploadVideo('portrait')">
-                  <el-icon :size="28"><Upload /></el-icon>
-                  <span class="video-card-empty-text">上传竖版视频</span>
-                </div>
-                <div v-else class="video-card-preview">
-                  <video :src="commonConfig.videoPortrait.url" controls preload="metadata" class="video-player"></video>
-                  <div class="video-card-overlay">
-                    <button class="overlay-btn" @click="triggerUploadVideo('portrait')">替换</button>
-                    <button class="overlay-btn danger" @click="clearVideo('portrait')">移除</button>
-                  </div>
-                </div>
-                <div class="video-card-actions">
-                  <button class="cover-action-btn" @click="triggerUploadVideo('portrait')">
-                    <el-icon :size="14"><Upload /></el-icon><span>本地上传</span>
-                  </button>
-                  <button class="cover-action-btn" @click="selectFromLibrary('video', 'portrait')">
-                    <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <!-- Cover Section -->
           <div class="media-section cover-section">
             <div class="section-label">封面</div>
             <div class="cover-grid">
               <CoverCard
-                label="横版封面"
-                ratio-label="16:9"
-                v-model="commonConfig.coverLandscape"
-                :recommended-frames="landscapeFrames"
-                :video-path="commonConfig.videoLandscape?.path || commonConfig.videoPortrait?.path || ''"
-                @edit="openCoverEditor('landscape')"
-                @open-library="selectFromLibrary('cover', 'landscape')"
-              />
-              <CoverCard
                 label="竖版封面"
                 ratio-label="9:16"
                 v-model="commonConfig.coverPortrait"
-                :recommended-frames="portraitFrames"
+                :recommended-frames="portraitCoverFrames"
                 :video-path="commonConfig.videoPortrait?.path || commonConfig.videoLandscape?.path || ''"
                 @edit="openCoverEditor('portrait')"
                 @open-library="selectFromLibrary('cover', 'portrait')"
+              />
+              <CoverCard
+                label="横版封面"
+                ratio-label="16:9"
+                v-model="commonConfig.coverLandscape"
+                :recommended-frames="landscapeCoverFrames"
+                :video-path="commonConfig.videoLandscape?.path || commonConfig.videoPortrait?.path || ''"
+                @edit="openCoverEditor('landscape')"
+                @open-library="selectFromLibrary('cover', 'landscape')"
               />
             </div>
           </div>
@@ -418,6 +362,60 @@
           <p class="hint-sub">选择后可配置该平台的个性化发布设置</p>
         </div>
       </div>
+      </div><!-- /main-form-col -->
+
+      <!-- Right: Phone preview panel -->
+      <div class="phone-panel">
+        <div class="phone-panel-header">
+          <span class="phone-panel-title">视频预览</span>
+        </div>
+        <div class="phone-mode-tabs">
+          <button :class="['mode-tab', { active: videoModeTab === 'portrait' }]" @click="videoModeTab = 'portrait'">
+            <span class="mode-icon-portrait"></span> 竖版 9:16
+          </button>
+          <button :class="['mode-tab', { active: videoModeTab === 'landscape' }]" @click="videoModeTab = 'landscape'">
+            <span class="mode-icon-landscape"></span> 横版 16:9
+          </button>
+        </div>
+        <div class="phone-preview-area">
+          <div :class="['phone-mockup', videoModeTab]">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <template v-if="currentVideoData">
+                <video
+                  :src="currentVideoData.url"
+                  controls
+                  preload="metadata"
+                  class="phone-video-player"
+                ></video>
+              </template>
+              <template v-else>
+                <div class="phone-empty" @click="triggerUploadVideo(videoModeTab)">
+                  <el-icon :size="28"><Upload /></el-icon>
+                  <span>上传{{ videoModeTab === 'portrait' ? '竖版' : '横版' }}视频</span>
+                </div>
+              </template>
+            </div>
+            <div class="phone-home-bar"></div>
+          </div>
+        </div>
+        <div class="phone-panel-actions">
+          <button class="cover-action-btn primary" @click="triggerUploadVideo(videoModeTab)">
+            <el-icon :size="14"><Upload /></el-icon><span>本地上传</span>
+          </button>
+          <button class="cover-action-btn" @click="selectFromLibrary('video', videoModeTab)">
+            <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
+          </button>
+        </div>
+        <div v-if="currentVideoData" class="phone-panel-info">
+          <span class="phone-info-name">{{ currentVideoData.name }}</span>
+          <button class="phone-info-remove" @click="clearVideo(videoModeTab)">
+            <el-icon :size="12"><Delete /></el-icon>
+          </button>
+        </div>
+      </div>
+
+      </div><!-- /main-body -->
     </main>
 
     <!-- ========== DIALOGS ========== -->
@@ -644,7 +642,7 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch } from 'vue'
-import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled } from '@element-plus/icons-vue'
+import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -687,6 +685,10 @@ const accountGroups = computed(() => {
 
 const totalCount = computed(() => accountStore.accounts.length)
 
+const currentVideoData = computed(() =>
+  videoModeTab.value === 'portrait' ? commonConfig.videoPortrait : commonConfig.videoLandscape
+)
+
 const currentPlatformConfig = computed(() =>
   selectedPlatform.value ? getPlatformByKey(selectedPlatform.value) : null
 )
@@ -704,6 +706,15 @@ const commonConfig = reactive({
 const coverEditorRef = ref(null)
 const landscapeFrames = ref([])
 const portraitFrames = ref([])
+const videoModeTab = ref('portrait')  // 'portrait' | 'landscape'
+
+// Smart frame fallback: if only one video exists, both covers share its frames
+const portraitCoverFrames = computed(() =>
+  portraitFrames.value.length > 0 ? portraitFrames.value : landscapeFrames.value
+)
+const landscapeCoverFrames = computed(() =>
+  landscapeFrames.value.length > 0 ? landscapeFrames.value : portraitFrames.value
+)
 
 // ========== Per-platform Config ==========
 const platformConfigs = reactive({
@@ -999,28 +1010,22 @@ function openCoverEditor(tab = 'landscape') {
   coverEditorRef.value?.open(tab)
 }
 
-async function triggerFrameExtraction(videoData, type) {
+function triggerFrameExtraction(videoData, type) {
   if (!videoData?.path) return
-  try {
-    await frameApi.extractFrames(videoData.path)
-    const poll = async (retries = 30) => {
-      for (let i = 0; i < retries; i++) {
-        const resp = await frameApi.getFramesStatus(videoData.path)
-        if (resp.data?.status === 'done') break
-        await new Promise(r => setTimeout(r, 1000))
+  const doExtract = async () => {
+    try {
+      const resp = await frameApi.extractFrames(videoData.path)
+      if (resp.data) {
+        const allFrames = resp.data.frames || []
+        const recommended = pickRecommendedFrames(allFrames, 6)
+        if (type === 'landscape') landscapeFrames.value = recommended
+        else portraitFrames.value = recommended
       }
+    } catch (e) {
+      console.error('Frame extraction failed:', e)
     }
-    await poll()
-    const resp = await frameApi.getFrames(videoData.path)
-    if (resp.data) {
-      const allFrames = resp.data.frames || []
-      const recommended = pickRecommendedFrames(allFrames, 6)
-      if (type === 'landscape') landscapeFrames.value = recommended
-      else portraitFrames.value = recommended
-    }
-  } catch (e) {
-    console.error('Frame extraction failed:', e)
   }
+  doExtract()
 }
 
 function pickRecommendedFrames(frames, count) {
@@ -1052,6 +1057,16 @@ function handleVideoUploadSuccess(response, file) {
     }
     videoUploadDialogVisible.value = false
     ElMessage.success('视频上传成功')
+    // Auto-fill title from video filename
+    if (appStore.autoFillTitle) {
+      const title = file.name.replace(/\.[^.]+$/, '')
+      for (const key of Object.keys(platformConfigs)) {
+        if (!platformConfigs[key].title) {
+          platformConfigs[key].title = title
+        }
+      }
+    }
+    // Extract frames for the uploaded type; the other cover falls back via computed
     triggerFrameExtraction(videoData, videoUploadTarget.value)
   } else {
     ElMessage.error(response.msg || '上传失败')
@@ -1129,6 +1144,14 @@ function confirmMaterialSelect() {
         commonConfig.videoLandscape = videoData
       }
       ElMessage.success('视频已设置')
+      if (appStore.autoFillTitle) {
+        const title = material.filename.replace(/\.[^.]+$/, '')
+        for (const key of Object.keys(platformConfigs)) {
+          if (!platformConfigs[key].title) {
+            platformConfigs[key].title = title
+          }
+        }
+      }
       triggerFrameExtraction(videoData, materialLibraryVideoTarget.value)
     }
   }
@@ -1662,92 +1685,106 @@ function formatSize(bytes) {
   flex-direction: column;
   background: $bg-elevated;
   overflow: hidden;
+}
 
-  .main-header {
+.main-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.main-form-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid $border;
+  flex-shrink: 0;
+
+  .header-left {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 16px 24px;
-    border-bottom: 1px solid $border;
-    flex-shrink: 0;
+    gap: 12px;
 
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-
-      .page-title {
-        font-size: 18px;
-        font-weight: 700;
-        color: $text-primary;
-      }
-
-      .platform-tag {
-        font-size: 12px;
-        font-weight: 500;
-        padding: 4px 12px;
-        border-radius: 20px;
-      }
+    .page-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: $text-primary;
     }
 
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-
-      .text-btn {
-        font-size: 14px;
-        color: $text-secondary;
-        transition: $transition-base;
-
-        &:hover {
-          color: $brand-start;
-        }
-      }
-
-      .publish-btn {
-        display: inline-flex;
-        align-items: center;
-        padding: 8px 24px;
-        border: 1px solid transparent;
-        border-radius: $radius-sm;
-        background: $gradient-brand;
-        color: #fff;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: $transition-base;
-        outline: none;
-        font-family: inherit;
-
-        &:hover {
-          opacity: 0.9;
-        }
-
-        &:active {
-          transform: scale(0.97);
-        }
-
-        &:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-      }
+    .platform-tag {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 12px;
+      border-radius: 20px;
     }
   }
 
-  .main-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px;
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
 
-    &::-webkit-scrollbar {
-      width: 6px;
+    .text-btn {
+      font-size: 14px;
+      color: $text-secondary;
+      transition: $transition-base;
+
+      &:hover {
+        color: $brand-start;
+      }
     }
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
+
+    .publish-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 24px;
+      border: 1px solid transparent;
+      border-radius: $radius-sm;
+      background: $gradient-brand;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: $transition-base;
+      outline: none;
+      font-family: inherit;
+
+      &:hover {
+        opacity: 0.9;
+      }
+
+      &:active {
+        transform: scale(0.97);
+      }
+
+      &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
     }
+  }
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
   }
 }
 
@@ -1811,109 +1848,214 @@ function formatSize(bytes) {
   margin-right: 4px;
 }
 
-// ----- Video Dual Card Grid -----
-.video-dual-grid {
+// ----- Right Phone Panel -----
+.phone-panel {
+  width: 400px;
+  flex-shrink: 0;
+  background: $bg-base;
+  border-left: 1px solid $border;
   display: flex;
-  gap: 16px;
-  align-items: flex-start;
+  flex-direction: column;
+  justify-content: center;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
 }
 
-.video-card {
+.phone-panel-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid $border;
+}
+
+.phone-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.phone-mode-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px 8px;
+}
+
+.mode-tab {
   flex: 1;
-  border: 1px dashed $border;
-  border-radius: $radius-base;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: $transition-fast;
+  font-family: inherit;
+  outline: none;
+
+  &:hover:not(.active) {
+    color: $text-secondary;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  &.active {
+    background: rgba($brand-start, 0.08);
+    border-color: rgba($brand-start, 0.2);
+    color: $brand-start;
+  }
+}
+
+.mode-icon-portrait {
+  display: inline-block;
+  width: 10px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+.mode-icon-landscape {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.phone-preview-area {
+  display: flex;
+  justify-content: center;
+  padding: 16px 4px;
+}
+
+.phone-mockup {
+  position: relative;
+  background: #1a1a2e;
+  border: 3px solid #2a2a40;
+  border-radius: 28px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: width 0.3s ease;
+
+  width: 90%;
+}
+
+.phone-notch {
+  width: 60px;
+  height: 6px;
+  background: #2a2a40;
+  border-radius: 3px;
+  margin-bottom: 6px;
+}
+
+.phone-screen {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  background: $bg-base;
+  border-radius: 16px;
   overflow: hidden;
-  transition: $transition-base;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-video-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  outline: none;
+}
+
+.phone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  color: $text-muted;
+  font-size: 11px;
+  cursor: pointer;
+  transition: $transition-fast;
 
   &:hover {
-    border-color: $border-active;
+    color: $brand-start;
+    background: rgba($brand-start, 0.04);
   }
+}
 
-  .video-card-label {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.03);
-    font-size: 12px;
-    font-weight: 500;
-    color: $text-secondary;
+.phone-home-bar {
+  width: 40px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  margin-top: 6px;
+}
 
-    .video-ratio {
-      font-size: 10px;
-      color: $text-muted;
-      background: rgba(255, 255, 255, 0.06);
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-  }
+.phone-panel-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+  .cover-action-btn { flex: 1; }
+}
 
-  .video-card-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 40px 0;
-    color: $text-muted;
-    cursor: pointer;
-    transition: $transition-base;
+.phone-panel-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 16px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid $border;
+  border-radius: $radius-base;
+}
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.03);
-      color: $brand-start;
-      .video-card-empty-text { color: $brand-start; }
-    }
+.phone-info-name {
+  font-size: 12px;
+  color: $text-secondary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
 
-    .video-card-empty-text { font-size: 12px; transition: $transition-fast; }
-  }
-
-  .video-card-preview {
-    position: relative;
-    video {
-      width: 100%;
-      display: block;
-      max-height: 200px;
-      outline: none;
-    }
-    .video-card-overlay {
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      padding: 8px 0;
-      background: linear-gradient(transparent, rgba(0,0,0,0.7));
-      opacity: 0;
-      transition: $transition-base;
-      .overlay-btn {
-        padding: 3px 10px;
-        border: none; border-radius: 4px;
-        background: rgba(255,255,255,0.15);
-        color: #fff; font-size: 12px;
-        cursor: pointer; transition: $transition-fast;
-        outline: none; font-family: inherit;
-        &:hover { background: rgba(255,255,255,0.25); }
-        &.danger:hover { background: rgba($danger-color,0.6); }
-      }
-    }
-    &:hover .video-card-overlay { opacity: 1; }
-  }
-
-  .video-card-actions {
-    display: flex;
-    gap: 8px;
-    padding: 8px 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    .cover-action-btn { flex: 1; }
+.phone-info-remove {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: $text-muted;
+  cursor: pointer;
+  transition: $transition-fast;
+  &:hover {
+    background: rgba($danger-color, 0.1);
+    color: $danger-color;
   }
 }
 
 // ----- Cover Section -----
+.cover-section {
+  background: rgba(255, 255, 255, 0.01);
+  border-color: $border;
+}
+
 .cover-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .cover-action-btn {

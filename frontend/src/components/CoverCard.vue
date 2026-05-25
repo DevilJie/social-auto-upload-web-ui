@@ -1,60 +1,82 @@
 <template>
-  <div class="cover-card">
-    <div class="cover-card-label">
-      <span>{{ label }}</span>
-      <span class="cover-ratio">{{ ratioLabel }}</span>
+  <div :class="['cover-card', { 'has-cover': modelValue }]">
+    <!-- Header -->
+    <div class="cover-header">
+      <div class="cover-title">
+        <span class="cover-dot"></span>
+        <span>{{ label }}</span>
+      </div>
+      <div class="cover-header-actions">
+        <button class="icon-btn" title="上传图片" @click="triggerUpload">
+          <el-icon :size="14"><Upload /></el-icon>
+        </button>
+        <button class="icon-btn" title="从素材库选择" @click="$emit('open-library')">
+          <el-icon :size="14"><Picture /></el-icon>
+        </button>
+      </div>
     </div>
 
-    <!-- Recommended frames row -->
-    <div v-if="recommendedFrames.length > 0" class="recommended-frames">
-      <div
-        v-for="(frame, index) in recommendedFrames"
-        :key="frame.seconds"
-        :class="['frame-thumb', { active: isSelected(frame.seconds) }]"
-        @click="onFrameClick(frame)"
-      >
-        <img :src="frame.url" />
-        <div v-if="isSelected(frame.seconds)" class="frame-check">
-          <el-icon :size="10"><Check /></el-icon>
+    <!-- Cover preview area -->
+    <div class="cover-body">
+      <!-- Has cover image -->
+      <div v-if="modelValue" class="cover-preview-wrap">
+        <img :src="modelValue.url" class="cover-preview" />
+        <div class="cover-preview-overlay">
+          <button class="overlay-action" @click="$emit('edit')">
+            <el-icon :size="16"><Edit /></el-icon>
+            <span>编辑封面</span>
+          </button>
+          <button class="overlay-action danger" @click="$emit('update:modelValue', null)">
+            <el-icon :size="14"><Delete /></el-icon>
+            <span>移除</span>
+          </button>
         </div>
+        <span class="cover-ratio-badge">{{ ratioLabel }}</span>
       </div>
-      <button class="frame-thumb edit-btn" @click="$emit('edit')">
-        <el-icon :size="16"><Edit /></el-icon>
-      </button>
-    </div>
 
-    <!-- Cover preview or empty -->
-    <div v-if="modelValue" class="cover-preview-wrap">
-      <img :src="modelValue.url" class="cover-preview" />
-      <div class="cover-preview-overlay">
-        <button class="overlay-btn" @click="$emit('edit')">编辑</button>
-        <button class="overlay-btn" @click="triggerUpload">更换</button>
-        <button class="overlay-btn danger" @click="$emit('update:modelValue', null)">删除</button>
+      <!-- No cover, has frames -->
+      <div v-else-if="recommendedFrames.length > 0" class="cover-no-selection">
+        <span class="cover-hint">点击下方画面选择封面</span>
+      </div>
+
+      <!-- No cover, no frames -->
+      <div v-else class="cover-empty" @click="triggerUpload">
+        <div class="cover-empty-icon">
+          <el-icon :size="28"><Picture /></el-icon>
+        </div>
+        <span class="cover-empty-title">上传{{ label }}</span>
+        <span class="cover-empty-desc">支持 JPG、PNG 格式</span>
       </div>
     </div>
-    <div v-else-if="recommendedFrames.length === 0" class="cover-empty" @click="triggerUpload">
-      <el-icon :size="24"><Picture /></el-icon>
-      <span class="cover-empty-text">上传{{ label }}</span>
-    </div>
 
-    <!-- Action buttons -->
-    <div class="cover-card-actions">
-      <button class="cover-action-btn" @click="triggerUpload">
-        <el-icon :size="14"><Upload /></el-icon><span>上传</span>
-      </button>
-      <button class="cover-action-btn" @click="$emit('open-library')">
-        <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
-      </button>
+    <!-- Recommended frames strip -->
+    <div v-if="recommendedFrames.length > 0" class="frames-strip">
+      <div class="frames-scroll">
+        <div
+          v-for="frame in recommendedFrames"
+          :key="frame.seconds"
+          :class="['frame-item', { selected: isSelected(frame.seconds) }]"
+          @click="onFrameClick(frame)"
+        >
+          <img :src="frame.url" />
+          <div v-if="isSelected(frame.seconds)" class="frame-selected-mark">
+            <el-icon :size="8"><Check /></el-icon>
+          </div>
+        </div>
+        <button class="frame-item frame-edit-btn" @click="$emit('edit')">
+          <el-icon :size="14"><Edit /></el-icon>
+        </button>
+      </div>
     </div>
-
-    <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onFileSelected" />
   </div>
+
+  <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onFileSelected" />
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Picture, Upload, Edit, Check } from '@element-plus/icons-vue'
+import { Picture, Upload, Edit, Check, Delete } from '@element-plus/icons-vue'
 import { http } from '@/utils/request'
 import { materialApi } from '@/api/material'
 import { frameApi } from '@/api/frame'
@@ -75,20 +97,17 @@ function isSelected(seconds) {
 }
 
 async function onFrameClick(frame) {
-  // Fetch HD frame for better quality cover
   const hdUrl = props.videoPath
     ? frameApi.getFrameImageUrl(props.videoPath, frame.seconds, false)
     : frame.url
-
-  const coverData = {
+  emit('update:modelValue', {
     name: `frame_${frame.seconds}s.jpg`,
     url: hdUrl,
     path: '',
     size: 0,
     type: 'image/jpeg',
     _fromFrame: frame.seconds,
-  }
-  emit('update:modelValue', coverData)
+  })
 }
 
 function triggerUpload() {
@@ -129,121 +148,158 @@ async function onFileSelected(e) {
 @use '@/styles/variables' as *;
 
 .cover-card {
-  flex: 1;
-  border: 1px dashed $border;
-  border-radius: $radius-base;
+  background: $bg-elevated;
+  border: 1px solid $border;
+  border-radius: $radius-card;
   overflow: hidden;
   transition: $transition-base;
-  &:hover { border-color: $border-active; }
+  flex: 1;
+
+  &:hover {
+    border-color: $border-active;
+  }
+  &.has-cover {
+    border-color: rgba($brand-start, 0.15);
+    box-shadow: 0 0 0 1px rgba($brand-start, 0.06);
+  }
 }
 
-.cover-card-label {
+// ===== Header =====
+.cover-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.03);
-  font-size: 12px;
-  font-weight: 500;
-  color: $text-secondary;
+  padding: 10px 14px;
+  border-bottom: 1px solid $border-light;
 }
 
-.cover-ratio {
-  font-size: 10px;
-  color: $text-muted;
-  background: rgba(255, 255, 255, 0.06);
-  padding: 2px 6px;
-  border-radius: 4px;
+.cover-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: $text-primary;
 }
 
-.recommended-frames {
+.cover-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: $gradient-brand;
+}
+
+.cover-header-actions {
   display: flex;
   gap: 4px;
-  padding: 8px 10px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.08) transparent;
-  &::-webkit-scrollbar { height: 3px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
 }
 
-.frame-thumb {
-  width: 48px;
-  height: 32px;
-  border-radius: 4px;
-  overflow: hidden;
-  cursor: pointer;
-  border: 2px solid transparent;
-  flex-shrink: 0;
-  position: relative;
-  transition: border-color 0.15s;
-
-  img { width: 100%; height: 100%; object-fit: cover; }
-  &.active { border-color: $brand-start; }
-  &:hover:not(.active) { border-color: rgba($brand-start, 0.4); }
-}
-
-.frame-check {
-  position: absolute;
-  inset: 0;
-  background: rgba($brand-start, 0.35);
+.icon-btn {
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-}
-
-.edit-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px dashed $border;
-  border-radius: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   color: $text-muted;
+  cursor: pointer;
   transition: $transition-fast;
-  &:hover { border-color: $border-active; color: $brand-start; }
+
+  &:hover {
+    background: rgba($brand-start, 0.1);
+    color: $brand-start;
+  }
+}
+
+// ===== Body =====
+.cover-body {
+  min-height: 160px;
 }
 
 .cover-preview-wrap {
   position: relative;
   display: flex;
   justify-content: center;
-  background: rgba(0,0,0,0.2);
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 12px;
+  min-height: 180px;
 }
 
 .cover-preview {
   display: block;
-  height: 200px;
-  width: auto;
+  max-height: 260px;
   max-width: 100%;
   object-fit: contain;
+  border-radius: 4px;
 }
 
 .cover-preview-overlay {
   position: absolute;
-  bottom: 0; left: 0; right: 0;
+  inset: 0;
   display: flex;
+  align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 6px 0;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.5);
   opacity: 0;
   transition: opacity 0.2s;
 }
-.cover-preview-wrap:hover .cover-preview-overlay { opacity: 1; }
+.cover-preview-wrap:hover .cover-preview-overlay {
+  opacity: 1;
+}
 
-.overlay-btn {
-  padding: 3px 10px;
-  border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.15);
+.overlay-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
   color: #fff;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: $transition-fast;
-  &:hover { background: rgba(255, 255, 255, 0.25); }
-  &.danger:hover { background: rgba($danger-color, 0.6); }
+  font-family: inherit;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+  &.danger:hover {
+    background: rgba($danger-color, 0.5);
+    border-color: rgba($danger-color, 0.7);
+  }
+}
+
+.cover-ratio-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  border-radius: 4px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+}
+
+.cover-no-selection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  padding: 24px;
+}
+
+.cover-hint {
+  font-size: 13px;
+  color: $text-muted;
 }
 
 .cover-empty {
@@ -251,43 +307,99 @@ async function onFileSelected(e) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 28px 0;
-  color: $text-muted;
+  gap: 8px;
+  padding: 32px 24px;
   cursor: pointer;
   transition: $transition-base;
-  &:hover { background: rgba(255, 255, 255, 0.03); color: $brand-start; }
+
+  &:hover {
+    background: rgba($brand-start, 0.04);
+  }
 }
 
-.cover-empty-text { font-size: 12px; }
-
-.cover-card-actions {
-  display: flex;
-  gap: 6px;
-  padding: 6px 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.cover-action-btn {
-  flex: 1;
+.cover-empty-icon {
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 5px 12px;
-  border: 1px solid $border;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  background: $gradient-brand-subtle;
+  color: $brand-start;
+  margin-bottom: 4px;
+}
+
+.cover-empty-title {
+  font-size: 14px;
+  font-weight: 500;
   color: $text-secondary;
-  font-size: 12px;
+}
+
+.cover-empty-desc {
+  font-size: 11px;
+  color: $text-muted;
+}
+
+// ===== Frames strip =====
+.frames-strip {
+  padding: 8px 12px 12px;
+  border-top: 1px solid $border-light;
+}
+
+.frames-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  &::-webkit-scrollbar { height: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+}
+
+.frame-item {
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  overflow: hidden;
   cursor: pointer;
-  transition: $transition-fast;
-  outline: none;
-  font-family: inherit;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.15s;
+
+  img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  &:hover:not(.selected) {
+    border-color: rgba($brand-start, 0.4);
+    transform: translateY(-1px);
+  }
+  &.selected {
+    border-color: $brand-start;
+    box-shadow: 0 0 0 1px rgba($brand-start, 0.3);
+  }
+}
+
+.frame-selected-mark {
+  position: absolute;
+  inset: 0;
+  background: rgba($brand-start, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.frame-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed $border;
+  color: $text-muted;
   &:hover {
-    border-color: rgba($brand-start, 0.3);
-    background: linear-gradient(135deg, rgba($brand-start, 0.06), rgba($brand-end, 0.04));
-    color: $text-primary;
+    border-color: rgba($brand-start, 0.4);
+    color: $brand-start;
+    background: rgba($brand-start, 0.06);
   }
 }
 </style>

@@ -8,14 +8,6 @@
     @closed="onClosed"
     append-to-body
   >
-    <div class="cover-editor-tabs">
-      <button :class="['tab-btn', { active: activeTab === 'landscape' }]" @click="switchTab('landscape')">
-        <span class="tab-icon">▦</span> 横版 16:9
-      </button>
-      <button :class="['tab-btn', { active: activeTab === 'portrait' }]" @click="switchTab('portrait')">
-        <span class="tab-icon">▥</span> 竖版 9:16
-      </button>
-    </div>
 
     <div class="cover-editor-body">
       <div class="editor-main">
@@ -164,19 +156,8 @@ function currentVideoPath() {
 async function loadFrames() {
   const videoPath = currentVideoPath()
   if (!videoPath) return
-  try { await frameApi.extractFrames(videoPath) } catch {}
-  const poll = async (retries = 30) => {
-    for (let i = 0; i < retries; i++) {
-      try {
-        const resp = await frameApi.getFramesStatus(videoPath)
-        if (resp.data?.status === 'done') break
-      } catch {}
-      await new Promise(r => setTimeout(r, 1000))
-    }
-  }
-  await poll()
   try {
-    const resp = await frameApi.getFrames(videoPath)
+    const resp = await frameApi.extractFrames(videoPath)
     if (resp.data) {
       frames.value = resp.data.frames || []
       videoDuration.value = resp.data.duration || 0
@@ -435,47 +416,6 @@ defineExpose({ open })
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 
-.cover-editor-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 16px 24px 0;
-  border-bottom: 1px solid $border;
-  margin-bottom: 0;
-}
-
-.tab-btn {
-  padding: 10px 20px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: $text-muted;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: $transition-base;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: inherit;
-  outline: none;
-
-  .tab-icon {
-    font-size: 14px;
-    opacity: 0.6;
-  }
-
-  &:hover:not(.active) {
-    color: $text-secondary;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  &.active {
-    color: $brand-start;
-    border-bottom-color: $brand-start;
-    background: rgba($brand-start, 0.06);
-  }
-}
 
 .cover-editor-body {
   display: flex;

@@ -1,6 +1,6 @@
 <template>
   <div class="video-timeline">
-    <div class="timeline-track" ref="trackRef" @mousedown="onTrackMouseDown">
+    <div class="timeline-track" ref="trackRef" @mousedown="onTrackMouseDown" @wheel.prevent="onWheel">
       <div class="timeline-thumbs">
         <img
           v-for="frame in frames"
@@ -62,6 +62,13 @@ function formatTime(secs) {
   const m = Math.floor(secs / 60)
   const s = secs % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function onWheel(e) {
+  e.preventDefault()
+  const track = trackRef.value
+  if (!track) return
+  track.scrollLeft += e.deltaY
 }
 
 function onTrackMouseDown(e) {

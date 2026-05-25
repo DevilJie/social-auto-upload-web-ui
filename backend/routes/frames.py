@@ -8,9 +8,19 @@ from services.ffmpeg_service import (
     get_extraction_status,
     get_frame_list,
     get_frame_image_path,
+    _extract_frames_sync,
 )
 
 frames_bp = Blueprint('frames', __name__)
+
+
+def _resolve_video_path(video_path):
+    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
+    if os.path.isfile(full_path):
+        return full_path
+    if os.path.isfile(video_path):
+        return video_path
+    return None
 
 
 @frames_bp.post('/api/extract-frames')
@@ -20,15 +30,18 @@ def extract_frames():
     if not video_path:
         return jsonify({"code": 400, "msg": "video_path is required"}), 400
 
-    # Resolve actual file path on disk
-    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
-    if not os.path.isfile(full_path):
-        full_path = video_path
-    if not os.path.isfile(full_path):
+    full_path = _resolve_video_path(video_path)
+    if not full_path:
         return jsonify({"code": 404, "msg": "Video file not found"}), 404
 
-    task_id = start_frame_extraction(BASE_DIR, full_path)
-    return jsonify({"code": 200, "data": {"task_id": task_id}})
+    status = get_extraction_status(full_path)
+    if status.get("status") == "done":
+        result = get_frame_list(BASE_DIR, full_path)
+        return jsonify({"code": 200, "data": result})
+
+    _extract_frames_sync(BASE_DIR, full_path)
+    result = get_frame_list(BASE_DIR, full_path)
+    return jsonify({"code": 200, "data": result})
 
 
 @frames_bp.get('/api/frames-status')
@@ -37,9 +50,9 @@ def frames_status():
     if not video_path:
         return jsonify({"code": 400, "msg": "video_path is required"}), 400
 
-    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
-    if not os.path.isfile(full_path):
-        full_path = video_path
+    full_path = _resolve_video_path(video_path)
+    if not full_path:
+        return jsonify({"code": 400, "msg": "video_path not found"}), 400
 
     status = get_extraction_status(full_path)
     return jsonify({"code": 200, "data": status})
@@ -51,9 +64,9 @@ def get_frames():
     if not video_path:
         return jsonify({"code": 400, "msg": "video_path is required"}), 400
 
-    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
-    if not os.path.isfile(full_path):
-        full_path = video_path
+    full_path = _resolve_video_path(video_path)
+    if not full_path:
+        return jsonify({"code": 400, "msg": "video_path not found"}), 400
 
     result = get_frame_list(BASE_DIR, full_path)
     return jsonify({"code": 200, "data": result})
@@ -72,9 +85,9 @@ def get_frame_image():
     except ValueError:
         return jsonify({"code": 400, "msg": "seconds must be integer"}), 400
 
-    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
-    if not os.path.isfile(full_path):
-        full_path = video_path
+    full_path = _resolve_video_path(video_path)
+    if not full_path:
+        return jsonify({"code": 404, "msg": "Video file not found"}), 404
 
     image_path = get_frame_image_path(BASE_DIR, full_path, seconds, thumbnail=thumbnail)
     if not image_path or not os.path.isfile(image_path):

@@ -299,12 +299,12 @@ def get_frame_image_path(
         logger.debug("HD frame cache hit: {}", hd_path)
         return str(hd_path)
 
-    # Extract on-demand
+    # Extract on-demand using time-based seeking
     cmd = [
         FFMPEG,
+        "-ss", str(seconds),
         "-i", video_path,
-        "-vf", f"select=eq(n\\,{seconds})",
-        "-vframes", "1",
+        "-frames:v", "1",
         "-q:v", "2",
         "-y",
         str(hd_path),

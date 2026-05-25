@@ -73,7 +73,7 @@ function onTrackMouseDown(e) {
     const rect = track.getBoundingClientRect()
     const scrollLeft = track.scrollLeft || 0
     const x = clientX - rect.left + scrollLeft
-    const seconds = Math.round(x / THUMB_WIDTH)
+    const seconds = Math.floor(x / THUMB_WIDTH)
     const clamped = Math.max(0, Math.min(seconds, props.frames.length - 1))
     emit('update:modelValue', clamped)
   }

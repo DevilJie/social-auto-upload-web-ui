@@ -155,62 +155,35 @@
           <div class="media-section cover-section">
             <div class="section-label">封面</div>
             <div class="cover-grid">
-              <!-- Landscape cover -->
-              <div class="cover-card">
-                <div class="cover-card-label">
-                  <span>横版封面</span>
-                  <span class="cover-ratio">16:9</span>
-                </div>
-                <div v-if="!commonConfig.coverLandscape" class="cover-empty" @click="triggerUploadCover('landscape')">
-                  <el-icon :size="28"><Picture /></el-icon>
-                  <span class="cover-empty-text">上传横版封面</span>
-                </div>
-                <div v-else class="cover-preview-wrap">
-                  <img :src="commonConfig.coverLandscape.url" class="cover-preview" />
-                  <div class="cover-preview-overlay">
-                    <button class="overlay-btn" @click="openCropDialog('landscape')">裁剪</button>
-                    <button class="overlay-btn" @click="triggerUploadCover('landscape')">更换</button>
-                    <button class="overlay-btn danger" @click="commonConfig.coverLandscape = null">删除</button>
-                  </div>
-                </div>
-                <div class="cover-card-actions">
-                  <button class="cover-action-btn" @click="triggerUploadCover('landscape')">
-                    <el-icon :size="14"><Upload /></el-icon><span>上传</span>
-                  </button>
-                  <button class="cover-action-btn" @click="selectFromLibrary('cover', 'landscape')">
-                    <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
-                  </button>
-                </div>
-              </div>
-              <!-- Portrait cover -->
-              <div class="cover-card">
-                <div class="cover-card-label">
-                  <span>竖版封面</span>
-                  <span class="cover-ratio">3:4</span>
-                </div>
-                <div v-if="!commonConfig.coverPortrait" class="cover-empty" @click="triggerUploadCover('portrait')">
-                  <el-icon :size="28"><Picture /></el-icon>
-                  <span class="cover-empty-text">上传竖版封面</span>
-                </div>
-                <div v-else class="cover-preview-wrap">
-                  <img :src="commonConfig.coverPortrait.url" class="cover-preview" />
-                  <div class="cover-preview-overlay">
-                    <button class="overlay-btn" @click="openCropDialog('portrait')">裁剪</button>
-                    <button class="overlay-btn" @click="triggerUploadCover('portrait')">更换</button>
-                    <button class="overlay-btn danger" @click="commonConfig.coverPortrait = null">删除</button>
-                  </div>
-                </div>
-                <div class="cover-card-actions">
-                  <button class="cover-action-btn" @click="triggerUploadCover('portrait')">
-                    <el-icon :size="14"><Upload /></el-icon><span>上传</span>
-                  </button>
-                  <button class="cover-action-btn" @click="selectFromLibrary('cover', 'portrait')">
-                    <el-icon :size="14"><Picture /></el-icon><span>素材库</span>
-                  </button>
-                </div>
-              </div>
+              <CoverCard
+                label="横版封面"
+                ratio-label="16:9"
+                v-model="commonConfig.coverLandscape"
+                :recommended-frames="landscapeFrames"
+                @edit="openCoverEditor('landscape')"
+                @open-library="selectFromLibrary('cover', 'landscape')"
+              />
+              <CoverCard
+                label="竖版封面"
+                ratio-label="9:16"
+                v-model="commonConfig.coverPortrait"
+                :recommended-frames="portraitFrames"
+                @edit="openCoverEditor('portrait')"
+                @open-library="selectFromLibrary('cover', 'portrait')"
+              />
             </div>
           </div>
+
+          <CoverEditorDialog
+            ref="coverEditorRef"
+            :video-landscape="commonConfig.videoLandscape"
+            :video-portrait="commonConfig.videoPortrait"
+            :cover-landscape="commonConfig.coverLandscape"
+            :cover-portrait="commonConfig.coverPortrait"
+            :materials="materials"
+            @update:cover-landscape="commonConfig.coverLandscape = $event"
+            @update:cover-portrait="commonConfig.coverPortrait = $event"
+          />
 
           <!-- Batch title/description sync -->
           <div class="batch-sync-section">
@@ -583,76 +556,6 @@
       </template>
     </el-dialog>
 
-    <!-- Cover Upload Dialog -->
-    <el-dialog
-      v-model="coverUploadDialogVisible"
-      :title="'上传' + (coverUploadTarget === 'portrait' ? '竖版' : '横版') + '封面'"
-      width="500px"
-      class="cover-upload-dialog"
-    >
-      <el-upload
-        class="cover-upload"
-        drag
-        :auto-upload="true"
-        :action="`${apiBaseUrl}/upload`"
-        :on-success="handleCoverUploadSuccess"
-        :on-error="handleUploadError"
-        accept="image/*"
-        :headers="authHeaders"
-      >
-        <el-icon class="el-icon--upload" :size="48"><Upload /></el-icon>
-        <div class="el-upload__text">
-          将封面图片拖到此处，或<em>点击上传</em>
-        </div>
-        <template #tip>
-          <div class="el-upload__tip">
-            {{ coverUploadTarget === 'portrait' ? '竖版封面推荐比例 3:4' : '横版封面推荐比例 16:9' }}，支持JPG、PNG格式
-          </div>
-        </template>
-      </el-upload>
-
-      <template #footer>
-        <div class="dialog-footer-right">
-          <el-button @click="coverUploadDialogVisible = false">关闭</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- Cover Crop Dialog -->
-    <el-dialog
-      v-model="cropDialogVisible"
-      :title="'裁剪' + (cropTarget === 'portrait' ? '竖版' : '横版') + '封面'"
-      width="600px"
-      class="crop-dialog"
-    >
-      <div class="crop-container">
-        <div class="crop-canvas-wrap">
-          <canvas ref="cropCanvasRef" class="crop-canvas"></canvas>
-          <div
-            class="crop-selection"
-            :style="cropSelectionStyle"
-            @mousedown="startCropDrag"
-          >
-            <div class="crop-handle top-left" data-handle="tl"></div>
-            <div class="crop-handle top-right" data-handle="tr"></div>
-            <div class="crop-handle bottom-left" data-handle="bl"></div>
-            <div class="crop-handle bottom-right" data-handle="br"></div>
-          </div>
-        </div>
-        <div class="crop-info">
-          <span>{{ cropTarget === 'portrait' ? '3:4' : '16:9' }}</span>
-          <span class="crop-size">{{ Math.round(cropRect.w) }} x {{ Math.round(cropRect.h) }}</span>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="dialog-footer-right">
-          <el-button @click="cropDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="applyCrop">确认裁剪</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
     <!-- Material Library Dialog -->
     <el-dialog
       v-model="materialLibraryVisible"
@@ -734,13 +637,6 @@
     </el-dialog>
 
     <!-- Hidden file inputs -->
-    <input
-      ref="coverInputRef"
-      type="file"
-      accept="image/*"
-      style="display: none"
-      @change="handleCoverFileChange"
-    />
   </div>
 </template>
 
@@ -754,6 +650,9 @@ import { materialApi } from '@/api/material'
 import { accountApi } from '@/api/account'
 import { http } from '@/utils/request'
 import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platforms'
+import CoverCard from '@/components/CoverCard.vue'
+import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
+import { frameApi } from '@/api/frame'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -795,28 +694,14 @@ const commonConfig = reactive({
   videoLandscape: null,  // { name, url, path, size, type }
   videoPortrait: null,   // { name, url, path, size, type }
   coverLandscape: null, // 横版封面 16:9
-  coverPortrait: null,  // 竖版封面 3:4
+  coverPortrait: null,  // 竖版封面 9:16
   topics: [],
 })
 
-// Cover upload target: 'landscape' or 'portrait'
-const coverUploadTarget = ref('landscape')
-
-// Crop dialog state
-const cropDialogVisible = ref(false)
-const cropTarget = ref('landscape') // 'landscape' or 'portrait'
-const cropCanvasRef = ref(null)
-const cropImage = ref(null) // Image element for cropping
-const cropRect = reactive({ x: 0, y: 0, w: 0, h: 0 })
-const cropDragState = ref(null) // null | { type, startX, startY, origRect }
-const cropDisplayScale = ref(1) // canvas display scale vs actual image
-
-const cropSelectionStyle = computed(() => ({
-  left: cropRect.x * cropDisplayScale.value + 'px',
-  top: cropRect.y * cropDisplayScale.value + 'px',
-  width: cropRect.w * cropDisplayScale.value + 'px',
-  height: cropRect.h * cropDisplayScale.value + 'px',
-}))
+// Cover editor
+const coverEditorRef = ref(null)
+const landscapeFrames = ref([])
+const portraitFrames = ref([])
 
 // ========== Per-platform Config ==========
 const platformConfigs = reactive({
@@ -997,7 +882,6 @@ const accountDialogVisible = ref(false)
 const topicDialogVisible = ref(false)
 const videoUploadDialogVisible = ref(false)
 const videoUploadTarget = ref('landscape') // 'landscape' | 'portrait'
-const coverUploadDialogVisible = ref(false)
 const materialLibraryVisible = ref(false)
 const materialLibraryMode = ref('video') // 'video' | 'cover'
 const materialLibraryCoverTarget = ref('landscape') // 'landscape' | 'portrait'
@@ -1063,8 +947,6 @@ const publishResults = ref([])
 const currentPublishingAccount = ref('')
 const isCancelled = ref(false)
 
-const coverInputRef = ref(null)
-
 // ========== Sidebar Methods ==========
 
 function toggleGroup(key) {
@@ -1103,182 +985,51 @@ function triggerUploadVideo(target = 'landscape') {
   videoUploadDialogVisible.value = true
 }
 
-function triggerUploadCover(target = 'landscape') {
-  coverUploadTarget.value = target
-  coverUploadDialogVisible.value = true
-}
-
 function clearVideo(type) {
   // type: 'landscape' | 'portrait'
   if (type === 'landscape') commonConfig.videoLandscape = null
   else commonConfig.videoPortrait = null
 }
 
-function openCropDialog(target) {
-  cropTarget.value = target
-  const coverData = target === 'portrait' ? commonConfig.coverPortrait : commonConfig.coverLandscape
-  if (!coverData) return
+// ========== Cover Editor ==========
 
-  // Load image and init canvas
-  const img = new Image()
-  img.crossOrigin = 'anonymous'
-  img.onload = () => {
-    cropImage.value = img
-    nextTick(() => initCropCanvas(img))
-  }
-  img.src = coverData.url
-  cropDialogVisible.value = true
+function openCoverEditor(tab = 'landscape') {
+  coverEditorRef.value?.open(tab)
 }
 
-function initCropCanvas(img) {
-  const canvas = cropCanvasRef.value
-  if (!canvas) return
-
-  const maxW = 540
-  const maxH = 400
-  const scale = Math.min(maxW / img.width, maxH / img.height, 1)
-  cropDisplayScale.value = scale
-
-  canvas.width = img.width * scale
-  canvas.height = img.height * scale
-  canvas.style.width = canvas.width + 'px'
-  canvas.style.height = canvas.height + 'px'
-
-  const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-
-  // Init crop rect: centered with target aspect ratio
-  const ratio = cropTarget.value === 'portrait' ? 3 / 4 : 16 / 9
-  let rw = canvas.width / scale * 0.8
-  let rh = rw / ratio
-  if (rh > img.height * 0.8) {
-    rh = img.height * 0.8
-    rw = rh * ratio
-  }
-  cropRect.x = (img.width - rw) / 2
-  cropRect.y = (img.height - rh) / 2
-  cropRect.w = rw
-  cropRect.h = rh
-}
-
-function startCropDrag(e) {
-  e.preventDefault()
-  const target = e.target.dataset.handle
-  cropDragState.value = {
-    type: target || 'move',
-    startX: e.clientX,
-    startY: e.clientY,
-    origRect: { ...cropRect },
-  }
-
-  const onMove = (ev) => {
-    if (!cropDragState.value) return
-    const dx = (ev.clientX - cropDragState.value.startX) / cropDisplayScale.value
-    const dy = (ev.clientY - cropDragState.value.startY) / cropDisplayScale.value
-    const orig = cropDragState.value.origRect
-    const img = cropImage.value
-    const ratio = cropTarget.value === 'portrait' ? 3 / 4 : 16 / 9
-    const type = cropDragState.value.type
-
-    if (type === 'move') {
-      cropRect.x = Math.max(0, Math.min(img.width - orig.w, orig.x + dx))
-      cropRect.y = Math.max(0, Math.min(img.height - orig.h, orig.y + dy))
-    } else {
-      // Resize from corner, maintaining aspect ratio
-      let newW = orig.w
-      let newH = orig.h
-      if (type === 'br') { newW = orig.w + dx; newH = newW / ratio }
-      else if (type === 'bl') { newW = orig.w - dx; newH = newW / ratio }
-      else if (type === 'tr') { newW = orig.w + dx; newH = newW / ratio }
-      else if (type === 'tl') { newW = orig.w - dx; newH = newW / ratio }
-
-      newW = Math.max(60, newW)
-      newH = newW / ratio
-
-      if (type === 'tl' || type === 'bl') {
-        cropRect.x = orig.x + orig.w - newW
+async function triggerFrameExtraction(videoData, type) {
+  if (!videoData?.path) return
+  try {
+    await frameApi.extractFrames(videoData.path)
+    const poll = async (retries = 30) => {
+      for (let i = 0; i < retries; i++) {
+        const resp = await frameApi.getFramesStatus(videoData.path)
+        if (resp.data?.status === 'done') break
+        await new Promise(r => setTimeout(r, 1000))
       }
-      if (type === 'tl' || type === 'tr') {
-        cropRect.y = orig.y + orig.h - newH
-      }
-
-      // Clamp
-      cropRect.x = Math.max(0, cropRect.x)
-      cropRect.y = Math.max(0, cropRect.y)
-      if (cropRect.x + newW > img.width) newW = img.width - cropRect.x
-      if (cropRect.y + newH > img.height) newH = img.height - cropRect.y
-      newH = newW / ratio
-
-      cropRect.w = newW
-      cropRect.h = newH
     }
-
-    // Redraw canvas
-    redrawCropCanvas()
-  }
-
-  const onUp = () => {
-    cropDragState.value = null
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
-  }
-
-  window.addEventListener('mousemove', onMove)
-  window.addEventListener('mouseup', onUp)
-}
-
-function redrawCropCanvas() {
-  // No need to redraw canvas - CSS box-shadow on .crop-selection handles the dim overlay,
-  // and the crop-selection div position updates via Vue reactivity.
-}
-
-function applyCrop() {
-  const img = cropImage.value
-  if (!img) return
-
-  const offscreen = document.createElement('canvas')
-  offscreen.width = Math.round(cropRect.w)
-  offscreen.height = Math.round(cropRect.h)
-  const ctx = offscreen.getContext('2d')
-  ctx.drawImage(img, cropRect.x, cropRect.y, cropRect.w, cropRect.h, 0, 0, offscreen.width, offscreen.height)
-
-  offscreen.toBlob((blob) => {
-    if (!blob) {
-      ElMessage.error('裁剪失败')
-      return
+    await poll()
+    const resp = await frameApi.getFrames(videoData.path)
+    if (resp.data) {
+      const allFrames = resp.data.frames || []
+      const recommended = pickRecommendedFrames(allFrames, 6)
+      if (type === 'landscape') landscapeFrames.value = recommended
+      else portraitFrames.value = recommended
     }
+  } catch (e) {
+    console.error('Frame extraction failed:', e)
+  }
+}
 
-    // Upload cropped image
-    const formData = new FormData()
-    formData.append('file', blob, `cover_${cropTarget.value}_${Date.now()}.png`)
-
-    http.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((resp) => {
-      if (resp.code === 200) {
-        const filePath = resp.data.path || resp.data
-        const filename = filePath.split('/').pop()
-        const coverData = {
-          name: `裁剪_${cropTarget.value === 'portrait' ? '竖版' : '横版'}_封面.png`,
-          url: materialApi.getMaterialPreviewUrl(filename),
-          path: filePath,
-          size: blob.size,
-          type: 'image/png',
-        }
-        if (cropTarget.value === 'portrait') {
-          commonConfig.coverPortrait = coverData
-        } else {
-          commonConfig.coverLandscape = coverData
-        }
-        cropDialogVisible.value = false
-        ElMessage.success('封面裁剪完成')
-      } else {
-        ElMessage.error(resp.msg || '裁剪上传失败')
-      }
-    }).catch(() => {
-      ElMessage.error('裁剪上传失败')
-    })
-  }, 'image/png')
+function pickRecommendedFrames(frames, count) {
+  if (frames.length <= count) return frames
+  const result = [frames[0]]
+  for (let i = 1; i < count - 1; i++) {
+    const idx = Math.round((frames.length - 1) * i / (count - 1))
+    result.push(frames[idx])
+  }
+  result.push(frames[frames.length - 1])
+  return result
 }
 
 function handleVideoUploadSuccess(response, file) {
@@ -1299,29 +1050,7 @@ function handleVideoUploadSuccess(response, file) {
     }
     videoUploadDialogVisible.value = false
     ElMessage.success('视频上传成功')
-  } else {
-    ElMessage.error(response.msg || '上传失败')
-  }
-}
-
-function handleCoverUploadSuccess(response, file) {
-  if (response.code === 200) {
-    const filePath = response.data.filepath || response.data
-    const filename = filePath.split('/').pop()
-    const coverData = {
-      name: file.name,
-      url: materialApi.getMaterialPreviewUrl(filename),
-      path: filePath,
-      size: file.size,
-      type: file.type,
-    }
-    if (coverUploadTarget.value === 'portrait') {
-      commonConfig.coverPortrait = coverData
-    } else {
-      commonConfig.coverLandscape = coverData
-    }
-    coverUploadDialogVisible.value = false
-    ElMessage.success('封面上传成功')
+    triggerFrameExtraction(videoData, videoUploadTarget.value)
   } else {
     ElMessage.error(response.msg || '上传失败')
   }
@@ -1329,10 +1058,6 @@ function handleCoverUploadSuccess(response, file) {
 
 function handleUploadError() {
   ElMessage.error('文件上传失败')
-}
-
-function handleCoverFileChange(e) {
-  // handled by el-upload dialog
 }
 
 // ========== Material Library ==========
@@ -2793,104 +2518,6 @@ function formatSize(bytes) {
 
 // ========== Upload Dialogs ==========
 .video-upload-dialog,
-.cover-upload-dialog {
-  .video-upload,
-  .cover-upload {
-    width: 100%;
-
-    :deep(.el-upload-dragger) {
-      width: 100%;
-      height: 180px;
-      background: rgba(255, 255, 255, 0.02);
-      border-color: $border;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      transition: $transition-base;
-
-      &:hover {
-        border-color: $border-active;
-      }
-
-      .el-icon--upload {
-        color: $text-muted;
-        margin-bottom: 8px;
-      }
-    }
-
-    .el-upload__text {
-      color: $text-secondary;
-      font-size: 14px;
-
-      em {
-        color: $brand-start;
-      }
-    }
-
-    .el-upload__tip {
-      color: $text-muted;
-      font-size: 12px;
-      margin-top: 8px;
-    }
-  }
-}
-
-// ========== Crop Dialog ==========
-.crop-dialog {
-  .crop-container {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .crop-canvas-wrap {
-    position: relative;
-    width: fit-content;
-    margin: 0 auto;
-    background: #000;
-    border-radius: $radius-base;
-    overflow: hidden;
-  }
-
-  .crop-canvas {
-    display: block;
-  }
-
-  .crop-selection {
-    position: absolute;
-    border: 2px solid $brand-start;
-    cursor: move;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-  }
-
-  .crop-handle {
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    background: $brand-start;
-    border: 1px solid #fff;
-    border-radius: 2px;
-
-    &.top-left { top: -5px; left: -5px; cursor: nw-resize; }
-    &.top-right { top: -5px; right: -5px; cursor: ne-resize; }
-    &.bottom-left { bottom: -5px; left: -5px; cursor: sw-resize; }
-    &.bottom-right { bottom: -5px; right: -5px; cursor: se-resize; }
-  }
-
-  .crop-info {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    color: $text-muted;
-
-    .crop-size {
-      color: $text-secondary;
-    }
-  }
-}
-
 // ========== Material Library Dialog ==========
 .material-library-dialog {
   .material-library-content {

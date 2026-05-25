@@ -31,22 +31,19 @@
       </div>
     </div>
 
-    <!-- 引擎模式 -->
+    <!-- 发布设置 -->
     <div class="settings-card">
       <h3 class="card-title">
-        <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-        引擎模式
+        <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        发布设置
       </h3>
       <div class="setting-row">
         <div class="setting-info">
-          <span class="setting-label">发布引擎</span>
-          <span class="setting-desc">新版引擎使用抽象化平台架构，便于维护和扩展。切换后立即生效。</span>
+          <span class="setting-label">上传视频后自动填充标题</span>
+          <span class="setting-desc">上传视频成功后，自动将文件名填入所有渠道的标题字段</span>
         </div>
         <div class="setting-control">
-          <el-radio-group v-model="settings.engineMode">
-            <el-radio value="old">旧版引擎 (legacy)</el-radio>
-            <el-radio value="new">新版引擎 (v2)</el-radio>
-          </el-radio-group>
+          <el-switch v-model="settings.autoFillTitle" />
         </div>
       </div>
     </div>
@@ -102,7 +99,7 @@ const saving = ref(false)
 
 const settings = reactive({
   proxyUrl: '',
-  engineMode: 'old',
+  autoFillTitle: true,
 })
 
 // 海外平台列表
@@ -124,7 +121,7 @@ const backendStack = [
 ]
 
 const browserStack = [
-  { name: 'Patchright', version: '1.58.x' },
+  { name: 'CloakBrowser', version: 'latest' },
   { name: 'Chromium', version: 'latest' },
 ]
 
@@ -134,7 +131,7 @@ const fetchSettings = async () => {
     const res = await settingsApi.getSettings()
     if (res.code === 200 && res.data) {
       if (res.data.proxyUrl !== undefined) settings.proxyUrl = res.data.proxyUrl
-      if (res.data.engineMode !== undefined) settings.engineMode = res.data.engineMode
+      if (res.data.autoFillTitle !== undefined) settings.autoFillTitle = res.data.autoFillTitle
     }
   } catch (e) {
     console.error(e)
@@ -148,7 +145,7 @@ const handleSave = async () => {
   try {
     const res = await settingsApi.updateSettings({
       proxyUrl: settings.proxyUrl,
-      engineMode: settings.engineMode,
+      autoFillTitle: settings.autoFillTitle,
     })
     if (res.code === 200) {
       ElMessage.success('设置已保存')

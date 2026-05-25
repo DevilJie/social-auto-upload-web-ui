@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use ai_social_auto_upload_lib::{check_webview2, create_data_dirs, get_data_dir};
+use ai_social_auto_upload_lib::{create_data_dirs, get_data_dir};
 use tauri::{Manager, WindowEvent};
 
 fn main() {
@@ -38,9 +38,14 @@ fn main() {
     // Python path — must be the embedded distribution's python.exe (NOT Scripts/python.exe which is a venv launcher)
     let python_path = exe_dir.join("python").join("python.exe");
     let backend_path = exe_dir.join("backend").join("app.py");
+
+    // CloakBrowser stealth Chromium — bundled with the app
+    let cloakbrowser_binary_path = exe_dir.join("cloakbrowser").join("chrome.exe");
+
     writeln!(log_file, "[{}] INFO: exe_dir: {:?}", unix_ts(), exe_dir).unwrap();
     writeln!(log_file, "[{}] INFO: Python path: {:?}", unix_ts(), python_path).unwrap();
     writeln!(log_file, "[{}] INFO: Backend path: {:?}", unix_ts(), backend_path).unwrap();
+    writeln!(log_file, "[{}] INFO: CloakBrowser binary: {:?}", unix_ts(), cloakbrowser_binary_path).unwrap();
 
     if !python_path.exists() {
         let msg = format!("Python not found at {:?}. The embedded Python distribution is missing.", python_path);
@@ -49,16 +54,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Playwright browsers path — bundled with the app
-    let playwright_browsers_path = exe_dir.join("python").join("ms-playwright");
-
     // Spawn Python backend
     // PYTHONUNBUFFERED=1 ensures stdout/stderr are flushed immediately so logs appear in real-time
     let child = match Command::new(&python_path)
         .arg(&backend_path)
         .env("SAU_PORT", port.to_string())
         .env("SAU_DATA_DIR", data_dir.to_str().unwrap())
-        .env("PLAYWRIGHT_BROWSERS_PATH", playwright_browsers_path.to_str().unwrap())
+        .env("CLOAKBROWSER_BINARY_PATH", cloakbrowser_binary_path.to_str().unwrap())
         .env("PYTHONUNBUFFERED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

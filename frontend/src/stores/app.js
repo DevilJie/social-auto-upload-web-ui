@@ -4,6 +4,21 @@ import { ref } from 'vue'
 export const useAppStore = defineStore('app', () => {
   // 是否是第一次进入账号管理页面
   const isFirstTimeAccountManagement = ref(true)
+
+  // 自动填充标题设置
+  const autoFillTitle = ref(true)
+
+  const setAutoFillTitle = (value) => {
+    autoFillTitle.value = value
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.autoFillTitle = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const loadAutoFillTitle = () => {
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    autoFillTitle.value = settings.autoFillTitle !== undefined ? settings.autoFillTitle : true
+  }
   
   // 是否是第一次进入素材管理页面
   const isFirstTimeMaterialManagement = ref(true)
@@ -58,6 +73,9 @@ export const useAppStore = defineStore('app', () => {
     isFirstTimeMaterialManagement,
     isAccountRefreshing,
     materials,
+    autoFillTitle,
+    setAutoFillTitle,
+    loadAutoFillTitle,
     setAccountManagementVisited,
     setMaterialManagementVisited,
     resetVisitStatus,

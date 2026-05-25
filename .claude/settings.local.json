@@ -8,7 +8,9 @@
       "Bash(xargs basename:*)",
       "Bash(ls:*)",
       "Bash(rm -rf ~/.claude/skills/gstack)",
-      "Bash(git clone:*)"
+      "Bash(git clone:*)",
+      "Bash(rm -rf ../../target)",
+      "Bash(cmd.exe /C \"\\\\\"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\VC\\\\Auxiliary\\\\Build\\\\vcvarsall.bat\\\\\" x64 && set PATH=%USERPROFILE%\\\\.cargo\\\\bin;%PATH% && cargo check 2>&1\")"
     ]
   }
 }

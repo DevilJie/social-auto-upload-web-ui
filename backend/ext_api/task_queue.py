@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import logging
 import sqlite3
 import threading
 import uuid
@@ -13,6 +14,8 @@ from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -108,7 +111,7 @@ class TaskQueue:
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         self._started = True
-        print(f"[TaskQueue] 启动，并发数={self.max_concurrent}")
+        logger.info(f"[TaskQueue] 启动，并发数={self.max_concurrent}")
 
     def _run_loop(self):
         self._loop = asyncio.new_event_loop()
@@ -221,7 +224,7 @@ class TaskQueue:
         task.status = TaskStatus.QUEUED
         self._insert_db(task)
         asyncio.run_coroutine_threadsafe(self.queue.put(task), self._loop)
-        print(f"[TaskQueue] 任务已入队: {task.id} ({task.platform}/{task.account_name})")
+        logger.info(f"[TaskQueue] 任务已入队: {task.id} ({task.platform}/{task.account_name})")
 
     def cancel_task(self, task_id: str) -> bool:
         """取消任务（仅对 pending/queued 状态有效）"""
@@ -273,7 +276,7 @@ class TaskQueue:
             try:
                 cb(task)
             except Exception as e:
-                print(f"[TaskQueue] 回调错误: {e}")
+                logger.info(f"[TaskQueue] 回调错误: {e}")
 
     # ========== 数据库操作 ==========
 
@@ -293,7 +296,7 @@ class TaskQueue:
                      task.publish_url, task.created_at, task.started_at, task.finished_at)
                 )
         except Exception as e:
-            print(f"[TaskQueue] 插入数据库失败: {e}")
+            logger.info(f"[TaskQueue] 插入数据库失败: {e}")
 
     def _update_db(self, task: PublishTask):
         try:
@@ -307,7 +310,7 @@ class TaskQueue:
                      task.started_at, task.finished_at, task.id)
                 )
         except Exception as e:
-            print(f"[TaskQueue] 更新数据库失败: {e}")
+            logger.info(f"[TaskQueue] 更新数据库失败: {e}")
 
 
 # 全局单例

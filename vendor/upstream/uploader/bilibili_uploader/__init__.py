@@ -1,1 +1,0 @@
-"""Bilibili uploader package."""

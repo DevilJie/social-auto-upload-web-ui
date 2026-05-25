@@ -6,7 +6,6 @@
 
 - `backend/` - 后端服务
 - `frontend/` - 前端界面
-- `vendor/` - 第三方集成
 
 ## 开发说明
 

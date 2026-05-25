@@ -21,7 +21,10 @@
             <el-icon class="expand-icon" :style="{ color: selectedPlatform === group.key ? group.color : '' }">
               <component :is="expandedGroups.has(group.key) ? ArrowDown : ArrowRight" />
             </el-icon>
-            <span class="platform-badge" :style="{ background: group.color }">{{ group.letter }}</span>
+            <span class="platform-badge">
+              <img v-if="group.logo" :src="group.logo" :alt="group.name" class="platform-badge-img">
+              <template v-else>{{ group.letter }}</template>
+            </span>
             <span class="group-name">{{ group.name }}</span>
             <span class="group-count">{{ group.accounts.filter(a => publishAccountIds.has(a.id)).length }}</span>
           </div>
@@ -397,6 +400,25 @@
                     />
                     <el-option v-if="!field.options || field.options.length === 0" label="暂无可选项" :value="''" disabled />
                   </el-select>
+                  <el-select
+                    v-else-if="field.type === 'multiSelect'"
+                    v-model="form[field.key]"
+                    :placeholder="field.placeholder"
+                    size="small"
+                    multiple
+                    collapse-tags
+                    collapse-tags-tooltip
+                    clearable
+                    class="cursor-pointer"
+                  >
+                    <el-option
+                      v-for="opt in (field.options || [])"
+                      :key="opt.value"
+                      :label="opt.label"
+                      :value="opt.value"
+                    />
+                    <el-option v-if="!field.options || field.options.length === 0" label="暂无可选项" :value="''" disabled />
+                  </el-select>
                   <el-date-picker
                     v-else-if="field.type === 'datetime'"
                     v-model="form[field.key]"
@@ -434,31 +456,6 @@
       class="account-select-dialog"
     >
       <div class="account-dialog-body">
-        <div class="account-dialog-toolbar">
-          <el-select
-            v-model="accountFilterPlatform"
-            placeholder="筛选平台"
-            size="small"
-            clearable
-            class="cursor-pointer"
-          >
-            <el-option label="全部平台" :value="''" />
-            <el-option
-              v-for="p in platformList"
-              :key="p.key"
-              :label="p.name"
-              :value="p.name"
-            />
-          </el-select>
-          <el-input
-            v-model="accountSearchQuery"
-            placeholder="输入账号名称搜索..."
-            size="small"
-            clearable
-            class="account-search-input"
-          />
-        </div>
-
         <div class="account-dialog-content">
           <!-- Left: platform list -->
           <div class="dialog-platform-list">
@@ -472,7 +469,10 @@
               :class="['dialog-platform-item', 'cursor-pointer', { active: accountFilterPlatform === p.name }]"
               @click="accountFilterPlatform = p.name"
             >
-              <span class="dialog-platform-badge" :style="{ background: p.color }">{{ p.letter }}</span>
+              <span class="dialog-platform-badge">
+                <img v-if="p.logo" :src="p.logo" :alt="p.name" class="dialog-platform-badge-img">
+                <template v-else>{{ p.letter }}</template>
+              </span>
               {{ p.name }}
             </div>
           </div>
@@ -758,6 +758,7 @@ import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platfo
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
 const appStore = useAppStore()
+appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 const authHeaders = computed(() => ({ 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }))
 
@@ -827,6 +828,8 @@ const platformConfigs = reactive({
   baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '' },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '' },
+  iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '' },
+  tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '' },
 })
 
 // ========== Account-level Overrides (账号级覆盖, 优先级高于渠道默认) ==========
@@ -915,13 +918,27 @@ watch([selectedPlatform, selectedAccountId], () => {
       delete form[key]
     }
   }
+  // 多选字段初始化为数组
+  const platformKey = selectedPlatform.value
+  if (platformKey) {
+    const platform = platformConfigs[platformKey] || {}
+    const fields = platform.settingsFields || []
+    for (const field of fields) {
+      if (field.type === 'multiSelect' && !Array.isArray(form[field.key])) {
+        form[field.key] = []
+      }
+    }
+  }
 }, { immediate: true })
 
 // 表单变更时同步到 store
 watch(form, (newVal) => {
   const platformKey = selectedPlatform.value
   if (!platformKey) return
-  const platform = platformConfigs[platformKey] || {}
+  if (!platformConfigs[platformKey]) {
+    platformConfigs[platformKey] = {}
+  }
+  const platform = platformConfigs[platformKey]
 
   if (selectedAccountId.value) {
     // 账号级：计算与渠道默认的差异，存入 accountOverrides
@@ -1584,7 +1601,11 @@ async function publishAll() {
         productTitle: platformSettings.productTitle || '',
         isDraft: platformSettings.isDraft || false,
         aiContent: platformSettings.aiContent || '',
-        creationDeclaration: platformSettings.creationDeclaration || '',
+        creationDeclaration: Array.isArray(platformSettings.creationDeclaration)
+          ? platformSettings.creationDeclaration.join(',')
+          : platformSettings.creationDeclaration || '',
+        riskWarning: platformSettings.riskWarning || '',
+        enableCashActivity: platformSettings.enableCashActivity || false,
         audience: platformSettings.audience || 'not_kids',
         alteredContent: platformSettings.alteredContent || false,
       }
@@ -1730,21 +1751,28 @@ function formatSize(bytes) {
     }
 
     .platform-badge {
-      width: 22px;
-      height: 22px;
+      width: 32px;
+      height: 32px;
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 700;
       flex-shrink: 0;
+      overflow: hidden;
+
+      .platform-badge-img {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+      }
     }
 
     .group-name {
       flex: 1;
-      font-size: 13px;
+      font-size: 15px;
       color: $text-secondary;
       font-weight: 500;
       overflow: hidden;
@@ -2581,39 +2609,29 @@ function formatSize(bytes) {
 // ========== Account Dialog ==========
 .account-select-dialog {
   .account-dialog-body {
-    .account-dialog-toolbar {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 16px;
-
-      .account-search-input {
-        flex: 1;
-      }
-    }
-
     .account-dialog-content {
       display: flex;
       gap: 0;
       border: 1px solid $border;
       border-radius: $radius-base;
       overflow: hidden;
-      min-height: 320px;
+      height: 420px;
     }
 
     .dialog-platform-list {
-      width: 140px;
+      width: 160px;
       flex-shrink: 0;
       border-right: 1px solid $border;
       background: rgba(0, 0, 0, 0.2);
       overflow-y: auto;
 
       .dialog-platform-item {
-        padding: 10px 12px;
-        font-size: 13px;
+        padding: 14px 16px;
+        font-size: 15px;
         color: $text-secondary;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 12px;
         transition: $transition-base;
 
         &:hover {
@@ -2627,16 +2645,23 @@ function formatSize(bytes) {
         }
 
         .dialog-platform-badge {
-          width: 18px;
-          height: 18px;
-          border-radius: 4px;
+          width: 28px;
+          height: 28px;
+          border-radius: 6px;
           display: flex;
           align-items: center;
           justify-content: center;
           color: #fff;
-          font-size: 9px;
+          font-size: 11px;
           font-weight: 700;
           flex-shrink: 0;
+          overflow: hidden;
+
+          .dialog-platform-badge-img {
+            width: 22px;
+            height: 22px;
+            object-fit: contain;
+          }
         }
       }
     }

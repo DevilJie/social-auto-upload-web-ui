@@ -78,14 +78,46 @@ Open **http://localhost:5173** in your browser.
 
 ### Building Desktop App (Windows)
 
-```bash
-# Install Rust from https://rustup.rs/
+#### Prerequisites
 
+- **Rust** — install from https://rustup.rs/
+- **NSIS** — Tauri will auto-download, or install manually from https://nsis.sourceforge.io/
+- **WebView2** — Tauri bundles the bootstrapper by default
+
+#### Option A: One-Click Build (Recommended)
+
+The project provides a PowerShell script that handles everything — Python embedded environment, CloakBrowser download, frontend build, and Tauri packaging:
+
+```powershell
+# Run from project root (Windows PowerShell)
+.\scripts\build-installer.ps1
+
+# Then build the Tauri installer
 cd src-tauri
-cargo tauri build
+npx tauri build
 ```
 
-Built executable: `src-tauri/target/release/`
+#### Option B: Manual Build
+
+If Python environment and CloakBrowser are already prepared:
+
+```bash
+# 1. Build frontend
+cd frontend
+npm install
+npm run build
+
+# 2. Build Tauri NSIS installer
+cd ../src-tauri
+npx tauri build
+```
+
+#### Output
+
+- NSIS installer: `target/release/bundle/nsis/AI Social Auto Upload_0.1.0_x64-setup.exe`
+- Standalone exe: `target/release/ai-social-auto-upload.exe`
+
+The NSIS installer bundles: Python runtime + Flask backend + Frontend + CloakBrowser stealth Chromium.
 
 ### Building Web Only
 
@@ -172,14 +204,46 @@ npm run dev
 
 ### 打包桌面应用（Windows）
 
-```bash
-# 从 https://rustup.rs/ 安装 Rust
+#### 前置条件
 
+- **Rust** — 从 https://rustup.rs/ 安装
+- **NSIS** — Tauri 会自动下载，也可手动安装 https://nsis.sourceforge.io/
+- **WebView2** — Tauri 默认内嵌引导安装程序
+
+#### 方式一：一键构建（推荐）
+
+项目提供了 PowerShell 脚本，自动完成 Python 嵌入式环境搭建、CloakBrowser 下载、前端构建和 Tauri 打包：
+
+```powershell
+# 在项目根目录运行（Windows PowerShell）
+.\scripts\build-installer.ps1
+
+# 然后构建 Tauri 安装包
 cd src-tauri
-cargo tauri build
+npx tauri build
 ```
 
-构建产物：`src-tauri/target/release/`
+#### 方式二：手动构建
+
+如果 Python 环境和 CloakBrowser 已准备好：
+
+```bash
+# 1. 构建前端
+cd frontend
+npm install
+npm run build
+
+# 2. 构建 Tauri NSIS 安装包
+cd ../src-tauri
+npx tauri build
+```
+
+#### 构建产物
+
+- NSIS 安装包：`target/release/bundle/nsis/AI Social Auto Upload_0.1.0_x64-setup.exe`
+- 独立可执行文件：`target/release/ai-social-auto-upload.exe`
+
+NSIS 安装包内含：Python 运行时 + Flask 后端 + 前端 + CloakBrowser 隐身 Chromium。
 
 ### 仅构建 Web 版本
 
@@ -205,7 +269,7 @@ social-auto-upload-web-ui/
 │   └── package.json
 ├── backend/               # Python Flask 后端
 │   ├── app.py            # 主应用入口
-│   ├── playwright/       # 浏览器自动化（登录抓取）
+│   ├── impl/             # 浏览器自动化（CloakBrowser）
 │   ├── ext_api/          # 平台 API 集成
 │   └── requirements.txt
 ├── src-tauri/            # Tauri 桌面应用

@@ -91,22 +91,25 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Step "Python embedded distribution validated!"
 
-# Step 6.5: Install Playwright/patchright Chromium browser (bundled with app)
-# patchright is a patched fork of playwright — both share the same Chromium binary.
-# Only install via playwright to avoid duplicate browser downloads.
-Write-Step "Installing Playwright Chromium browser..."
-$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $PYTHON_DIR "ms-playwright"
-& $PYTHON_EXE -m playwright install chromium
-Remove-Item Env:PLAYWRIGHT_BROWSERS_PATH
-
-# Verify browser exists
-$chromiumDirs = Get-ChildItem (Join-Path $PYTHON_DIR "ms-playwright") -Directory -ErrorAction SilentlyContinue
-if (-not $chromiumDirs) {
-    Write-Host "[ERROR] Playwright Chromium not installed!" -ForegroundColor Red
+# Step 6.5: Download CloakBrowser stealth Chromium (full directory, includes DLLs)
+# CloakBrowser bundles its own stealth Chromium — no need for Playwright's Chromium (saves ~683 MB)
+Write-Step "Downloading CloakBrowser stealth Chromium..."
+& $PYTHON_EXE (Join-Path $PROJECT_ROOT "scripts\download-cloakbrowser-binary.py")
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] CloakBrowser download failed!" -ForegroundColor Red
     exit 1
 }
-$browserSize = (Get-ChildItem (Join-Path $PYTHON_DIR "ms-playwright") -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
-Write-Host "[BUILD] Playwright browsers: $([math]::Round($browserSize, 1)) MB"
+$cloakBrowserDir = Join-Path $TAURI_DIR "bundle-resources\cloakbrowser"
+if (-not (Test-Path (Join-Path $cloakBrowserDir "chrome.exe"))) {
+    Write-Host "[ERROR] CloakBrowser chrome.exe not found in $cloakBrowserDir!" -ForegroundColor Red
+    exit 1
+}
+if (-not (Test-Path (Join-Path $cloakBrowserDir "chrome.dll"))) {
+    Write-Host "[ERROR] CloakBrowser chrome.dll not found — incomplete download!" -ForegroundColor Red
+    exit 1
+}
+$cloakSize = (Get-ChildItem $cloakBrowserDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+Write-Host "[BUILD] CloakBrowser: $([math]::Round($cloakSize, 1)) MB"
 
 # Step 7: Build frontend
 Write-Step "Building frontend..."

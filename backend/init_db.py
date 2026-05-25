@@ -1,9 +1,12 @@
+import logging
 import sqlite3
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
 from conf import BASE_DIR
+
+logger = logging.getLogger(__name__)
 
 DB_DIR = BASE_DIR / "db"
 DB_PATH = DB_DIR / "database.db"
@@ -79,7 +82,7 @@ def init_database():
 
     conn.commit()
     conn.close()
-    print(f"Database initialized at {DB_PATH}")
+    logger.info(f"Database initialized at {DB_PATH}")
 
 
 def migrate_database():
@@ -90,14 +93,14 @@ def migrate_database():
     # user_info 添加 avatar 列
     try:
         cursor.execute('ALTER TABLE user_info ADD COLUMN avatar TEXT DEFAULT ""')
-        print("已添加 avatar 列")
+        logger.info("已添加 avatar 列")
     except sqlite3.OperationalError:
         pass  # 列已存在
 
     # publish_tasks 添加 thumbnail_path 列
     try:
         cursor.execute('ALTER TABLE publish_tasks ADD COLUMN thumbnail_path TEXT DEFAULT ""')
-        print("已添加 thumbnail_path 列")
+        logger.info("已添加 thumbnail_path 列")
     except sqlite3.OperationalError:
         pass  # 列已存在
 

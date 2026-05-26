@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
 CHANNELS = ["backend", "bilibili", "douyin", "kuaishou", "xiaohongshu",
            "iqiyi", "tencent_video", "youtube", "baijiahao", "tiktok"]
 
-LOG_FORMAT = "%(asctime)s [backend][%(channel)s] %(levelname)-8s %(message)s"
+LOG_FORMAT = "%(asctime)s [backend][%(channel)s] %(levelname)-8s %(message)s (%(filename)s:%(lineno)d in %(funcName)s)"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 

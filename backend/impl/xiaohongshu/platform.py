@@ -7,15 +7,7 @@ login, cookie-check, profile-sync and publish action.
 """
 
 import asyncio
-import logging
-import sys
-
-# Ensure INFO-level output even without basicConfig in app.py
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s:%(name)s:%(message)s",
-    stream=sys.stderr,
-)
+import os
 import os
 import threading
 import time
@@ -29,8 +21,10 @@ from .._browser import create_browser_sync
 from .._browser import create_context as _create_context_async
 from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 
-logger = logging.getLogger(__name__)
+from .._logger import get_channel_logger
 from ..base_platform import BasePlatform
+
+logger = get_channel_logger("xiaohongshu")
 
 # ---------------------------------------------------------------------------
 # Constants

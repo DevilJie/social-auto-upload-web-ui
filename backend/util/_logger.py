@@ -5,18 +5,18 @@ All logs go to data/logs/{yyyy-MM-dd}/{channel}.log
 """
 import json
 import logging
-import os
 import sys
+from datetime import date
 from pathlib import Path
 from logging import LoggerAdapter
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root (backend/ is a subdir, go up 3 levels from util/)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
 
-CHANNELS = ["backend", "bilibili", "douyin", "kuaishou", "xiaohongshu", "iqiyi", "tencent_video", "youtube", "baijiahao", "tiktok"]
+CHANNELS = ["backend", "bilibili", "douyin", "kuaishou", "xiaohongshu",
+           "iqiyi", "tencent_video", "youtube", "baijiahao", "tiktok"]
 
 LOG_FORMAT = "%(asctime)s [backend][%(channel)s] %(levelname)-8s %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-SETTINGS_FILE = BASE_DIR / "settings.json"
 
 
 class ChannelFormatter(logging.Formatter):
@@ -39,49 +39,49 @@ class ChannelLoggerAdapter(LoggerAdapter):
         return msg, kwargs
 
 
-def get_settings_log_level() -> str:
-    """Read log level from settings.json."""
+def _get_log_level() -> int:
+    """Read log level from settings.json, default DEBUG."""
     try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        with open(BASE_DIR / "settings.json", "r", encoding="utf-8") as f:
             settings = json.load(f)
-        return settings.get("logLevel", "DEBUG")
+        return getattr(logging, settings.get("logLevel", "DEBUG").upper(), logging.DEBUG)
     except Exception:
-        return "DEBUG"
+        return logging.DEBUG
 
 
 def init_logger():
-    """Initialize loggers for all channels."""
-    root_logger = logging.getLogger()
-
-    # Avoid duplicate initialization
-    if root_logger.handlers:
-        return
-
-    log_level_str = get_settings_log_level()
-    log_level = getattr(logging, log_level_str.upper(), logging.DEBUG)
-    root_logger.setLevel(log_level)
-
-    from datetime import datetime
-
-    # Create logs directory
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    today = BASE_DIR / "data" / "logs" / today_str
-    today.mkdir(parents=True, exist_ok=True)
+    """Initialize per-channel loggers (not root logger)."""
+    log_level = _get_log_level()
+    today_dir = BASE_DIR / "data" / "logs" / date.today().strftime("%Y-%m-%d")
+    today_dir.mkdir(parents=True, exist_ok=True)
 
     formatter = ChannelFormatter(LOG_FORMAT, DATE_FORMAT)
 
+    # 第三方库 (waitress, etc.) 用 root logger + stream handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    if not root_logger.handlers:
+        stream_handler = logging.StreamHandler(sys.stderr)
+        stream_handler.setLevel(log_level)
+        stream_handler.setFormatter(formatter)
+        root_logger.addHandler(stream_handler)
+
+    # 每个渠道独立的 logger
     for channel in CHANNELS:
-        log_file = today / f"{channel}.log"
-        handler = logging.FileHandler(log_file, encoding="utf-8")
+        channel_logger = logging.getLogger(channel)
+        channel_logger.setLevel(log_level)
+        channel_logger.handlers.clear()
+
+        handler = logging.FileHandler(today_dir / f"{channel}.log", encoding="utf-8")
         handler.setLevel(log_level)
         handler.setFormatter(formatter)
-        root_logger.addHandler(handler)
+        channel_logger.addHandler(handler)
 
 
 def get_channel_logger(channel_name: str) -> LoggerAdapter:
-    """Return a LoggerAdapter that injects the channel name."""
-    logger = logging.getLogger()
-    return ChannelLoggerAdapter(logger, {"channel": channel_name})
+    """Return a LoggerAdapter wrapping the channel-specific logger."""
+    channel_logger = logging.getLogger(channel_name)
+    return ChannelLoggerAdapter(channel_logger, {"channel": channel_name})
 
 
 init_logger()

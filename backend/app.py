@@ -12,6 +12,12 @@ from queue import Queue
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from flask_cors import CORS
+
+BACKEND_DIR = Path(__file__).parent.resolve()
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from conf import BASE_DIR
 from util._logger import get_channel_logger
 
 logger = get_channel_logger("backend")
@@ -19,13 +25,6 @@ logger = get_channel_logger("backend")
 logger.info(f"[Startup] Python {sys.version} starting...")
 logger.info(f"[Startup] Script: {__file__}")
 logger.info(f"[Startup] SAU_PORT={os.environ.get('SAU_PORT')}, SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
-
-BACKEND_DIR = Path(__file__).parent.resolve()
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
-    logger.info(f"[Startup] Added backend dir to sys.path: {BACKEND_DIR}")
-
-from conf import BASE_DIR
 from impl.registry import get_platform
 
 app = Flask(__name__)

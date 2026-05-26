@@ -10,7 +10,8 @@ from datetime import date
 from pathlib import Path
 from logging import LoggerAdapter
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
+# Use conf.BASE_DIR which respects SAU_DATA_DIR in packaged mode
+from conf import BASE_DIR
 
 CHANNELS = ["backend", "bilibili", "douyin", "kuaishou", "xiaohongshu",
            "iqiyi", "tencent_video", "youtube", "baijiahao", "tiktok"]

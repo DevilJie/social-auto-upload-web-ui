@@ -6,14 +6,6 @@
         <span class="cover-dot"></span>
         <span>{{ label }}</span>
       </div>
-      <div class="cover-header-actions">
-        <button class="icon-btn" title="上传图片" @click="triggerUpload">
-          <el-icon :size="14"><Upload /></el-icon>
-        </button>
-        <button class="icon-btn" title="从素材库选择" @click="$emit('open-library')">
-          <el-icon :size="14"><Picture /></el-icon>
-        </button>
-      </div>
     </div>
 
     <!-- Cover preview area -->
@@ -34,38 +26,13 @@
         <span class="cover-ratio-badge">{{ ratioLabel }}</span>
       </div>
 
-      <!-- No cover, has frames -->
-      <div v-else-if="recommendedFrames.length > 0" class="cover-no-selection">
-        <span class="cover-hint">点击下方画面选择封面</span>
-      </div>
-
-      <!-- No cover, no frames -->
-      <div v-else class="cover-empty" @click="triggerUpload">
+      <!-- No cover yet -->
+      <div v-else class="cover-empty" @click="$emit('edit')">
         <div class="cover-empty-icon">
           <el-icon :size="28"><Picture /></el-icon>
         </div>
         <span class="cover-empty-title">上传{{ label }}</span>
         <span class="cover-empty-desc">支持 JPG、PNG 格式</span>
-      </div>
-    </div>
-
-    <!-- Recommended frames strip -->
-    <div v-if="recommendedFrames.length > 0" class="frames-strip">
-      <div class="frames-scroll">
-        <div
-          v-for="frame in recommendedFrames"
-          :key="frame.seconds"
-          :class="['frame-item', { selected: isSelected(frame.seconds) }]"
-          @click="onFrameClick(frame)"
-        >
-          <img :src="frame.url" />
-          <div v-if="isSelected(frame.seconds)" class="frame-selected-mark">
-            <el-icon :size="8"><Check /></el-icon>
-          </div>
-        </div>
-        <button class="frame-item frame-edit-btn" @click="$emit('edit')">
-          <el-icon :size="14"><Edit /></el-icon>
-        </button>
       </div>
     </div>
   </div>
@@ -76,39 +43,19 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Picture, Upload, Edit, Check, Delete } from '@element-plus/icons-vue'
+import { Picture, Upload, Edit, Delete } from '@element-plus/icons-vue'
 import { http } from '@/utils/request'
 import { materialApi } from '@/api/material'
-import { frameApi } from '@/api/frame'
 
 const props = defineProps({
   label: { type: String, default: '横版封面' },
   ratioLabel: { type: String, default: '16:9' },
   modelValue: { type: Object, default: null },
-  recommendedFrames: { type: Array, default: () => [] },
-  videoPath: { type: String, default: '' },
+  hasVideo: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue', 'edit', 'open-library'])
 const fileInputRef = ref(null)
-
-function isSelected(seconds) {
-  return props.modelValue?._fromFrame === seconds
-}
-
-async function onFrameClick(frame) {
-  const hdUrl = props.videoPath
-    ? frameApi.getFrameImageUrl(props.videoPath, frame.seconds, false)
-    : frame.url
-  emit('update:modelValue', {
-    name: `frame_${frame.seconds}s.jpg`,
-    url: hdUrl,
-    path: '',
-    size: 0,
-    type: 'image/jpeg',
-    _fromFrame: frame.seconds,
-  })
-}
 
 function triggerUpload() {
   fileInputRef.value?.click()
@@ -189,30 +136,6 @@ async function onFileSelected(e) {
   background: $gradient-brand;
 }
 
-.cover-header-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.icon-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: $text-muted;
-  cursor: pointer;
-  transition: $transition-fast;
-
-  &:hover {
-    background: rgba($brand-start, 0.1);
-    color: $brand-start;
-  }
-}
-
 // ===== Body =====
 .cover-body {
   min-height: 160px;
@@ -289,19 +212,6 @@ async function onFileSelected(e) {
   font-family: monospace;
 }
 
-.cover-no-selection {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 120px;
-  padding: 24px;
-}
-
-.cover-hint {
-  font-size: 13px;
-  color: $text-muted;
-}
-
 .cover-empty {
   display: flex;
   flex-direction: column;
@@ -314,6 +224,11 @@ async function onFileSelected(e) {
 
   &:hover {
     background: rgba($brand-start, 0.04);
+  }
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    pointer-events: none;
   }
 }
 
@@ -340,66 +255,4 @@ async function onFileSelected(e) {
   color: $text-muted;
 }
 
-// ===== Frames strip =====
-.frames-strip {
-  padding: 8px 12px 12px;
-  border-top: 1px solid $border-light;
-}
-
-.frames-scroll {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
-  &::-webkit-scrollbar { height: 3px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
-}
-
-.frame-item {
-  width: 64px;
-  height: 40px;
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  border: 2px solid transparent;
-  flex-shrink: 0;
-  position: relative;
-  transition: all 0.15s;
-
-  img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-  &:hover:not(.selected) {
-    border-color: rgba($brand-start, 0.4);
-    transform: translateY(-1px);
-  }
-  &.selected {
-    border-color: $brand-start;
-    box-shadow: 0 0 0 1px rgba($brand-start, 0.3);
-  }
-}
-
-.frame-selected-mark {
-  position: absolute;
-  inset: 0;
-  background: rgba($brand-start, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-}
-
-.frame-edit-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px dashed $border;
-  color: $text-muted;
-  &:hover {
-    border-color: rgba($brand-start, 0.4);
-    color: $brand-start;
-    background: rgba($brand-start, 0.06);
-  }
-}
 </style>

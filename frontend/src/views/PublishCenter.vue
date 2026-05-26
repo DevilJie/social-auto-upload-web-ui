@@ -106,8 +106,7 @@
                 label="竖版封面"
                 ratio-label="9:16"
                 v-model="commonConfig.coverPortrait"
-                :recommended-frames="portraitCoverFrames"
-                :video-path="commonConfig.videoPortrait?.path || commonConfig.videoLandscape?.path || ''"
+                :has-video="!!(commonConfig.videoPortrait || commonConfig.videoLandscape)"
                 @edit="openCoverEditor('portrait')"
                 @open-library="selectFromLibrary('cover', 'portrait')"
               />
@@ -115,8 +114,7 @@
                 label="横版封面"
                 ratio-label="16:9"
                 v-model="commonConfig.coverLandscape"
-                :recommended-frames="landscapeCoverFrames"
-                :video-path="commonConfig.videoLandscape?.path || commonConfig.videoPortrait?.path || ''"
+                :has-video="!!(commonConfig.videoPortrait || commonConfig.videoLandscape)"
                 @edit="openCoverEditor('landscape')"
                 @open-library="selectFromLibrary('cover', 'landscape')"
               />
@@ -726,7 +724,7 @@ const landscapeCoverFrames = computed(() =>
 const platformConfigs = reactive({
   douyin: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '' },
   xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
-  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
+  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   bilibili: { title: '', description: '', zone: '', tags: '', topic: '', aiContent: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '' },
   baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '' },
@@ -912,16 +910,19 @@ const accountFilterPlatform = ref('')
 const accountSearchQuery = ref('')
 const tempSelectedAccounts = ref([])
 
-// 弹窗打开时加载账号数据
+// 账号弹窗打开时，从 publishAccountIds 恢复 tempSelectedAccounts
 watch(accountDialogVisible, async (visible) => {
-  if (visible && accountStore.accounts.length === 0) {
-    try {
-      const res = await accountApi.getAccounts()
-      if (res.code === 200 && res.data) {
-        accountStore.setAccounts(res.data)
+  if (visible) {
+    tempSelectedAccounts.value = [...publishAccountIds]
+    if (accountStore.accounts.length === 0) {
+      try {
+        const res = await accountApi.getAccounts()
+        if (res.code === 200 && res.data) {
+          accountStore.setAccounts(res.data)
+        }
+      } catch (e) {
+        console.error('加载账号失败:', e)
       }
-    } catch (e) {
-      console.error('加载账号失败:', e)
     }
   }
 })
@@ -1067,9 +1068,25 @@ function handleVideoUploadSuccess(response, file) {
     // Auto-fill title from video filename
     if (appStore.autoFillTitle) {
       const title = file.name.replace(/\.[^.]+$/, '')
+      // 1. 更新所有渠道级标题
       for (const key of Object.keys(platformConfigs)) {
-        if (!platformConfigs[key].title) {
-          platformConfigs[key].title = title
+        platformConfigs[key].title = title
+      }
+      // 2. 对已有账号级标题的账号，也一并更新
+      for (const group of accountGroups.value) {
+        for (const account of group.accounts) {
+          if (accountOverrides[account.id]?.title) {
+            accountOverrides[account.id].title = title
+          }
+        }
+      }
+      // 3. 同步到当前表单显示
+      if (selectedPlatform.value) {
+        const accountId = selectedAccountId.value
+        if (accountId && accountOverrides[accountId]?.title) {
+          form.title = accountOverrides[accountId].title
+        } else if (platformConfigs[selectedPlatform.value]) {
+          form.title = platformConfigs[selectedPlatform.value].title
         }
       }
     }
@@ -1153,10 +1170,21 @@ function confirmMaterialSelect() {
       ElMessage.success('视频已设置')
       if (appStore.autoFillTitle) {
         const title = material.filename.replace(/\.[^.]+$/, '')
+        // 1. 更新所有渠道级标题
         for (const key of Object.keys(platformConfigs)) {
-          if (!platformConfigs[key].title) {
-            platformConfigs[key].title = title
+          platformConfigs[key].title = title
+        }
+        // 2. 对已有账号级标题的账号，也一并更新
+        for (const group of accountGroups.value) {
+          for (const account of group.accounts) {
+            if (accountOverrides[account.id]?.title) {
+              accountOverrides[account.id].title = title
+            }
           }
+        }
+        // 3. 同步到当前表单显示
+        if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
+          form.title = platformConfigs[selectedPlatform.value].title
         }
       }
       triggerFrameExtraction(videoData, materialLibraryVideoTarget.value)
@@ -1297,6 +1325,11 @@ async function restoreDraft(draftId) {
       dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
     }
 
+    // 恢复 tempSelectedAccounts（账号选择弹窗的选中状态）
+    if (dd.publishAccountIds) {
+      tempSelectedAccounts.value = [...dd.publishAccountIds]
+    }
+
     // 恢复 expandedGroups
     if (dd.expandedGroups) {
       expandedGroups.value = new Set(dd.expandedGroups)
@@ -1340,6 +1373,58 @@ async function publishAll() {
   // Validate
   if (!commonConfig.videoLandscape && !commonConfig.videoPortrait) {
     ElMessage.error('请先上传至少一个视频文件')
+    return
+  }
+
+  // 封面必填
+  if (!commonConfig.coverLandscape && !commonConfig.coverPortrait) {
+    ElMessage.error('请先设置封面图片')
+    return
+  }
+
+  // 各平台声明必填检查
+  const accountsWithoutDeclaration = []
+  const DECLARATION_PLATFORMS = {
+    xiaohongshu: 'aiContent',
+    douyin: 'aiContent',
+    kuaishou: 'aiContent',
+    bilibili: ['aiContent', 'creationDeclaration'],
+    baijiahao: 'creationDeclaration',
+    tencent_video: 'creationDeclaration',
+    iqiyi: 'creationDeclaration',
+    youtube: ['audience', 'alteredContent'],
+  }
+
+  for (const group of accountGroups.value) {
+    if (group.accounts.length === 0) continue
+    const pSettings = platformConfigs[group.key] || {}
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      const accountOverride = accountOverrides[account.id]
+      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
+        ? { ...pSettings, ...Object.fromEntries(
+            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+          )}
+        : { ...pSettings }
+      const platformKey = group.key
+      const declFields = DECLARATION_PLATFORMS[platformKey]
+      if (!declFields) continue
+      const fields = Array.isArray(declFields) ? declFields : [declFields]
+      for (const field of fields) {
+        const value = mergedSettings[field]
+        // 数组类型检查长度；字符串检查空；布尔只看是否为 null/undefined（false 是有效值）
+        const isEmpty = Array.isArray(value)
+          ? value.length === 0
+          : (typeof value === 'boolean' ? value === null || value === undefined : (!value && value !== 0))
+        if (isEmpty) {
+          accountsWithoutDeclaration.push(`${account.name}(${group.name})`)
+          break
+        }
+      }
+    }
+  }
+  if (accountsWithoutDeclaration.length > 0) {
+    ElMessage.error(`以下账号未设置作品声明：${accountsWithoutDeclaration.join('、')}`)
     return
   }
 

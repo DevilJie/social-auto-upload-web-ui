@@ -18,6 +18,7 @@ logging.basicConfig(
 )
 import os
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -353,6 +354,43 @@ async def _publish_single_video(
 
 
 # ======================================================================
+# Page readiness detection
+# ======================================================================
+
+async def _wait_for_page_ready(page, timeout: int = 120) -> bool:
+    """Poll until xhs-publish-btn is ready (submit-disabled="false").
+
+    XHS uses closed shadow DOM which cannot be pierced by Playwright
+    locators.  Instead, check the ``submit-disabled`` attribute on the
+    ``<xhs-publish-btn>`` host element — it flips from "true" to "false"
+    once the video has finished server-side processing.
+    """
+    logger.info("[xhs] waiting for page to be fully ready after upload...")
+    start = time.time()
+    last_log = 0
+    while time.time() - start < timeout:
+        el = page.locator("xhs-publish-btn")
+        if await el.count() > 0:
+            disabled = await el.first.get_attribute("submit-disabled")
+            if disabled == "false":
+                elapsed = int(time.time() - start)
+                logger.info(f"[xhs] page ready (submit-disabled=false, waited {elapsed}s)")
+                return True
+        elapsed = int(time.time() - start)
+        if elapsed - last_log >= 15:
+            logger.info(f"[xhs] still waiting for page to be ready... ({elapsed}s)")
+            last_log = elapsed
+        await asyncio.sleep(1)
+    logger.error(f"[xhs] page never became ready after {timeout}s")
+    try:
+        await page.screenshot(path="debug_page_not_ready.png")
+        logger.info("[xhs] saved debug_page_not_ready.png")
+    except Exception:
+        pass
+    return False
+
+
+# ======================================================================
 # Core upload logic -- mirrors XiaoHongShuVideo.upload_video_content
 # ======================================================================
 
@@ -436,6 +474,9 @@ async def _upload_video_content(
     # --- Set original declaration (原创声明) ---
     await _set_original_declaration(page)
 
+    # --- Wait for publish button to hydrate ---
+    await _wait_for_page_ready(page)
+
     # --- Click publish ---
     btn_text = "定时发布" if publish_strategy == _PUBLISH_STRATEGY_SCHEDULED else "发布"
     await _click_publish_button(page, btn_text)
@@ -461,36 +502,48 @@ async def _click_publish_button(page, btn_text: str) -> None:
     await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     await asyncio.sleep(1)
 
-    # Strategy 1: locator chaining — Playwright auto-pierces shadow DOM
-    # This is the recommended approach per Playwright docs.
+    # xhs-publish-btn uses CLOSED shadow DOM.  CDP's getFlattenedDocument
+    # with pierce=True returns ALL nodes including those inside closed
+    # shadow trees — unlike DOM.querySelector which cannot search inside
+    # closed shadow DOM.
+    cdp = await page.context.new_cdp_session(page)
     try:
-        btn = page.locator("xhs-publish-btn").locator(f"button:has-text('{btn_text}')")
-        logger.info("[xhs] waiting for publish button via locator chain (120s timeout)...")
-        await btn.click(timeout=120_000)
-        logger.info("[xhs] publish clicked via locator chain (strategy 1)")
-        return
-    except Exception as e:
-        logger.warning(f"[xhs] strategy 1 failed: {e}")
+        await cdp.send("DOM.enable")
+        flattened = await cdp.send("DOM.getFlattenedDocument", {
+            "depth": -1,
+            "pierce": True,
+        })
+        btn_node_id = 0
+        for node in flattened.get("nodes", []):
+            if node.get("localName") != "button":
+                continue
+            attrs = node.get("attributes") or []
+            # attrs is [key, val, key, val, ...]
+            for i in range(0, len(attrs), 2):
+                if attrs[i] == "class" and "bg-red" in (attrs[i + 1] or ""):
+                    btn_node_id = node["nodeId"]
+                    break
+            if btn_node_id:
+                break
 
-    # Strategy 2: get_by_text — also pierces shadow DOM
-    try:
-        btn = page.get_by_text(btn_text, exact=True)
-        await btn.click(timeout=30_000)
-        logger.info("[xhs] publish clicked via get_by_text (strategy 2)")
-        return
-    except Exception as e:
-        logger.warning(f"[xhs] strategy 2 failed: {e}")
+        if not btn_node_id:
+            logger.error("[xhs] CDP: publish button not found in flattened DOM")
+            return
 
-    # Strategy 3: CSS selector with :has-text — also pierces shadow DOM
-    try:
-        btn = page.locator(f"button:has-text('{btn_text}')")
-        await btn.click(timeout=30_000)
-        logger.info("[xhs] publish clicked via CSS has-text (strategy 3)")
-        return
-    except Exception as e:
-        logger.warning(f"[xhs] strategy 3 failed: {e}")
-
-    logger.error("[xhs] all publish button strategies failed")
+        await cdp.send("DOM.scrollIntoViewIfNeeded", {"nodeId": btn_node_id})
+        box_model = await cdp.send("DOM.getBoxModel", {"nodeId": btn_node_id})
+        if not box_model or "model" not in box_model:
+            logger.error("[xhs] CDP: could not get box model for publish button")
+            return
+        quad = box_model["model"]["content"]
+        # content quad: [x1,y1, x2,y2, x3,y3, x4,y4]
+        x = (quad[0] + quad[4]) / 2
+        y = (quad[1] + quad[5]) / 2
+        logger.info(f"[xhs] CDP: clicking publish button at ({x:.0f}, {y:.0f})")
+        await page.mouse.click(x, y)
+        logger.info("[xhs] publish clicked via CDP flattened DOM")
+    finally:
+        await cdp.detach()
 
 
 async def _fill_title(page, title: str) -> None:
@@ -548,46 +601,26 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
     logger.info("[xhs] setting cover image")
 
     try:
-        # Click the cover preview area to open the editor modal.
-        # The cover preview is a div with background-image and class "default"
-        # (with "column" for portrait or "row" for landscape).
-        # Use JS click because the Vue component may intercept regular clicks.
-        cover_selectors = [
-            "div.cover-plugin-preview div.cover div[style*='background-image']",
-            "div.cover-plugin-preview div.cover div.default",
-        ]
-        clicked = False
-        for sel in cover_selectors:
-            loc = page.locator(sel).first
-            try:
-                await loc.wait_for(state="visible", timeout=10000)
-                # Use JS click to bypass any overlay / event interception
-                await loc.evaluate("el => el.click()")
-                clicked = True
-                logger.info(f"[xhs] JS-clicked cover area: {sel}")
-                break
-            except Exception as e:
-                logger.info(f"[xhs] selector {sel} failed: {e}")
-                continue
+        # The cover editor modal opens only after hovering the cover
+        # preview then clicking the "修改封面" overlay that appears.
+        # Step 1: hover the cover preview to reveal the operator overlay
+        cover_sel = 'div[style*="background-image"]'
+        cover_loc = page.locator(cover_sel).first
+        try:
+            await cover_loc.wait_for(state="attached", timeout=10_000)
+            await cover_loc.hover()
+            await page.wait_for_timeout(1000)
+            logger.info("[xhs] hovered cover preview, looking for operator...")
 
-        if not clicked:
-            # Last resort: click the "修改封面" operator button
-            op = page.locator("div.cover-plugin-preview div.operator")
-            if await op.count() > 0:
-                try:
-                    await op.first.click(force=True)
-                    clicked = True
-                    logger.info("[xhs] clicked operator button instead")
-                except Exception as e:
-                    logger.info(f"[xhs] operator click failed: {e}")
-
-        if not clicked:
-            logger.info("[xhs] cover area not clickable, skipping")
+            # Step 2: click the operator overlay
+            op_loc = page.locator("div.operator.pointer").first
+            await op_loc.click(force=True, timeout=5_000)
+            logger.info("[xhs] clicked cover operator overlay")
+        except Exception as e:
+            logger.info(f"[xhs] cover hover/click failed: {e}, skipping")
             return
 
-        await page.wait_for_timeout(2000)
-
-        # Find the cover modal
+        # Find the cover modal — retry once with an extra click if needed
         modal_selectors = [
             "div.d-modal.cover-modal",
             "div.cover-modal",
@@ -595,13 +628,30 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
             "div.d-modal",
         ]
         modal = None
-        for sel in modal_selectors:
-            if await page.locator(sel).count() > 0:
-                modal = page.locator(sel).first
+        for attempt in range(2):
+            await page.wait_for_timeout(3000)
+            for sel in modal_selectors:
+                if await page.locator(sel).count() > 0:
+                    modal = page.locator(sel).first
+                    break
+            if modal:
                 break
+            if attempt == 0:
+                logger.info("[xhs] cover modal not found on attempt 1, retrying...")
+                try:
+                    await cover_loc.hover()
+                    await page.wait_for_timeout(500)
+                    await page.locator("div.operator.pointer").first.click(force=True, timeout=5_000)
+                except Exception:
+                    pass
 
         if not modal:
-            logger.info("[xhs] cover modal not found, skipping")
+            logger.info("[xhs] cover modal not found after retries, skipping")
+            try:
+                await page.screenshot(path="debug_cover_modal_missing.png")
+                logger.info("[xhs] saved debug_cover_modal_missing.png")
+            except Exception:
+                pass
             return
 
         # Set the file directly on the hidden file input

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from conf import BASE_DIR
 
-from ..util._logger import get_channel_logger
+from util._logger import get_channel_logger
 
 logger = get_channel_logger("utils")
 

@@ -19,6 +19,15 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 SETTINGS_FILE = BASE_DIR / "settings.json"
 
 
+class ChannelFormatter(logging.Formatter):
+    """Formatter that safely handles records without a channel attribute."""
+
+    def format(self, record):
+        if not hasattr(record, "channel"):
+            record.channel = "backend"
+        return super().format(record)
+
+
 class ChannelLoggerAdapter(LoggerAdapter):
     """
     LoggerAdapter that injects the channel name into log records
@@ -59,7 +68,7 @@ def init_logger():
     today = BASE_DIR / "data" / "logs" / today_str
     today.mkdir(parents=True, exist_ok=True)
 
-    formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
+    formatter = ChannelFormatter(LOG_FORMAT, DATE_FORMAT)
 
     for channel in CHANNELS:
         log_file = today / f"{channel}.log"

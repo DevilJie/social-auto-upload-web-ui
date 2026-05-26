@@ -1,6 +1,6 @@
 """Platform registry and factory."""
 
-from ..util._logger import get_channel_logger
+from util._logger import get_channel_logger
 
 from .base_platform import BasePlatform
 

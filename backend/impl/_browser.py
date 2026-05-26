@@ -3,7 +3,7 @@
 All browser creation goes through this module.
 """
 
-from ..util._logger import get_channel_logger
+from util._logger import get_channel_logger
 
 logger = get_channel_logger("browser")
 

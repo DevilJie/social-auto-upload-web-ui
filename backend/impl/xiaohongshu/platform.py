@@ -21,7 +21,7 @@ from .._browser import create_browser_sync
 from .._browser import create_context as _create_context_async
 from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 
-from ..util._logger import get_channel_logger
+from util._logger import get_channel_logger
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("xiaohongshu")

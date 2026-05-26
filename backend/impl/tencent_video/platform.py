@@ -13,7 +13,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from ..util._logger import get_channel_logger
+from util._logger import get_channel_logger
 from .._utils import parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 

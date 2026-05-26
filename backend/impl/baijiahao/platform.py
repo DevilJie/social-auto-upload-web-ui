@@ -9,7 +9,7 @@ Chromium) with automatic Playwright fallback.
 import asyncio
 import os
 
-from ..util._logger import get_channel_logger
+from util._logger import get_channel_logger
 import random
 import threading
 from pathlib import Path

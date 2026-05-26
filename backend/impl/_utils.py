@@ -9,7 +9,6 @@ All functions use standard Playwright Page/Context APIs only.
 
 import asyncio
 import json
-import logging
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -17,7 +16,9 @@ from pathlib import Path
 
 from conf import BASE_DIR
 
-logger = logging.getLogger(__name__)
+from impl._logger import get_channel_logger
+
+logger = get_channel_logger("utils")
 
 # ---------------------------------------------------------------------------
 # JS injection script for generic profile scraping

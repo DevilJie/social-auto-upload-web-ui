@@ -9,13 +9,14 @@ and shared utilities from ``backend/impl/_utils.py``.
 import asyncio
 import json
 import threading
-import logging
 from pathlib import Path
 from queue import Queue
 
-logger = logging.getLogger(__name__)
-
 from conf import BASE_DIR
+
+from impl._logger import get_channel_logger
+
+logger = get_channel_logger("channels")
 
 from .._browser import create_browser_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_tencent_profile

@@ -1,9 +1,10 @@
 """Platform registry and factory."""
-import logging
+
+from impl._logger import get_channel_logger
 
 from .base_platform import BasePlatform
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("registry")
 
 _registry: dict[int, type[BasePlatform]] = {}
 

@@ -3,12 +3,9 @@
 All browser creation goes through this module.
 """
 
-import logging
-import os
+from impl._logger import get_channel_logger
 
-from conf import LOCAL_CHROME_HEADLESS, LOGIN_HEADLESS
-
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("browser")
 
 
 def _download_binary():

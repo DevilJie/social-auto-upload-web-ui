@@ -21,9 +21,9 @@ from .._utils import (
 )
 from ..base_platform import BasePlatform
 
-import logging
+from impl._logger import get_channel_logger
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("tiktok")
 
 # TikTok upload page uses an iframe; these locators select the correct DOM root.
 TK_IFRAME = '[data-tt="Upload_index_iframe"]'

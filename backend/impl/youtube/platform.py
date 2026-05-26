@@ -8,7 +8,6 @@ Playwright locators with ``force=True`` to pierce shadow boundaries.
 
 import asyncio
 import json
-import logging
 import os
 import re
 import sqlite3
@@ -17,8 +16,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
+from impl._logger import get_channel_logger
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("youtube")
 
 from conf import BASE_DIR, _load_proxy_url
 

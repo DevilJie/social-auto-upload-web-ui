@@ -19,6 +19,7 @@ Thumbs.db
 .superpowers/
 data/logs/*
 
+
 # Tauri
 src-tauri/target/
 src-tauri/src-tauri/

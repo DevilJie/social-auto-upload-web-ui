@@ -374,8 +374,22 @@ def get_settings():
             "maxConcurrent": "2",
             "browserMode": "headed",
             "heartbeatInterval": "3600",
+            "autoFillTitle": "true",
+            "autoSaveDraft": "true",
+            "autoSaveInterval": "10",
         }
         defaults.update(settings)
+        # 转换布尔值类型
+        for key in ['autoFillTitle', 'autoSaveDraft']:
+            if key in defaults:
+                defaults[key] = defaults[key] in ('true', 'True', '1', True)
+        # 转换数值类型
+        for key in ['publishInterval', 'maxConcurrent', 'heartbeatInterval', 'autoSaveInterval']:
+            if key in defaults:
+                try:
+                    defaults[key] = int(defaults[key])
+                except (ValueError, TypeError):
+                    pass
         return jsonify({"code": 200, "data": defaults})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500

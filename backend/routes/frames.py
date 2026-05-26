@@ -100,9 +100,10 @@ def get_frame_image():
 
 @frames_bp.post('/api/clear-cache')
 def clear_cache():
-    """Clear cached data: extracted frames, etc."""
+    """Clear cached data: extracted frames, old logs, etc."""
     data = request.get_json(force=True) if request.is_json else {}
     targets = data.get('targets', ['frames'])
+    days = data.get('days', 7)  # for logs: keep last N days
 
     results = {}
 
@@ -115,6 +116,29 @@ def clear_cache():
             results['frames'] = {'cleared': file_count, 'unit': 'files'}
         else:
             results['frames'] = {'cleared': 0, 'unit': 'files'}
+
+    if 'logs' in targets:
+        logs_dir = os.path.join(str(BASE_DIR), 'logs')
+        if os.path.isdir(logs_dir):
+            from datetime import datetime, timedelta
+            cutoff = datetime.now() - timedelta(days=days)
+            cleared_count = 0
+            for item in os.listdir(logs_dir):
+                item_path = os.path.join(logs_dir, item)
+                if os.path.isdir(item_path):
+                    try:
+                        date_part = item.split('-')
+                        if len(date_part) == 3:
+                            item_date = datetime.strptime(item, "%Y-%m-%d")
+                            if item_date < cutoff:
+                                file_count = sum(len(files) for _, _, files in os.walk(item_path))
+                                shutil.rmtree(item_path)
+                                cleared_count += file_count
+                    except ValueError:
+                        pass  # not a date directory
+            results['logs'] = {'cleared': cleared_count, 'unit': 'files'}
+        else:
+            results['logs'] = {'cleared': 0, 'unit': 'files'}
 
     return jsonify({"code": 200, "data": results})
 
@@ -147,12 +171,40 @@ def system_info():
                 except OSError:
                     pass
 
+    # Calculate logs size (only old logs beyond retention)
+    logs_dir = os.path.join(str(BASE_DIR), 'logs')
+    logs_size = 0
+    logs_count = 0
+    logs_old_count = 0
+    from datetime import datetime, timedelta
+    cutoff = datetime.now() - timedelta(days=7)
+    if os.path.isdir(logs_dir):
+        for item in os.listdir(logs_dir):
+            item_path = os.path.join(logs_dir, item)
+            if os.path.isdir(item_path):
+                try:
+                    item_date = datetime.strptime(item, "%Y-%m-%d")
+                    is_old = item_date < cutoff
+                except ValueError:
+                    is_old = False
+                for dirpath, _, filenames in os.walk(item_path):
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        try:
+                            logs_size += os.path.getsize(fp)
+                            logs_count += 1
+                            if is_old:
+                                logs_old_count += 1
+                        except OSError:
+                            pass
+
     return jsonify({
         "code": 200,
         "data": {
             "version": version,
             "cache": {
                 "frames": {"count": frames_count, "size": frames_size},
+                "logs": {"count": logs_count, "size": logs_size, "oldCount": logs_old_count},
             },
         },
     })

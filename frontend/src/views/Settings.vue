@@ -80,8 +80,21 @@
         <div class="setting-control">
           <span v-if="cacheInfo.frames.count > 0" class="cache-size">{{ cacheInfo.frames.count }} 个文件 · {{ formatSize(cacheInfo.frames.size) }}</span>
           <span v-else class="cache-size empty">无缓存</span>
-          <button class="cache-btn" :disabled="clearingCache || cacheInfo.frames.count === 0" @click="handleClearCache">
+          <button class="cache-btn" :disabled="clearingCache || cacheInfo.frames.count === 0" @click="handleClearCache('frames')">
             {{ clearingCache ? '清理中...' : '清理缓存' }}
+          </button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">清理日志文件</span>
+          <span class="setting-desc">清除 7 天前的日志文件，保留最近一周的日志</span>
+        </div>
+        <div class="setting-control">
+          <span v-if="cacheInfo.logs.oldCount > 0" class="cache-size">{{ cacheInfo.logs.oldCount }} 个过期文件 · {{ formatSize(cacheInfo.logs.size) }}</span>
+          <span v-else class="cache-size empty">无过期日志</span>
+          <button class="cache-btn" :disabled="clearingCache || cacheInfo.logs.oldCount === 0" @click="handleClearCache('logs')">
+            {{ clearingCache ? '清理中...' : '清理日志' }}
           </button>
         </div>
       </div>
@@ -144,6 +157,7 @@ const clearingCache = ref(false)
 const appVersion = ref('--')
 const cacheInfo = reactive({
   frames: { count: 0, size: 0 },
+  logs: { count: 0, size: 0, oldCount: 0 },
 })
 
 const fetchSystemInfo = async () => {
@@ -153,6 +167,7 @@ const fetchSystemInfo = async () => {
       appVersion.value = res.data.version || '--'
       if (res.data.cache) {
         cacheInfo.frames = res.data.cache.frames || { count: 0, size: 0 }
+        cacheInfo.logs = res.data.cache.logs || { count: 0, size: 0, oldCount: 0 }
       }
     }
   } catch {}
@@ -165,10 +180,12 @@ const formatSize = (bytes) => {
   return (bytes / 1024 / 1024).toFixed(1) + 'MB'
 }
 
-const handleClearCache = async () => {
+const handleClearCache = async (target) => {
+  const messages = { frames: '抽帧缓存', logs: '日志文件' }
+  const confirmMessages = { frames: '确定要清理所有抽帧缓存数据吗？清理后下次使用封面功能时会重新提取视频帧。', logs: '确定要清理所有过期日志文件吗？' }
   try {
     await ElMessageBox.confirm(
-      '确定要清理所有缓存数据吗？清理后下次使用封面功能时会重新提取视频帧。',
+      confirmMessages[target],
       '确认清理',
       { confirmButtonText: '确定清理', cancelButtonText: '取消', type: 'warning' }
     )
@@ -177,10 +194,10 @@ const handleClearCache = async () => {
   }
   clearingCache.value = true
   try {
-    const res = await http.post('/api/clear-cache', { targets: ['frames'] })
+    const res = await http.post('/api/clear-cache', { targets: [target] })
     if (res.code === 200) {
-      const info = res.data?.frames
-      ElMessage.success(info ? `已清理 ${info.cleared} 个缓存文件` : '缓存已清理')
+      const info = res.data?.[target]
+      ElMessage.success(info ? `已清理 ${info.cleared} 个${messages[target]}` : `${messages[target]}已清理`)
       fetchSystemInfo()
     } else {
       ElMessage.error(res.msg || '清理失败')

@@ -583,6 +583,8 @@ def _extract_channels_summary(draft_data):
         type_to_platform = {v: k for k, v in {
             'xiaohongshu': 1, 'channels': 2, 'douyin': 3,
             'kuaishou': 4, 'bilibili': 5,
+            'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
+            'tencent_video': 9, 'iqiyi': 10,
         }.items()}
 
         platform_counts = {}

@@ -642,7 +642,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -661,6 +661,7 @@ import { useRoute } from 'vue-router'
 const accountStore = useAccountStore()
 const appStore = useAppStore()
 appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
+appStore.loadAutoSaveSettings()  // 加载自动保存草稿设置
 const route = useRoute()
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 const authHeaders = computed(() => ({ 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }))
@@ -982,6 +983,8 @@ function toggleGroup(key) {
 // Selected accounts for publishing (default empty)
 const publishAccountIds = reactive(new Set())
 const currentDraftId = ref(null) // null = 新草稿, number = 编辑已有草稿
+const autoSaveTimer = ref(null)
+const hasChanges = ref(false) // 是否有过修改
 
 function togglePublishAccount(account, group) {
   selectedPlatform.value = group.key
@@ -1367,7 +1370,57 @@ onMounted(() => {
   if (draftId) {
     restoreDraft(Number(draftId))
   }
+  // 启动自动保存定时器
+  startAutoSaveTimer()
 })
+
+onBeforeUnmount(() => {
+  if (autoSaveTimer.value) {
+    clearInterval(autoSaveTimer.value)
+    autoSaveTimer.value = null
+  }
+})
+
+function startAutoSaveTimer() {
+  if (autoSaveTimer.value) {
+    clearInterval(autoSaveTimer.value)
+    autoSaveTimer.value = null
+  }
+  if (!appStore.autoSaveDraft) return
+  autoSaveTimer.value = setInterval(() => {
+    if (hasChanges.value) {
+      saveDraft()
+      hasChanges.value = false
+    }
+  }, appStore.autoSaveInterval * 1000)
+}
+
+function stopAutoSaveTimer() {
+  if (autoSaveTimer.value) {
+    clearInterval(autoSaveTimer.value)
+    autoSaveTimer.value = null
+  }
+}
+
+// 监听自动保存设置变化，重新启动定时器
+watch(() => appStore.autoSaveDraft, (val) => {
+  if (val) {
+    startAutoSaveTimer()
+  } else {
+    stopAutoSaveTimer()
+  }
+})
+
+watch(() => appStore.autoSaveInterval, () => {
+  if (appStore.autoSaveDraft) {
+    startAutoSaveTimer()
+  }
+})
+
+// 监听需要保存的内容变化
+watch(commonConfig, () => { hasChanges.value = true }, { deep: true })
+watch(platformConfigs, () => { hasChanges.value = true }, { deep: true })
+watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
 
 async function publishAll() {
   // Validate

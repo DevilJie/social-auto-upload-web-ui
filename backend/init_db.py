@@ -1,12 +1,12 @@
-import logging
 import sqlite3
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
 from conf import BASE_DIR
+from util._logger import get_channel_logger
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("init_db")
 
 DB_DIR = BASE_DIR / "db"
 DB_PATH = DB_DIR / "database.db"

@@ -5,7 +5,6 @@
 
 import asyncio
 import json
-import logging
 import sqlite3
 import threading
 import uuid
@@ -15,11 +14,12 @@ from enum import Enum
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from conf import BASE_DIR
+from util._logger import get_channel_logger
+
+logger = get_channel_logger("task_queue")
 
 DB_PATH = BASE_DIR / "db" / "database.db"
 

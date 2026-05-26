@@ -50,10 +50,12 @@ def _find_binary(name: str) -> str:
         logger.debug("{} on PATH ({}) is not a valid binary, skipping", name, found)
 
     # 2. Local bundle: backend/bin/
-    local_bin = Path(__file__).resolve().parent.parent / "bin" / name
-    if local_bin.exists() and _validate_binary(str(local_bin)):
-        logger.debug("Found {} in local bundle: {}", name, local_bin)
-        return str(local_bin)
+    #    On Windows, check both "name" and "name.exe"
+    bin_dir = Path(__file__).resolve().parent.parent / "bin"
+    for candidate in [bin_dir / name, bin_dir / f"{name}.exe"]:
+        if candidate.exists() and _validate_binary(str(candidate)):
+            logger.debug("Found {} in local bundle: {}", name, candidate)
+            return str(candidate)
 
     # 3. PyInstaller bundle
     meipass = getattr(sys, "_MEIPASS", None)
@@ -81,9 +83,24 @@ def _find_ffprobe() -> str | None:
         return None
 
 
-# Module-level constants resolved at import time.
-FFMPEG: str = _find_ffmpeg()
-FFPROBE: str | None = _find_ffprobe()
+# Lazy-initialized module-level constants.
+# ffmpeg is optional — the app should still start without it (frame features will be disabled).
+FFMPEG: str | None = None
+FFPROBE: str | None = None
+
+
+def _ensure_binaries():
+    """Resolve ffmpeg/ffprobe paths on first use."""
+    global FFMPEG, FFPROBE
+    if FFMPEG is None:
+        try:
+            FFMPEG = _find_ffmpeg()
+        except FileNotFoundError:
+            logger.warning("ffmpeg not found — video frame features will be disabled")
+        try:
+            FFPROBE = _find_ffprobe()
+        except FileNotFoundError:
+            logger.warning("ffprobe not found — duration detection will be unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +109,7 @@ FFPROBE: str | None = _find_ffprobe()
 
 def get_video_duration(video_path: str) -> float:
     """Return the duration of *video_path* in seconds."""
+    _ensure_binaries()
     if FFPROBE is None:
         return 0.0
     cmd = [
@@ -148,6 +166,10 @@ def _extract_frames_sync(base_dir, video_path: str) -> None:
     Outputs ``frame_1.jpg`` … ``frame_N.jpg`` (1-indexed, one per second).
     """
     try:
+        _ensure_binaries()
+        if FFMPEG is None:
+            raise FileNotFoundError("ffmpeg not available")
+
         output_dir = _frames_dir(base_dir, video_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -309,6 +331,10 @@ def get_frame_image_path(
     if hd_path.is_file():
         logger.debug("HD frame cache hit: {}", hd_path)
         return str(hd_path)
+
+    _ensure_binaries()
+    if FFMPEG is None:
+        return None
 
     # Extract on-demand using time-based seeking
     cmd = [

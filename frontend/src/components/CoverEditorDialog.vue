@@ -35,7 +35,7 @@
             <span class="section-label-text">视频时间轴</span>
             <span class="section-label-hint">拖动选择帧画面</span>
           </div>
-          <VideoTimeline :frames="frames" :duration="videoDuration" v-model="selectedSecond" @update:modelValue="onTimelineSelect" />
+          <VideoTimeline :frames="frames" :duration="videoDuration" :extracting="extracting" v-model="selectedSecond" @update:modelValue="onTimelineSelect" />
         </div>
 
         <!-- Upload button -->
@@ -106,6 +106,8 @@ const activeTab = ref('landscape')
 const frames = ref([])
 const videoDuration = ref(0)
 const selectedSecond = ref(0)
+const extracting = ref(false)
+let pollingTimer = null
 
 const cropCanvasRef = ref(null)
 const canvasWrapRef = ref(null)
@@ -156,13 +158,48 @@ function currentVideoPath() {
 async function loadFrames() {
   const videoPath = currentVideoPath()
   if (!videoPath) return
+  stopPolling()
   try {
+    extracting.value = true
     const resp = await frameApi.extractFrames(videoPath)
     if (resp.data) {
       frames.value = resp.data.frames || []
       videoDuration.value = resp.data.duration || 0
+      if (resp.data.status === 'processing') {
+        startPolling(videoPath)
+      } else {
+        extracting.value = false
+      }
     }
-  } catch {}
+  } catch {
+    extracting.value = false
+  }
+}
+
+function startPolling(videoPath) {
+  pollingTimer = setInterval(async () => {
+    try {
+      const resp = await frameApi.getFrames(videoPath)
+      if (resp.data) {
+        frames.value = resp.data.frames || []
+        videoDuration.value = resp.data.duration || 0
+        if (resp.data.status === 'done') {
+          stopPolling()
+          extracting.value = false
+        }
+      }
+    } catch {
+      stopPolling()
+      extracting.value = false
+    }
+  }, 1500)
+}
+
+function stopPolling() {
+  if (pollingTimer) {
+    clearInterval(pollingTimer)
+    pollingTimer = null
+  }
 }
 
 function loadTabState() {
@@ -367,7 +404,8 @@ async function confirmCrop() {
 }
 
 function onClosed() {
-  frames.value = []; videoDuration.value = 0; currentImageSrc.value = ''; cropImage.value = null
+  stopPolling()
+  frames.value = []; videoDuration.value = 0; currentImageSrc.value = ''; cropImage.value = null; extracting.value = false
   tabState.landscape = { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } }
   tabState.portrait = { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } }
 }

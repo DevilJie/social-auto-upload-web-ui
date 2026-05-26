@@ -10,6 +10,9 @@
           :style="{ width: thumbWidth + 'px' }"
           draggable="false"
         />
+        <div v-if="extracting" class="timeline-loading" :style="{ width: thumbWidth + 'px' }">
+          <el-icon class="loading-spin"><Loading /></el-icon>
+        </div>
       </div>
       <div
         class="timeline-slider"
@@ -29,6 +32,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 
 const THUMB_WIDTH = 80
 const MARKER_INTERVAL = 10
@@ -37,6 +41,7 @@ const props = defineProps({
   frames: { type: Array, default: () => [] },
   duration: { type: Number, default: 0 },
   modelValue: { type: Number, default: 0 },
+  extracting: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -134,6 +139,23 @@ function onTrackMouseDown(e) {
   background: rgba(64, 158, 255, 0.15);
   pointer-events: none;
   transition: left 0.05s ease;
+}
+.timeline-loading {
+  height: 100%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-color-primary);
+  font-size: 18px;
+}
+.loading-spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .timeline-markers {
   position: relative;

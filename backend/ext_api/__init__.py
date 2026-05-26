@@ -26,9 +26,38 @@ _sse_subscribers: list[queue.Queue] = []
 _sse_lock = threading.Lock()
 
 
+_tables_ensured = False
+
+
+def _ensure_tables(conn):
+    """确保 drafts 表存在（兼容旧版本数据库升级）。"""
+    global _tables_ensured
+    if _tables_ensured:
+        return
+    try:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT DEFAULT '',
+            cover_path TEXT DEFAULT '',
+            draft_data TEXT DEFAULT '{}',
+            channels_summary TEXT DEFAULT '[]',
+            video_duration REAL DEFAULT 0,
+            video_file_size INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        conn.commit()
+    except Exception:
+        pass
+    _tables_ensured = True
+
+
 def _db_conn():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
+    _ensure_tables(conn)
     return conn
 
 

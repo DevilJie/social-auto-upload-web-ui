@@ -10,7 +10,6 @@ from services.ffmpeg_service import (
     get_extraction_status,
     get_frame_list,
     get_frame_image_path,
-    _extract_frames_sync,
 )
 
 frames_bp = Blueprint('frames', __name__)
@@ -37,12 +36,21 @@ def extract_frames():
         return jsonify({"code": 404, "msg": "Video file not found"}), 404
 
     status = get_extraction_status(full_path)
+
+    # Already done — return cached result
     if status.get("status") == "done":
         result = get_frame_list(BASE_DIR, full_path)
+        result["status"] = "done"
         return jsonify({"code": 200, "data": result})
 
-    _extract_frames_sync(BASE_DIR, full_path)
+    # Start background extraction if not yet started
+    if not status or status.get("status") not in ("processing", "done"):
+        start_frame_extraction(BASE_DIR, full_path)
+
+    # Return whatever frames exist so far + processing status
     result = get_frame_list(BASE_DIR, full_path)
+    result["status"] = "processing"
+    result["duration"] = status.get("duration", 0)
     return jsonify({"code": 200, "data": result})
 
 
@@ -71,6 +79,8 @@ def get_frames():
         return jsonify({"code": 400, "msg": "video_path not found"}), 400
 
     result = get_frame_list(BASE_DIR, full_path)
+    status = get_extraction_status(full_path)
+    result["status"] = status.get("status", "done")
     return jsonify({"code": 200, "data": result})
 
 

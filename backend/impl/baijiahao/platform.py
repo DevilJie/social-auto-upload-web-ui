@@ -7,8 +7,9 @@ Chromium) with automatic Playwright fallback.
 """
 
 import asyncio
-import logging
 import os
+
+from .._logger import get_channel_logger
 import random
 import threading
 from pathlib import Path
@@ -24,7 +25,7 @@ from .._utils import (
 )
 from ..base_platform import BasePlatform
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("baijiahao")
 
 
 class BaijiahaoPlatform(BasePlatform):

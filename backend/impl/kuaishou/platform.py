@@ -6,14 +6,14 @@ Uses ``BasePlatform`` browser entry points and shared utilities from
 """
 
 import asyncio
-import logging
 import threading
 from pathlib import Path
 from queue import Queue
 
 from conf import BASE_DIR
 
-logger = logging.getLogger(__name__)
+from .._logger import get_channel_logger
+logger = get_channel_logger("kuaishou")
 
 from .._browser import create_browser_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_user_profile

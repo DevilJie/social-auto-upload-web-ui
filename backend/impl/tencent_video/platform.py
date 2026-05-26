@@ -8,16 +8,16 @@ Publish URL: https://mp.v.qq.com/publishVideo/video
 
 import asyncio
 import json
-import logging
 from pathlib import Path
 from queue import Queue
 
 from conf import BASE_DIR
 
+from .._logger import get_channel_logger
 from .._utils import parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("tencent_video")
 
 _LOGIN_URL = "https://mp.v.qq.com/"
 _HOME_URL = "https://mp.v.qq.com/homepage"

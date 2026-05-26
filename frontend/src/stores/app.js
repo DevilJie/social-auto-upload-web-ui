@@ -19,6 +19,30 @@ export const useAppStore = defineStore('app', () => {
     const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
     autoFillTitle.value = settings.autoFillTitle !== undefined ? settings.autoFillTitle : true
   }
+
+  // 自动保存草稿设置
+  const autoSaveDraft = ref(true)
+  const autoSaveInterval = ref(10) // 秒
+
+  const setAutoSaveDraft = (value) => {
+    autoSaveDraft.value = value
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.autoSaveDraft = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const setAutoSaveInterval = (value) => {
+    autoSaveInterval.value = value
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.autoSaveInterval = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const loadAutoSaveSettings = () => {
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    autoSaveDraft.value = settings.autoSaveDraft !== undefined ? settings.autoSaveDraft : true
+    autoSaveInterval.value = settings.autoSaveInterval !== undefined ? settings.autoSaveInterval : 10
+  }
   
   // 是否是第一次进入素材管理页面
   const isFirstTimeMaterialManagement = ref(true)
@@ -76,6 +100,11 @@ export const useAppStore = defineStore('app', () => {
     autoFillTitle,
     setAutoFillTitle,
     loadAutoFillTitle,
+    autoSaveDraft,
+    autoSaveInterval,
+    setAutoSaveDraft,
+    setAutoSaveInterval,
+    loadAutoSaveSettings,
     setAccountManagementVisited,
     setMaterialManagementVisited,
     resetVisitStatus,

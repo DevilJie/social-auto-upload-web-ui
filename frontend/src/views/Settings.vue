@@ -46,6 +46,24 @@
           <el-switch v-model="settings.autoFillTitle" />
         </div>
       </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">自动保存草稿</span>
+          <span class="setting-desc">发布界面内容（视频、封面、标题、描述等）发生变更时，自动定时将当前内容保存为草稿，避免意外丢失</span>
+        </div>
+        <div class="setting-control">
+          <el-switch v-model="settings.autoSaveDraft" />
+        </div>
+      </div>
+      <div class="setting-row" v-if="settings.autoSaveDraft">
+        <div class="setting-info">
+          <span class="setting-label">自动保存间隔（秒）</span>
+          <span class="setting-desc">检测到内容变更后，等待指定时间再执行保存。间隔过短可能频繁触发请求，建议设置为 10-30 秒</span>
+        </div>
+        <div class="setting-control">
+          <el-input-number v-model="settings.autoSaveInterval" :min="10" :max="300" controls-position="right" style="width: 120px" />
+        </div>
+      </div>
     </div>
 
     <!-- 缓存管理 -->
@@ -177,6 +195,8 @@ const handleClearCache = async () => {
 const settings = reactive({
   proxyUrl: '',
   autoFillTitle: true,
+  autoSaveDraft: true,
+  autoSaveInterval: 10,
 })
 
 // 海外平台列表
@@ -209,6 +229,8 @@ const fetchSettings = async () => {
     if (res.code === 200 && res.data) {
       if (res.data.proxyUrl !== undefined) settings.proxyUrl = res.data.proxyUrl
       if (res.data.autoFillTitle !== undefined) settings.autoFillTitle = res.data.autoFillTitle
+      if (res.data.autoSaveDraft !== undefined) settings.autoSaveDraft = res.data.autoSaveDraft
+      if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
     }
   } catch (e) {
     console.error(e)
@@ -223,6 +245,8 @@ const handleSave = async () => {
     const res = await settingsApi.updateSettings({
       proxyUrl: settings.proxyUrl,
       autoFillTitle: settings.autoFillTitle,
+      autoSaveDraft: settings.autoSaveDraft,
+      autoSaveInterval: settings.autoSaveInterval,
     })
     if (res.code === 200) {
       ElMessage.success('设置已保存')

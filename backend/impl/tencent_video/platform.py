@@ -534,52 +534,67 @@ class TencentVideoPlatform(BasePlatform):
         2. "提交成功" / "发布成功" text appearing on the page
         """
         logger.info("Clicking publish button")
-        try:
-            publish_btn = page.locator(
-                'button[dt-mpid="video_submit_click"]'
-            ).first
-            await publish_btn.wait_for(state="visible", timeout=10000)
-            await publish_btn.click()
-            logger.info("Publish button clicked, waiting for publish result")
+        publish_btn = page.locator(
+            'button[dt-mpid="video_submit_click"]'
+        ).first
+        await publish_btn.wait_for(state="visible", timeout=10000)
 
-            # Wait up to 60s for success indicators
-            success = False
-            for _ in range(60):
+        # Check if button is disabled before clicking
+        disabled = await publish_btn.get_attribute("disabled")
+        if disabled is not None:
+            logger.warning("Publish button is disabled, waiting for it to enable...")
+            await page.wait_for_function(
+                "document.querySelector('button[dt-mpid=\"video_submit_click\"]')"
+                " && !document.querySelector('button[dt-mpid=\"video_submit_click\"]').disabled",
+                timeout=30_000,
+            )
+
+        await publish_btn.click()
+        logger.info("Publish button clicked, waiting for publish result")
+
+        # Wait up to 60s for success indicators
+        success = False
+        for i in range(60):
+            try:
+                # Check for success text on the page
+                success_text = page.locator(
+                    'text=提交成功, text=发布成功, text=投稿成功'
+                ).first
+                if await success_text.count() > 0 and await success_text.is_visible():
+                    logger.info("Publish success text detected!")
+                    success = True
+                    break
+            except Exception:
+                pass
+
+            # Also check if URL changed away from publish page
+            try:
+                current_url = page.url
+                if "publishVideo" not in current_url:
+                    logger.info(
+                        "Navigated away from publish page: %s", current_url
+                    )
+                    success = True
+                    break
+            except Exception:
+                pass
+
+            # After 5s, if button is still enabled and visible, retry click
+            if i == 5:
                 try:
-                    # Check for success text on the page
-                    success_text = page.locator(
-                        'text=提交成功, text=发布成功, text=投稿成功'
-                    ).first
-                    if await success_text.count() > 0 and await success_text.is_visible():
-                        logger.info("Publish success text detected!")
-                        success = True
-                        break
+                    still_enabled = await publish_btn.is_enabled()
+                    if still_enabled:
+                        logger.info("Button still enabled after 5s, retrying click...")
+                        await publish_btn.click()
                 except Exception:
                     pass
 
-                # Also check if URL changed away from publish page
-                try:
-                    current_url = page.url
-                    if "publishVideo" not in current_url:
-                        logger.info(
-                            "Navigated away from publish page: %s", current_url
-                        )
-                        success = True
-                        break
-                except Exception:
-                    pass
+            await asyncio.sleep(1)
 
-                await asyncio.sleep(1)
+        if success:
+            logger.info("Video published successfully")
+        else:
+            logger.error("Publish indicator not found within 60s timeout")
+            raise Exception("发布失败：未检测到发布成功信号（页面未跳转，无成功文本）")
 
-            if success:
-                logger.info("Video published successfully")
-            else:
-                logger.warning(
-                    "Publish indicator not found within timeout, "
-                    "may still succeed"
-                )
-
-            await asyncio.sleep(2)
-        except Exception as e:
-            logger.warning("Publish click failed: %s", e)
-            raise
+        await asyncio.sleep(2)

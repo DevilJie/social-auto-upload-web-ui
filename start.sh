@@ -251,13 +251,16 @@ fi
 # ============================================================
 print_step "5" "启动服务"
 
-# 确保端口 5409 完全释放
-sleep 1
-
-# 强制后端使用 5409 端口，避免自动回退到其他端口
-export SAU_PORT=5409
+# 确保端口完全释放
+for i in $(seq 1 5); do
+    if ! lsof -ti :5409 >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
 
 cd "$BACKEND_DIR"
+export SAU_PORT=5409
 nohup "$VENV_PYTHON" app.py > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 print_ok "后端已启动 (PID: $BACKEND_PID)"

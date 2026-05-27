@@ -134,9 +134,25 @@ if exist "%VENV_DIR%" if exist "%VENV_PIP%" (
 if "!VENV_OK!"=="0" (
     if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%" >nul 2>&1
     echo     创建虚拟环境...
-    python -m venv "%VENV_DIR%"
+
+    :: 检查 venv 模块是否可用
+    python -c "import venv" >nul 2>&1
     if !errorlevel! neq 0 (
-        echo   X 虚拟环境创建失败，请先安装 python3-venv 或使用管理员权限运行
+        echo   X Python venv 模块不可用
+        echo     请确保安装了完整版 Python（从 python.org 下载）
+        echo     或运行: python -m ensurepip --default-pip
+        pause
+        exit /b 1
+    )
+
+    python -m venv "%VENV_DIR%" --clear
+    if !errorlevel! neq 0 (
+        echo   X 虚拟环境创建失败
+        echo     可能原因:
+        echo       1. 目录权限不足（尝试以管理员运行）
+        echo       2. 路径包含中文或特殊字符
+        echo       3. 防病毒软件阻止
+        echo     当前路径: %VENV_DIR%
         pause
         exit /b 1
     )

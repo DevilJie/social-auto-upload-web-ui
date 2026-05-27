@@ -341,10 +341,10 @@ echo   后端日志: type %BACKEND_LOG%
 echo   前端日志: type %FRONTEND_LOG%
 echo.
 echo 服务正在后台运行，关闭此窗口不会停止服务。
-echo 如需停止服务，请运行: taskkill /F /IM python.exe ^& taskkill /F /IM node.exe
+echo.
+echo   停止服务命令:
+echo     taskkill /F /IM python.exe
+echo     taskkill /F /IM node.exe
 echo.
 endlocal
 exit /b 0
-echo 服务已停止
-
-endlocal

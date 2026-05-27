@@ -1543,6 +1543,26 @@ async function publishAll() {
     return
   }
 
+  // 视频格式必填检查
+  const accountsWithoutVideoFormat = []
+  for (const group of accountGroups.value) {
+    if (group.accounts.length === 0) continue
+    const pSettings = platformConfigs[group.key] || {}
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      const accountOverride = accountOverrides[account.id]
+      const mergedFormat = (accountOverride && accountOverride.videoFormat)
+        || pSettings.videoFormat
+      if (!mergedFormat) {
+        accountsWithoutVideoFormat.push(`${account.name}(${group.name})`)
+      }
+    }
+  }
+  if (accountsWithoutVideoFormat.length > 0) {
+    ElMessage.error(`以下账号未选择视频格式：${accountsWithoutVideoFormat.join('、')}`)
+    return
+  }
+
   publishing.value = true
   publishProgress.value = 0
   publishResults.value = []

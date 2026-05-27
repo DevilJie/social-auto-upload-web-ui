@@ -9,10 +9,12 @@ set -euo pipefail
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 CHECK="${GREEN}✓${NC}"
 CROSS="${RED}✗${NC}"
 WARN="${YELLOW}!${NC}"
+SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 # --- 项目根目录（脚本所在目录）---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -62,6 +64,40 @@ print_warn() {
     echo -e "  ${WARN} $1"
 }
 
+# 带旋转动画的等待命令执行
+# 用法: run_with_spinner "提示信息" command [args...]
+run_with_spinner() {
+    local msg="$1"
+    shift
+    local cmd=("$@")
+    local tmp_log
+    tmp_log=$(mktemp)
+
+    echo -n -e "  ${CYAN}⏳${NC} ${msg}"
+
+    # 后台执行命令
+    "${cmd[@]}" > "$tmp_log" 2>&1 &
+    local pid=$!
+    local i=0
+
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r  ${CYAN}%s${NC} %s" "${SPINNER[$i]}" "$msg"
+        i=$(( (i + 1) % ${#SPINNER[@]} ))
+        sleep 0.2
+    done
+
+    wait "$pid" 2>/dev/null
+    local exit_code=$?
+    rm -f "$tmp_log"
+
+    if [[ $exit_code -eq 0 ]]; then
+        printf "\r  ${CHECK} %s\n" "$msg"
+    else
+        printf "\r  ${CROSS} %s\n" "$msg"
+        return 1
+    fi
+}
+
 kill_port() {
     local port=$1
     local pids
@@ -69,7 +105,6 @@ kill_port() {
     if [[ -n "$pids" ]]; then
         echo "$pids" | xargs kill -9 2>/dev/null || true
         sleep 1
-        # 再次检查
         pids=$(lsof -ti :"$port" 2>/dev/null || true)
         if [[ -n "$pids" ]]; then
             print_fail "端口 $port 仍被占用，请手动释放后重试"
@@ -87,7 +122,7 @@ check_hash_changed() {
     local hash_file=$1
     local current_hash=$2
     if [[ ! -f "$hash_file" ]]; then
-        return 0 # 文件不存在，视为变更
+        return 0
     fi
     local saved_hash
     saved_hash=$(cat "$hash_file")
@@ -101,18 +136,18 @@ print_step "1" "检查运行时环境"
 
 if ! command -v python3 &>/dev/null; then
     print_fail "未找到 python3，请先安装 Python 3.8+"
-    echo "  macOS: brew install python3"
-    echo "  Ubuntu/Debian: sudo apt install python3 python3-venv"
-    echo "  Fedora: sudo dnf install python3"
+    echo "    macOS:         brew install python3"
+    echo "    Ubuntu/Debian: sudo apt install python3 python3-venv"
+    echo "    Fedora:        sudo dnf install python3"
     exit 1
 fi
-PYTHON_VERSION=$(python3 --version 2>&1)
-print_ok "Python $PYTHON_VERSION"
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+print_ok "Python ${PYTHON_VERSION}"
 
 if ! command -v node &>/dev/null; then
     print_fail "未找到 node，请先安装 Node.js 16+"
-    echo "  macOS: brew install node"
-    echo "  Ubuntu/Debian: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install nodejs"
+    echo "    macOS:         brew install node"
+    echo "    Ubuntu/Debian: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install nodejs"
     exit 1
 fi
 NODE_VERSION=$(node --version 2>&1)
@@ -122,16 +157,16 @@ if ! command -v npm &>/dev/null; then
     exit 1
 fi
 NPM_VERSION=$(npm --version 2>&1)
-print_ok "Node $NODE_VERSION / npm $NPM_VERSION"
+print_ok "Node ${NODE_VERSION} / npm ${NPM_VERSION}"
 
 if ! command -v curl &>/dev/null; then
     print_fail "未找到 curl，请先安装 curl"
-    echo "  macOS: brew install curl"
-    echo "  Ubuntu/Debian: sudo apt install curl"
-    echo "  Fedora: sudo dnf install curl"
+    echo "    macOS:         brew install curl"
+    echo "    Ubuntu/Debian: sudo apt install curl"
+    echo "    Fedora:        sudo dnf install curl"
     exit 1
 fi
-print_ok "curl $(curl --version | head -1 | awk '{print $2}')"
+print_ok "curl $(curl --version 2>&1 | head -1 | awk '{print $2}')"
 
 # ============================================================
 # Step 2: 处理端口冲突
@@ -147,7 +182,7 @@ print_ok "端口 5173 空闲"
 # ============================================================
 # Step 3: 准备后端环境 (venv)
 # ============================================================
-print_step "3" "准备后端环境 (venv)"
+print_step "3" "准备后端环境"
 
 VENV_DIR="$BACKEND_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python3"
@@ -156,51 +191,54 @@ HASH_FILE="$PROJECT_ROOT/.backend_deps_hash"
 CURRENT_HASH=$(get_dir_hash "backend")
 
 if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_PIP" ]]; then
-    print_ok "创建 venv..."
+    echo -n -e "  ${CYAN}⏳${NC} 创建虚拟环境..."
     rm -rf "$VENV_DIR"
     if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
-        print_warn "venv 创建失败，尝试安装 python3-venv..."
+        printf "\r  ${WARN} 虚拟环境创建失败，正在安装 python3-venv...\n"
+        PYTHON_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
         if command -v apt-get &>/dev/null; then
-            PYTHON_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-            sudo apt-get install -y "python${PYTHON_VER}-venv" >/dev/null 2>&1
+            sudo apt-get install -y "python${PYTHON_VER}-venv" >/dev/null 2>&1 || {
+                print_fail "安装 python3-venv 失败，请手动执行: sudo apt install python${PYTHON_VER}-venv"
+                exit 1
+            }
         elif command -v dnf &>/dev/null; then
-            sudo dnf install -y python3-venv >/dev/null 2>&1
+            sudo dnf install -y python3-venv >/dev/null 2>&1 || {
+                print_fail "安装 python3-venv 失败，请手动执行: sudo dnf install python3-venv"
+                exit 1
+            }
         fi
         python3 -m venv "$VENV_DIR"
     fi
-    print_ok "安装 Python 依赖..."
-    "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet
+    printf "\r  ${CHECK} 虚拟环境创建完成\n"
+    run_with_spinner "安装 Python 依赖（首次安装，请稍候）" "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet --no-cache-dir
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "后端环境就绪"
 elif check_hash_changed "$HASH_FILE" "$CURRENT_HASH"; then
-    print_ok "检测到 backend/ 有变更，更新依赖..."
-    "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet
+    run_with_spinner "检测到变更，更新 Python 依赖" "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet --no-cache-dir
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "依赖更新完成"
 else
-    print_ok "venv 已存在，依赖无变更，跳过"
+    print_ok "依赖无变更，跳过"
 fi
 
 # ============================================================
 # Step 4: 准备前端环境 (npm)
 # ============================================================
-print_step "4" "准备前端环境 (npm)"
+print_step "4" "准备前端环境"
 
 HASH_FILE="$PROJECT_ROOT/.frontend_deps_hash"
 CURRENT_HASH=$(get_dir_hash "frontend")
 
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
-    print_ok "安装前端依赖..."
-    (cd "$FRONTEND_DIR" && npm install --silent)
+    run_with_spinner "安装前端依赖（首次安装，请稍候）" bash -c "cd '$FRONTEND_DIR' && npm install --prefer-offline 2>&1 | tail -1"
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "前端依赖就绪"
 elif check_hash_changed "$HASH_FILE" "$CURRENT_HASH"; then
-    print_ok "检测到 frontend/ 有变更，更新依赖..."
-    (cd "$FRONTEND_DIR" && npm install --silent)
+    run_with_spinner "检测到变更，更新前端依赖" bash -c "cd '$FRONTEND_DIR' && npm install --prefer-offline 2>&1 | tail -1"
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "依赖更新完成"
 else
-    print_ok "node_modules 已存在，依赖无变更，跳过"
+    print_ok "依赖无变更，跳过"
 fi
 
 # ============================================================
@@ -208,13 +246,11 @@ fi
 # ============================================================
 print_step "5" "启动服务"
 
-# 启动后端
 cd "$BACKEND_DIR"
 nohup "$VENV_PYTHON" app.py > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 print_ok "后端已启动 (PID: $BACKEND_PID)"
 
-# 启动前端
 cd "$FRONTEND_DIR"
 nohup npm run dev > "$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
@@ -227,8 +263,7 @@ cd "$PROJECT_ROOT"
 # ============================================================
 print_step "6" "等待服务就绪"
 
-# 等待后端
-echo -n "  等待后端"
+echo -n "  等待后端就绪"
 for i in $(seq 1 30); do
     if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5409/api/health" 2>/dev/null | grep -q "200"; then
         echo ""
@@ -237,7 +272,7 @@ for i in $(seq 1 30); do
     fi
     if [[ $i -eq 30 ]]; then
         echo ""
-        print_fail "后端启动超时，请查看 $BACKEND_LOG"
+        print_fail "后端启动超时，请查看日志: $BACKEND_LOG"
         tail -20 "$BACKEND_LOG" 2>/dev/null || true
         exit 1
     fi
@@ -245,8 +280,7 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# 等待前端
-echo -n "  等待前端"
+echo -n "  等待前端就绪"
 for i in $(seq 1 30); do
     if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5173" 2>/dev/null | grep -q "200"; then
         echo ""
@@ -255,7 +289,7 @@ for i in $(seq 1 30); do
     fi
     if [[ $i -eq 30 ]]; then
         echo ""
-        print_fail "前端启动超时，请查看 $FRONTEND_LOG"
+        print_fail "前端启动超时，请查看日志: $FRONTEND_LOG"
         tail -20 "$FRONTEND_LOG" 2>/dev/null || true
         exit 1
     fi
@@ -263,7 +297,6 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# 显示访问入口
 echo ""
 echo "============================================"
 echo -e "  ${GREEN}前端界面: http://localhost:5173${NC}"
@@ -272,5 +305,4 @@ echo "============================================"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
 
-# 保持脚本运行，等待子进程
 wait || true

@@ -337,21 +337,14 @@ echo   前端界面: http://localhost:5173
 echo   后端 API: http://localhost:!BACKEND_PORT!
 echo ============================================
 echo.
-echo   后端日志: %BACKEND_LOG%
-echo   前端日志: %FRONTEND_LOG%
+echo   后端日志: type %BACKEND_LOG%
+echo   前端日志: type %FRONTEND_LOG%
 echo.
-
-:: 在新窗口中实时显示后端日志
-echo   正在打开后端日志窗口...
-start "SAU-后端日志" cmd /c "powershell -Command \"Get-Content '%BACKEND_LOG%' -Tail 50 -Wait\" & pause"
+echo 服务正在后台运行，关闭此窗口不会停止服务。
+echo 如需停止服务，请运行: taskkill /F /IM python.exe ^& taskkill /F /IM node.exe
 echo.
-
-echo 按任意键停止所有服务...
-pause >nul
-
-:: 停止服务
-taskkill /FI "WINDOWTITLE eq SAU-Backend*" >nul 2>&1
-taskkill /FI "WINDOWTITLE eq SAU-Frontend*" >nul 2>&1
+endlocal
+exit /b 0
 echo 服务已停止
 
 endlocal

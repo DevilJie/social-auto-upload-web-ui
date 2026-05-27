@@ -262,15 +262,25 @@ class KuaishouPlatform(BasePlatform):
         videos_per_day = kwargs.get("videos_per_day", 1)
         daily_times = kwargs.get("daily_times")
         start_days = kwargs.get("start_days", 0)
-        thumbnail_path = kwargs.get("thumbnail_path")
+        thumbnail_path = kwargs.get("thumbnail_path", "")
+        thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
+        thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "")
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
         author_declaration = kwargs.get("author_declaration", "")
+
+        # 优先使用竖版封面，其次横版，最后通用封面
+        cover_path = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
 
         publish_dates = parse_schedule_time(
             schedule_time_str, len(files), enable_timer,
             videos_per_day, daily_times, start_days,
         )
+
+        # 构建封面完整路径
+        if cover_path:
+            cover_path = str(Path(BASE_DIR / "videoFile" / cover_path))
+            logger.info(f"[kuaishou] cover path: {cover_path}")
 
         for idx, file_name in enumerate(files):
             video_path = str(Path(BASE_DIR / "videoFile" / file_name))
@@ -284,7 +294,7 @@ class KuaishouPlatform(BasePlatform):
                     title=title,
                     desc=desc,
                     tags=tags,
-                    thumbnail_path=thumbnail_path,
+                    thumbnail_path=cover_path,
                     author_declaration=author_declaration,
                     publish_date=pub_date,
                     enable_timer=enable_timer,

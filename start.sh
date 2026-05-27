@@ -34,6 +34,9 @@ FRONTEND_PID=""
 cleanup() {
     echo ""
     echo "正在停止服务..."
+    if [[ -n "${TAIL_PID:-}" ]] && kill -0 "$TAIL_PID" 2>/dev/null; then
+        kill "$TAIL_PID" 2>/dev/null || true
+    fi
     if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
         kill "$FRONTEND_PID" 2>/dev/null || true
         echo "  前端已停止 (PID: $FRONTEND_PID)"
@@ -210,10 +213,12 @@ if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_PIP" ]]; then
         python3 -m venv "$VENV_DIR"
     fi
     printf "\r  ${CHECK} 虚拟环境创建完成\n"
+    "$VENV_PIP" cache purge >/dev/null 2>&1 || true
     run_with_spinner "安装 Python 依赖（首次安装，请稍候）" "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet --no-cache-dir
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "后端环境就绪"
 elif check_hash_changed "$HASH_FILE" "$CURRENT_HASH"; then
+    "$VENV_PIP" cache purge >/dev/null 2>&1 || true
     run_with_spinner "检测到变更，更新 Python 依赖" "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet --no-cache-dir
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "依赖更新完成"
@@ -304,5 +309,11 @@ echo -e "  ${GREEN}后端 API: http://localhost:5409${NC}"
 echo "============================================"
 echo ""
 echo "按 Ctrl+C 停止所有服务"
+echo ""
+echo "--- 后端日志 ---"
+
+tail -f "$BACKEND_LOG" &
+TAIL_PID=$!
+trap "kill $TAIL_PID 2>/dev/null; cleanup" SIGINT SIGTERM
 
 wait || true

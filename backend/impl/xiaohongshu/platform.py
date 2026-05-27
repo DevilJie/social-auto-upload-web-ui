@@ -120,8 +120,7 @@ class XiaohongshuPlatform(BasePlatform):
     async def check_cookie(self, cookie_file: str) -> bool:
         """Return True if the saved cookie file is still valid.
 
-        Opens the publish page and checks for login redirect or a visible
-        login box.
+        Opens the creator home page and checks for login redirect.
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         if not os.path.exists(cookie_path):
@@ -132,23 +131,13 @@ class XiaohongshuPlatform(BasePlatform):
             context = await _create_context_async(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
-                await page.goto(_XHS_PUBLISH_VIDEO_URL, timeout=30000)
-                await page.wait_for_timeout(3000)
+                await page.goto(_XHS_CREATOR_URL, timeout=30000)
+                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                await asyncio.sleep(2)
 
-                # Redirected to login page means cookie expired
-                if page.url.startswith(_XHS_LOGIN_URL):
-                    logger.info("[xhs] cookie expired (redirected to login)")
+                if _XHS_LOGIN_URL in page.url:
+                    logger.info("[xhs] cookie expired, needs re-login")
                     return False
-
-                # Login box still visible means cookie expired
-                login_box = page.locator(_XHS_LOGIN_BOX_SELECTOR).first
-                if await login_box.count():
-                    try:
-                        if await login_box.is_visible():
-                            logger.info("[xhs] cookie expired (login box visible)")
-                            return False
-                    except Exception:
-                        return False
 
                 logger.info("[xhs] cookie valid")
                 return True

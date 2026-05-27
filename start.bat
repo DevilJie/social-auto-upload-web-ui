@@ -173,8 +173,22 @@ if not exist "%FRONTEND_DIR%\node_modules" (
 echo.
 echo [5/6] 启动服务...
 
+:: 确保端口完全释放
+timeout /t 1 /nobreak >nul
+
+:: 强制后端使用 5409 端口
+set "SAU_PORT=5409"
+
+:: 清除系统代理，避免 cloakbrowser/httpx 读取到不支持的 socks:// 代理
+set "http_proxy="
+set "https_proxy="
+set "all_proxy="
+set "HTTP_PROXY="
+set "HTTPS_PROXY="
+set "ALL_PROXY="
+
 cd /d "%BACKEND_DIR%"
-start "SAU-Backend" /B cmd /c ""%VENV_PYTHON%" app.py > "%BACKEND_LOG%" 2>&1"
+start "SAU-Backend" /B cmd /c "set SAU_PORT=5409 && set http_proxy= && set https_proxy= && set all_proxy= && "%VENV_PYTHON%" app.py > "%BACKEND_LOG%" 2>&1"
 echo   √ 后端已启动
 
 cd /d "%FRONTEND_DIR%"

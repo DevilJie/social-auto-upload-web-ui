@@ -123,9 +123,13 @@ set "CURRENT_HASH="
 for /f "tokens=*" %%i in ('git -C "%PROJECT_ROOT%" log -1 --format^=%%H -- backend 2^>nul') do set "CURRENT_HASH=%%i"
 if "!CURRENT_HASH!"=="" set "CURRENT_HASH=no-git"
 
-:: 检查 venv 是否完整（目录 + pip 都存在）
+:: 检查 venv 是否完整（目录 + pip + flask 都存在）
 set "VENV_OK=0"
-if exist "%VENV_DIR%" if exist "%VENV_PIP%" set "VENV_OK=1"
+if exist "%VENV_DIR%" if exist "%VENV_PIP%" (
+    :: 检查 flask 是否已安装
+    "%VENV_PYTHON%" -c "import flask" >nul 2>&1
+    if !errorlevel! equ 0 set "VENV_OK=1"
+)
 
 if "!VENV_OK!"=="0" (
     if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%" >nul 2>&1
@@ -140,28 +144,17 @@ if "!VENV_OK!"=="0" (
     echo.
     "%VENV_PIP%" cache purge >nul 2>&1
     "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir
+    if !errorlevel! neq 0 (
+        echo.
+        echo   X Python 依赖安装失败
+        pause
+        exit /b 1
+    )
     echo.
     echo !CURRENT_HASH!> "%HASH_FILE%"
     echo   √ 后端环境就绪
 ) else (
-    :: 检查 hash 是否变更
-    set "SAVED_HASH="
-    if exist "%HASH_FILE%" (
-        for /f "tokens=*" %%i in ('type "%HASH_FILE%"') do set "SAVED_HASH=%%i"
-    ) else (
-        set "SAVED_HASH=none"
-    )
-    if "!CURRENT_HASH!"=="!SAVED_HASH!" (
-        echo   √ 依赖无变更，跳过
-    ) else (
-        echo     检测到变更，更新 Python 依赖，请稍候...
-        echo.
-        "%VENV_PIP%" cache purge >nul 2>&1
-        "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir
-        echo.
-        echo !CURRENT_HASH!> "%HASH_FILE%"
-        echo   √ 依赖更新完成
-    )
+    echo   √ 依赖无变更，跳过
 )
 
 :: 检查 CloakBrowser 二进制文件

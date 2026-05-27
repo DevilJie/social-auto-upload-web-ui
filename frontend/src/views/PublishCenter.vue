@@ -461,6 +461,11 @@
 
           <!-- Right: account checkboxes -->
           <div class="dialog-account-list">
+            <div class="dialog-select-all">
+              <el-button size="small" @click="toggleSelectAll">
+                {{ isAllSelected ? '取消全选' : '一键全选' }}
+              </el-button>
+            </div>
             <el-checkbox-group v-model="tempSelectedAccounts">
               <div
                 v-for="account in filteredAccounts"
@@ -1245,6 +1250,26 @@ const filteredAccounts = computed(() => {
   }
   return list
 })
+
+const validFilteredAccounts = computed(() =>
+  filteredAccounts.value.filter(a => a.status === '正常')
+)
+
+const isAllSelected = computed(() =>
+  validFilteredAccounts.value.length > 0 &&
+  validFilteredAccounts.value.every(a => tempSelectedAccounts.value.includes(a.id))
+)
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    const validIds = new Set(validFilteredAccounts.value.map(a => a.id))
+    tempSelectedAccounts.value = tempSelectedAccounts.value.filter(id => !validIds.has(id))
+  } else {
+    const validIds = validFilteredAccounts.value.map(a => a.id)
+    const merged = new Set([...tempSelectedAccounts.value, ...validIds])
+    tempSelectedAccounts.value = [...merged]
+  }
+}
 
 function confirmAccountSelection() {
   tempSelectedAccounts.value.forEach(id => {
@@ -2714,6 +2739,14 @@ function formatSize(bytes) {
       flex: 1;
       padding: 12px;
       overflow-y: auto;
+
+      .dialog-select-all {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
 
       .dialog-account-item {
         padding: 8px 10px;

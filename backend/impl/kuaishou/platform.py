@@ -306,7 +306,7 @@ class KuaishouPlatform(BasePlatform):
         publish_date,
         enable_timer: bool,
     ):
-        browser = await self.create_browser()
+        browser = await self.create_browser(headless=False)
         upload_success = False
         try:
             context = await self.create_context(browser, storage_state=cookie_path)

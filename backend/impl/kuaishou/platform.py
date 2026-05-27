@@ -372,8 +372,11 @@ class KuaishouPlatform(BasePlatform):
                 retry += 1
 
             # ------ Set thumbnail ------
+            logger.info(f"[kuaishou] thumbnail_path: {thumbnail_path}")
             if thumbnail_path:
                 await self._set_thumbnail(page, thumbnail_path)
+            else:
+                logger.info("[kuaishou] no thumbnail_path provided, skipping cover setting")
 
             # ------ Set author declaration ------
             if author_declaration:
@@ -466,38 +469,44 @@ class KuaishouPlatform(BasePlatform):
         Flow: hover cover area -> click "封面设置" -> modal ->
         "上传封面" tab -> upload image -> confirm.
         """
-        logger.info("[kuaishou] setting thumbnail")
+        logger.info(f"[kuaishou] setting thumbnail: {thumbnail_path}")
         try:
             # 1. Hover over cover area to reveal "封面设置" overlay
             cover_area = page.locator("div[class*='default-cover']").first
+            logger.info(f"[kuaishou] hovering over cover area...")
             await cover_area.hover()
-            await asyncio.sleep(1)
+            await asyncio.sleep(1.5)
 
             # 2. Click "封面设置" text to open modal
-            cover_editor = page.locator("div[class*='cover-full-editor']:has-text('封面设置')").first
+            cover_editor = page.locator("div[class*='cover-full-editor']").first
+            logger.info(f"[kuaishou] clicking '封面设置'...")
             await cover_editor.wait_for(state="visible", timeout=10000)
             await cover_editor.click()
 
             # 3. Wait for modal
             modal = page.locator('div[role="document"].ant-modal:visible')
+            logger.info(f"[kuaishou] waiting for modal...")
             await modal.wait_for(state="visible", timeout=30000)
             await asyncio.sleep(1)
 
             # 4. Click "上传封面" tab
-            upload_tab = modal.locator("div[class*='header-title-item']:has-text('上传封面')").first
+            upload_tab = modal.locator("div[class*='header-title-item']").nth(1)
+            logger.info(f"[kuaishou] clicking '上传封面' tab...")
             await upload_tab.wait_for(state="visible", timeout=10000)
             await upload_tab.click()
             await asyncio.sleep(1)
 
             # 5. Find hidden file input and upload image
-            file_input = modal.locator("div[class*='cropper-upload'] input[type='file']")
+            file_input = modal.locator("input[type='file']")
+            logger.info(f"[kuaishou] uploading cover image...")
             await file_input.wait_for(state="attached", timeout=30000)
             await file_input.set_input_files(thumbnail_path)
-            logger.info("[kuaishou] cover image uploaded, waiting...")
+            logger.info(f"[kuaishou] cover image uploaded, waiting for processing...")
             await asyncio.sleep(3)
 
             # 6. Click "确认" button
             confirm_btn = modal.locator("button:has-text('确认')").first
+            logger.info(f"[kuaishou] clicking confirm button...")
             await confirm_btn.wait_for(state="visible", timeout=10000)
             await confirm_btn.click()
             await asyncio.sleep(2)

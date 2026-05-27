@@ -349,7 +349,7 @@
     }
 
     .section-icon.startup { background: linear-gradient(135deg, #F97316, #EA580C); }
-    .section-icon.backend { background: linear-gradient(135deg, var(--success), #059669); }
+    .section-icon.platform { background: linear-gradient(135deg, var(--success), #059669); }
     .section-icon.frontend { background: linear-gradient(135deg, var(--purple), #7C3AED); }
     .section-icon.tools { background: linear-gradient(135deg, var(--pink), #DB2777); }
 
@@ -543,12 +543,12 @@
       </div>
       <h1><span>Social-Auto-Upload</span><br>Web-UI</h1>
       <p class="hero-subtitle">
-        跨平台一键启动脚本 · 运行时环境自动检测 ·<br>
-        CloakBrowser 自动下载 · 平台稳定性优化
+        跨平台一键启动脚本 · 快手封面设置修复 ·<br>
+        账号管理优化 · 一键全选 · 草稿自动保存
       </p>
       <div class="hero-stats">
         <div class="stat">
-          <div class="stat-number">45<span>+</span></div>
+          <div class="stat-number">50<span>+</span></div>
           <div class="stat-label">提交次数</div>
         </div>
         <div class="stat">
@@ -589,29 +589,29 @@
         <li class="highlight-item">
           <div class="highlight-num">2</div>
           <div class="highlight-text">
-            <h3>运行时环境自动检测</h3>
-            <p>启动时自动检查 Python、Node.js、npm、curl、ffmpeg、ffprobe，缺少依赖时给出安装提示</p>
+            <h3>快手封面设置修复</h3>
+            <p>修复快手平台封面上传流程，支持横版/竖版封面参数，hover 触发遮罩 → 点击打开弹窗 → 上传封面 → 确认</p>
           </div>
         </li>
         <li class="highlight-item">
           <div class="highlight-num">3</div>
           <div class="highlight-text">
-            <h3>CloakBrowser 自动下载</h3>
-            <p>首次使用自动下载 CloakBrowser 浏览器（约 200MB），支持主备地址切换，带进度条显示</p>
+            <h3>账号管理优化</h3>
+            <p>账号失效时显示登录按钮，支持重新登录绑定已有账号，删除按钮放大并始终可见</p>
           </div>
         </li>
         <li class="highlight-item">
           <div class="highlight-num">4</div>
           <div class="highlight-text">
-            <h3>依赖智能缓存</h3>
-            <p>使用 git hash 检测目录变更，避免重复安装 Python 和 npm 依赖，二次启动秒完成</p>
+            <h3>发布界面一键全选</h3>
+            <p>账号选择弹窗新增一键全选功能，快速选择所有账号进行批量发布</p>
           </div>
         </li>
         <li class="highlight-item">
           <div class="highlight-num">5</div>
           <div class="highlight-text">
-            <h3>账号管理优化</h3>
-            <p>账号失效时显示登录按钮，支持重新登录绑定已有账号，异常状态实时更新</p>
+            <h3>草稿自动保存</h3>
+            <p>添加/移除账号后自动触发草稿保存，避免配置丢失</p>
           </div>
         </li>
       </ul>
@@ -643,9 +643,9 @@
             <ul>
               <li>运行时环境检查（Python、Node、npm、curl、ffmpeg、ffprobe）</li>
               <li>Python venv 自动创建和依赖管理</li>
-              <li>端口冲突自动处理（kill 占用进程）</li>
-              <li>服务健康检查（自动检测后端实际端口）</li>
-              <li>后端日志实时显示（<code>tail -f</code>）</li>
+              <li>CloakBrowser 自动下载（带进度条）</li>
+              <li>端口冲突自动处理</li>
+              <li>后端日志实时显示</li>
             </ul>
           </div>
         </div>
@@ -655,30 +655,26 @@
             <span class="card-tag feat">新功能</span>
           </div>
           <div class="card-desc">
-            <p><code>start.bat</code> — CMD 批处理脚本</p>
+            <p><code>start.bat</code> + <code>stop.bat</code></p>
             <ul>
               <li>纯 CMD 实现，不依赖 PowerShell</li>
-              <li>端口检测使用 <code>netstat</code></li>
               <li>进程 PID 管理（精准停止服务）</li>
               <li>依赖安装进度显示</li>
-              <li>新增 <code>stop.bat</code> 用于停止服务</li>
+              <li>端口自动检测</li>
             </ul>
           </div>
         </div>
         <div class="card">
           <div class="card-title">
-            跨平台兼容
-            <span class="card-tag refactor">重构</span>
+            依赖智能缓存
+            <span class="card-tag refactor">优化</span>
           </div>
           <div class="card-desc">
-            <p>统一的 6 步启动流程</p>
             <ul>
-              <li>检查运行时环境</li>
-              <li>处理端口冲突</li>
-              <li>准备后端环境（venv + CloakBrowser）</li>
-              <li>准备前端环境（npm）</li>
-              <li>启动服务</li>
-              <li>等待服务就绪并显示入口</li>
+              <li>使用 git hash 检测目录变更</li>
+              <li>避免重复安装 Python 和 npm 依赖</li>
+              <li>二次启动秒完成</li>
+              <li>venv 完整性验证（检查 Flask 是否安装）</li>
             </ul>
           </div>
         </div>
@@ -686,58 +682,58 @@
     </div>
   </section>
 
-  <!-- Section 4: 后端优化 -->
+  <!-- Section 4: 平台优化 -->
   <section class="section" data-section="3" style="background:linear-gradient(180deg,#0F172A,#1a2332);justify-content:flex-start;padding-top:6rem;">
     <div class="section-content">
       <div class="section-header">
-        <div class="section-icon backend">
+        <div class="section-icon platform">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
           </svg>
         </div>
-        <h2 class="section-title">后端优化</h2>
-        <span class="section-meta">10+ 次提交</span>
+        <h2 class="section-title">平台优化</h2>
+        <span class="section-meta">15+ 次提交</span>
       </div>
 
       <div class="card-grid">
         <div class="card">
           <div class="card-title">
-            端口 TIME_WAIT 修复
+            快手封面设置
             <span class="card-tag fix">修复</span>
           </div>
           <div class="card-desc">
             <ul>
-              <li>端口检测 socket 添加 <code>SO_REUSEADDR</code></li>
-              <li>避免重启时端口被误判为占用</li>
-              <li>解决后端回退到 5410 端口的问题</li>
+              <li>修复封面上传流程（hover → 点击 → 上传 → 确认）</li>
+              <li>支持 <code>thumbnail_landscape_path</code> 和 <code>thumbnail_portrait_path</code></li>
+              <li>优先使用竖版封面，其次横版</li>
+              <li>快手发布改为有头模式</li>
             </ul>
           </div>
         </div>
         <div class="card">
           <div class="card-title">
-            代理兼容性
+            小红书优化
             <span class="card-tag fix">修复</span>
           </div>
           <div class="card-desc">
             <ul>
-              <li>启动时清除系统代理环境变量</li>
-              <li>避免 <code>httpx</code> 不支持 <code>socks://</code> 协议</li>
-              <li>修复 CloakBrowser 下载失败问题</li>
+              <li>cookie 检测改为访问创作者首页判断跳转</li>
+              <li>增加反检测风险警告</li>
             </ul>
           </div>
         </div>
         <div class="card">
           <div class="card-title">
-            平台实现优化
+            其他平台修复
             <span class="card-tag fix">修复</span>
           </div>
           <div class="card-desc">
             <ul>
+              <li>B站：修复 cookie 有效期检测逻辑</li>
               <li>YouTube：适配 Studio 导航栏 DOM 变化</li>
-              <li>Bilibili：修复 cookie 有效期判断逻辑</li>
-              <li>小红书：cookie 检测改为访问创作者首页</li>
-              <li>小红书：增加反检测风险警告</li>
-              <li>百家号：改进平台实现</li>
+              <li>YouTube：恢复无头模式</li>
+              <li>后端：端口 TIME_WAIT 问题修复（SO_REUSEADDR）</li>
+              <li>后端：代理兼容性修复</li>
             </ul>
           </div>
         </div>
@@ -755,7 +751,7 @@
           </svg>
         </div>
         <h2 class="section-title">前端改进</h2>
-        <span class="section-meta">5+ 次提交</span>
+        <span class="section-meta">8+ 次提交</span>
       </div>
 
       <div class="card-grid">
@@ -763,25 +759,28 @@
           <div class="card-title">
             账号管理优化
             <span class="card-tag feat">新功能</span>
+            <span class="card-tag fix">修复</span>
           </div>
           <div class="card-desc">
             <ul>
-              <li>账号失效时显示登录按钮</li>
-              <li>支持重新登录绑定已有账号</li>
+              <li>账号失效时显示登录按钮，支持重新登录绑定已有账号</li>
               <li>重新登录后提示"登录成功"而非"添加成功"</li>
               <li>账号异常时禁用同步和创作中心按钮</li>
+              <li>账号删除按钮放大并始终可见</li>
+              <li>检查 cookie 失效后按钮实时变为登录按钮</li>
             </ul>
           </div>
         </div>
         <div class="card">
           <div class="card-title">
-            封面编辑器
+            发布界面优化
             <span class="card-tag feat">新功能</span>
           </div>
           <div class="card-desc">
             <ul>
+              <li>账号选择弹窗增加一键全选功能</li>
+              <li>添加/移除账号后触发自动保存草稿</li>
               <li>封面比例支持自定义设置</li>
-              <li>封面编辑弹窗优化</li>
             </ul>
           </div>
         </div>
@@ -795,7 +794,7 @@
       <div class="footer-logo">Social-Auto-Upload-Web-UI</div>
       <p>让社交媒体内容上传变得更简单</p>
       <div class="footer-meta">
-        最后更新于 2026年5月27日 · 共 45+ 次提交 · 10 个平台
+        最后更新于 2026年5月27日 · 共 50+ 次提交 · 10 个平台
       </div>
     </div>
   </section>

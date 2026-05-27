@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>更新日志 | Social-Auto-Upload-Web-UI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --primary: #2563EB;
+      --secondary: #3B82F6;
+      --cta: #F97316;
+      --bg: #0F172A;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --border: rgba(255, 255, 255, 0.1);
+      --card-bg: rgba(255, 255, 255, 0.05);
+      --success: #10B981;
+      --purple: #8B5CF6;
+      --pink: #EC4899;
+    }
+
+    html {
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      transition: all 0.3s ease;
+    }
+
+    .nav.scrolled {
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-dots {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .nav-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .nav-dot:hover {
+      background: rgba(255, 255, 255, 0.4);
+    }
+
+    .nav-dot.active {
+      background: var(--primary);
+      transform: scale(1.2);
+    }
+
+    .section {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 4rem 2rem;
+      scroll-snap-align: start;
+      position: relative;
+    }
+
+    .section-content {
+      max-width: 1000px;
+      width: 100%;
+      opacity: 0;
+      transform: translateY(40px);
+      transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .section.visible .section-content {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .page-indicator {
+      position: fixed;
+      right: 2rem;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      z-index: 50;
+    }
+
+    .indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .indicator-dot:hover {
+      background: rgba(255, 255, 255, 0.4);
+      transform: scale(1.3);
+    }
+
+    .indicator-dot.active {
+      background: var(--cta);
+      height: 24px;
+      border-radius: 4px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%);
+      text-align: center;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(circle at 30% 20%, rgba(37, 99, 235, 0.3) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 80%, rgba(139, 92, 246, 0.2) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(37, 99, 235, 0.2);
+      border: 1px solid rgba(37, 99, 235, 0.4);
+      border-radius: 100px;
+      color: #93C5FD;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-bottom: 2rem;
+    }
+
+    .hero-badge svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .hero h1 {
+      font-size: clamp(3rem, 10vw, 6rem);
+      font-weight: 800;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--primary), var(--cta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: 1.5rem;
+      color: var(--text-muted);
+      max-width: 700px;
+      margin: 0 auto 3rem;
+    }
+
+    .hero-stats {
+      display: flex;
+      gap: 4rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 4rem;
+      font-weight: 800;
+      color: white;
+      line-height: 1;
+    }
+
+    .stat-number span {
+      color: var(--cta);
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .scroll-hint {
+      position: absolute;
+      bottom: 3rem;
+      left: 50%;
+      transform: translateX(-50%);
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      animation: bounce 2s infinite;
+    }
+
+    .scroll-hint svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    @keyframes bounce {
+      0%, 20%, 50%, 80%, 100% { transform: translateX(-50%) translateY(0); }
+      40% { transform: translateX(-50%) translateY(-15px); }
+      60% { transform: translateX(-50%) translateY(-8px); }
+    }
+
+    .highlights {
+      background: linear-gradient(180deg, #0F172A 0%, #1a2332 100%);
+      justify-content: flex-start;
+      padding-top: 6rem;
+    }
+
+    .highlight-icon {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, var(--primary), var(--purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem;
+    }
+
+    .highlight-icon svg {
+      width: 40px;
+      height: 40px;
+      color: white;
+    }
+
+    .highlights h2 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .highlight-list {
+      list-style: none;
+      margin-top: 1.5rem;
+    }
+
+    .highlight-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 1.5rem;
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .highlight-item:last-child {
+      border-bottom: none;
+    }
+
+    .highlight-num {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .highlight-text h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .highlight-text p {
+      color: var(--text-muted);
+      font-size: 1rem;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+      flex-shrink: 0;
+    }
+
+    .section-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .section-icon svg {
+      width: 32px;
+      height: 32px;
+      color: white;
+    }
+
+    .section-icon.startup { background: linear-gradient(135deg, #F97316, #EA580C); }
+    .section-icon.backend { background: linear-gradient(135deg, var(--success), #059669); }
+    .section-icon.frontend { background: linear-gradient(135deg, var(--purple), #7C3AED); }
+    .section-icon.tools { background: linear-gradient(135deg, var(--pink), #DB2777); }
+
+    .section-title {
+      font-size: 2.5rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .section-meta {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-left: auto;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.5rem 1rem;
+      border-radius: 100px;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: var(--primary);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .card-tag {
+      padding: 0.25rem 0.75rem;
+      border-radius: 100px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .card-tag.feat { background: rgba(249, 115, 22, 0.2); color: #F97316; }
+    .card-tag.fix { background: rgba(16, 185, 129, 0.2); color: #10B981; }
+    .card-tag.refactor { background: rgba(139, 92, 246, 0.2); color: #8B5CF6; }
+    .card-tag.style { background: rgba(236, 72, 153, 0.2); color: #EC4899; }
+
+    .card-desc {
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .card-desc ul {
+      margin-top: 0.75rem;
+      padding-left: 1.25rem;
+    }
+
+    .card-desc li {
+      margin-bottom: 0.5rem;
+    }
+
+    code {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875em;
+      color: #93C5FD;
+    }
+
+    .footer {
+      background: #0F172A;
+      text-align: center;
+    }
+
+    .footer-logo {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, var(--primary), var(--cta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .footer p {
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      font-size: 1.25rem;
+    }
+
+    .footer-meta {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-top: 3rem;
+    }
+
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary), var(--cta));
+      z-index: 200;
+      width: 0%;
+      transition: width 0.1s ease;
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.5rem; }
+      .hero-subtitle { font-size: 1.125rem; }
+      .hero-stats { gap: 2rem; }
+      .stat-number { font-size: 2.5rem; }
+      .highlights h2 { font-size: 1.75rem; }
+      .highlight-text h3 { font-size: 1.1rem; }
+      .section-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+      .section-title { font-size: 1.75rem; white-space: normal; }
+      .section-meta { display: none; }
+      .page-indicator { right: 1rem; }
+      .card-grid { grid-template-columns: 1fr; }
+      .nav { gap: 1rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-snap-type: none; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+
+    .keyboard-hint {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 0.75rem 1.5rem;
+      border-radius: 100px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: 50;
+    }
+
+    .keyboard-hint.visible { opacity: 1; }
+
+    .key {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="progress-bar" id="progressBar"></div>
+  <nav class="nav" id="nav">
+    <div class="nav-dots" id="navDots"></div>
+  </nav>
+  <div class="page-indicator" id="pageIndicator"></div>
+  <div class="keyboard-hint" id="keyboardHint">
+    <span class="key">↓</span> <span class="key">↑</span> 或滚动切换页面
+  </div>
+
+  <!-- Section 1: Hero -->
+  <section class="section hero" data-section="0">
+    <div class="hero-content section-content">
+      <div class="hero-badge">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        2026年第22周更新
+      </div>
+      <h1><span>Social-Auto-Upload</span><br>Web-UI</h1>
+      <p class="hero-subtitle">
+        跨平台一键启动脚本 · 运行时环境自动检测 ·<br>
+        CloakBrowser 自动下载 · 平台稳定性优化
+      </p>
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-number">45<span>+</span></div>
+          <div class="stat-label">提交次数</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">3</div>
+          <div class="stat-label">新增脚本</div>
+        </div>
+        <div class="stat">
+          <div class="stat-number">10</div>
+          <div class="stat-label">平台支持</div>
+        </div>
+      </div>
+    </div>
+    <div class="scroll-hint">
+      <span>向下滚动切换下一屏</span>
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- Section 2: Highlights -->
+  <section class="section highlights" data-section="1">
+    <div class="section-content">
+      <div class="highlight-icon">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+        </svg>
+      </div>
+      <h2>核心亮点</h2>
+      <ul class="highlight-list">
+        <li class="highlight-item">
+          <div class="highlight-num">1</div>
+          <div class="highlight-text">
+            <h3>跨平台一键启动脚本</h3>
+            <p>新增 <code>start.sh</code>（Linux/macOS）和 <code>start.bat</code>（Windows），自动化环境检测、依赖安装、服务启动，一条命令即可运行</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">2</div>
+          <div class="highlight-text">
+            <h3>运行时环境自动检测</h3>
+            <p>启动时自动检查 Python、Node.js、npm、curl、ffmpeg、ffprobe，缺少依赖时给出安装提示</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">3</div>
+          <div class="highlight-text">
+            <h3>CloakBrowser 自动下载</h3>
+            <p>首次使用自动下载 CloakBrowser 浏览器（约 200MB），支持主备地址切换，带进度条显示</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">4</div>
+          <div class="highlight-text">
+            <h3>依赖智能缓存</h3>
+            <p>使用 git hash 检测目录变更，避免重复安装 Python 和 npm 依赖，二次启动秒完成</p>
+          </div>
+        </li>
+        <li class="highlight-item">
+          <div class="highlight-num">5</div>
+          <div class="highlight-text">
+            <h3>账号管理优化</h3>
+            <p>账号失效时显示登录按钮，支持重新登录绑定已有账号，异常状态实时更新</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Section 3: 启动脚本 -->
+  <section class="section" data-section="2" style="background:linear-gradient(180deg,#1a2332,#0F172A);justify-content:flex-start;padding-top:6rem;">
+    <div class="section-content">
+      <div class="section-header">
+        <div class="section-icon startup">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <h2 class="section-title">一键启动脚本</h2>
+        <span class="section-meta">30+ 次提交</span>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">
+            Linux/macOS 启动脚本
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p><code>start.sh</code> — Bash 脚本，支持 Linux 和 macOS</p>
+            <ul>
+              <li>运行时环境检查（Python、Node、npm、curl、ffmpeg、ffprobe）</li>
+              <li>Python venv 自动创建和依赖管理</li>
+              <li>端口冲突自动处理（kill 占用进程）</li>
+              <li>服务健康检查（自动检测后端实际端口）</li>
+              <li>后端日志实时显示（<code>tail -f</code>）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">
+            Windows 启动脚本
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <p><code>start.bat</code> — CMD 批处理脚本</p>
+            <ul>
+              <li>纯 CMD 实现，不依赖 PowerShell</li>
+              <li>端口检测使用 <code>netstat</code></li>
+              <li>进程 PID 管理（精准停止服务）</li>
+              <li>依赖安装进度显示</li>
+              <li>新增 <code>stop.bat</code> 用于停止服务</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">
+            跨平台兼容
+            <span class="card-tag refactor">重构</span>
+          </div>
+          <div class="card-desc">
+            <p>统一的 6 步启动流程</p>
+            <ul>
+              <li>检查运行时环境</li>
+              <li>处理端口冲突</li>
+              <li>准备后端环境（venv + CloakBrowser）</li>
+              <li>准备前端环境（npm）</li>
+              <li>启动服务</li>
+              <li>等待服务就绪并显示入口</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4: 后端优化 -->
+  <section class="section" data-section="3" style="background:linear-gradient(180deg,#0F172A,#1a2332);justify-content:flex-start;padding-top:6rem;">
+    <div class="section-content">
+      <div class="section-header">
+        <div class="section-icon backend">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+          </svg>
+        </div>
+        <h2 class="section-title">后端优化</h2>
+        <span class="section-meta">10+ 次提交</span>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">
+            端口 TIME_WAIT 修复
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>端口检测 socket 添加 <code>SO_REUSEADDR</code></li>
+              <li>避免重启时端口被误判为占用</li>
+              <li>解决后端回退到 5410 端口的问题</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">
+            代理兼容性
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>启动时清除系统代理环境变量</li>
+              <li>避免 <code>httpx</code> 不支持 <code>socks://</code> 协议</li>
+              <li>修复 CloakBrowser 下载失败问题</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">
+            平台实现优化
+            <span class="card-tag fix">修复</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>YouTube：适配 Studio 导航栏 DOM 变化</li>
+              <li>Bilibili：修复 cookie 有效期判断逻辑</li>
+              <li>小红书：cookie 检测改为访问创作者首页</li>
+              <li>小红书：增加反检测风险警告</li>
+              <li>百家号：改进平台实现</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 5: 前端改进 -->
+  <section class="section" data-section="4" style="background:linear-gradient(180deg,#1a2332,#0F172A);justify-content:flex-start;padding-top:6rem;">
+    <div class="section-content">
+      <div class="section-header">
+        <div class="section-icon frontend">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <h2 class="section-title">前端改进</h2>
+        <span class="section-meta">5+ 次提交</span>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div class="card-title">
+            账号管理优化
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>账号失效时显示登录按钮</li>
+              <li>支持重新登录绑定已有账号</li>
+              <li>重新登录后提示"登录成功"而非"添加成功"</li>
+              <li>账号异常时禁用同步和创作中心按钮</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">
+            封面编辑器
+            <span class="card-tag feat">新功能</span>
+          </div>
+          <div class="card-desc">
+            <ul>
+              <li>封面比例支持自定义设置</li>
+              <li>封面编辑弹窗优化</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 6: Footer -->
+  <section class="section footer" data-section="5">
+    <div class="section-content">
+      <div class="footer-logo">Social-Auto-Upload-Web-UI</div>
+      <p>让社交媒体内容上传变得更简单</p>
+      <div class="footer-meta">
+        最后更新于 2026年5月27日 · 共 45+ 次提交 · 10 个平台
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const sections = document.querySelectorAll('.section');
+    const nav = document.getElementById('nav');
+    const navDots = document.getElementById('navDots');
+    const pageIndicator = document.getElementById('pageIndicator');
+    const progressBar = document.getElementById('progressBar');
+    const keyboardHint = document.getElementById('keyboardHint');
+    let currentSection = 0;
+    let isScrolling = false;
+
+    sections.forEach((_, index) => {
+      const dot = document.createElement('div');
+      dot.className = 'nav-dot' + (index === 0 ? ' active' : '');
+      dot.addEventListener('click', () => scrollToSection(index));
+      navDots.appendChild(dot);
+
+      const indicator = document.createElement('div');
+      indicator.className = 'indicator-dot' + (index === 0 ? ' active' : '');
+      indicator.addEventListener('click', () => scrollToSection(index));
+      pageIndicator.appendChild(indicator);
+    });
+
+    function scrollToSection(index) {
+      if (index >= 0 && index < sections.length) {
+        sections[index].scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    function updateActiveStates(index) {
+      document.querySelectorAll('.nav-dot').forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+      });
+      document.querySelectorAll('.indicator-dot').forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+      });
+      currentSection = index;
+      if (index === 0) {
+        keyboardHint.classList.add('visible');
+        setTimeout(() => keyboardHint.classList.remove('visible'), 3000);
+      }
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+          const index = parseInt(entry.target.dataset.section);
+          entry.target.classList.add('visible');
+          updateActiveStates(index);
+        }
+      });
+    }, { threshold: 0.5 });
+
+    sections.forEach(section => observer.observe(section));
+
+    window.addEventListener('scroll', () => {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = (scrollTop / docHeight) * 100;
+      progressBar.style.width = progress + '%';
+      nav.classList.toggle('scrolled', scrollTop > 100);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        scrollToSection(currentSection + 1);
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        scrollToSection(currentSection - 1);
+      }
+    });
+
+    setTimeout(() => {
+      keyboardHint.classList.add('visible');
+      setTimeout(() => keyboardHint.classList.remove('visible'), 3000);
+    }, 1000);
+  </script>
+</body>
+</html>

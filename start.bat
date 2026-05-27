@@ -340,8 +340,8 @@ echo.
 echo   查看后端日志: type %BACKEND_LOG%
 echo   查看前端日志: type %FRONTEND_LOG%
 echo.
-echo 按任意键退出并停止所有服务...
-pause
+echo 按 Y 退出并停止所有服务，按 N 保持运行:
+choice /c YN /m "选择"
 
 :: 停止服务
 echo.

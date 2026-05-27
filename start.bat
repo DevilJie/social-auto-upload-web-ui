@@ -184,8 +184,14 @@ if "!CHROME_FOUND!"=="0" (
     echo     首次使用，下载 CloakBrowser 浏览器（约 200MB）...
 
     :: 获取下载信息
-    for /f "tokens=*" %%u in ('"%VENV_PYTHON%" -c "import cloakbrowser.download as d; print(d.get_fallback_download_url())"') do set "DOWNLOAD_URL=%%u"
-    for /f "tokens=*" %%d in ('"%VENV_PYTHON%" -c "import cloakbrowser.download as d; print(d.get_binary_dir())"') do set "BINARY_DIR=%%d"
+    "%VENV_PYTHON%" -c "import cloakbrowser.download as d; f=open(r'%TEMP%\cb_info.txt','w'); f.write(d.get_fallback_download_url()+'\n'); f.write(d.get_binary_dir()+'\n'); f.close()"
+    set "DOWNLOAD_URL="
+    set "BINARY_DIR="
+    if exist "%TEMP%\cb_info.txt" (
+        set /p DOWNLOAD_URL=<"%TEMP%\cb_info.txt"
+        for /f "skip=1 tokens=*" %%d in ('type "%TEMP%\cb_info.txt"') do set "BINARY_DIR=%%d"
+        del /f "%TEMP%\cb_info.txt" >nul 2>&1
+    )
 
     echo     下载地址: !DOWNLOAD_URL!
     echo.

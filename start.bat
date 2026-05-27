@@ -78,6 +78,14 @@ if errorlevel 1 (
 )
 echo   √ ffprobe 已安装
 
+:: 清除系统代理，避免 httpx/cloakbrowser 读取到不支持的 socks:// 代理
+set "http_proxy="
+set "https_proxy="
+set "all_proxy="
+set "HTTP_PROXY="
+set "HTTPS_PROXY="
+set "ALL_PROXY="
+
 :: ============================================================
 :: Step 2: 处理端口冲突
 :: ============================================================
@@ -148,15 +156,57 @@ if "%VENV_OK%"=="0" (
 
 :: 检查 CloakBrowser 二进制文件
 set "CLOAKBROWSER_DIR=%USERPROFILE%\.cloakbrowser"
-dir /b "%CLOAKBROWSER_DIR%\chromium-*" >nul 2>&1
-if errorlevel 1 (
-    echo     首次使用，下载 CloakBrowser 浏览器（约 200MB，请耐心等待）...
-    "%VENV_PYTHON%" -c "from cloakbrowser.download import ensure_binary; ensure_binary()"
+set "CHROME_FOUND=0"
+for /d %%d in ("%CLOAKBROWSER_DIR%\chromium-*") do (
+    if exist "%%d\chrome.exe" set "CHROME_FOUND=1"
+)
+
+if "%CHROME_FOUND%"=="0" (
+    echo     首次使用，下载 CloakBrowser 浏览器（约 200MB）...
+
+    :: 获取下载信息
+    for /f "tokens=*" %%u in ('"%VENV_PYTHON%" -c "import cloakbrowser.download as d; print(d.get_fallback_download_url())"') do set "DOWNLOAD_URL=%%u"
+    for /f "tokens=*" %%d in ('"%VENV_PYTHON%" -c "import cloakbrowser.download as d; print(d.get_binary_dir())"') do set "BINARY_DIR=%%d"
+
+    echo     下载地址: !DOWNLOAD_URL!
+    echo.
+
+    :: 使用 curl 下载（带进度条）
+    set "TMP_FILE=%TEMP%\cloakbrowser.tar.gz"
+    curl -L -# -o "!TMP_FILE!" "!DOWNLOAD_URL!"
     if errorlevel 1 (
-        echo   X CloakBrowser 下载失败，请检查网络连接
+        echo.
+        echo     主下载失败，尝试 GitHub 备用地址...
+        :: 替换为 GitHub 地址
+        set "GITHUB_URL=!DOWNLOAD_URL:cloakbrowser.dev=github.com/CloakHQ/cloakbrowser/releases/download!"
+        curl -L -# -o "!TMP_FILE!" "!GITHUB_URL!"
+        if errorlevel 1 (
+            del /f "!TMP_FILE!" >nul 2>&1
+            echo   X CloakBrowser 下载失败，请检查网络连接
+            exit /b 1
+        )
+    )
+
+    echo.
+    echo     解压中...
+
+    :: 解压（使用 tar，Windows 10+ 自带）
+    if not exist "!BINARY_DIR!" mkdir "!BINARY_DIR!"
+    tar -xzf "!TMP_FILE!" -C "!BINARY_DIR!" >nul 2>&1
+    del /f "!TMP_FILE!" >nul 2>&1
+
+    :: 检查是否成功
+    set "EXTRACT_OK=0"
+    for /d %%d in ("!BINARY_DIR!\chromium-*") do (
+        if exist "%%d\chrome.exe" set "EXTRACT_OK=1"
+    )
+
+    if "!EXTRACT_OK!"=="1" (
+        echo   √ CloakBrowser 下载完成
+    ) else (
+        echo   X CloakBrowser 解压失败
         exit /b 1
     )
-    echo   √ CloakBrowser 下载完成
 ) else (
     echo   √ CloakBrowser 已安装
 )

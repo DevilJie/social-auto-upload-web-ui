@@ -47,7 +47,7 @@
                 <span class="account-name">{{ account.name }}</span>
                 <span :class="['dot', account.status === '正常' ? 'on' : 'off']"></span>
                 <el-icon v-if="hasAccountOverride(account.id)" class="override-icon" title="已自定义配置"><StarFilled /></el-icon>
-                <el-icon v-else class="account-remove" @click.stop="publishAccountIds.delete(account.id)"><Close /></el-icon>
+                <el-icon v-else class="account-remove" @click.stop="removePublishAccount(account.id)"><Close /></el-icon>
               </div>
               <div v-if="group.accounts.filter(a => publishAccountIds.has(a.id)).length === 0" class="no-accounts">暂无账号</div>
             </div>
@@ -1000,6 +1000,11 @@ const currentDraftId = ref(null) // null = 新草稿, number = 编辑已有草�
 const autoSaveTimer = ref(null)
 const hasChanges = ref(false) // 是否有过修改
 
+function removePublishAccount(id) {
+  publishAccountIds.delete(id)
+  hasChanges.value = true
+}
+
 function togglePublishAccount(account, group) {
   selectedPlatform.value = group.key
   expandedGroups.value.add(group.key)
@@ -1008,6 +1013,7 @@ function togglePublishAccount(account, group) {
   } else {
     publishAccountIds.add(account.id)
   }
+  hasChanges.value = true
 }
 
 function selectAccount(account, group) {
@@ -1275,6 +1281,7 @@ function confirmAccountSelection() {
   tempSelectedAccounts.value.forEach(id => {
     publishAccountIds.add(id)
   })
+  hasChanges.value = true
   accountDialogVisible.value = false
   ElMessage.success(`已选择 ${tempSelectedAccounts.value.length} 个账号`)
   tempSelectedAccounts.value = []

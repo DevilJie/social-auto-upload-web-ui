@@ -215,11 +215,11 @@ class YoutubePlatform(BasePlatform):
         browser = None
         try:
             browser = await self.create_browser(
-                headless=False, proxy=self._get_proxy(),
+                headless=True, proxy=self._get_proxy(),
             )
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
-            await page.goto(YOUTUBE_STUDIO_URL, timeout=60000)
+            await page.goto(YOUTUBE_STUDIO_URL, timeout=30000)
             user_name, avatar_url = await scrape_youtube_profile(page)
             return user_name, avatar_url
 

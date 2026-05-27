@@ -320,13 +320,14 @@ if !COUNT! GTR 60 (
     echo.
     goto show_info
 )
-:: 使用 PowerShell 检查前端是否就绪
-powershell -Command "(Invoke-WebRequest -Uri 'http://127.0.0.1:5173' -UseBasicParsing -TimeoutSec 2).StatusCode" 2>nul | findstr "200" >nul
-if !errorlevel! neq 0 (
-    timeout /t 1 /nobreak >nul
-    goto wait_frontend
+:: 检查端口 5173 是否被占用（前端已启动）
+netstat -an | findstr ":5173" | findstr "LISTENING" >nul 2>&1
+if !errorlevel! equ 0 (
+    echo   √ 前端就绪
+    goto show_info
 )
-echo   √ 前端就绪
+timeout /t 1 /nobreak >nul
+goto wait_frontend
 
 :show_info
 :: 显示访问入口
@@ -340,9 +341,9 @@ echo   后端日志: %BACKEND_LOG%
 echo   前端日志: %FRONTEND_LOG%
 echo.
 
-:: 显示最新日志
-echo --- 后端最新日志 ---
-powershell -Command "Get-Content '%BACKEND_LOG%' -Tail 10 2>$null"
+:: 显示日志查看命令
+echo   查看后端日志: type %BACKEND_LOG%
+echo   查看前端日志: type %FRONTEND_LOG%
 echo.
 
 echo 按任意键停止所有服务...

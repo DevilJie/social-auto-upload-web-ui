@@ -348,7 +348,7 @@ const handleCheckAccount = async (row) => {
     const res = await http.get('/checkAccount', { id: row.id })
     if (res.code === 200 && res.data) {
       const { valid, status } = res.data
-      accountStore.updateAccount(row.id, { ...row, status: valid ? '正常' : '失效' })
+      accountStore.updateAccount(row.id, { ...row, status: valid ? '正常' : '异常' })
       ElMessage({ type: valid ? 'success' : 'warning', message: res.msg })
     } else {
       ElMessage.error(res.msg || '检查失败')

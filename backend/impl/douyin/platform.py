@@ -34,7 +34,7 @@ class DouyinPlatform(BasePlatform):
     # login — QR code scan via CloakBrowser
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform Douyin login via QR code scan.
 
         Opens ``https://creator.douyin.com/``, extracts the QR image from
@@ -87,6 +87,7 @@ class DouyinPlatform(BasePlatform):
                     platform_name=self.platform_name,
                     status_queue=status_queue,
                     scrape_fn=scrape_user_profile,
+                    account_id=account_id,
                 )
             finally:
                 await context.close()

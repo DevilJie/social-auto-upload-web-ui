@@ -77,7 +77,7 @@ class BasePlatform(ABC):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform platform login, pushing progress updates to *status_queue*."""
         ...
 

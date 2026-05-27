@@ -586,7 +586,7 @@ class ChannelsPlatform(BasePlatform):
     # login — QR code in iframe, then save_login_result
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform Channels (视频号) login via QR code scan.
 
         Opens ``https://channels.weixin.qq.com``, extracts the QR code
@@ -623,6 +623,7 @@ class ChannelsPlatform(BasePlatform):
                         platform_name=self.platform_name,
                         status_queue=status_queue,
                         scrape_fn=scrape_tencent_profile,
+                        account_id=account_id,
                     )
                     return
 

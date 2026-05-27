@@ -76,21 +76,25 @@
         <!-- 卡片底部：操作按钮 -->
         <div class="card-footer">
           <div class="card-actions">
-            <button class="action-btn check" @click="handleCheckAccount(account)" :disabled="checkingIds.has(account.id)">
+            <button v-if="account.status === '异常'" class="action-btn login" @click="handleReLogin(account)">
+              <el-icon><Key /></el-icon>
+              登录
+            </button>
+            <button v-else class="action-btn check" @click="handleCheckAccount(account)" :disabled="checkingIds.has(account.id)">
               <el-icon v-if="checkingIds.has(account.id)" class="is-loading"><Loading /></el-icon>
               <template v-else>
                 <el-icon><Check /></el-icon>
                 检查
               </template>
             </button>
-            <button class="action-btn sync" @click="handleSyncProfile(account)" :disabled="syncingIds.has(account.id)">
+            <button class="action-btn sync" @click="handleSyncProfile(account)" :disabled="account.status === '异常' || syncingIds.has(account.id)">
               <el-icon v-if="syncingIds.has(account.id)" class="is-loading"><Loading /></el-icon>
               <template v-else>
                 <el-icon><Refresh /></el-icon>
                 同步
               </template>
             </button>
-            <button class="action-btn creator" @click="handleOpenCreatorCenter(account)">
+            <button class="action-btn creator" @click="handleOpenCreatorCenter(account)" :disabled="account.status === '异常'">
               <el-icon><Link /></el-icon>
               创作中心
             </button>
@@ -119,7 +123,7 @@
     <!-- 添加/编辑账号对话框 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="dialogType === 'add' ? '添加账号' : '编辑账号'"
+      :title="dialogType === 'add' ? '添加账号' : (accountForm.id ? '重新登录' : '编辑账号')"
       width="500px"
       :close-on-click-modal="false"
       :close-on-press-escape="!sseConnecting"
@@ -162,7 +166,7 @@
           </div>
           <div v-else-if="loginStatus === '200'" class="status-wrapper success">
             <el-icon><CircleCheckFilled /></el-icon>
-            <span>添加成功</span>
+            <span>{{ dialogType === 'edit' ? '登录成功' : '添加成功' }}</span>
           </div>
           <div v-else-if="loginStatus === '500'" class="status-wrapper error">
             <el-icon><CircleCloseFilled /></el-icon>
@@ -189,7 +193,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { Refresh, CircleCheckFilled, CircleCloseFilled, Loading, Link, Plus, Edit, Delete, Check, Folder } from '@element-plus/icons-vue'
+import { Refresh, CircleCheckFilled, CircleCloseFilled, Loading, Link, Plus, Edit, Delete, Check, Folder, Key } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
@@ -344,7 +348,7 @@ const handleCheckAccount = async (row) => {
     const res = await http.get('/checkAccount', { id: row.id })
     if (res.code === 200 && res.data) {
       const { valid, status } = res.data
-      accountStore.updateAccount(row.id, { ...row, status: valid ? '正常' : '失效' })
+      accountStore.updateAccount(row.id, { ...row, status: valid ? '正常' : '异常' })
       ElMessage({ type: valid ? 'success' : 'warning', message: res.msg })
     } else {
       ElMessage.error(res.msg || '检查失败')
@@ -358,8 +362,19 @@ const handleCheckAccount = async (row) => {
 const qrCodeData = ref('')
 const loginStatus = ref('')
 
-const onPlatformSelect = () => {
+const onPlatformSelect = async (value) => {
   accountFormRef.value?.validateField('platform')
+  if (value === '小红书') {
+    try {
+      await ElMessageBox.confirm(
+        '由于小红书反检测机制比较恶心，如果出现被警告的情况！请立即停止使用小红书渠道！',
+        '风险警告',
+        { confirmButtonText: '我已知悉，继续添加', cancelButtonText: '取消', type: 'warning' }
+      )
+    } catch {
+      accountForm.platform = ''
+    }
+  }
 }
 
 const handleAddAccount = () => {
@@ -448,7 +463,7 @@ const handleReLogin = (row) => {
   qrCodeData.value = ''
   loginStatus.value = ''
   dialogVisible.value = true
-  setTimeout(() => connectSSE(row.platform), 300)
+  setTimeout(() => connectSSE(row.platform, row.id), 300)
 }
 
 const syncingIds = reactive(new Set())
@@ -500,7 +515,7 @@ const closeSSEConnection = () => {
   if (eventSource) { eventSource.close(); eventSource = null }
 }
 
-const connectSSE = (platform) => {
+const connectSSE = (platform, accountId) => {
   closeSSEConnection()
   sseConnecting.value = true
   qrCodeData.value = ''
@@ -510,7 +525,10 @@ const connectSSE = (platform) => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
   // 使用 UUID 作为临时标识，不再需要用户输入名称
   const tempId = crypto.randomUUID()
-  const url = `${baseUrl}/login?type=${type}&id=${encodeURIComponent(tempId)}`
+  let url = `${baseUrl}/login?type=${type}&id=${encodeURIComponent(tempId)}`
+  if (accountId) {
+    url += `&account_id=${encodeURIComponent(accountId)}`
+  }
 
   eventSource = new EventSource(url)
 
@@ -527,7 +545,7 @@ const connectSSE = (platform) => {
           setTimeout(() => {
             dialogVisible.value = false
             sseConnecting.value = false
-            ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
+            ElMessage.success(dialogType.value === 'edit' ? '登录成功' : '账号添加成功')
             ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
             fetchAccountsQuick().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
           }, 1000)
@@ -562,7 +580,7 @@ const connectSSE = (platform) => {
         setTimeout(() => {
           dialogVisible.value = false
           sseConnecting.value = false
-          ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
+          ElMessage.success(dialogType.value === 'edit' ? '登录成功' : '账号添加成功')
           ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
           fetchAccountsQuick().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
         }, 1000)
@@ -956,6 +974,12 @@ onBeforeUnmount(() => { closeSSEConnection() })
           background: rgba($success-color, 0.1);
           color: $success-color;
           &:hover:not(:disabled) { background: rgba($success-color, 0.2); box-shadow: 0 2px 10px rgba($success-color, 0.2); }
+        }
+
+        &.login {
+          background: rgba($warning-color, 0.1);
+          color: $warning-color;
+          &:hover:not(:disabled) { background: rgba($warning-color, 0.2); box-shadow: 0 2px 10px rgba($warning-color, 0.2); }
         }
 
         &.sync {

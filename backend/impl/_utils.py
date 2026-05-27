@@ -325,13 +325,8 @@ async def scrape_baijiahao_profile(page):
 async def scrape_youtube_profile(page):
     """YouTube-specific scraper.
 
-    YouTube Studio uses Polymer Shadow DOM. The channel name appears in
-    ``ytcp-ve`` elements and the avatar uses Google profile image URLs.
-
-    Strategy:
-      1. Try button[id="avatar-button"] + adjacent span for name (Studio header)
-      2. Scan all ``<img>`` for ``ggpht.com`` / ``googleusercontent`` URLs
-      3. Fallback to page title
+    Navigates to YouTube Studio, waits for redirect to the channel page,
+    then extracts the channel name and avatar from the navigation drawer.
 
     Returns:
         tuple[str, str]: (user_name, avatar_url)
@@ -339,40 +334,30 @@ async def scrape_youtube_profile(page):
     name = ""
     avatar = ""
     try:
+        # Wait for redirect to channel-specific URL
+        await page.wait_for_url("**/channel/**", timeout=15000)
         await page.wait_for_load_state('networkidle', timeout=15000)
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
 
-        # Strategy 1: Avatar button in Studio header contains channel info
-        avatar_btn = page.locator('button[id="avatar-button"]')
-        if await avatar_btn.count():
-            # The avatar image is inside the button
-            btn_img = avatar_btn.locator('img')
-            if await btn_img.count():
-                src = (await btn_img.get_attribute('src') or '').strip()
-                if src:
-                    avatar = src
-                alt = (await btn_img.get_attribute('alt') or '').strip()
-                if alt and len(alt) < 50:
-                    name = alt
-            # aria-label often contains "账号: <channel name>"
-            if not name:
-                aria = (await avatar_btn.get_attribute('aria-label') or '').strip()
-                if aria:
-                    # e.g. "账号: MyChannel" or "Account: MyChannel"
-                    for sep in (':', '：'):
-                        if sep in aria:
-                            candidate = aria.split(sep, 1)[1].strip()
-                            if candidate:
-                                name = candidate
-                                break
+        # Extract nickname from navigation drawer
+        name_el = page.locator('div#entity-name').first
+        if await name_el.count():
+            name = (await name_el.text_content() or '').strip()
 
-        # Strategy 2: div#entity-name (present in some Studio views)
-        if not name:
-            name_el = page.locator('div#entity-name').first
-            if await name_el.count():
-                name = (await name_el.text_content() or '').strip()
+        # Extract avatar from navigation drawer
+        avatar_el = page.locator('img.image-thumbnail').first
+        if await avatar_el.count():
+            avatar = (await avatar_el.get_attribute('src') or '').strip()
 
-        # Strategy 3: Scan all images for Google profile URLs
+        # Fallback: avatar button in Studio header
+        if not avatar:
+            avatar_btn = page.locator('button[id="avatar-button"]')
+            if await avatar_btn.count():
+                btn_img = avatar_btn.locator('img')
+                if await btn_img.count():
+                    avatar = (await btn_img.get_attribute('src') or '').strip()
+
+        # Fallback: scan all images for Google profile URLs
         if not avatar:
             all_imgs = page.locator('img')
             count = await all_imgs.count()
@@ -471,6 +456,7 @@ async def save_login_result(
     platform_name: str,
     status_queue,
     scrape_fn=None,
+    account_id=None,
 ):
     """Shared post-login flow: scrape profile, save cookie, write DB, send SSE.
 
@@ -487,6 +473,8 @@ async def save_login_result(
             frontend.
         scrape_fn: Optional async ``async (page) -> (name, avatar)`` callable.
             Defaults to :func:`scrape_user_profile` (the generic JS scraper).
+        account_id: Optional existing account ID for re-login. When provided,
+            updates the existing record instead of creating a new one.
     """
     if scrape_fn is None:
         scrape_fn = scrape_user_profile
@@ -496,26 +484,55 @@ async def save_login_result(
     if not user_name:
         user_name = f"{platform_name}用户{int(asyncio.get_event_loop().time())}"
 
-    # 2. Save cookie file
-    uuid_v1 = uuid.uuid1()
-    logger.info(f"UUID v1: {uuid_v1}")
     cookies_dir = Path(BASE_DIR / "cookiesFile")
     cookies_dir.mkdir(exist_ok=True)
-    cookie_filename = f"{uuid_v1}.json"
+    db_path = Path(BASE_DIR / "db" / "database.db")
+
+    if account_id:
+        # Re-login: update existing record's cookie file
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                'SELECT filePath FROM user_info WHERE id = ?', (account_id,)
+            ).fetchone()
+            cookie_filename = row[0] if row else None
+
+        if not cookie_filename:
+            logger.info(f"[login] account {account_id} not found, creating new")
+            account_id = None
+
+    if not account_id:
+        # New login: generate new cookie filename
+        uuid_v1 = uuid.uuid1()
+        logger.info(f"UUID v1: {uuid_v1}")
+        cookie_filename = f"{uuid_v1}.json"
+
+    # 2. Save cookie file
     await context.storage_state(path=cookies_dir / cookie_filename)
 
     # 3. Write to database
-    with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            '''
-            INSERT INTO user_info (type, filePath, userName, status, avatar)
-            VALUES (?, ?, ?, ?, ?)
-            ''',
-            (platform_id, cookie_filename, user_name, 1, avatar_url),
-        )
-        conn.commit()
-        logger.info(f"[login] {platform_name} user record saved")
+    with sqlite3.connect(db_path) as conn:
+        if account_id:
+            conn.execute(
+                '''
+                UPDATE user_info
+                SET userName = ?, status = 1, avatar = ?
+                WHERE id = ?
+                ''',
+                (user_name, avatar_url, account_id),
+            )
+            conn.commit()
+            logger.info(f"[login] account {account_id} updated (re-login)")
+        else:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                INSERT INTO user_info (type, filePath, userName, status, avatar)
+                VALUES (?, ?, ?, ?, ?)
+                ''',
+                (platform_id, cookie_filename, user_name, 1, avatar_url),
+            )
+            conn.commit()
+            logger.info(f"[login] {platform_name} user record saved")
 
     # 4. Send SSE status
     status_queue.put(json.dumps({

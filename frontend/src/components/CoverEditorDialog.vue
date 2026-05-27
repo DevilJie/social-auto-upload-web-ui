@@ -24,7 +24,7 @@
               <div class="crop-handle top-right" data-handle="tr"></div>
               <div class="crop-handle bottom-left" data-handle="bl"></div>
               <div class="crop-handle bottom-right" data-handle="br"></div>
-              <div class="crop-ratio-badge">{{ activeTab === 'portrait' ? '9:16' : '16:9' }}</div>
+              <div class="crop-ratio-badge">{{ currentRatioLabel }}</div>
             </div>
           </div>
         </div>
@@ -96,6 +96,8 @@ const props = defineProps({
   coverLandscape: { type: Object, default: null },
   coverPortrait: { type: Object, default: null },
   materials: { type: Array, default: () => [] },
+  portraitRatio: { type: String, default: '9:16' },
+  landscapeRatio: { type: String, default: '16:9' },
 })
 
 const emit = defineEmits(['update:coverLandscape', 'update:coverPortrait'])
@@ -128,7 +130,12 @@ const imageMaterials = computed(() => {
   return props.materials.filter(m => imgExts.some(ext => m.filename.toLowerCase().endsWith(ext)))
 })
 
-const aspectRatio = computed(() => activeTab.value === 'portrait' ? 9 / 16 : 16 / 9)
+const currentRatioLabel = computed(() => activeTab.value === 'portrait' ? props.portraitRatio : props.landscapeRatio)
+
+const aspectRatio = computed(() => {
+  const [w, h] = currentRatioLabel.value.split(':').map(Number)
+  return activeTab.value === 'portrait' ? w / h : w / h
+})
 
 const cropSelectionStyle = computed(() => ({
   left: cropRect.x * cropDisplayScale.value + 'px',
@@ -379,8 +386,15 @@ async function confirmCrop() {
   saveTabState()
   const img = cropImage.value
   if (!img) { ElMessage.warning('请先选择一张图片'); return }
-  const targetW = activeTab.value === 'portrait' ? 1080 : 1920
-  const targetH = activeTab.value === 'portrait' ? 1920 : 1080
+  const [rw, rh] = currentRatioLabel.value.split(':').map(Number)
+  let targetW, targetH
+  if (activeTab.value === 'portrait') {
+    targetH = 1920
+    targetW = Math.round(1920 * rw / rh)
+  } else {
+    targetW = 1920
+    targetH = Math.round(1920 * rh / rw)
+  }
   const offscreen = document.createElement('canvas')
   offscreen.width = targetW; offscreen.height = targetH
   const ctx = offscreen.getContext('2d')

@@ -64,6 +64,30 @@
           <el-input-number v-model="settings.autoSaveInterval" :min="10" :max="300" controls-position="right" style="width: 120px" />
         </div>
       </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">竖版封面比例</span>
+          <span class="setting-desc">封面裁剪编辑器中竖版封面的裁剪比例</span>
+        </div>
+        <div class="setting-control">
+          <el-select v-model="settings.portraitRatio" style="width: 120px">
+            <el-option label="9:16" value="9:16" />
+            <el-option label="3:4" value="3:4" />
+          </el-select>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">横版封面比例</span>
+          <span class="setting-desc">封面裁剪编辑器中横版封面的裁剪比例</span>
+        </div>
+        <div class="setting-control">
+          <el-select v-model="settings.landscapeRatio" style="width: 120px">
+            <el-option label="16:9" value="16:9" />
+            <el-option label="4:3" value="4:3" />
+          </el-select>
+        </div>
+      </div>
     </div>
 
     <!-- 缓存管理 -->
@@ -150,6 +174,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { settingsApi } from '@/api/v2'
 import { platformList } from '@/config/platforms'
 import { http } from '@/utils/request'
+import { useAppStore } from '@/stores/app'
+
+const appStore = useAppStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -214,6 +241,8 @@ const settings = reactive({
   autoFillTitle: true,
   autoSaveDraft: true,
   autoSaveInterval: 10,
+  portraitRatio: '9:16',
+  landscapeRatio: '16:9',
 })
 
 // 海外平台列表
@@ -248,6 +277,8 @@ const fetchSettings = async () => {
       if (res.data.autoFillTitle !== undefined) settings.autoFillTitle = res.data.autoFillTitle
       if (res.data.autoSaveDraft !== undefined) settings.autoSaveDraft = res.data.autoSaveDraft
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
+      if (res.data.portraitRatio !== undefined) settings.portraitRatio = res.data.portraitRatio
+      if (res.data.landscapeRatio !== undefined) settings.landscapeRatio = res.data.landscapeRatio
     }
   } catch (e) {
     console.error(e)
@@ -264,8 +295,12 @@ const handleSave = async () => {
       autoFillTitle: settings.autoFillTitle,
       autoSaveDraft: settings.autoSaveDraft,
       autoSaveInterval: settings.autoSaveInterval,
+      portraitRatio: settings.portraitRatio,
+      landscapeRatio: settings.landscapeRatio,
     })
     if (res.code === 200) {
+      appStore.setPortraitRatio(settings.portraitRatio)
+      appStore.setLandscapeRatio(settings.landscapeRatio)
       ElMessage.success('设置已保存')
     } else {
       ElMessage.error(res.msg || '保存失败')

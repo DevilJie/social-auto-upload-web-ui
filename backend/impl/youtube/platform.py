@@ -52,7 +52,7 @@ class YoutubePlatform(BasePlatform):
     # profile for proxy to work in headed mode)
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform YouTube login via persistent browser context.
 
         Opens accounts.google.com, waits for the user to complete sign-in,
@@ -106,23 +106,45 @@ class YoutubePlatform(BasePlatform):
                 user_name = f"YouTube{int(asyncio.get_event_loop().time())}"
 
             # Save storage state manually (persistent context)
-            uuid_v1 = uuid.uuid1()
             cookies_dir = Path(BASE_DIR / "cookiesFile")
             cookies_dir.mkdir(exist_ok=True)
-            cookie_filename = f"{uuid_v1}.json"
+            db_path = Path(BASE_DIR / "db" / "database.db")
+
+            if account_id:
+                with sqlite3.connect(db_path) as conn:
+                    row = conn.execute(
+                        'SELECT filePath FROM user_info WHERE id = ?', (account_id,)
+                    ).fetchone()
+                    cookie_filename = row[0] if row else None
+                if not cookie_filename:
+                    account_id = None
+
+            if not account_id:
+                uuid_v1 = uuid.uuid1()
+                cookie_filename = f"{uuid_v1}.json"
+
             await context.storage_state(path=cookies_dir / cookie_filename)
             logger.info(_msg(f"cookie saved as {cookie_filename}"))
 
             # Write to database
-            with sqlite3.connect(Path(BASE_DIR / "db" / "database.db")) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO user_info (type, filePath, userName, status, avatar)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (8, cookie_filename, user_name, 1, avatar_url),
-                )
+            with sqlite3.connect(db_path) as conn:
+                if account_id:
+                    conn.execute(
+                        """
+                        UPDATE user_info SET userName = ?, status = 1, avatar = ?
+                        WHERE id = ?
+                        """,
+                        (user_name, avatar_url, account_id),
+                    )
+                else:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        INSERT INTO user_info (type, filePath, userName, status, avatar)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (8, cookie_filename, user_name, 1, avatar_url),
+                    )
                 conn.commit()
             logger.info(_msg("user record saved to DB"))
 

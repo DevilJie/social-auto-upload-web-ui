@@ -37,7 +37,7 @@ class BaijiahaoPlatform(BasePlatform):
     # login -- QR code / redirect via CloakBrowser
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform Baijiahao login.
 
         Opens ``https://baijiahao.baidu.com/builder/theme/bjh/login`` and
@@ -74,6 +74,7 @@ class BaijiahaoPlatform(BasePlatform):
                     platform_name=self.platform_name,
                     status_queue=status_queue,
                     scrape_fn=scrape_baijiahao_profile,
+                    account_id=account_id,
                 )
             finally:
                 await context.close()
@@ -88,8 +89,8 @@ class BaijiahaoPlatform(BasePlatform):
         """Return True if the saved cookie file is still valid.
 
         Opens ``https://baijiahao.baidu.com/builder/rc/home`` with the
-        stored cookies.  If "注册/登录百家号" text appears within 5 seconds
-        the cookie is considered invalid.
+        stored cookies.  If redirected to the login page, the cookie
+        is considered invalid.
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
@@ -102,13 +103,14 @@ class BaijiahaoPlatform(BasePlatform):
                 await page.goto(
                     "https://baijiahao.baidu.com/builder/rc/home"
                 )
-                await page.wait_for_timeout(5000)
+                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                await asyncio.sleep(2)
 
-                if await page.get_by_text("注册/登录百家号").count():
-                    logger.error("等待5秒 cookie 失效")
+                if "baijiahao.baidu.com/builder/theme/bjh/login" in page.url:
+                    logger.info("[baijiahao] cookie expired, needs re-login")
                     return False
                 else:
-                    logger.info("[+] cookie 有效")
+                    logger.info("[baijiahao] cookie valid")
                     return True
             finally:
                 await context.close()

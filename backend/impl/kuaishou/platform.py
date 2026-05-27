@@ -39,7 +39,7 @@ class KuaishouPlatform(BasePlatform):
     # Login — QR code scan via CloakBrowser
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform Kuaishou login via QR code scan.
 
         Opens the Kuaishou creator platform, clicks through to the QR
@@ -110,6 +110,7 @@ class KuaishouPlatform(BasePlatform):
                 platform_name=self.platform_name,
                 status_queue=status_queue,
                 scrape_fn=scrape_user_profile,
+                account_id=account_id,
             )
         except Exception as exc:
             logger.info(f"[kuaishou] login error: {exc}")
@@ -261,15 +262,25 @@ class KuaishouPlatform(BasePlatform):
         videos_per_day = kwargs.get("videos_per_day", 1)
         daily_times = kwargs.get("daily_times")
         start_days = kwargs.get("start_days", 0)
-        thumbnail_path = kwargs.get("thumbnail_path")
+        thumbnail_path = kwargs.get("thumbnail_path", "")
+        thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
+        thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "")
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
         author_declaration = kwargs.get("author_declaration", "")
+
+        # 优先使用竖版封面，其次横版，最后通用封面
+        cover_path = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
 
         publish_dates = parse_schedule_time(
             schedule_time_str, len(files), enable_timer,
             videos_per_day, daily_times, start_days,
         )
+
+        # 构建封面完整路径
+        if cover_path:
+            cover_path = str(Path(BASE_DIR / "videoFile" / cover_path))
+            logger.info(f"[kuaishou] cover path: {cover_path}")
 
         for idx, file_name in enumerate(files):
             video_path = str(Path(BASE_DIR / "videoFile" / file_name))
@@ -283,7 +294,7 @@ class KuaishouPlatform(BasePlatform):
                     title=title,
                     desc=desc,
                     tags=tags,
-                    thumbnail_path=thumbnail_path,
+                    thumbnail_path=cover_path,
                     author_declaration=author_declaration,
                     publish_date=pub_date,
                     enable_timer=enable_timer,
@@ -305,7 +316,7 @@ class KuaishouPlatform(BasePlatform):
         publish_date,
         enable_timer: bool,
     ):
-        browser = await self.create_browser()
+        browser = await self.create_browser(headless=False)
         upload_success = False
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
@@ -371,8 +382,11 @@ class KuaishouPlatform(BasePlatform):
                 retry += 1
 
             # ------ Set thumbnail ------
+            logger.info(f"[kuaishou] thumbnail_path: {thumbnail_path}")
             if thumbnail_path:
                 await self._set_thumbnail(page, thumbnail_path)
+            else:
+                logger.info("[kuaishou] no thumbnail_path provided, skipping cover setting")
 
             # ------ Set author declaration ------
             if author_declaration:
@@ -462,47 +476,49 @@ class KuaishouPlatform(BasePlatform):
     async def _set_thumbnail(page, thumbnail_path: str):
         """Upload custom cover image.
 
-        Flow: click cover area -> modal -> "上传封面" tab -> upload ->
-        select 4:3 ratio -> confirm.
+        Flow: hover cover area -> click "封面设置" -> modal ->
+        "上传封面" tab -> upload image -> confirm.
         """
-        logger.info("[kuaishou] setting thumbnail")
+        logger.info(f"[kuaishou] setting thumbnail: {thumbnail_path}")
         try:
-            # 1. Click cover area
+            # 1. Hover over cover area to reveal "封面设置" overlay
             cover_area = page.locator("div[class*='default-cover']").first
-            await cover_area.click()
+            logger.info(f"[kuaishou] hovering over cover area...")
+            await cover_area.hover()
+            await asyncio.sleep(1.5)
 
-            # 2. Wait for modal
+            # 2. Click "封面设置" text to open modal
+            cover_editor = page.locator("div[class*='cover-full-editor']").first
+            logger.info(f"[kuaishou] clicking '封面设置'...")
+            await cover_editor.wait_for(state="visible", timeout=10000)
+            await cover_editor.click()
+
+            # 3. Wait for modal
             modal = page.locator('div[role="document"].ant-modal:visible')
+            logger.info(f"[kuaishou] waiting for modal...")
             await modal.wait_for(state="visible", timeout=30000)
             await asyncio.sleep(1)
 
-            # 3. Click "上传封面" tab (second header-title-item)
+            # 4. Click "上传封面" tab
             upload_tab = modal.locator("div[class*='header-title-item']").nth(1)
+            logger.info(f"[kuaishou] clicking '上传封面' tab...")
             await upload_tab.wait_for(state="visible", timeout=10000)
             await upload_tab.click()
             await asyncio.sleep(1)
 
-            # 4. Upload image
-            file_input = modal.locator('input[type="file"]')
+            # 5. Find hidden file input and upload image
+            file_input = modal.locator("input[type='file']")
+            logger.info(f"[kuaishou] uploading cover image...")
             await file_input.wait_for(state="attached", timeout=30000)
             await file_input.set_input_files(thumbnail_path)
-            await asyncio.sleep(2)
+            logger.info(f"[kuaishou] cover image uploaded, waiting for processing...")
+            await asyncio.sleep(3)
 
-            # 5. Select 4:3 ratio (second ratio-item)
-            ratio_4_3 = modal.locator("div[class*='ratio-item']").nth(1)
-            if await ratio_4_3.count():
-                await ratio_4_3.click()
-                await asyncio.sleep(1)
-
-            # 6. Confirm
-            confirm_btn = modal.get_by_role("button", name="确认", exact=True)
-            if await confirm_btn.count():
-                await confirm_btn.click()
-            else:
-                edit_btn = modal.get_by_role("button", name="去编辑", exact=True)
-                if await edit_btn.count():
-                    await edit_btn.click()
-
+            # 6. Click "确认" button
+            confirm_btn = modal.locator("button:has-text('确认')").first
+            logger.info(f"[kuaishou] clicking confirm button...")
+            await confirm_btn.wait_for(state="visible", timeout=10000)
+            await confirm_btn.click()
             await asyncio.sleep(2)
 
             # 7. Wait for modal to close
@@ -511,7 +527,7 @@ class KuaishouPlatform(BasePlatform):
             except Exception:
                 pass
 
-            logger.info("[kuaishou] thumbnail set")
+            logger.info("[kuaishou] thumbnail set successfully")
         except Exception as exc:
             logger.info(f"[kuaishou] thumbnail failed (non-fatal): {exc}")
 

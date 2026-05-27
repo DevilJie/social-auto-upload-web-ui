@@ -166,7 +166,7 @@
           </div>
           <div v-else-if="loginStatus === '200'" class="status-wrapper success">
             <el-icon><CircleCheckFilled /></el-icon>
-            <span>添加成功</span>
+            <span>{{ dialogType === 'edit' ? '登录成功' : '添加成功' }}</span>
           </div>
           <div v-else-if="loginStatus === '500'" class="status-wrapper error">
             <el-icon><CircleCloseFilled /></el-icon>
@@ -534,7 +534,7 @@ const connectSSE = (platform, accountId) => {
           setTimeout(() => {
             dialogVisible.value = false
             sseConnecting.value = false
-            ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
+            ElMessage.success(dialogType.value === 'edit' ? '登录成功' : '账号添加成功')
             ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
             fetchAccountsQuick().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
           }, 1000)
@@ -569,7 +569,7 @@ const connectSSE = (platform, accountId) => {
         setTimeout(() => {
           dialogVisible.value = false
           sseConnecting.value = false
-          ElMessage.success(dialogType.value === 'edit' ? '重新登录成功' : '账号添加成功')
+          ElMessage.success(dialogType.value === 'edit' ? '登录成功' : '账号添加成功')
           ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
           fetchAccountsQuick().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
         }, 1000)

@@ -155,8 +155,10 @@ if "!VENV_OK!"=="0" (
         echo   √ 依赖无变更，跳过
     ) else (
         echo     检测到变更，更新 Python 依赖，请稍候...
+        echo.
         "%VENV_PIP%" cache purge >nul 2>&1
-        "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --quiet --no-cache-dir
+        "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir
+        echo.
         echo !CURRENT_HASH!> "%HASH_FILE%"
         echo   √ 依赖更新完成
     )

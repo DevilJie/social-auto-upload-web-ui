@@ -55,7 +55,7 @@ class BilibiliPlatform(BasePlatform):
     # Login
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform Bilibili login via QR code scan.
 
         Opens ``passport.bilibili.com/login``, finds the QR image via
@@ -128,6 +128,7 @@ class BilibiliPlatform(BasePlatform):
                 platform_name=self.platform_name,
                 status_queue=status_queue,
                 scrape_fn=scrape_bilibili_profile,
+                account_id=account_id,
             )
 
             await page.close()
@@ -142,9 +143,8 @@ class BilibiliPlatform(BasePlatform):
     async def check_cookie(self, cookie_file: str) -> bool:
         """Check whether the saved cookie file is still valid.
 
-        Opens ``member.bilibili.com/platform/upload-manager/article`` with
-        stored cookies.  If redirected to ``passport.bilibili.com``, the
-        cookie is stale.
+        Opens ``member.bilibili.com/platform/home`` with stored cookies.
+        If redirected to ``passport.bilibili.com/login``, the cookie is stale.
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
@@ -152,16 +152,17 @@ class BilibiliPlatform(BasePlatform):
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
-            await page.goto(BILIBILI_MANAGE_URL)
+            await page.goto("https://member.bilibili.com/platform/home")
             try:
-                await page.wait_for_url("**/platform/**", timeout=5000)
-                if "passport.bilibili.com" in page.url:
+                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                await asyncio.sleep(2)
+                if "passport.bilibili.com/login" in page.url:
                     logger.info("[bilibili] cookie expired, needs re-login")
                     return False
                 logger.info("[bilibili] cookie valid")
                 return True
             except Exception:
-                logger.info("[bilibili] cookie check timed out (5s)")
+                logger.info("[bilibili] cookie check timed out")
                 return False
             finally:
                 await page.close()

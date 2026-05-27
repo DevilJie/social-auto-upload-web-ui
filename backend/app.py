@@ -496,6 +496,7 @@ def open_creator_center():
 def login():
     type_str = request.args.get('type')
     id_str = request.args.get('id')
+    account_id = request.args.get('account_id')
     if not type_str or not id_str:
         return jsonify({"code": 400, "msg": "缺少 type 或 id"}), 400
 
@@ -510,7 +511,7 @@ def login():
         active_queues.pop(id_str, None)
 
     thread = threading.Thread(
-        target=lambda: asyncio.run(platform.login(id_str, status_queue)),
+        target=lambda: asyncio.run(platform.login(id_str, status_queue, account_id=account_id)),
         daemon=True
     )
     thread.start()
@@ -885,6 +886,7 @@ if __name__ == "__main__":
     if port == 5409:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind(("127.0.0.1", port))
         except OSError:
             port = find_available_port(5409 + 1)

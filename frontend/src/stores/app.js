@@ -43,6 +43,30 @@ export const useAppStore = defineStore('app', () => {
     autoSaveDraft.value = settings.autoSaveDraft !== undefined ? settings.autoSaveDraft : true
     autoSaveInterval.value = settings.autoSaveInterval !== undefined ? settings.autoSaveInterval : 10
   }
+
+  // 封面比例设置
+  const portraitRatio = ref('9:16')
+  const landscapeRatio = ref('16:9')
+
+  const setPortraitRatio = (value) => {
+    portraitRatio.value = value
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.portraitRatio = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const setLandscapeRatio = (value) => {
+    landscapeRatio.value = value
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.landscapeRatio = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const loadCoverRatioSettings = () => {
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    portraitRatio.value = settings.portraitRatio || '9:16'
+    landscapeRatio.value = settings.landscapeRatio || '16:9'
+  }
   
   // 是否是第一次进入素材管理页面
   const isFirstTimeMaterialManagement = ref(true)
@@ -105,6 +129,11 @@ export const useAppStore = defineStore('app', () => {
     setAutoSaveDraft,
     setAutoSaveInterval,
     loadAutoSaveSettings,
+    portraitRatio,
+    landscapeRatio,
+    setPortraitRatio,
+    setLandscapeRatio,
+    loadCoverRatioSettings,
     setAccountManagementVisited,
     setMaterialManagementVisited,
     resetVisitStatus,

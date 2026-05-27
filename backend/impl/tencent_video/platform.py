@@ -77,7 +77,7 @@ class TencentVideoPlatform(BasePlatform):
     # login — open browser, wait for user to log in manually
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         url_changed_event = asyncio.Event()
 
         async def _on_url_change():
@@ -114,6 +114,7 @@ class TencentVideoPlatform(BasePlatform):
                     platform_name=self.platform_name,
                     status_queue=status_queue,
                     scrape_fn=_scrape_tencent_video_profile,
+                    account_id=account_id,
                 )
             finally:
                 await context.close()

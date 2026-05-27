@@ -47,7 +47,7 @@
                 <span class="account-name">{{ account.name }}</span>
                 <span :class="['dot', account.status === '正常' ? 'on' : 'off']"></span>
                 <el-icon v-if="hasAccountOverride(account.id)" class="override-icon" title="已自定义配置"><StarFilled /></el-icon>
-                <el-icon v-else class="account-remove" @click.stop="publishAccountIds.delete(account.id)"><Close /></el-icon>
+                <el-icon class="account-remove" @click.stop="removePublishAccount(account.id)"><Close /></el-icon>
               </div>
               <div v-if="group.accounts.filter(a => publishAccountIds.has(a.id)).length === 0" class="no-accounts">暂无账号</div>
             </div>
@@ -104,7 +104,7 @@
             <div class="cover-grid">
               <CoverCard
                 label="竖版封面"
-                ratio-label="9:16"
+                :ratio-label="appStore.portraitRatio"
                 v-model="commonConfig.coverPortrait"
                 :has-video="!!(commonConfig.videoPortrait || commonConfig.videoLandscape)"
                 @edit="openCoverEditor('portrait')"
@@ -112,7 +112,7 @@
               />
               <CoverCard
                 label="横版封面"
-                ratio-label="16:9"
+                :ratio-label="appStore.landscapeRatio"
                 v-model="commonConfig.coverLandscape"
                 :has-video="!!(commonConfig.videoPortrait || commonConfig.videoLandscape)"
                 @edit="openCoverEditor('landscape')"
@@ -128,6 +128,8 @@
             :cover-landscape="commonConfig.coverLandscape"
             :cover-portrait="commonConfig.coverPortrait"
             :materials="materials"
+            :portrait-ratio="appStore.portraitRatio"
+            :landscape-ratio="appStore.landscapeRatio"
             @update:cover-landscape="commonConfig.coverLandscape = $event"
             @update:cover-portrait="commonConfig.coverPortrait = $event"
           />
@@ -210,6 +212,12 @@
           <!-- 如果选中了账号且有自定义配置，显示"恢复默认"按钮 -->
           <div v-if="selectedAccountId && hasAccountOverride(selectedAccountId)" style="margin-bottom: 12px;">
             <el-button size="small" @click="resetAccountOverride(selectedAccountId)">恢复为渠道默认</el-button>
+          </div>
+
+          <!-- 小红书反检测警告 -->
+          <div v-if="selectedPlatform === 'xiaohongshu'" class="xhs-warning">
+            <el-icon><WarningFilled /></el-icon>
+            <span>由于小红书反检测机制比较恶心，如果出现被警告的情况！请立即停止使用小红书渠道！</span>
           </div>
 
           <!-- 账号级 or 渠道级标题描述 -->
@@ -372,10 +380,10 @@
         </div>
         <div class="phone-mode-tabs">
           <button :class="['mode-tab', { active: videoModeTab === 'portrait' }]" @click="videoModeTab = 'portrait'">
-            <span class="mode-icon-portrait"></span> 竖版 9:16
+            <span class="mode-icon-portrait"></span> 竖版 {{ appStore.portraitRatio }}
           </button>
           <button :class="['mode-tab', { active: videoModeTab === 'landscape' }]" @click="videoModeTab = 'landscape'">
-            <span class="mode-icon-landscape"></span> 横版 16:9
+            <span class="mode-icon-landscape"></span> 横版 {{ appStore.landscapeRatio }}
           </button>
         </div>
         <div class="phone-preview-area">
@@ -453,6 +461,11 @@
 
           <!-- Right: account checkboxes -->
           <div class="dialog-account-list">
+            <div class="dialog-select-all">
+              <el-button size="small" @click="toggleSelectAll">
+                {{ isAllSelected ? '取消全选' : '一键全选' }}
+              </el-button>
+            </div>
             <el-checkbox-group v-model="tempSelectedAccounts">
               <div
                 v-for="account in filteredAccounts"
@@ -643,7 +656,7 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
-import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete, Document } from '@element-plus/icons-vue'
+import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete, Document, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -662,6 +675,7 @@ const accountStore = useAccountStore()
 const appStore = useAppStore()
 appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
 appStore.loadAutoSaveSettings()  // 加载自动保存草稿设置
+appStore.loadCoverRatioSettings()  // 加载封面比例设置
 const route = useRoute()
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 const authHeaders = computed(() => ({ 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }))
@@ -986,6 +1000,11 @@ const currentDraftId = ref(null) // null = 新草稿, number = 编辑已有草�
 const autoSaveTimer = ref(null)
 const hasChanges = ref(false) // 是否有过修改
 
+function removePublishAccount(id) {
+  publishAccountIds.delete(id)
+  hasChanges.value = true
+}
+
 function togglePublishAccount(account, group) {
   selectedPlatform.value = group.key
   expandedGroups.value.add(group.key)
@@ -994,6 +1013,7 @@ function togglePublishAccount(account, group) {
   } else {
     publishAccountIds.add(account.id)
   }
+  hasChanges.value = true
 }
 
 function selectAccount(account, group) {
@@ -1237,10 +1257,31 @@ const filteredAccounts = computed(() => {
   return list
 })
 
+const validFilteredAccounts = computed(() =>
+  filteredAccounts.value.filter(a => a.status === '正常')
+)
+
+const isAllSelected = computed(() =>
+  validFilteredAccounts.value.length > 0 &&
+  validFilteredAccounts.value.every(a => tempSelectedAccounts.value.includes(a.id))
+)
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    const validIds = new Set(validFilteredAccounts.value.map(a => a.id))
+    tempSelectedAccounts.value = tempSelectedAccounts.value.filter(id => !validIds.has(id))
+  } else {
+    const validIds = validFilteredAccounts.value.map(a => a.id)
+    const merged = new Set([...tempSelectedAccounts.value, ...validIds])
+    tempSelectedAccounts.value = [...merged]
+  }
+}
+
 function confirmAccountSelection() {
   tempSelectedAccounts.value.forEach(id => {
     publishAccountIds.add(id)
   })
+  hasChanges.value = true
   accountDialogVisible.value = false
   ElMessage.success(`已选择 ${tempSelectedAccounts.value.length} 个账号`)
   tempSelectedAccounts.value = []
@@ -1870,20 +1911,18 @@ function formatSize(bytes) {
     }
 
     .account-remove {
-      font-size: 12px;
+      font-size: 16px;
       color: $text-muted;
-      opacity: 0;
+      opacity: 0.6;
       transition: $transition-fast;
       flex-shrink: 0;
-      margin-left: 2px;
+      margin-left: 4px;
+      cursor: pointer;
 
       &:hover {
         color: $danger-color;
+        opacity: 1;
       }
-    }
-
-    &:hover .account-remove {
-      opacity: 1;
     }
 
     &.has-override {
@@ -2056,6 +2095,31 @@ function formatSize(bytes) {
 // ========== Config Section ==========
 .config-section {
   margin-bottom: 24px;
+}
+
+.xhs-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: rgba(#ff4d4f, 0.1);
+  border: 2px solid #ff4d4f;
+  border-radius: 8px;
+  color: #ff4d4f;
+  font-size: 14px;
+  font-weight: 600;
+  animation: xhs-pulse 2s ease-in-out infinite;
+
+  .el-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+}
+
+@keyframes xhs-pulse {
+  0%, 100% { border-color: #ff4d4f; }
+  50% { border-color: #ff7875; box-shadow: 0 0 12px rgba(#ff4d4f, 0.3); }
 }
 
 .section-bar {
@@ -2680,6 +2744,14 @@ function formatSize(bytes) {
       flex: 1;
       padding: 12px;
       overflow-y: auto;
+
+      .dialog-select-all {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
 
       .dialog-account-item {
         padding: 8px 10px;

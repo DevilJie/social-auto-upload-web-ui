@@ -49,7 +49,7 @@ class TiktokPlatform(BasePlatform):
     # Login
     # ------------------------------------------------------------------
 
-    async def login(self, id: str, status_queue: Queue) -> None:
+    async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """Perform TikTok login via browser.
 
         Opens ``https://www.tiktok.com/login?lang=en`` with proxy and
@@ -86,6 +86,7 @@ class TiktokPlatform(BasePlatform):
                 platform_name=self.platform_name,
                 status_queue=status_queue,
                 scrape_fn=scrape_user_profile,
+                account_id=account_id,
             )
         finally:
             await browser.close()

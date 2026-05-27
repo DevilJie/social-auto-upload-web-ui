@@ -247,11 +247,57 @@ fi
 # 检查 CloakBrowser 二进制文件
 CLOAKBROWSER_DIR="$HOME/.cloakbrowser"
 if ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome-bin/chrome >/dev/null 2>&1; then
-    run_with_spinner "首次使用，下载 CloakBrowser 浏览器（约 200MB，请耐心等待）" "$VENV_PYTHON" -c "from cloakbrowser.download import ensure_binary; ensure_binary()"
-    if [[ $? -eq 0 ]]; then
-        print_ok "CloakBrowser 下载完成"
+    echo -e "  ${CYAN}📥 首次使用，下载 CloakBrowser 浏览器${NC}"
+
+    # 从 Python 获取下载信息
+    DOWNLOAD_INFO=$("$VENV_PYTHON" -c "
+import cloakbrowser.download as d
+print(d.get_fallback_download_url())
+print(d.get_binary_dir())
+print(d.get_binary_path())
+" 2>/dev/null)
+
+    DOWNLOAD_URL=$(echo "$DOWNLOAD_INFO" | sed -n '1p')
+    BINARY_DIR=$(echo "$DOWNLOAD_INFO" | sed -n '2p')
+    BINARY_PATH=$(echo "$DOWNLOAD_INFO" | sed -n '3p')
+
+    if [[ -z "$DOWNLOAD_URL" ]]; then
+        print_fail "无法获取下载地址"
+        exit 1
+    fi
+
+    # 使用 curl 下载（带进度条）
+    TMP_FILE=$(mktemp /tmp/cloakbrowser-XXXXXX.tar.gz)
+    echo -e "  ${CYAN}⬇  下载地址: ${DOWNLOAD_URL}${NC}"
+    echo ""
+
+    if ! curl -L -# -o "$TMP_FILE" "$DOWNLOAD_URL"; then
+        # 主下载失败，尝试 GitHub 备用地址
+        GITHUB_URL=$(echo "$DOWNLOAD_URL" | sed 's|cloakbrowser.dev|github.com/CloakHQ/cloakbrowser/releases/download|')
+        echo ""
+        echo -e "  ${WARN} 主下载失败，尝试 GitHub 备用地址..."
+        if ! curl -L -# -o "$TMP_FILE" "$GITHUB_URL"; then
+            rm -f "$TMP_FILE"
+            print_fail "CloakBrowser 下载失败，请检查网络连接"
+            exit 1
+        fi
+    fi
+
+    # 解压到目标目录
+    echo ""
+    echo -n -e "  ${CYAN}📦 解压中...${NC}"
+    mkdir -p "$BINARY_DIR"
+    tar -xzf "$TMP_FILE" -C "$BINARY_DIR" 2>/dev/null
+    rm -f "$TMP_FILE"
+
+    # 确保二进制文件可执行
+    chmod +x "$BINARY_PATH" 2>/dev/null
+    chmod +x "$BINARY_DIR"/chrome-bin/chrome 2>/dev/null
+
+    if [[ -f "$BINARY_PATH" ]] || ls "$BINARY_DIR"/chrome-bin/chrome >/dev/null 2>&1; then
+        printf "\r  ${CHECK} CloakBrowser 下载完成\n"
     else
-        print_fail "CloakBrowser 下载失败，请检查网络连接"
+        printf "\r  ${CROSS} CloakBrowser 解压失败\n"
         exit 1
     fi
 else

@@ -314,18 +314,21 @@ echo   √ 后端就绪 (端口: !BACKEND_PORT!)
 set /a "COUNT=0"
 :wait_frontend
 set /a "COUNT+=1"
-if !COUNT! GTR 30 (
-    echo   X 前端启动超时，请查看日志: %FRONTEND_LOG%
-    pause
-    exit /b 1
+if !COUNT! GTR 60 (
+    echo   X 前端启动超时（60秒），但服务可能仍在运行
+    echo   请手动访问 http://localhost:5173 检查
+    echo.
+    goto show_info
 )
-curl -s -o nul -w "%%{http_code}" http://127.0.0.1:5173 2>nul | findstr "200" >nul
+:: 使用 PowerShell 检查前端是否就绪
+powershell -Command "(Invoke-WebRequest -Uri 'http://127.0.0.1:5173' -UseBasicParsing -TimeoutSec 2).StatusCode" 2>nul | findstr "200" >nul
 if !errorlevel! neq 0 (
     timeout /t 1 /nobreak >nul
     goto wait_frontend
 )
 echo   √ 前端就绪
 
+:show_info
 :: 显示访问入口
 echo.
 echo ============================================
@@ -336,13 +339,13 @@ echo.
 echo   后端日志: %BACKEND_LOG%
 echo   前端日志: %FRONTEND_LOG%
 echo.
-echo 按任意键停止所有服务...
-echo.
 
 :: 显示最新日志
+echo --- 后端最新日志 ---
 powershell -Command "Get-Content '%BACKEND_LOG%' -Tail 10 2>$null"
 echo.
 
+echo 按任意键停止所有服务...
 pause >nul
 
 :: 停止服务

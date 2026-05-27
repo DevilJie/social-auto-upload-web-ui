@@ -124,6 +124,15 @@ fi
 NPM_VERSION=$(npm --version 2>&1)
 print_ok "Node $NODE_VERSION / npm $NPM_VERSION"
 
+if ! command -v curl &>/dev/null; then
+    print_fail "未找到 curl，请先安装 curl"
+    echo "  macOS: brew install curl"
+    echo "  Ubuntu/Debian: sudo apt install curl"
+    echo "  Fedora: sudo dnf install curl"
+    exit 1
+fi
+print_ok "curl $(curl --version | head -1 | awk '{print $2}')"
+
 # ============================================================
 # Step 2: 处理端口冲突
 # ============================================================
@@ -211,7 +220,7 @@ print_step "6" "等待服务就绪"
 # 等待后端
 echo -n "  等待后端"
 for i in $(seq 1 30); do
-    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5409" 2>/dev/null | grep -q "200"; then
+    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5409/api/health" 2>/dev/null | grep -q "200"; then
         echo ""
         print_ok "后端就绪"
         break
@@ -254,4 +263,4 @@ echo ""
 echo "按 Ctrl+C 停止所有服务"
 
 # 保持脚本运行，等待子进程
-wait
+wait || true

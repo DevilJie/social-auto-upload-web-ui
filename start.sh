@@ -171,6 +171,21 @@ if ! command -v curl &>/dev/null; then
 fi
 print_ok "curl $(curl --version 2>&1 | head -1 | awk '{print $2}')"
 
+if ! command -v ffmpeg &>/dev/null; then
+    print_fail "未找到 ffmpeg，请先安装 ffmpeg"
+    echo "    macOS:         brew install ffmpeg"
+    echo "    Ubuntu/Debian: sudo apt install ffmpeg"
+    echo "    Fedora:        sudo dnf install ffmpeg"
+    exit 1
+fi
+print_ok "ffmpeg $(ffmpeg -version 2>&1 | head -1 | awk '{print $3}')"
+
+if ! command -v ffprobe &>/dev/null; then
+    print_fail "未找到 ffprobe，请先安装 ffmpeg（包含 ffprobe）"
+    exit 1
+fi
+print_ok "ffprobe 已安装"
+
 # ============================================================
 # Step 2: 处理端口冲突
 # ============================================================
@@ -224,6 +239,20 @@ elif check_hash_changed "$HASH_FILE" "$CURRENT_HASH"; then
     print_ok "依赖更新完成"
 else
     print_ok "依赖无变更，跳过"
+fi
+
+# 检查 CloakBrowser 二进制文件
+CLOAKBROWSER_DIR="$HOME/.cloakbrowser"
+if ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome-bin/chrome >/dev/null 2>&1; then
+    run_with_spinner "首次使用，下载 CloakBrowser 浏览器（约 200MB，请耐心等待）" "$VENV_PYTHON" -c "from cloakbrowser.download import ensure_binary; ensure_binary()"
+    if [[ $? -eq 0 ]]; then
+        print_ok "CloakBrowser 下载完成"
+    else
+        print_fail "CloakBrowser 下载失败，请检查网络连接"
+        exit 1
+    fi
+else
+    print_ok "CloakBrowser 已安装"
 fi
 
 # ============================================================

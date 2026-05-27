@@ -62,6 +62,22 @@ if errorlevel 1 (
 for /f "tokens=2" %%i in ('curl --version 2^>^&1') do set "CURL_VER=%%i"
 echo   √ curl %CURL_VER%
 
+ffmpeg -version >nul 2>&1
+if errorlevel 1 (
+    echo   X 未找到 ffmpeg，请先安装 ffmpeg
+    echo     下载地址: https://ffmpeg.org/download.html
+    exit /b 1
+)
+for /f "tokens=3" %%i in ('ffmpeg -version 2^>^&1') do set "FFMPEG_VER=%%i"
+echo   √ ffmpeg %FFMPEG_VER%
+
+ffprobe -version >nul 2>&1
+if errorlevel 1 (
+    echo   X 未找到 ffprobe，请先安装 ffmpeg（包含 ffprobe）
+    exit /b 1
+)
+echo   √ ffprobe 已安装
+
 :: ============================================================
 :: Step 2: 处理端口冲突
 :: ============================================================
@@ -128,6 +144,21 @@ if "%VENV_OK%"=="0" (
         echo %CURRENT_HASH%> "%HASH_FILE%"
         echo   √ 依赖更新完成
     )
+)
+
+:: 检查 CloakBrowser 二进制文件
+set "CLOAKBROWSER_DIR=%USERPROFILE%\.cloakbrowser"
+dir /b "%CLOAKBROWSER_DIR%\chromium-*" >nul 2>&1
+if errorlevel 1 (
+    echo     首次使用，下载 CloakBrowser 浏览器（约 200MB，请耐心等待）...
+    "%VENV_PYTHON%" -c "from cloakbrowser.download import ensure_binary; ensure_binary()"
+    if errorlevel 1 (
+        echo   X CloakBrowser 下载失败，请检查网络连接
+        exit /b 1
+    )
+    echo   √ CloakBrowser 下载完成
+) else (
+    echo   √ CloakBrowser 已安装
 )
 
 :: ============================================================

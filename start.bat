@@ -269,12 +269,24 @@ timeout /t 1 /nobreak >nul
 cd /d "%BACKEND_DIR%"
 set "SAU_PORT=5409"
 start "SAU-Backend" /B cmd /c ""%VENV_DIR%\Scripts\python.exe" app.py > "%BACKEND_LOG%" 2>&1"
-echo   √ 后端已启动
+
+:: 等待后端进程启动并获取 PID
+timeout /t 2 /nobreak >nul
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5409 ^| findstr LISTENING 2^>nul') do set "BACKEND_PID=%%a"
+echo   √ 后端已启动 (PID: !BACKEND_PID!)
 
 :: 启动前端
 cd /d "%FRONTEND_DIR%"
 start "SAU-Frontend" /B cmd /c "npm run dev > "%FRONTEND_LOG%" 2>&1"
-echo   √ 前端已启动
+
+:: 等待前端进程启动并获取 PID
+timeout /t 2 /nobreak >nul
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING 2^>nul') do set "FRONTEND_PID=%%a"
+echo   √ 前端已启动 (PID: !FRONTEND_PID!)
+
+:: 保存 PID 到文件，用于停止服务
+echo !BACKEND_PID!> "%PROJECT_ROOT%\.backend.pid"
+echo !FRONTEND_PID!> "%PROJECT_ROOT%\.frontend.pid"
 
 cd /d "%PROJECT_ROOT%"
 
@@ -341,7 +353,7 @@ echo   查看后端日志: type %BACKEND_LOG%
 echo   查看前端日志: type %FRONTEND_LOG%
 echo.
 echo   停止服务:
-echo     taskkill /F /IM python.exe
-echo     taskkill /F /IM node.exe
+echo     taskkill /F /PID !BACKEND_PID!
+echo     taskkill /F /PID !FRONTEND_PID!
 echo.
 endlocal

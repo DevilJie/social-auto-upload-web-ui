@@ -246,7 +246,7 @@ fi
 
 # 检查 CloakBrowser 二进制文件
 CLOAKBROWSER_DIR="$HOME/.cloakbrowser"
-if ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome-bin/chrome >/dev/null 2>&1; then
+if ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome >/dev/null 2>&1; then
     echo -e "  ${CYAN}📥 首次使用，下载 CloakBrowser 浏览器${NC}"
 
     # 从 Python 获取下载信息

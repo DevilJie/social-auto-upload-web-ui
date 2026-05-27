@@ -186,6 +186,9 @@ if ! command -v ffprobe &>/dev/null; then
 fi
 print_ok "ffprobe 已安装"
 
+# 清除系统代理，避免 httpx/cloakbrowser 读取到不支持的 socks:// 代理
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+
 # ============================================================
 # Step 2: 处理端口冲突
 # ============================================================
@@ -290,8 +293,6 @@ done
 
 cd "$BACKEND_DIR"
 export SAU_PORT=5409
-# 清除系统代理，避免 cloakbrowser/httpx 读取到不支持的 socks:// 代理
-unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 nohup "$VENV_PYTHON" app.py > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 print_ok "后端已启动 (PID: $BACKEND_PID)"

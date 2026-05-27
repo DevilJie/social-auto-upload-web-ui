@@ -333,13 +333,15 @@ echo   前端界面: http://localhost:5173
 echo   后端 API: http://localhost:!BACKEND_PORT!
 echo ============================================
 echo.
-echo 按 Ctrl+C 停止所有服务
+echo   后端日志: %BACKEND_LOG%
+echo   前端日志: %FRONTEND_LOG%
 echo.
-echo --- 后端日志 ---
+echo 按任意键停止所有服务...
 echo.
 
-:: 使用 PowerShell 实时显示后端日志（类似 Linux 的 tail -f）
-powershell -Command "Get-Content '%BACKEND_LOG%' -Wait -Tail 50"
+:: 显示最新日志
+powershell -Command "Get-Content '%BACKEND_LOG%' -Tail 10 2>$null"
+echo.
 
 pause >nul
 

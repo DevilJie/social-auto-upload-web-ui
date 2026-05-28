@@ -185,6 +185,8 @@ defineExpose({
   background: $bg-base;
   cursor: pointer;
   transition: $transition-base;
+  display: flex;
+  align-items: center;
 
   &:hover {
     box-shadow: 0 0 0 2px $border-active;
@@ -193,8 +195,7 @@ defineExpose({
 
 .carousel-image {
   width: 100%;
-  height: 100%;
-  object-fit: contain;
+  height: auto;
   display: block;
 }
 

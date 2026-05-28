@@ -25,7 +25,7 @@ def _get_cookie_path(cookie_file: str) -> str:
     return str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
 
-async def _fetch_with_browser(cookie_file: str, url: str) -> dict:
+async def _fetch_with_browser(cookie_file: str, url: str, base_url: str = "https://creator.douyin.com/") -> dict:
     """使用CloakBrowser发送请求"""
     cookie_path = _get_cookie_path(cookie_file)
 
@@ -35,22 +35,37 @@ async def _fetch_with_browser(cookie_file: str, url: str) -> dict:
         try:
             page = await context.new_page()
 
-            # 先打开抖音主页，确保cookie生效
-            await page.goto("https://creator.douyin.com/", wait_until="domcontentloaded")
+            # 先打开基础URL，确保cookie生效
+            await page.goto(base_url, wait_until="domcontentloaded")
             await page.wait_for_timeout(2000)
 
             # 使用fetch API请求目标URL
+            # 转义URL中的特殊字符
+            escaped_url = url.replace("'", "\\'").replace('"', '\\"')
+
             result = await page.evaluate(f"""
                 async () => {{
                     try {{
-                        const response = await fetch("{url}", {{
+                        const response = await fetch("{escaped_url}", {{
                             credentials: 'include',
                             headers: {{
                                 'Accept': 'application/json',
                             }}
                         }});
-                        const data = await response.json();
-                        return {{ success: true, data: data }};
+
+                        // 先获取文本，再尝试解析JSON
+                        const text = await response.text();
+
+                        if (!response.ok) {{
+                            return {{ success: false, error: `HTTP ${{response.status}}: ${{text.substring(0, 200)}}` }};
+                        }}
+
+                        try {{
+                            const data = JSON.parse(text);
+                            return {{ success: true, data: data }};
+                        }} catch (jsonError) {{
+                            return {{ success: false, error: `JSON解析失败: ${{jsonError.message}}, 响应内容: ${{text.substring(0, 200)}}` }};
+                        }}
                     }} catch (e) {{
                         return {{ success: false, error: e.message }};
                     }}
@@ -212,7 +227,8 @@ def search_music():
         from urllib.parse import quote
         url = f"https://tsearch.amemv.com/openapi/aweme/v1/music/search/?aid=1128&count={count}&search_source=normal_search&keyword={quote(keyword)}&cursor={cursor_val}"
 
-        result = run_async(_fetch_with_browser(cookie_file, url))
+        # 音乐搜索需要先打开抖音域名，让cookie生效
+        result = run_async(_fetch_with_browser(cookie_file, url, base_url="https://www.douyin.com/"))
 
         if result.get("success"):
             return jsonify({"code": 200, "data": result["data"]})

@@ -222,76 +222,88 @@
 
           <!-- ===== 抖音图文特有配置 ===== -->
           <template v-if="selectedPlatform === 'douyin'">
-            <!-- 官方活动 -->
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
-              <DouyinActivitySelect
-                v-model="form.activityId"
-                @change="handleActivityChange"
-              />
-            </div>
+            <div class="config-group">
+              <div class="group-title">扩展信息</div>
+              <div class="group-content">
+                <div class="setting-row">
+                  <!-- 官方活动 -->
+                  <div class="setting-item">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
+                    <DouyinActivitySelect
+                      v-model="form.activityId"
+                      @change="handleActivityChange"
+                    />
+                  </div>
 
-            <!-- 添加合集 -->
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
-              <DouyinMixSelect
-                v-if="selectedAccountId"
-                :account-id="selectedAccountId"
-                v-model="form.mixId"
-                @change="handleMixChange"
-              />
-              <div v-else class="setting-hint">请先选择一个抖音账号</div>
-            </div>
-
-            <!-- 选择音乐 -->
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
-              <div v-if="form.selectedMusic" class="selected-music">
-                <div class="music-info">
-                  <img
-                    :src="form.selectedMusic.cover_medium?.url_list?.[0]"
-                    class="music-cover"
-                    @error="onMusicCoverError"
-                  />
-                  <div>
-                    <div class="music-name">{{ form.selectedMusic.title }}</div>
-                    <div class="music-author">{{ form.selectedMusic.author }}</div>
+                  <!-- 添加合集 -->
+                  <div class="setting-item">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
+                    <DouyinMixSelect
+                      v-if="selectedAccountId"
+                      :account-id="selectedAccountId"
+                      v-model="form.mixId"
+                      @change="handleMixChange"
+                    />
+                    <div v-else class="setting-hint">请先选择一个抖音账号</div>
                   </div>
                 </div>
-                <el-button size="small" text @click="form.selectedMusic = null">移除</el-button>
+
+                <div class="setting-row">
+                  <!-- 选择音乐 -->
+                  <div class="setting-item">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
+                    <div v-if="form.selectedMusic" class="selected-music">
+                      <div class="music-info">
+                        <img
+                          :src="form.selectedMusic.cover_medium?.url_list?.[0]"
+                          class="music-cover"
+                          @error="onMusicCoverError"
+                        />
+                        <div>
+                          <div class="music-name">{{ form.selectedMusic.title }}</div>
+                          <div class="music-author">{{ form.selectedMusic.author }}</div>
+                        </div>
+                      </div>
+                      <el-button size="small" text @click="form.selectedMusic = null">移除</el-button>
+                    </div>
+                    <el-button
+                      v-else
+                      size="small"
+                      @click="musicDrawerVisible = true"
+                    >
+                      <el-icon><VideoPlay /></el-icon>
+                      选择音乐
+                    </el-button>
+                  </div>
+
+                  <!-- 关联热点 -->
+                  <div class="setting-item">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
+                    <DouyinHotspotSelect
+                      v-model="form.hotspotId"
+                      @change="handleHotspotChange"
+                    />
+                  </div>
+                </div>
+
+                <div class="setting-row">
+                  <!-- 自主声明 -->
+                  <div class="setting-item">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
+                    <el-select
+                      v-model="form.declaration"
+                      placeholder="请选择自主声明"
+                      clearable
+                      style="width: 100%"
+                    >
+                      <el-option label="内容由AI生成" value="ai_generated" />
+                      <el-option label="内容包含广告" value="contains_ad" />
+                      <el-option label="内容为虚构演绎" value="fictional" />
+                    </el-select>
+                  </div>
+                  <div class="setting-item"></div>
+                </div>
               </div>
-              <el-button
-                v-else
-                size="small"
-                @click="musicDrawerVisible = true"
-              >
-                <el-icon><VideoPlay /></el-icon>
-                选择音乐
-              </el-button>
-            </div>
-
-            <!-- 关联热点 -->
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
-              <DouyinHotspotSelect
-                v-model="form.hotspotId"
-                @change="handleHotspotChange"
-              />
-            </div>
-
-            <!-- 自主声明 -->
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
-              <el-select
-                v-model="form.declaration"
-                placeholder="请选择自主声明"
-                clearable
-                style="width: 100%"
-              >
-                <el-option label="内容由AI生成" value="ai_generated" />
-                <el-option label="内容包含广告" value="contains_ad" />
-                <el-option label="内容为虚构演绎" value="fictional" />
-              </el-select>
             </div>
           </template>
         </div>
@@ -1853,6 +1865,51 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
+}
+
+// ========== 分组卡片样式 ==========
+.config-group {
+  border: 1px solid $border;
+  border-radius: $radius-card;
+  overflow: hidden;
+  transition: $transition-base;
+
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+}
+
+.group-title {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: $text-primary;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid $border;
+}
+
+.group-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  .setting-label {
+    font-size: 13px;
+    font-weight: 600;
+  }
 }
 
 .setting-card {

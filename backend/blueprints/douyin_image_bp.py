@@ -43,6 +43,11 @@ async def _fetch_with_browser(cookie_file: str, url: str, base_url: str = "https
             # 转义URL中的特殊字符
             escaped_url = url.replace("'", "\\'").replace('"', '\\"')
 
+            # 根据URL域名设置Referer
+            referer = base_url
+            if "tsearch.amemv.com" in url:
+                referer = "https://creator.douyin.com/"
+
             result = await page.evaluate(f"""
                 async () => {{
                     try {{
@@ -50,6 +55,7 @@ async def _fetch_with_browser(cookie_file: str, url: str, base_url: str = "https
                             credentials: 'include',
                             headers: {{
                                 'Accept': 'application/json',
+                                'Referer': '{referer}',
                             }}
                         }});
 

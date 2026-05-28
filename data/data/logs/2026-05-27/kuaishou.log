@@ -1,0 +1,267 @@
+2026-05-27 22:15:47 [INFO][backend][kuaishou][platform.py:77 in login] [kuaishou] QR code ready, waiting for scan...
+2026-05-27 22:16:23 [INFO][backend][kuaishou][platform.py:154 in check_cookie] [kuaishou] cookie valid
+2026-05-27 22:16:51 [INFO][backend][kuaishou][platform.py:154 in check_cookie] [kuaishou] cookie valid
+2026-05-27 22:27:26 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 22:27:30 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 22:27:31 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:27:41 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:27:45 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 22:27:45 [INFO][backend][kuaishou][platform.py:594 in _set_schedule_time] [kuaishou] setting schedule time: 2026-05-27 00:00:00
+2026-05-27 22:27:50 [INFO][backend][kuaishou][platform.py:399 in _upload_single] [kuaishou] video published successfully
+2026-05-27 22:27:51 [INFO][backend][kuaishou][platform.py:410 in _upload_single] [kuaishou] cookie updated
+2026-05-27 22:43:53 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 22:43:57 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 22:43:57 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:44:07 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:44:11 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 22:44:11 [INFO][backend][kuaishou][platform.py:594 in _set_schedule_time] [kuaishou] setting schedule time: 2026-05-27 00:00:00
+2026-05-27 22:44:17 [INFO][backend][kuaishou][platform.py:399 in _upload_single] [kuaishou] video published successfully
+2026-05-27 22:44:17 [INFO][backend][kuaishou][platform.py:410 in _upload_single] [kuaishou] cookie updated
+2026-05-27 22:44:50 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 22:44:54 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 22:44:54 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:45:05 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:45:09 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 22:45:09 [INFO][backend][kuaishou][platform.py:594 in _set_schedule_time] [kuaishou] setting schedule time: 2026-05-27 00:00:00
+2026-05-27 22:45:12 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:13 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:14 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:15 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:16 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:17 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:18 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:19 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:20 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:21 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:22 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:23 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:24 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:25 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:26 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:27 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:28 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:29 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:30 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:31 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:32 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:33 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:34 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:35 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:36 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:37 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:38 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:39 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:40 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:41 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:42 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:43 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:44 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:45 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:46 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:47 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:48 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:49 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:50 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:51 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:52 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:53 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:54 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:55 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:56 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:57 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:58 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:45:59 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:00 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:01 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:02 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:04 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:05 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:06 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:07 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:08 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:09 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:10 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:11 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:12 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:13 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:14 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:15 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:16 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:17 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:18 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:19 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:20 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:21 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:22 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:23 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:24 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:25 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:26 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:27 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:28 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:29 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:30 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:31 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:32 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:33 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:34 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:35 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:36 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:37 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:38 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:39 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:40 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:41 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:42 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:43 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:44 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:45 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:46 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:47 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:48 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:49 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:50 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:51 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:52 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:53 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:54 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:55 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:56 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:57 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:58 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:46:59 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:00 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:01 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:02 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:03 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:04 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:05 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:06 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:07 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:08 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:09 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:10 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:11 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:12 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:13 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:14 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:15 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:16 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:17 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:18 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:19 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:20 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:21 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:22 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:23 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:24 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:25 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:26 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:27 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:28 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:29 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:30 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:31 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:32 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:33 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:34 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:35 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:36 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:37 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:38 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:39 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:40 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:41 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:42 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:43 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:44 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:45 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:46 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:47 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:48 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:49 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:50 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:51 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:52 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:53 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:54 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:55 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:56 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:57 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:58 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:47:59 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:00 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:01 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:02 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:03 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:04 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:05 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:06 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:07 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:08 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:09 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:10 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:11 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:12 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:13 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:14 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:15 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:16 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:17 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:18 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:19 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:20 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:21 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:22 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:23 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:24 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:25 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:48:26 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] publish retry: Locator.count: Target page, context or browser has been closed
+2026-05-27 22:55:37 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 22:55:41 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 22:55:43 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:55:53 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 22:55:57 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 22:55:59 [INFO][backend][kuaishou][platform.py:399 in _upload_single] [kuaishou] video published successfully
+2026-05-27 22:55:59 [INFO][backend][kuaishou][platform.py:410 in _upload_single] [kuaishou] cookie updated
+2026-05-27 23:07:46 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 23:07:50 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 23:07:52 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:08:02 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:08:04 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 23:08:06 [INFO][backend][kuaishou][platform.py:399 in _upload_single] [kuaishou] video published successfully
+2026-05-27 23:08:06 [INFO][backend][kuaishou][platform.py:410 in _upload_single] [kuaishou] cookie updated
+2026-05-27 23:08:41 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 23:08:45 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 23:08:46 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:08:56 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:08:58 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 23:09:00 [INFO][backend][kuaishou][platform.py:399 in _upload_single] [kuaishou] video published successfully
+2026-05-27 23:09:00 [INFO][backend][kuaishou][platform.py:410 in _upload_single] [kuaishou] cookie updated
+2026-05-27 23:13:26 [INFO][backend][kuaishou][platform.py:317 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 23:13:32 [INFO][backend][kuaishou][platform.py:342 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 23:13:33 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:13:43 [INFO][backend][kuaishou][platform.py:363 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:13:47 [INFO][backend][kuaishou][platform.py:360 in _upload_single] [kuaishou] video upload complete
+2026-05-27 23:13:47 [INFO][backend][kuaishou][platform.py:375 in _upload_single] [kuaishou] thumbnail_path: 
+2026-05-27 23:13:47 [INFO][backend][kuaishou][platform.py:379 in _upload_single] [kuaishou] no thumbnail_path provided, skipping cover setting
+2026-05-27 23:13:49 [INFO][backend][kuaishou][platform.py:402 in _upload_single] [kuaishou] video published successfully
+2026-05-27 23:13:49 [INFO][backend][kuaishou][platform.py:413 in _upload_single] [kuaishou] cookie updated
+2026-05-27 23:16:31 [INFO][backend][kuaishou][platform.py:283 in _publish_video_async] [kuaishou] cover path: /home/czy/workspace/ai/social-auto-upload-web-ui/data/videoFile/f7711580-59c8-11f1-8000-bc2411b9d4e7_cover_portrait_1779892710482.jpg
+2026-05-27 23:16:34 [INFO][backend][kuaishou][platform.py:327 in _upload_single] [kuaishou] uploading: 西安女孩
+2026-05-27 23:16:38 [INFO][backend][kuaishou][platform.py:352 in _upload_single] [kuaishou] filling description and tags
+2026-05-27 23:16:39 [INFO][backend][kuaishou][platform.py:373 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:16:49 [INFO][backend][kuaishou][platform.py:373 in _upload_single] [kuaishou] still uploading...
+2026-05-27 23:16:51 [INFO][backend][kuaishou][platform.py:370 in _upload_single] [kuaishou] video upload complete
+2026-05-27 23:16:51 [INFO][backend][kuaishou][platform.py:385 in _upload_single] [kuaishou] thumbnail_path: /home/czy/workspace/ai/social-auto-upload-web-ui/data/videoFile/f7711580-59c8-11f1-8000-bc2411b9d4e7_cover_portrait_1779892710482.jpg
+2026-05-27 23:16:51 [INFO][backend][kuaishou][platform.py:482 in _set_thumbnail] [kuaishou] setting thumbnail: /home/czy/workspace/ai/social-auto-upload-web-ui/data/videoFile/f7711580-59c8-11f1-8000-bc2411b9d4e7_cover_portrait_1779892710482.jpg
+2026-05-27 23:16:51 [INFO][backend][kuaishou][platform.py:486 in _set_thumbnail] [kuaishou] hovering over cover area...
+2026-05-27 23:16:53 [INFO][backend][kuaishou][platform.py:492 in _set_thumbnail] [kuaishou] clicking '封面设置'...
+2026-05-27 23:16:53 [INFO][backend][kuaishou][platform.py:498 in _set_thumbnail] [kuaishou] waiting for modal...
+2026-05-27 23:16:54 [INFO][backend][kuaishou][platform.py:504 in _set_thumbnail] [kuaishou] clicking '上传封面' tab...
+2026-05-27 23:16:55 [INFO][backend][kuaishou][platform.py:511 in _set_thumbnail] [kuaishou] uploading cover image...
+2026-05-27 23:16:55 [INFO][backend][kuaishou][platform.py:514 in _set_thumbnail] [kuaishou] cover image uploaded, waiting for processing...
+2026-05-27 23:16:58 [INFO][backend][kuaishou][platform.py:519 in _set_thumbnail] [kuaishou] clicking confirm button...
+2026-05-27 23:17:01 [INFO][backend][kuaishou][platform.py:530 in _set_thumbnail] [kuaishou] thumbnail set successfully
+2026-05-27 23:17:02 [INFO][backend][kuaishou][platform.py:412 in _upload_single] [kuaishou] video published successfully
+2026-05-27 23:17:03 [INFO][backend][kuaishou][platform.py:423 in _upload_single] [kuaishou] cookie updated

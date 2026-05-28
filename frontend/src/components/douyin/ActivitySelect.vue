@@ -1,0 +1,155 @@
+<template>
+  <div class="activity-select">
+    <el-select
+      v-model="selectedActivityId"
+      placeholder="选择官方活动"
+      clearable
+      filterable
+      :loading="loading"
+      @change="handleChange"
+      style="width: 100%"
+    >
+      <el-option
+        v-for="activity in activityList"
+        :key="activity.activity_id"
+        :label="activity.activity_name"
+        :value="activity.activity_id"
+      >
+        <div class="activity-option">
+          <img
+            v-if="activity.cover_image"
+            :src="activity.cover_image"
+            class="activity-cover"
+            @error="onImageError"
+          />
+          <div v-else class="activity-cover-placeholder">
+            <el-icon><Promotion /></el-icon>
+          </div>
+          <div class="activity-info">
+            <div class="activity-name">{{ activity.activity_name }}</div>
+            <div class="activity-meta">
+              <span class="activity-hot">热度：{{ activity.hot_score || 0 }}</span>
+              <span v-if="activity.show_end_time" class="activity-time">
+                截止：{{ activity.show_end_time }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </el-option>
+    </el-select>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted, watch } from 'vue'
+import { Promotion } from '@element-plus/icons-vue'
+import { douyinImageApi } from '@/api/douyinImage'
+
+const props = defineProps({
+  accountId: {
+    type: [String, Number],
+    required: true
+  },
+  modelValue: {
+    type: [String, Number],
+    default: ''
+  }
+})
+
+const emit = defineEmits(['update:modelValue', 'change'])
+
+const loading = ref(false)
+const activityList = ref([])
+const selectedActivityId = ref(props.modelValue)
+
+watch(() => props.modelValue, (val) => {
+  selectedActivityId.value = val
+})
+
+onMounted(() => {
+  loadActivityList()
+})
+
+async function loadActivityList() {
+  if (!props.accountId) return
+
+  loading.value = true
+  try {
+    const resp = await douyinImageApi.getActivityList(props.accountId)
+    if (resp.code === 200) {
+      activityList.value = resp.data?.activity_list || []
+    }
+  } catch (e) {
+    console.error('加载活动列表失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleChange(val) {
+  emit('update:modelValue', val)
+  const activity = activityList.value.find(a => a.activity_id === val)
+  emit('change', activity || null)
+}
+
+function onImageError(e) {
+  e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iMjAiIHk9IjI0IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuKcqOW+izwvdGV4dD48L3N2Zz4='
+}
+</script>
+
+<style scoped lang="scss">
+.activity-select {
+  width: 100%;
+}
+
+.activity-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.activity-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.activity-cover-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  background: #fff3e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff9800;
+  flex-shrink: 0;
+}
+
+.activity-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-name {
+  font-size: 14px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #999;
+}
+
+.activity-hot {
+  color: #ff4444;
+}
+</style>

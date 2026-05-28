@@ -1,0 +1,7 @@
+2026-05-27 21:08:50 [INFO][backend][bilibili][platform.py:161 in check_cookie] [bilibili] cookie valid
+2026-05-27 21:25:07 [INFO][backend][bilibili][platform.py:159 in check_cookie] [bilibili] cookie expired, needs re-login
+2026-05-27 21:25:17 [INFO][backend][bilibili][platform.py:159 in check_cookie] [bilibili] cookie expired, needs re-login
+2026-05-27 21:42:01 [INFO][backend][bilibili][platform.py:93 in login] [bilibili] QR code URL: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIwAAACMCAYAAACuwEE+AAAQAElEQVR4Ae
+2026-05-27 21:42:29 [INFO][backend][bilibili][platform.py:112 in login] [bilibili] login page navigation detected
+2026-05-27 21:42:51 [INFO][backend][bilibili][platform.py:162 in check_cookie] [bilibili] cookie valid
+2026-05-27 21:43:29 [INFO][backend][bilibili][platform.py:162 in check_cookie] [bilibili] cookie valid

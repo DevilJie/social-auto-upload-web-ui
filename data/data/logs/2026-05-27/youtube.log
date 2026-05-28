@@ -1,0 +1,11 @@
+2026-05-27 21:53:37 [INFO][backend][youtube][platform.py:192 in check_cookie] [youtube] cookie expired
+2026-05-27 21:53:42 [INFO][backend][youtube][platform.py:74 in login] [youtube] navigating to accounts.google.com
+2026-05-27 21:53:44 [INFO][backend][youtube][platform.py:76 in login] [youtube] page loaded, title: 登录 - Google 账号
+2026-05-27 21:54:20 [INFO][backend][youtube][platform.py:91 in login] [youtube] login detected, current page: https://myaccount.google.com/?pli=1
+2026-05-27 21:54:26 [INFO][backend][youtube][platform.py:99 in login] [youtube] YouTube Studio page opened
+2026-05-27 21:54:42 [INFO][backend][youtube][platform.py:127 in login] [youtube] cookie saved as f509b40e-556e-11f1-8000-bc2411b9d4e7.json
+2026-05-27 21:54:42 [INFO][backend][youtube][platform.py:149 in login] [youtube] user record saved to DB
+2026-05-27 22:04:21 [INFO][backend][youtube][platform.py:227 in sync_profile] [youtube] sync_profile error: Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to "https://studio.youtube.com/", waiting until "load"
+

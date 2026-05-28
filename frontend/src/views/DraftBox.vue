@@ -2,71 +2,134 @@
   <div class="draft-box">
     <div class="draft-header">
       <h2>草稿箱</h2>
-      <span class="draft-count">{{ drafts.length }} 个草稿</span>
+      <el-tabs v-model="activeTab" class="draft-tabs">
+        <el-tab-pane label="视频草稿" name="video">
+          <span class="draft-count">{{ videoDrafts.length }} 个草稿</span>
+        </el-tab-pane>
+        <el-tab-pane label="图文草稿" name="image">
+          <span class="draft-count">{{ imageDrafts.length }} 个草稿</span>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
-    <!-- Empty state -->
-    <div v-if="!loading && drafts.length === 0" class="empty-state">
-      <el-empty description="还没有保存的草稿">
-        <el-button type="primary" @click="router.push('/publish-center')">去发布视频</el-button>
-      </el-empty>
-    </div>
+    <!-- Video Drafts -->
+    <template v-if="activeTab === 'video'">
+      <div v-if="!loading && videoDrafts.length === 0" class="empty-state">
+        <el-empty description="还没有保存的视频草稿">
+          <el-button type="primary" @click="router.push('/publish-center')">去发布视频</el-button>
+        </el-empty>
+      </div>
 
-    <!-- Card grid -->
-    <div v-else class="draft-grid">
-      <div v-for="draft in drafts" :key="draft.id" class="draft-card">
-        <!-- Cover thumbnail -->
-        <div class="card-cover">
-          <img
-            v-if="draft.cover_path"
-            :src="getCoverUrl(draft.cover_path)"
-            alt="封面"
-          />
-          <div v-else class="cover-placeholder">
-            <el-icon :size="32"><Picture /></el-icon>
+      <div v-else class="draft-grid">
+        <div v-for="draft in videoDrafts" :key="draft.id" class="draft-card">
+          <div class="card-cover">
+            <img
+              v-if="draft.cover_path"
+              :src="getCoverUrl(draft.cover_path)"
+              alt="封面"
+            />
+            <div v-else class="cover-placeholder">
+              <el-icon :size="32"><Picture /></el-icon>
+            </div>
+            <span v-if="draft.video_duration" class="duration-badge">
+              {{ formatDuration(draft.video_duration) }}
+            </span>
           </div>
-          <!-- Duration badge -->
-          <span v-if="draft.video_duration" class="duration-badge">
-            {{ formatDuration(draft.video_duration) }}
-          </span>
-        </div>
 
-        <!-- Card body -->
-        <div class="card-body">
-          <div class="card-title">{{ draft.title || '无标题' }}</div>
+          <div class="card-body">
+            <div class="card-title">{{ draft.title || '无标题' }}</div>
 
-          <!-- Channels summary (single line with marquee) -->
-          <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
-            <div class="channels-track" :class="{ 'channels-marquee': isOverflow(draft.id) }" :ref="el => setChannelRef(draft.id, el)">
-              <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
-                <img
-                  v-if="getPlatformLogo(ch.platform)"
-                  :src="getPlatformLogo(ch.platform)"
-                  class="channel-icon"
-                />
-                {{ ch.name }} × {{ ch.count }}
-              </span>
+            <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
+              <div class="channels-track" :class="{ 'channels-marquee': isOverflow(draft.id) }" :ref="el => setChannelRef(draft.id, el)">
+                <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
+                  <img
+                    v-if="getPlatformLogo(ch.platform)"
+                    :src="getPlatformLogo(ch.platform)"
+                    class="channel-icon"
+                  />
+                  {{ ch.name }} × {{ ch.count }}
+                </span>
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <span v-if="draft.video_file_size">{{ formatFileSize(draft.video_file_size) }}</span>
+              <span>{{ formatTime(draft.updated_at) }}</span>
             </div>
           </div>
 
-          <!-- Meta info -->
-          <div class="card-meta">
-            <span v-if="draft.video_file_size">{{ formatFileSize(draft.video_file_size) }}</span>
-            <span>{{ formatTime(draft.updated_at) }}</span>
+          <div class="card-actions">
+            <button class="action-btn action-edit" @click="editVideoDraft(draft.id)">
+              <el-icon><Edit /></el-icon> 编辑
+            </button>
+            <button class="action-btn action-delete" @click="confirmDeleteVideo(draft.id)">
+              <el-icon><Delete /></el-icon> 删除
+            </button>
           </div>
         </div>
+      </div>
+    </template>
 
-        <!-- Card actions - full width at bottom -->
-        <div class="card-actions">
-          <button class="action-btn action-edit" @click="editDraft(draft.id)">
-            <el-icon><Edit /></el-icon> 编辑
-          </button>
-          <button class="action-btn action-delete" @click="confirmDelete(draft.id)">
-            <el-icon><Delete /></el-icon> 删除
-          </button>
+    <!-- Image Drafts -->
+    <template v-if="activeTab === 'image'">
+      <div v-if="!loading && imageDrafts.length === 0" class="empty-state">
+        <el-empty description="还没有保存的图文草稿">
+          <el-button type="primary" @click="router.push('/image-publish')">去发布图文</el-button>
+        </el-empty>
+      </div>
+
+      <div v-else class="draft-grid">
+        <div v-for="draft in imageDrafts" :key="draft.id" class="draft-card">
+          <div class="card-cover image-cover">
+            <div v-if="draft.image_ids && draft.image_ids.length > 0" class="image-grid-preview">
+              <img
+                v-for="(imgId, idx) in draft.image_ids.slice(0, 4)"
+                :key="idx"
+                :src="getImagePreviewUrl(imgId)"
+                alt="图片"
+                class="grid-image"
+              />
+            </div>
+            <div v-else class="cover-placeholder">
+              <el-icon :size="32"><Picture /></el-icon>
+            </div>
+            <span v-if="draft.image_ids" class="image-count-badge">
+              {{ draft.image_ids.length }} 张
+            </span>
+          </div>
+
+          <div class="card-body">
+            <div class="card-title">{{ getImageDraftTitle(draft) || '无标题' }}</div>
+
+            <div v-if="draft.account_configs" class="card-channels">
+              <div class="channels-track">
+                <span v-for="(config, accountId) in draft.account_configs" :key="accountId" class="channel-tag">
+                  <img
+                    v-if="getPlatformLogo(config.platform)"
+                    :src="getPlatformLogo(config.platform)"
+                    class="channel-icon"
+                  />
+                  {{ config.platform }}
+                </span>
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <span>{{ formatTime(draft.updated_at) }}</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="action-btn action-edit" @click="editImageDraft(draft.id)">
+              <el-icon><Edit /></el-icon> 编辑
+            </button>
+            <button class="action-btn action-delete" @click="confirmDeleteImage(draft.id)">
+              <el-icon><Delete /></el-icon> 删除
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -76,10 +139,13 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Edit, Delete } from '@element-plus/icons-vue'
 import { draftApi } from '@/api/draft'
+import { imagePublishApi } from '@/api/imagePublish'
 import { getPlatformByKey } from '@/config/platforms'
 
 const router = useRouter()
-const drafts = ref([])
+const activeTab = ref('video')
+const videoDrafts = ref([])
+const imageDrafts = ref([])
 const loading = ref(true)
 const channelRefs = {}
 const overflowMap = ref({})
@@ -92,9 +158,25 @@ function getCoverUrl(path) {
   return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`
 }
 
+function getImagePreviewUrl(imageId) {
+  // 这里需要根据实际的图片存储路径来构建 URL
+  // 暂时返回一个占位图
+  return `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iIzIyMiIvPjx0ZXh0IHg9IjUwIiB5PSI1MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEyIiBmaWxsPSIjNjY2IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBkeT0iLjNlbSI+5Zu+54mH5Yqg6L295aSx6LSlPC90ZXh0Pjwvc3ZnPg==`
+}
+
 function getPlatformLogo(platformKey) {
   const p = getPlatformByKey(platformKey)
   return p?.logo || null
+}
+
+function getImageDraftTitle(draft) {
+  if (draft.account_configs) {
+    const configs = Object.values(draft.account_configs)
+    if (configs.length > 0) {
+      return configs[0].title || ''
+    }
+  }
+  return ''
 }
 
 function formatDuration(seconds) {
@@ -126,8 +208,12 @@ function formatTime(isoString) {
   return date.toLocaleDateString('zh-CN')
 }
 
-function editDraft(id) {
+function editVideoDraft(id) {
   router.push(`/publish-center?draft=${id}`)
+}
+
+function editImageDraft(id) {
+  router.push(`/image-publish?draft=${id}`)
 }
 
 function setChannelRef(draftId, el) {
@@ -143,34 +229,64 @@ function isOverflow(draftId) {
   return overflowMap.value[draftId]
 }
 
-async function confirmDelete(id) {
+async function confirmDeleteVideo(id) {
   try {
-    await ElMessageBox.confirm('确定删除这个草稿吗？', '删除确认', {
+    await ElMessageBox.confirm('确定删除这个视频草稿吗？', '删除确认', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
     })
     await draftApi.deleteDraft(id)
     ElMessage.success('草稿已删除')
-    await loadDrafts()
+    await loadVideoDrafts()
   } catch {
     // cancelled or error
   }
 }
 
-async function loadDrafts() {
-  loading.value = true
+async function confirmDeleteImage(id) {
+  try {
+    await ElMessageBox.confirm('确定删除这个图文草稿吗？', '删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await imagePublishApi.deleteDraft(id)
+    ElMessage.success('草稿已删除')
+    await loadImageDrafts()
+  } catch {
+    // cancelled or error
+  }
+}
+
+async function loadVideoDrafts() {
   try {
     const resp = await draftApi.getDrafts()
-    drafts.value = resp.data || []
+    videoDrafts.value = resp.data || []
   } catch (e) {
-    console.error('Failed to load drafts:', e)
+    console.error('Failed to load video drafts:', e)
+  }
+}
+
+async function loadImageDrafts() {
+  try {
+    const resp = await imagePublishApi.getDrafts()
+    imageDrafts.value = resp.data || []
+  } catch (e) {
+    console.error('Failed to load image drafts:', e)
+  }
+}
+
+async function loadAllDrafts() {
+  loading.value = true
+  try {
+    await Promise.all([loadVideoDrafts(), loadImageDrafts()])
   } finally {
     loading.value = false
   }
 }
 
-onMounted(loadDrafts)
+onMounted(loadAllDrafts)
 </script>
 
 <style lang="scss" scoped>
@@ -182,22 +298,38 @@ onMounted(loadDrafts)
 }
 
 .draft-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-bottom: 24px;
 
   h2 {
-    margin: 0;
+    margin: 0 0 16px 0;
     font-size: 20px;
     font-weight: 600;
     color: $text-primary;
   }
+}
 
-  .draft-count {
-    font-size: 13px;
-    color: $text-muted;
+.draft-tabs {
+  :deep(.el-tabs__header) {
+    margin: 0;
   }
+
+  :deep(.el-tabs__item) {
+    color: $text-muted;
+
+    &.is-active {
+      color: $brand-start;
+    }
+  }
+
+  :deep(.el-tabs__active-bar) {
+    background: $gradient-brand;
+  }
+}
+
+.draft-count {
+  font-size: 13px;
+  color: $text-muted;
+  margin-left: 12px;
 }
 
 .empty-state {
@@ -249,7 +381,8 @@ onMounted(loadDrafts)
     color: $text-muted;
   }
 
-  .duration-badge {
+  .duration-badge,
+  .image-count-badge {
     position: absolute;
     bottom: 8px;
     right: 8px;
@@ -258,6 +391,25 @@ onMounted(loadDrafts)
     font-size: 12px;
     padding: 2px 6px;
     border-radius: 4px;
+  }
+}
+
+.image-cover {
+  aspect-ratio: 16 / 9;
+
+  .image-grid-preview {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+    width: 100%;
+    height: 100%;
+
+    .grid-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
   }
 }
 

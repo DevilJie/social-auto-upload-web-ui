@@ -96,7 +96,7 @@ def init_database():
     """)
 
     # 图文发布任务表
-    cursor.execute('''
+    cursor.execute("""
     CREATE TABLE IF NOT EXISTS image_publish_tasks (
         id TEXT PRIMARY KEY,
         image_ids TEXT NOT NULL,
@@ -104,13 +104,13 @@ def init_database():
         status TEXT DEFAULT 'pending',
         scheduled_at TEXT,
         published_at TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
-    ''')
+    """)
 
     # 图文发布日志表
-    cursor.execute('''
+    cursor.execute("""
     CREATE TABLE IF NOT EXISTS image_publish_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,
@@ -120,21 +120,21 @@ def init_database():
         error_message TEXT,
         retry_count INTEGER DEFAULT 0,
         published_at TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (task_id) REFERENCES image_publish_tasks(id)
     )
-    ''')
+    """)
 
     # 图文草稿表
-    cursor.execute('''
+    cursor.execute("""
     CREATE TABLE IF NOT EXISTS image_drafts (
         id TEXT PRIMARY KEY,
         image_ids TEXT NOT NULL,
         account_configs TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
-    ''')
+    """)
 
     conn.commit()
     conn.close()

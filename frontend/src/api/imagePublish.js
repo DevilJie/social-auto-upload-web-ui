@@ -29,6 +29,11 @@ export const imagePublishApi = {
     return http.post('/api/image-publish/drafts', data)
   },
 
+  // 删除草稿
+  deleteDraft(id) {
+    return http.delete(`/api/image-publish/drafts/${id}`)
+  },
+
   // 获取发布历史
   getHistory() {
     return http.get('/api/image-publish/history')

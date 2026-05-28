@@ -213,15 +213,17 @@ async function uploadFile(file) {
     })
 
     if (resp.code === 200) {
-      const filePath = resp.data.filepath || resp.data
-      const filename = filePath.split('/').pop()
+      const data = resp.data
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 
       // Update the placeholder with real data
       images.value[index] = {
         ...images.value[index],
-        id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        url: `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'}/getFile?filename=${filename}`,
-        path: filePath,
+        id: data.id || `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        name: data.filename || file.name,
+        url: data.url ? `${baseUrl}${data.url}` : URL.createObjectURL(file),
+        path: data.stored_filename || '',
+        size: data.filesize || file.size,
         uploading: false,
         progress: 100,
       }
@@ -315,6 +317,7 @@ function onImageError(e, image) {
 // Expose methods for parent
 defineExpose({
   setImageFromLibrary,
+  triggerUpload,
 })
 </script>
 

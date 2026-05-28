@@ -805,7 +805,7 @@ function selectAccount(account, group) {
 // ========== Image Methods ==========
 
 function triggerUpload() {
-  imageUploaderRef.value?.$el?.querySelector('input[type="file"]')?.click()
+  imageUploaderRef.value?.triggerUpload?.()
 }
 
 function onCarouselChange(index) {
@@ -923,27 +923,31 @@ function confirmAccountSelection() {
 
 async function saveDraft() {
   try {
-    const draftData = {
-      type: 'image',
-      commonConfig: {
-        images: commonConfig.images.map(img => ({
-          id: img.id, name: img.name, url: img.url, path: img.path, size: img.size, type: img.type,
-        })),
-        topics: [...commonConfig.topics],
-      },
-      platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
-      accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
-      publishAccountIds: [...publishAccountIds],
-      selectedPlatform: selectedPlatform.value,
-      selectedAccountId: selectedAccountId.value,
-      expandedGroups: [...expandedGroups.value],
-    }
+    const imageIds = commonConfig.images.map(img => img.id)
+    const accountConfigs = [...publishAccountIds].map(id => {
+      const account = accountStore.accounts.find(a => a.id === id)
+      const group = imageAccountGroups.value.find(g => g.accounts.some(a => a.id === id))
+      const pSettings = platformConfigs[group?.key] || {}
+      const accountOverride = accountOverrides[id]
+      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
+        ? { ...pSettings, ...Object.fromEntries(
+            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+          )}
+        : { ...pSettings }
+      return {
+        account_id: id,
+        platform: account?.platform || '',
+        title: mergedSettings.title || '',
+        description: mergedSettings.description || '',
+        ...mergedSettings,
+      }
+    })
 
     if (currentDraftId.value) {
-      await imagePublishApi.saveDraft({ id: currentDraftId.value, draft_data: draftData })
+      await imagePublishApi.saveDraft({ id: currentDraftId.value, image_ids: imageIds, account_configs: accountConfigs })
       ElMessage.success('草稿已更新')
     } else {
-      const resp = await imagePublishApi.saveDraft({ draft_data: draftData })
+      const resp = await imagePublishApi.saveDraft({ image_ids: imageIds, account_configs: accountConfigs })
       if (resp?.data?.id) {
         currentDraftId.value = resp.data.id
       }
@@ -1052,6 +1056,26 @@ async function publishAll() {
     return
   }
 
+  // Build account_configs for the backend
+  const imageIds = commonConfig.images.map(img => img.id)
+  const accountConfigs = allTasks.map(({ account, group, platformSettings }) => {
+    const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
+    const allTags = [...commonConfig.topics, ...customTags]
+    return {
+      account_id: account.id,
+      platform: account.platform,
+      title: platformSettings.title,
+      description: platformSettings.description || '',
+      tags: allTags,
+      scheduleTime: platformSettings.scheduleTime || '',
+      aiContent: platformSettings.aiContent || '',
+      productLink: platformSettings.productLink || '',
+      productTitle: platformSettings.productTitle || '',
+      visibility: platformSettings.visibility || 'public',
+      allowDownload: platformSettings.allowDownload !== false,
+    }
+  })
+
   for (let i = 0; i < allTasks.length; i++) {
     if (isCancelled.value) {
       publishResults.value.push({
@@ -1062,31 +1086,16 @@ async function publishAll() {
       continue
     }
 
-    const { account, group, platformSettings } = allTasks[i]
+    const { account } = allTasks[i]
     currentPublishingAccount.value = account.name
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
     try {
-      const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
-      const allTags = [...commonConfig.topics, ...customTags]
-
-      const publishData = {
-        type: group.id,
-        title: platformSettings.title,
-        description: platformSettings.description || '',
-        tags: allTags,
-        imageList: commonConfig.images.map(img => img.path),
-        accountList: [account.filePath],
-        enableTimer: platformSettings.scheduleTime ? 1 : 0,
-        scheduleTime: platformSettings.scheduleTime || '',
-        aiContent: platformSettings.aiContent || '',
-        productLink: platformSettings.productLink || '',
-        productTitle: platformSettings.productTitle || '',
-        visibility: platformSettings.visibility || 'public',
-        allowDownload: platformSettings.allowDownload !== false,
-      }
-
-      await imagePublishApi.publishImage(publishData)
+      // Call the backend publish API with the full task data
+      await imagePublishApi.publishImage({
+        image_ids: imageIds,
+        account_configs: [accountConfigs[i]],
+      })
       publishResults.value.push({
         label: account.name,
         status: 'success',

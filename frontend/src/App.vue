@@ -92,7 +92,8 @@ const navItems = [
   { path: '/account-management', icon: User, title: '账号管理' },
   { path: '/material-management', icon: Picture, title: '素材管理' },
   { path: '/drafts', icon: Document, title: '草稿箱' },
-  { path: '/publish-center', icon: Upload, title: '发布中心' },
+  { path: '/publish-center', icon: Upload, title: '视频发布' },
+  { path: '/image-publish', icon: Picture, title: '图文发布' },
   { path: '/publish-history', icon: Clock, title: '发布历史' },
   { path: '/changelog', icon: Notebook, title: '更新日志' },
   { path: '/author', icon: UserFilled, title: '关于作者' }

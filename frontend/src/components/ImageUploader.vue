@@ -59,16 +59,21 @@
       <!-- Upload button -->
       <div
         v-if="images.length < maxCount"
-        class="upload-trigger"
-        @click="triggerUpload"
-        @dragover.prevent="onDragOver"
-        @dragleave="onDragLeave"
-        @drop.prevent="onDrop"
-        :class="{ 'drag-over': isDragOver }"
+        class="upload-trigger-wrapper"
       >
-        <el-icon :size="28"><Plus /></el-icon>
-        <span class="upload-text">上传图片</span>
-        <span class="upload-hint">支持拖拽上传</span>
+        <div
+          class="upload-trigger"
+          @click="triggerUpload"
+          @dragover.prevent="onDragOver"
+          @dragleave="onDragLeave"
+          @drop.prevent="onDrop"
+          :class="{ 'drag-over': isDragOver }"
+        >
+          <el-icon :size="28"><Plus /></el-icon>
+          <span class="upload-text">上传图片</span>
+          <span class="upload-hint">支持拖拽上传</span>
+        </div>
+        <div class="upload-placeholder-name"></div>
       </div>
     </div>
 
@@ -530,6 +535,11 @@ defineExpose({
 }
 
 // ===== Upload Trigger =====
+.upload-trigger-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
 .upload-trigger {
   aspect-ratio: 3 / 4;
   border: 2px dashed $border;
@@ -574,6 +584,11 @@ defineExpose({
     font-size: 11px;
     color: $text-placeholder;
   }
+}
+
+.upload-placeholder-name {
+  margin-top: 6px;
+  height: 16px; // 与 .image-name 高度一致
 }
 
 // ===== SortableJS Ghost =====

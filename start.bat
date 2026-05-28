@@ -184,7 +184,7 @@ if "!CHROME_FOUND!"=="0" (
     echo     首次使用，下载 CloakBrowser 浏览器（约 200MB）...
 
     :: 获取下载信息
-    "%VENV_PYTHON%" -c "import cloakbrowser.download as d; f=open(r'%TEMP%\cb_info.txt','w'); f.write(d.get_fallback_download_url()+'\n'); f.write(d.get_binary_dir()+'\n'); f.close()"
+    "%VENV_PYTHON%" -c "import cloakbrowser.download as d; f=open(r'%TEMP%\cb_info.txt','w'); f.write(str(d.get_fallback_download_url())+'\n'); f.write(str(d.get_binary_dir())+'\n'); f.close()"
     set "DOWNLOAD_URL="
     set "BINARY_DIR="
     if exist "%TEMP%\cb_info.txt" (
@@ -197,7 +197,12 @@ if "!CHROME_FOUND!"=="0" (
     echo.
 
     :: 使用 curl 下载（带进度条）
-    set "TMP_FILE=%TEMP%\cloakbrowser.tar.gz"
+    :: 从 URL 检测文件格式（.zip 或 .tar.gz）
+    set "TMP_EXT=.zip"
+    echo !DOWNLOAD_URL! | findstr /C:".tar.gz" >nul 2>&1
+    if !errorlevel! equ 0 set "TMP_EXT=.tar.gz"
+
+    set "TMP_FILE=%TEMP%\cloakbrowser!TMP_EXT!"
     curl -L -# -o "!TMP_FILE!" "!DOWNLOAD_URL!"
     if !errorlevel! neq 0 (
         echo.
@@ -215,15 +220,18 @@ if "!CHROME_FOUND!"=="0" (
     echo.
     echo     解压中...
 
-    :: 解压
+    :: 解压（tar -xf 自动识别 zip 和 tar.gz 格式）
     if not exist "!BINARY_DIR!" mkdir "!BINARY_DIR!"
-    tar -xzf "!TMP_FILE!" -C "!BINARY_DIR!" >nul 2>&1
+    tar -xf "!TMP_FILE!" -C "!BINARY_DIR!" >nul 2>&1
     del /f "!TMP_FILE!" >nul 2>&1
 
-    :: 检查是否成功
+    :: 检查是否成功（chrome.exe 可能直接在 BINARY_DIR 或其子目录中）
     set "EXTRACT_OK=0"
-    for /d %%d in ("!BINARY_DIR!\chromium-*") do (
-        if exist "%%d\chrome.exe" set "EXTRACT_OK=1"
+    if exist "!BINARY_DIR!\chrome.exe" set "EXTRACT_OK=1"
+    if "!EXTRACT_OK!"=="0" (
+        for /d %%d in ("!BINARY_DIR!\chromium-*") do (
+            if exist "%%d\chrome.exe" set "EXTRACT_OK=1"
+        )
     )
 
     if "!EXTRACT_OK!"=="1" (

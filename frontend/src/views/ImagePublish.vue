@@ -1169,8 +1169,76 @@ watch(commonConfig, () => { hasChanges.value = true }, { deep: true })
 watch(platformConfigs, () => { hasChanges.value = true }, { deep: true })
 watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
 
+// ========== Load Draft ==========
+async function loadDraft(draftId) {
+  try {
+    const resp = await imagePublishApi.getDrafts()
+    if (resp.code === 200) {
+      const draft = resp.data.find(d => d.id === draftId)
+      if (draft) {
+        // 恢复草稿 ID
+        currentDraftId.value = draft.id
+
+        // 恢复图片列表
+        if (draft.image_urls && draft.image_urls.length > 0) {
+          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+          commonConfig.images = draft.image_ids.map((id, index) => ({
+            id: id,
+            name: `图片 ${index + 1}`,
+            url: draft.image_urls[index] ? `${baseUrl}${draft.image_urls[index]}` : '',
+            path: '',
+            size: 0,
+            type: 'image/jpeg',
+            uploading: false,
+            progress: 100,
+          }))
+        }
+
+        // 恢复账号配置
+        if (draft.account_configs && draft.account_configs.length > 0) {
+          // 恢复选中的账号
+          publishAccountIds.clear()
+          draft.account_configs.forEach(config => {
+            publishAccountIds.add(config.account_id)
+
+            // 恢复平台配置
+            const account = accountStore.accounts.find(a => a.id === config.account_id)
+            if (account) {
+              const group = imageAccountGroups.value.find(g => g.key === getPlatformKeyByName(account.platform))
+              if (group) {
+                platformConfigs[group.key] = {
+                  ...platformConfigs[group.key],
+                  title: config.title || '',
+                  description: config.description || '',
+                  ...config,
+                }
+              }
+            }
+          })
+        }
+
+        ElMessage.success('草稿已加载')
+      }
+    }
+  } catch (e) {
+    console.error('加载草稿失败:', e)
+    ElMessage.error('加载草稿失败')
+  }
+}
+
+function getPlatformKeyByName(platformName) {
+  const platform = IMAGE_PLATFORMS.find(p => p.name === platformName)
+  return platform?.key || ''
+}
+
 onMounted(() => {
   startAutoSaveTimer()
+
+  // 检查是否有 draft 参数
+  const draftId = route.query.draft
+  if (draftId) {
+    loadDraft(draftId)
+  }
 })
 
 onBeforeUnmount(() => {

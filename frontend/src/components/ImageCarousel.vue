@@ -168,16 +168,11 @@ defineExpose({
 .carousel-main {
   position: relative;
   width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
 }
 
 .carousel-image-wrap {
   position: relative;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   aspect-ratio: 3 / 4;
   max-height: 400px;
   border-radius: $radius-sm;
@@ -190,6 +185,10 @@ defineExpose({
 
   &:hover {
     box-shadow: 0 0 0 2px $border-active;
+
+    .carousel-arrow {
+      opacity: 1;
+    }
   }
 }
 
@@ -215,28 +214,40 @@ defineExpose({
 
 // ===== Arrows =====
 .carousel-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 1px solid $border;
-  background: $bg-elevated;
-  color: $text-primary;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: $transition-base;
-  flex-shrink: 0;
+  z-index: 10;
+  opacity: 0;
+  backdrop-filter: blur(4px);
+
+  &.left {
+    left: 8px;
+  }
+
+  &.right {
+    right: 8px;
+  }
 
   &:hover:not(:disabled) {
-    background: rgba($brand-start, 0.15);
-    border-color: $border-active;
-    color: $brand-start;
+    background: rgba(0, 0, 0, 0.7);
+    border-color: rgba(255, 255, 255, 0.4);
   }
 
   &.disabled,
   &:disabled {
-    opacity: 0.3;
+    opacity: 0;
     cursor: not-allowed;
   }
 }

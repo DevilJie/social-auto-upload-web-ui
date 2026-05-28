@@ -174,14 +174,11 @@ defineExpose({
   position: relative;
   width: 100%;
   aspect-ratio: 3 / 4;
-  max-height: 400px;
   border-radius: $radius-sm;
   overflow: hidden;
   background: $bg-base;
   cursor: pointer;
   transition: $transition-base;
-  display: flex;
-  align-items: center;
 
   &:hover {
     box-shadow: 0 0 0 2px $border-active;

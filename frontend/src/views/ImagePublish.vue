@@ -238,28 +238,10 @@
                   <!-- 选择音乐 -->
                   <div class="setting-item">
                     <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
-                    <div v-if="form.selectedMusic" class="selected-music">
-                      <div class="music-info">
-                        <img
-                          :src="form.selectedMusic.cover_medium?.url_list?.[0]"
-                          class="music-cover"
-                          @error="onMusicCoverError"
-                        />
-                        <div>
-                          <div class="music-name">{{ form.selectedMusic.title }}</div>
-                          <div class="music-author">{{ form.selectedMusic.author }}</div>
-                        </div>
-                      </div>
-                      <el-button size="small" text @click="form.selectedMusic = null">移除</el-button>
-                    </div>
-                    <el-button
-                      v-else
-                      size="small"
-                      @click="musicDrawerVisible = true"
-                    >
-                      <el-icon><VideoPlay /></el-icon>
-                      选择音乐
-                    </el-button>
+                    <DouyinMusicSelect
+                      v-model="form.selectedMusic"
+                      @change="handleMusicSelect"
+                    />
                   </div>
                 </div>
 
@@ -489,13 +471,6 @@
       @select="onMaterialSelected"
     />
 
-    <!-- 抖音音乐选择抽屉 -->
-    <DouyinMusicDrawer
-      v-model="musicDrawerVisible"
-      :account-id="selectedAccountId"
-      @select="handleMusicSelect"
-    />
-
     <!-- Image Preview Dialog -->
     <ImagePreviewDialog
       ref="imagePreviewDialogRef"
@@ -571,7 +546,7 @@ import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
 import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
 import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
 import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
-import DouyinMusicDrawer from '@/components/douyin/MusicDrawer.vue'
+import DouyinMusicSelect from '@/components/douyin/MusicSelect.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -646,8 +621,6 @@ const platformConfigs = reactive({
   kuaishou: { title: '', description: '' },
 })
 
-// ========== 抖音音乐抽屉状态 ==========
-const musicDrawerVisible = ref(false)
 
 // ========== Account-level Overrides ==========
 const accountOverrides = reactive({})
@@ -1871,15 +1844,16 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-// ========== 分组卡片样式 ==========
+// ========== 分组卡片样式 (ui-ux-pro-max-skill 优化) ==========
 .config-group {
-  border: 1px solid $border;
+  border: 1px solid #334155;
   border-radius: $radius-card;
   overflow: hidden;
   transition: $transition-base;
+  background: #0E1223;
 
   &:hover {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: #4338CA;
   }
 }
 
@@ -1887,9 +1861,9 @@ onBeforeUnmount(() => {
   padding: 12px 16px;
   font-size: 14px;
   font-weight: 600;
-  color: $text-primary;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid $border;
+  color: #F8FAFC;
+  background: #1E293B;
+  border-bottom: 1px solid #334155;
 }
 
 .group-content {
@@ -1913,6 +1887,7 @@ onBeforeUnmount(() => {
   .setting-label {
     font-size: 13px;
     font-weight: 600;
+    color: #94A3B8;
   }
 }
 
@@ -1941,33 +1916,43 @@ onBeforeUnmount(() => {
 
   :deep(.el-input__wrapper),
   :deep(.el-select .el-input__wrapper) {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: #1E293B;
+    border: 1px solid #334155;
     border-radius: $radius-sm;
     box-shadow: none;
     transition: $transition-base;
 
     &:hover {
-      border-color: rgba(255, 255, 255, 0.3);
-      background: rgba(255, 255, 255, 0.1);
+      border-color: #4338CA;
+      background: #27273B;
     }
 
     &.is-focus {
-      border-color: $brand-start;
-      background: rgba(255, 255, 255, 0.12);
+      border-color: #2563EB;
+      background: #27273B;
     }
   }
 
   :deep(.el-input__inner) {
-    color: $text-primary;
+    color: #F8FAFC;
 
     &::placeholder {
-      color: $text-muted;
+      color: #94A3B8;
     }
   }
 
   :deep(.el-select__caret) {
-    color: $text-secondary;
+    color: #94A3B8;
+  }
+
+  :deep(.el-textarea__inner) {
+    background: #1E293B;
+    border: 1px solid #334155;
+    color: #F8FAFC;
+
+    &:focus {
+      border-color: #2563EB;
+    }
   }
 
   .radio-row {

@@ -1911,7 +1911,6 @@ onBeforeUnmount(() => {
   border-left: 1px solid $border;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.08) transparent;

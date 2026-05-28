@@ -161,13 +161,17 @@ defineExpose({
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 8px 0;
+  width: 100%;
+  height: 100%;
 }
 
 // ===== Main carousel =====
 .carousel-main {
   position: relative;
   width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
 }
 
 .carousel-image-wrap {

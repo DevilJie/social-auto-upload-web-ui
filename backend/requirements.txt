@@ -8,3 +8,4 @@ segno>=1.6.6
 xhs>=0.2.13
 waitress>=3.0.0
 cloakbrowser>=0.3
+Pillow>=12.0.0

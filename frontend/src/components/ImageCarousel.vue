@@ -173,7 +173,7 @@ defineExpose({
 .carousel-image-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 3 / 4;
+  height: 100%;
   border-radius: $radius-sm;
   overflow: hidden;
   background: $bg-base;

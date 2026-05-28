@@ -235,20 +235,6 @@
                     />
                   </div>
 
-                  <!-- 添加合集 -->
-                  <div class="setting-item">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
-                    <DouyinMixSelect
-                      v-if="selectedAccountId"
-                      :account-id="selectedAccountId"
-                      v-model="form.mixId"
-                      @change="handleMixChange"
-                    />
-                    <div v-else class="setting-hint">请先选择一个抖音账号</div>
-                  </div>
-                </div>
-
-                <div class="setting-row">
                   <!-- 选择音乐 -->
                   <div class="setting-item">
                     <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
@@ -275,7 +261,9 @@
                       选择音乐
                     </el-button>
                   </div>
+                </div>
 
+                <div class="setting-row">
                   <!-- 关联热点 -->
                   <div class="setting-item">
                     <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
@@ -284,9 +272,7 @@
                       @change="handleHotspotChange"
                     />
                   </div>
-                </div>
 
-                <div class="setting-row">
                   <!-- 自主声明 -->
                   <div class="setting-item">
                     <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
@@ -300,6 +286,24 @@
                       <el-option label="内容包含广告" value="contains_ad" />
                       <el-option label="内容为虚构演绎" value="fictional" />
                     </el-select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 账号级别配置：合集 -->
+            <div v-if="selectedAccountId" class="config-group">
+              <div class="group-title">账号配置</div>
+              <div class="group-content">
+                <div class="setting-row">
+                  <!-- 添加合集 -->
+                  <div class="setting-item">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
+                    <DouyinMixSelect
+                      :account-id="selectedAccountId"
+                      v-model="form.mixId"
+                      @change="handleMixChange"
+                    />
                   </div>
                   <div class="setting-item"></div>
                 </div>
@@ -1937,13 +1941,33 @@ onBeforeUnmount(() => {
 
   :deep(.el-input__wrapper),
   :deep(.el-select .el-input__wrapper) {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid $border;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: $radius-sm;
     box-shadow: none;
     transition: $transition-base;
 
-    &:hover { border-color: $border-active; }
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    &.is-focus {
+      border-color: $brand-start;
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  :deep(.el-input__inner) {
+    color: $text-primary;
+
+    &::placeholder {
+      color: $text-muted;
+    }
+  }
+
+  :deep(.el-select__caret) {
+    color: $text-secondary;
   }
 
   .radio-row {

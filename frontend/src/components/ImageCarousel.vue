@@ -190,10 +190,11 @@ defineExpose({
 }
 
 .carousel-image {
-  width: 100%;
+  width: auto;
   height: 100%;
   object-fit: cover;
   display: block;
+  margin: 0 auto;
 }
 
 .carousel-index {

@@ -455,16 +455,20 @@ def search_miniapp():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
+        # 小程序搜索使用 keyword 参数
         url = f"https://creator.douyin.com/web/api/media/anchor/search/?keyword={quote(keyword)}&aid=1128"
+        logger.info(f"[小程序搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
+        logger.info(f"[小程序搜索] 返回结果: success={result.get('success')}")
 
         if result.get("success"):
             return jsonify({"code": 200, "data": result["data"]})
         else:
+            logger.error(f"[小程序搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
 
     except Exception as e:
-        logger.error(f"搜索小程序失败: {e}")
+        logger.error(f"搜索小程序失败: {e}", exc_info=True)
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
@@ -485,16 +489,20 @@ def search_game():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
+        # 游戏搜索使用 game_name 参数
         url = f"https://creator.douyin.com/webcast/gamecp/mount_page/search?game_name={quote(keyword)}&count={count}&scene=3&version_code=24.0.0&aid=2906"
+        logger.info(f"[游戏搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
+        logger.info(f"[游戏搜索] 返回结果: success={result.get('success')}")
 
         if result.get("success"):
             return jsonify({"code": 200, "data": result["data"]})
         else:
+            logger.error(f"[游戏搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
 
     except Exception as e:
-        logger.error(f"搜索游戏失败: {e}")
+        logger.error(f"搜索游戏失败: {e}", exc_info=True)
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
@@ -515,14 +523,18 @@ def search_mark_spu():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
+        # 标记万物搜索使用 query_word 参数
         url = f"https://creator.douyin.com/web/api/media/aweme/mark_anchor/spu_list?query_word={quote(keyword)}&page_size={page_size}&page=0&aid=1128"
+        logger.info(f"[标记万物搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
+        logger.info(f"[标记万物搜索] 返回结果: success={result.get('success')}")
 
         if result.get("success"):
             return jsonify({"code": 200, "data": result["data"]})
         else:
+            logger.error(f"[标记万物搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
 
     except Exception as e:
-        logger.error(f"搜索标记万物失败: {e}")
+        logger.error(f"搜索标记万物失败: {e}", exc_info=True)
         return jsonify({"code": 500, "msg": str(e)}), 500

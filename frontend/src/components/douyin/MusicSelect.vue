@@ -5,7 +5,7 @@
       placeholder="搜索音乐"
       clearable
       filterable
-      no-data-text=""
+      no-data-text=" "
       @change="handleChange"
       style="width: 100%"
     >

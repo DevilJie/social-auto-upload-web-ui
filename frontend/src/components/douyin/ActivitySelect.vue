@@ -5,7 +5,7 @@
       placeholder="选择官方活动"
       clearable
       filterable
-      no-data-text=""
+      no-data-text=" "
       @change="handleChange"
       style="width: 100%"
     >

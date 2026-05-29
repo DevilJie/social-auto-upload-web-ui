@@ -5,7 +5,7 @@
       placeholder="输入合集名称搜索"
       clearable
       filterable
-      no-data-text=""
+      no-data-text=" "
       @change="handleChange"
       style="width: 100%"
     >

@@ -5,7 +5,7 @@
       placeholder="输入热点词搜索"
       clearable
       filterable
-      no-data-text=""
+      no-data-text=" "
       @change="handleChange"
       style="width: 100%"
     >

@@ -5,12 +5,25 @@
       placeholder="搜索音乐"
       clearable
       filterable
-      remote
-      :remote-method="searchMusic"
       :loading="loading"
       @change="handleChange"
       style="width: 100%"
     >
+      <template #header>
+        <div class="search-input-wrapper">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="输入关键词后按回车搜索"
+            clearable
+            @keyup.enter="handleSearch"
+            @clear="handleClear"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+      </template>
       <el-option
         v-for="music in musicList"
         :key="music.id"
@@ -40,6 +53,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 import { douyinImageApi } from '@/api/douyinImage'
 
 const props = defineProps({
@@ -58,35 +72,38 @@ const emit = defineEmits(['update:modelValue', 'change'])
 const loading = ref(false)
 const musicList = ref([])
 const selectedMusicId = ref(props.modelValue || '')
+const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedMusicId.value = val || ''
 })
 
-let searchTimer = null
-
-async function searchMusic(keyword) {
+async function handleSearch() {
+  const keyword = searchKeyword.value?.trim()
   if (!keyword) {
     musicList.value = []
     return
   }
 
-  // 防抖
-  if (searchTimer) clearTimeout(searchTimer)
-
-  searchTimer = setTimeout(async () => {
-    loading.value = true
-    try {
-      const resp = await douyinImageApi.searchMusic(props.accountId || '', keyword)
-      if (resp.code === 200) {
-        musicList.value = resp.data?.music || []
-      }
-    } catch (e) {
-      console.error('搜索音乐失败:', e)
-    } finally {
-      loading.value = false
+  console.log('触发音乐搜索:', keyword)
+  loading.value = true
+  try {
+    const resp = await douyinImageApi.searchMusic(props.accountId || '', keyword)
+    console.log('音乐搜索结果:', resp)
+    if (resp.code === 200) {
+      musicList.value = resp.data?.music || []
+      console.log('音乐列表:', musicList.value)
     }
-  }, 500)
+  } catch (e) {
+    console.error('搜索音乐失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleClear() {
+  searchKeyword.value = ''
+  musicList.value = []
 }
 
 function handleChange(val) {

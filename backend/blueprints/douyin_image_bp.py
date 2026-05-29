@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-import requests as http_requests
 from flask import Blueprint, request, jsonify
 
 import sys
@@ -22,9 +21,6 @@ from impl._browser import create_browser, create_context
 logger = get_channel_logger("douyin_image")
 
 douyin_image_bp = Blueprint('douyin_image', __name__, url_prefix='/api/douyin-image')
-
-# agw-auth 缓存: {account_id: {"token": "auth-v1/...", "cookies": {...}, "expire_at": timestamp}}
-_agw_auth_cache = {}
 
 
 def _get_cookie_path(cookie_file: str) -> str:
@@ -45,173 +41,6 @@ def _get_account_cookie_file(account_id: str) -> str:
     if not row:
         return None
     return row[0]
-
-
-def _parse_agw_auth_expiry(token: str) -> float:
-    """解析 agw-auth token 中的过期时间"""
-    # 格式: auth-v1/{ak}/{timestamp}/{expire}/{signature}
-    try:
-        parts = token.split("/")
-        if len(parts) >= 4 and parts[0] == "auth-v1":
-            timestamp = int(parts[2])
-            expire = int(parts[3])
-            return timestamp + expire
-    except (ValueError, IndexError):
-        pass
-    return 0
-
-
-def _load_cookies_from_file(cookie_path: str) -> dict:
-    """从 Playwright cookie 文件加载为 requests 可用的 cookies dict"""
-    try:
-        with open(cookie_path, 'r') as f:
-            data = json.load(f)
-        cookies = {}
-        for c in data.get("cookies", data if isinstance(data, list) else []):
-            name = c.get("name", "")
-            domain = c.get("domain", "")
-            # 只保留抖音相关域名的 cookie
-            if any(d in domain for d in [".douyin.com", ".amemv.com", ".bytedance.com"]):
-                cookies[name] = c.get("value", "")
-        return cookies
-    except Exception as e:
-        logger.error(f"加载cookie文件失败: {e}")
-        return {}
-
-
-def _is_cache_valid(account_id: str) -> bool:
-    """检查缓存的 agw-auth 是否仍然有效"""
-    if account_id not in _agw_auth_cache:
-        return False
-    cache = _agw_auth_cache[account_id]
-    # 提前 60 秒过期，避免边界情况
-    return time.time() < cache["expire_at"] - 60
-
-
-def _direct_music_search(token: str, cookies: dict, keyword: str, cursor_val: str = "0", count: str = "20") -> dict:
-    """使用缓存的 agw-auth 直接调用音乐搜索 API"""
-    url = "https://tsearch.amemv.com/openapi/aweme/v1/music/search/"
-    params = {
-        "aid": "1128",
-        "count": count,
-        "search_source": "normal_search",
-        "keyword": keyword,
-        "cursor": cursor_val,
-        "cookie_enabled": "true",
-        "screen_width": "1920",
-        "screen_height": "1080",
-        "browser_language": "zh-CN",
-        "browser_platform": "Win32",
-        "browser_name": "Mozilla",
-        "browser_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        "browser_online": "true",
-        "timezone_name": "Asia/Shanghai",
-        "support_h265": "0",
-    }
-    headers = {
-        "accept": "application/json, text/plain, */*",
-        "accept-language": "zh-CN,zh;q=0.9",
-        "agw-auth": token,
-        "openapi-omit-shark": "1",
-        "origin": "https://creator.douyin.com",
-        "referer": "https://creator.douyin.com/",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-    }
-
-    try:
-        resp = http_requests.get(url, params=params, headers=headers, cookies=cookies, timeout=15)
-        data = resp.json()
-        return {"success": True, "data": data}
-    except Exception as e:
-        logger.error(f"直接请求音乐搜索失败: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def _fetch_agw_auth_via_browser(cookie_file: str) -> dict:
-    """通过浏览器拦截获取 agw-auth token 和 cookies"""
-    cookie_path = _get_cookie_path(cookie_file)
-
-    browser = await create_browser(headless=True)
-    try:
-        context = await create_context(browser, storage_state=cookie_path)
-        try:
-            page = await context.new_page()
-
-            captured_token = None
-
-            def handle_request(req):
-                nonlocal captured_token
-                if "tsearch.amemv.com" in req.url:
-                    headers = dict(req.headers)
-                    token = headers.get("agw-auth", "")
-                    if token and token != "NOT_FOUND":
-                        captured_token = token
-
-            page.on("request", handle_request)
-
-            # 打开音乐页面，触发初始请求以获取 agw-auth
-            await page.goto("https://creator.douyin.com/creator/music", wait_until="domcontentloaded")
-            await page.wait_for_timeout(5000)
-
-            if not captured_token:
-                # 尝试触发搜索以获取 token
-                search_selectors = [
-                    'input[placeholder*="搜索"]',
-                    'input[placeholder*="音乐"]',
-                    'input[type="text"]',
-                ]
-                for selector in search_selectors:
-                    el = page.locator(selector).first
-                    if await el.is_visible():
-                        await el.fill("test")
-                        await page.wait_for_timeout(500)
-                        await el.press("Enter")
-                        await page.wait_for_timeout(3000)
-                        break
-
-            # 从浏览器上下文获取 cookies
-            browser_cookies = await context.cookies()
-            cookies_dict = {}
-            for c in browser_cookies:
-                if any(d in c.get("domain", "") for d in [".douyin.com", ".amemv.com", ".bytedance.com"]):
-                    cookies_dict[c["name"]] = c["value"]
-
-            return {
-                "token": captured_token,
-                "cookies": cookies_dict,
-            }
-        finally:
-            await context.close()
-    finally:
-        await browser.close()
-
-
-def _ensure_agw_auth(account_id: str, cookie_file: str) -> bool:
-    """确保有有效的 agw-auth 缓存，如果没有则通过浏览器获取"""
-    if _is_cache_valid(account_id):
-        return True
-
-    logger.info(f"agw-auth 缓存过期或不存在，通过浏览器重新获取 (account={account_id})")
-    result = run_async(_fetch_agw_auth_via_browser(cookie_file))
-
-    token = result.get("token")
-    if not token:
-        logger.error(f"通过浏览器获取 agw-auth 失败: {result}")
-        return False
-
-    expire_at = _parse_agw_auth_expiry(token)
-    if expire_at == 0:
-        # 解析失败，默认缓存 25 分钟
-        expire_at = time.time() + 1500
-
-    _agw_auth_cache[account_id] = {
-        "token": token,
-        "cookies": result.get("cookies", {}),
-        "expire_at": expire_at,
-    }
-
-    logger.info(f"agw-auth 获取成功，缓存至 {time.strftime('%H:%M:%S', time.localtime(expire_at))}")
-    return True
 
 
 async def _fetch_with_browser(cookie_file: str, url: str, base_url: str = "https://creator.douyin.com/") -> dict:
@@ -357,76 +186,224 @@ def search_hotspot():
 
 @douyin_image_bp.route('/music-search', methods=['GET'])
 def search_music():
-    """搜索音乐 - 使用 agw-auth 缓存优化"""
+    """搜索音乐 - 通过浏览器拦截网络请求获取结果"""
     account_id = request.args.get('account_id')
     keyword = request.args.get('keyword', '')
     cursor_val = request.args.get('cursor', '0')
     count = request.args.get('count', '20')
 
+    logger.info(f"[音乐搜索] 收到请求: account_id={account_id}, keyword={keyword}, cursor={cursor_val}, count={count}")
+
     if not keyword:
+        logger.warning("[音乐搜索] 缺少keyword参数")
         return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
 
     try:
         cookie_file = _get_account_cookie_file(account_id)
         if not cookie_file:
+            logger.warning(f"[音乐搜索] 账号不存在: {account_id}")
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
-        # 确定缓存 key（用 cookie_file 作为唯一标识）
-        cache_key = cookie_file
+        logger.info(f"[音乐搜索] 开始浏览器搜索: keyword={keyword}")
+        result = run_async(_search_music_via_browser(cookie_file, keyword, cursor_val, count))
 
-        # 确保 agw-auth 缓存有效
-        if not _ensure_agw_auth(cache_key, cookie_file):
-            return jsonify({"code": 500, "msg": "获取 agw-auth 签名失败"}), 500
-
-        # 使用缓存的 token 直接请求
-        cache = _agw_auth_cache[cache_key]
-        result = _direct_music_search(
-            token=cache["token"],
-            cookies=cache["cookies"],
-            keyword=keyword,
-            cursor_val=cursor_val,
-            count=count,
-        )
+        logger.info(f"[音乐搜索] 浏览器返回结果: success={result.get('success')}, data_keys={list(result.get('data', {}).keys()) if result.get('data') else 'None'}")
 
         if result.get("success"):
-            data = result["data"]
-            # 如果返回错误码，可能是 token 过期，清除缓存重试
-            if data.get("status_code") != 0:
-                logger.warning(f"音乐搜索返回错误码 {data.get('status_code')}，清除缓存重试")
-                _agw_auth_cache.pop(cache_key, None)
-                # 重试一次
-                if not _ensure_agw_auth(cache_key, cookie_file):
-                    return jsonify({"code": 500, "msg": "获取 agw-auth 签名失败"}), 500
-                cache = _agw_auth_cache[cache_key]
-                result = _direct_music_search(
-                    token=cache["token"],
-                    cookies=cache["cookies"],
-                    keyword=keyword,
-                    cursor_val=cursor_val,
-                    count=count,
-                )
-                if result.get("success"):
-                    return jsonify({"code": 200, "data": result["data"]})
-                return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
-
-            return jsonify({"code": 200, "data": data})
+            music_list = result.get("data", {}).get("music", [])
+            logger.info(f"[音乐搜索] 搜索成功，找到 {len(music_list)} 首音乐")
+            return jsonify({"code": 200, "data": result["data"]})
         else:
+            logger.error(f"[音乐搜索] 搜索失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
 
     except Exception as e:
-        logger.error(f"搜索音乐失败: {e}")
+        logger.error(f"[音乐搜索] 异常: {e}", exc_info=True)
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
-@douyin_image_bp.route('/music-cache-status', methods=['GET'])
-def music_cache_status():
-    """查看 agw-auth 缓存状态"""
-    status = {}
-    for key, cache in _agw_auth_cache.items():
-        remaining = max(0, int(cache["expire_at"] - time.time()))
-        status[key] = {
-            "valid": _is_cache_valid(key),
-            "remaining_seconds": remaining,
-            "token_preview": cache["token"][:50] + "..." if cache.get("token") else None,
-        }
-    return jsonify({"code": 200, "data": status})
+async def _search_music_via_browser(cookie_file: str, keyword: str, cursor_val: str = "0", count: str = "20") -> dict:
+    """通过浏览器自动化搜索音乐，拦截网络请求获取结果"""
+    cookie_path = _get_cookie_path(cookie_file)
+
+    # 准备测试图片
+    test_image = Path(BASE_DIR / "test_music_search.jpg")
+    if not test_image.exists():
+        # 创建一个最小的测试图片（1x1 像素的 JPEG）
+        try:
+            from PIL import Image
+            img = Image.new('RGB', (1, 1), color='red')
+            img.save(str(test_image), 'JPEG')
+        except ImportError:
+            # 如果没有 PIL，创建一个假文件
+            test_image.write_bytes(b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00')
+
+    browser = await create_browser(headless=True)
+    try:
+        context = await create_context(browser, storage_state=cookie_path)
+        try:
+            page = await context.new_page()
+
+            # 拦截音乐搜索 API 响应
+            captured_response = None
+
+            async def handle_response(response):
+                nonlocal captured_response
+                if "tsearch.amemv.com/openapi/aweme/v1/music/search" in response.url:
+                    try:
+                        logger.info(f"[浏览器拦截] 捕获到音乐搜索请求: {response.url[:100]}...")
+                        data = await response.json()
+                        captured_response = data
+                        logger.info(f"[浏览器拦截] 响应数据: status_code={data.get('status_code')}, music_count={len(data.get('music', []))}")
+                    except Exception as e:
+                        logger.error(f"[浏览器拦截] 解析响应失败: {e}")
+
+            page.on("response", handle_response)
+
+            # 1. 打开图文发布页面
+            logger.info("打开图文发布页面...")
+            await page.goto("https://creator.douyin.com/creator-micro/content/upload?default-tab=3", wait_until="domcontentloaded")
+            await page.wait_for_timeout(3000)
+
+            # 2. 上传测试图片
+            logger.info("上传测试图片...")
+            # 查找文件上传 input
+            upload_selectors = [
+                'input[type="file"]',
+                'input[accept*="image"]',
+                '.upload-btn input[type="file"]',
+            ]
+            uploaded = False
+            for selector in upload_selectors:
+                try:
+                    input_el = page.locator(selector).first
+                    if await input_el.count() > 0:
+                        await input_el.set_input_files(str(test_image))
+                        uploaded = True
+                        logger.info(f"图片上传成功，选择器: {selector}")
+                        break
+                except Exception as e:
+                    continue
+
+            if not uploaded:
+                return {"success": False, "error": "未找到文件上传入口"}
+
+            # 3. 等待跳转到发布界面
+            logger.info("等待跳转到发布界面...")
+            await page.wait_for_timeout(5000)
+
+            # 检查是否跳转成功
+            current_url = page.url
+            if "upload" in current_url and "publish" not in current_url:
+                # 可能需要点击发布按钮
+                try:
+                    publish_btn = page.locator('button:has-text("发布"), .publish-btn, [class*="publish"]').first
+                    if await publish_btn.is_visible():
+                        await publish_btn.click()
+                        await page.wait_for_timeout(3000)
+                except Exception:
+                    pass
+
+            # 4. 点击"选择音乐"按钮
+            logger.info("点击选择音乐按钮...")
+            # 根据用户提供的DOM结构，点击包含"选择音乐"文字的容器
+            music_selectors = [
+                '.action-Q1y01k',  # 精确匹配用户提供的class
+                'span:has-text("选择音乐")',
+                '[class*="container-right"]:has-text("选择音乐")',
+                'text="选择音乐"',
+            ]
+
+            music_clicked = False
+            for selector in music_selectors:
+                try:
+                    btn = page.locator(selector).first
+                    if await btn.is_visible(timeout=5000):  # 增加等待时间
+                        await btn.click()
+                        music_clicked = True
+                        logger.info(f"点击选择音乐按钮成功，选择器: {selector}")
+                        break
+                except Exception as e:
+                    logger.debug(f"选择器 {selector} 失败: {e}")
+                    continue
+
+            if not music_clicked:
+                # 尝试通过坐标点击（如果文字可见）
+                try:
+                    music_text = page.locator('text="选择音乐"').first
+                    if await music_text.is_visible(timeout=3000):
+                        await music_text.click()
+                        music_clicked = True
+                        logger.info("通过文字定位点击选择音乐成功")
+                except Exception:
+                    pass
+
+            if not music_clicked:
+                return {"success": False, "error": "未找到选择音乐按钮"}
+
+            # 5. 等待音乐抽屉打开
+            logger.info("等待音乐抽屉打开...")
+            await page.wait_for_timeout(3000)
+
+            # 6. 在搜索框输入关键词
+            logger.info(f"搜索音乐: {keyword}")
+            search_selectors = [
+                'input[placeholder="搜索音乐"]',  # 精确匹配
+                'input[placeholder*="搜索音乐"]',
+                '.music-search-jpUg0G input',  # 匹配用户提供的class
+                '.semi-input[placeholder*="搜索"]',
+                'input.semi-input',
+            ]
+
+            search_filled = False
+            for selector in search_selectors:
+                try:
+                    input_el = page.locator(selector).first
+                    if await input_el.is_visible(timeout=5000):
+                        # 清空输入框
+                        await input_el.clear()
+                        # 输入关键词
+                        await input_el.fill(keyword)
+                        # 等待一下确保输入完成
+                        await page.wait_for_timeout(500)
+                        # 按回车触发搜索
+                        await input_el.press("Enter")
+                        search_filled = True
+                        logger.info(f"搜索框输入成功，选择器: {selector}")
+                        break
+                except Exception as e:
+                    logger.debug(f"搜索框选择器 {selector} 失败: {e}")
+                    continue
+
+            if not search_filled:
+                return {"success": False, "error": "未找到搜索框"}
+
+            # 7. 等待搜索结果
+            logger.info("[搜索音乐] 等待搜索结果...")
+            for i in range(50):  # 最多等待 5 秒
+                if captured_response:
+                    break
+                await page.wait_for_timeout(100)
+                if i % 10 == 0:  # 每秒打印一次日志
+                    logger.info(f"[搜索音乐] 等待中... {i*100}ms")
+
+            if captured_response:
+                music_list = captured_response.get("music", [])
+                logger.info(f"[搜索音乐] ✅ 成功拦截到结果，共 {len(music_list)} 首音乐")
+                if music_list:
+                    logger.info(f"[搜索音乐] 第一首: {music_list[0].get('title', 'N/A')} - {music_list[0].get('author', 'N/A')}")
+                return {"success": True, "data": captured_response}
+            else:
+                logger.error("[搜索音乐] ❌ 未能拦截到搜索结果")
+                return {"success": False, "error": "未能拦截到搜索结果"}
+
+        finally:
+            await context.close()
+    finally:
+        await browser.close()
+        # 清理测试图片
+        try:
+            if test_image.exists():
+                test_image.unlink()
+        except Exception:
+            pass

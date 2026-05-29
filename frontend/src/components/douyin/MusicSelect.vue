@@ -23,6 +23,10 @@
             </template>
           </el-input>
         </div>
+        <div v-if="loading" class="loading-indicator">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>加载中...</span>
+        </div>
       </template>
       <el-option
         v-for="music in musicList"
@@ -53,7 +57,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { Search, Loading } from '@element-plus/icons-vue'
 import { douyinImageApi } from '@/api/douyinImage'
 
 const props = defineProps({
@@ -142,6 +146,33 @@ function onImageError(e) {
 
 .music-select {
   width: 100%;
+}
+
+.search-input-wrapper {
+  padding: 8px 12px;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #94A3B8;
+  font-size: 13px;
+
+  .is-loading {
+    animation: rotating 1s linear infinite;
+  }
+
+  @keyframes rotating {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
 }
 
 .music-option {

@@ -905,35 +905,49 @@ function handleActivityChange(activity) {
   }
 }
 
-function handleMixChange(mix) {
-  // 合集选择变化
-  console.log('Mix changed:', mix)
+function handleMusicSelect(music) {
+  if (music) {
+    form.selectedMusic = music.title
+    form.selectedMusicData = music
+    ElMessage.success(`音乐已选择: ${music.title}`)
+  } else {
+    form.selectedMusic = ''
+    form.selectedMusicData = null
+  }
 }
 
 function handleHotspotChange(hotspot) {
   if (hotspot) {
+    form.selectedHotspot = hotspot.word
+    form.selectedHotspotData = hotspot
     // 如果选择了热点，自动添加到话题
     if (!commonConfig.topics.includes(hotspot.word)) {
       commonConfig.topics.push(hotspot.word)
     }
+  } else {
+    form.selectedHotspot = ''
+    form.selectedHotspotData = null
   }
 }
 
-function handleMusicSelect(music) {
-  if (music) {
-    form.selectedMusic = music.title
-    ElMessage.success(`音乐已选择: ${music.title}`)
+function handleMixChange(mix) {
+  if (mix) {
+    form.selectedMix = mix.mix_name
+    form.selectedMixData = mix
   } else {
-    form.selectedMusic = ''
+    form.selectedMix = ''
+    form.selectedMixData = null
   }
 }
 
 function handleTagSelect(tag) {
   if (tag) {
     form.selectedTag = tag
+    form.selectedTagData = tag
     ElMessage.success(`标签已选择: ${tag.name}`)
   } else {
     form.selectedTag = null
+    form.selectedTagData = null
   }
 }
 
@@ -999,6 +1013,17 @@ async function saveDraft() {
       selectedPlatform: selectedPlatform.value,
       selectedAccountId: selectedAccountId.value,
       expandedGroups: [...expandedGroups.value],
+      // 保存完整的选中对象和搜索关键词
+      douyinSelections: {
+        selectedMusic: form.selectedMusic || null,
+        selectedMusicData: form.selectedMusicData || null,
+        selectedHotspot: form.selectedHotspot || null,
+        selectedHotspotData: form.selectedHotspotData || null,
+        selectedMix: form.selectedMix || null,
+        selectedMixData: form.selectedMixData || null,
+        selectedTag: form.selectedTag || null,
+        selectedTagData: form.selectedTagData || null,
+      }
     }
 
     if (currentDraftId.value) {
@@ -1293,6 +1318,18 @@ async function loadDraft(draftId) {
         // 恢复 selectedPlatform
         if (dd.selectedPlatform) {
           selectedPlatform.value = dd.selectedPlatform
+        }
+
+        // 恢复抖音选择数据
+        if (dd.douyinSelections) {
+          form.selectedMusic = dd.douyinSelections.selectedMusic || ''
+          form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
+          form.selectedHotspot = dd.douyinSelections.selectedHotspot || ''
+          form.selectedHotspotData = dd.douyinSelections.selectedHotspotData || null
+          form.selectedMix = dd.douyinSelections.selectedMix || ''
+          form.selectedMixData = dd.douyinSelections.selectedMixData || null
+          form.selectedTag = dd.douyinSelections.selectedTag || null
+          form.selectedTagData = dd.douyinSelections.selectedTagData || null
         }
 
         ElMessage.success('草稿已加载')

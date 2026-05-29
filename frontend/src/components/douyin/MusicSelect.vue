@@ -124,7 +124,10 @@ function handleChange(val) {
   if (val) {
     const music = musicList.value.find(m => m.title === val)
     emit('update:modelValue', val)
-    emit('change', music)
+    emit('change', {
+      ...music,
+      _searchKeyword: searchKeyword.value
+    })
   } else {
     emit('update:modelValue', null)
     emit('change', null)

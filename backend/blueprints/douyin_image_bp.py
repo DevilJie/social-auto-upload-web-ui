@@ -184,7 +184,7 @@ def get_mix_list():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "账号不存在"}), 404
 
-        url = "https://creator.douyin.com/web/api/mix/list/?status=0%2C2&count=15&cursor=0&aid=1128"
+        url = "https://creator.douyin.com/web/api/mix/list/?status=0%2C2&count=15&cursor=0&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=1128&support_h265=0"
         result = run_async(_fetch_with_browser(cookie_file, url))
 
         if result.get("success"):
@@ -207,7 +207,7 @@ def get_activity_list():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
-        url = "https://creator.douyin.com/web/api/media/activity/get/?page=1&size=9999&need_challenge=1&aid=1128"
+        url = "https://creator.douyin.com/web/api/media/activity/get/?page=1&size=9999&need_challenge=1&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=1128&support_h265=0"
         result = run_async(_fetch_with_browser(cookie_file, url))
 
         if result.get("success"):
@@ -232,7 +232,7 @@ def search_hotspot():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
-        url = f"https://creator.douyin.com/aweme/v1/hotspot/search/?query={quote(keyword)}&count={count}&aid=1128"
+        url = f"https://creator.douyin.com/aweme/v1/hotspot/search/?query={quote(keyword)}&count={count}&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=1128&support_h265=0"
         result = run_async(_fetch_with_browser(cookie_file, url))
 
         if result.get("success"):

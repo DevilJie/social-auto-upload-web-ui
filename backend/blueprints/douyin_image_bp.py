@@ -487,14 +487,7 @@ def search_poi():
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
-        url = (f"https://creator.douyin.com/aweme/v1/life/video_api/search/poi/?"
-               f"count={count}&from_webapp=1&get_current_loc=1&is_image_album_style=1&"
-               f"keywords={quote(keyword)}&search_type=0&poi_anchor_tab=2&page=1&poi_mode=2&"
-               f"cookie_enabled=true&screen_width=1920&screen_height=1080&"
-               f"browser_language=zh-CN&browser_platform=Win32&"
-               f"browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&"
-               f"browser_online=true&timezone_name=Asia%2FShanghai&"
-               f"aid=1128&support_h265=0")
+        url = f"https://creator.douyin.com/aweme/v1/life/video_api/search/poi/?count={count}&from_webapp=1&get_current_loc=1&is_image_album_style=1&keywords={quote(keyword)}&search_type=0&poi_anchor_tab=2&page=1&poi_mode=2&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=1128&support_h265=0"
         result = run_async(_fetch_with_browser(cookie_file, url))
 
         if result.get("success"):
@@ -568,13 +561,7 @@ def search_game():
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
         # 游戏搜索使用 game_name 参数
-        url = (f"https://creator.douyin.com/webcast/gamecp/mount_page/search?"
-               f"game_name={quote(keyword)}&count={count}&scene=3&version_code=24.0.0&"
-               f"cookie_enabled=true&screen_width=1920&screen_height=1080&"
-               f"browser_language=zh-CN&browser_platform=Win32&"
-               f"browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&"
-               f"browser_online=true&timezone_name=Asia%2FShanghai&"
-               f"aid=2906&support_h265=0")
+        url = f"https://creator.douyin.com/webcast/gamecp/mount_page/search?game_name={quote(keyword)}&count={count}&scene=3&version_code=24.0.0&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=2906&support_h265=0"
         logger.info(f"[游戏搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
         logger.info(f"[游戏搜索] 返回结果: success={result.get('success')}")
@@ -608,13 +595,7 @@ def search_mark_spu():
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
         # 标记万物搜索使用 query_word 参数
-        url = (f"https://creator.douyin.com/web/api/media/aweme/mark_anchor/spu_list?"
-               f"query_word={quote(keyword)}&page_size={page_size}&page=0&"
-               f"cookie_enabled=true&screen_width=1920&screen_height=1080&"
-               f"browser_language=zh-CN&browser_platform=Win32&"
-               f"browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&"
-               f"browser_online=true&timezone_name=Asia%2FShanghai&"
-               f"aid=1128&support_h265=0")
+        url = f"https://creator.douyin.com/web/api/media/aweme/mark_anchor/spu_list?query_word={quote(keyword)}&page_size={page_size}&page=0&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=1128&support_h265=0"
         logger.info(f"[标记万物搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
         logger.info(f"[标记万物搜索] 返回结果: success={result.get('success')}")

@@ -114,7 +114,7 @@ function handleClear() {
 function handleChange(val) {
   emit('update:modelValue', val)
   const hotspot = hotspotList.value.find(h => h.word === val)
-  emit('change', hotspot || null)
+  emit('change', hotspot ? { ...hotspot, _searchKeyword: searchKeyword.value } : null)
 }
 
 function formatHotValue(value) {

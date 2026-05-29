@@ -233,7 +233,7 @@ function handleChange(val) {
   if (val) {
     const tag = tagList.value.find(t => t.id === val)
     emit('update:modelValue', tag)
-    emit('change', tag)
+    emit('change', tag ? { ...tag, _searchKeyword: searchKeyword.value } : null)
   } else {
     emit('update:modelValue', null)
     emit('change', null)

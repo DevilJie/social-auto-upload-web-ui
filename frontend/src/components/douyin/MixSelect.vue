@@ -121,7 +121,7 @@ function handleClear() {
 function handleChange(val) {
   emit('update:modelValue', val)
   const mix = mixList.value.find(m => m.mix_name === val)
-  emit('change', mix || null)
+  emit('change', mix ? { ...mix, _searchKeyword: searchKeyword.value } : null)
 }
 
 function onImageError(e) {

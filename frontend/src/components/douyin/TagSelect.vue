@@ -157,6 +157,7 @@ async function handleSearch() {
     switch (selectedType.value) {
       case 'poi':
         resp = await douyinImageApi.searchPoi(props.accountId || '', keyword)
+        console.log('位置搜索结果:', resp)
         if (resp.code === 200) {
           tagList.value = (resp.data?.poi_list || []).map(poi => ({
             id: poi.poi_id,
@@ -170,6 +171,7 @@ async function handleSearch() {
         break
       case 'miniapp':
         resp = await douyinImageApi.searchMiniapp(props.accountId || '', keyword)
+        console.log('小程序搜索结果:', resp)
         if (resp.code === 200) {
           tagList.value = (resp.data?.anchor_list || []).map(anchor => ({
             id: anchor.id,
@@ -183,8 +185,11 @@ async function handleSearch() {
         break
       case 'game':
         resp = await douyinImageApi.searchGame(props.accountId || '', keyword)
+        console.log('游戏搜索结果:', resp)
         if (resp.code === 200) {
-          tagList.value = (resp.data?.mount_games || []).map(game => ({
+          // 注意：游戏数据在 resp.data.data.mount_games 中
+          const gameData = resp.data?.data || resp.data
+          tagList.value = (gameData?.mount_games || []).map(game => ({
             id: game.game_info?.unified_game_id,
             name: game.game_info?.name,
             desc: game.game_info?.tag_names?.join('、'),
@@ -196,8 +201,11 @@ async function handleSearch() {
         break
       case 'mark':
         resp = await douyinImageApi.searchMarkSpu(props.accountId || '', keyword)
+        console.log('标记万物搜索结果:', resp)
         if (resp.code === 200) {
-          tagList.value = (resp.data?.spu_list || []).map(spu => ({
+          // 注意：标记万物数据在 resp.data.data.spu_list 中
+          const markData = resp.data?.data || resp.data
+          tagList.value = (markData?.spu_list || []).map(spu => ({
             id: spu.spu_id,
             name: spu.title,
             desc: spu.front_category?.front_category_name,

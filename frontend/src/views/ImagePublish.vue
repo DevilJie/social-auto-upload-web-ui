@@ -906,9 +906,11 @@ function handleHotspotChange(hotspot) {
 }
 
 function handleMusicSelect(music) {
-  form.selectedMusic = music
   if (music) {
+    form.selectedMusic = music.title
     ElMessage.success(`音乐已选择: ${music.title}`)
+  } else {
+    form.selectedMusic = ''
   }
 }
 

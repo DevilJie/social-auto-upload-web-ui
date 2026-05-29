@@ -5,7 +5,6 @@
       placeholder="选择官方活动"
       clearable
       filterable
-      :loading="loading"
       @change="handleChange"
       style="width: 100%"
     >

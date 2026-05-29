@@ -5,7 +5,6 @@
       placeholder="输入热点词搜索"
       clearable
       filterable
-      :loading="loading"
       @change="handleChange"
       style="width: 100%"
     >

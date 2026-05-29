@@ -5,7 +5,6 @@
       placeholder="搜索音乐"
       clearable
       filterable
-      :loading="loading"
       @change="handleChange"
       style="width: 100%"
     >
@@ -80,6 +79,16 @@ const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedMusicId.value = val || ''
+  // 如果有值但 musicList 中没有对应的选项，添加一个占位项
+  if (val && !musicList.value.find(m => m.title === val)) {
+    musicList.value.unshift({
+      id: val,
+      title: val,
+      author: '',
+      duration: 0,
+      user_count: 0,
+    })
+  }
 })
 
 async function handleSearch() {

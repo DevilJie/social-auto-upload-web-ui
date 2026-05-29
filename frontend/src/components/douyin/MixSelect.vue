@@ -2,13 +2,32 @@
   <div class="mix-select">
     <el-select
       v-model="selectedMixId"
-      placeholder="不选择合集"
+      placeholder="输入合集名称搜索"
       clearable
       filterable
       :loading="loading"
       @change="handleChange"
       style="width: 100%"
     >
+      <template #header>
+        <div class="search-input-wrapper">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="输入关键词后按回车搜索"
+            clearable
+            @keyup.enter="handleSearch"
+            @clear="handleClear"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+        <div v-if="loading" class="loading-indicator">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>加载中...</span>
+        </div>
+      </template>
       <el-option
         v-for="mix in mixList"
         :key="mix.mix_id"
@@ -36,8 +55,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
-import { Picture } from '@element-plus/icons-vue'
+import { ref, watch } from 'vue'
+import { Search, Loading, Picture } from '@element-plus/icons-vue'
 import { douyinImageApi } from '@/api/douyinImage'
 
 const props = defineProps({
@@ -56,29 +75,47 @@ const emit = defineEmits(['update:modelValue', 'change'])
 const loading = ref(false)
 const mixList = ref([])
 const selectedMixId = ref(props.modelValue)
+const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedMixId.value = val
 })
 
-onMounted(() => {
-  loadMixList()
-})
+async function handleSearch() {
+  const keyword = searchKeyword.value?.trim()
+  if (!keyword) {
+    mixList.value = []
+    return
+  }
 
-async function loadMixList() {
-  if (!props.accountId) return
+  if (!props.accountId) {
+    console.warn('未选择账号，无法搜索合集')
+    return
+  }
 
+  console.log('触发合集搜索:', keyword)
   loading.value = true
   try {
     const resp = await douyinImageApi.getMixList(props.accountId)
+    console.log('合集搜索结果:', resp)
     if (resp.code === 200) {
-      mixList.value = resp.data?.mix_list || []
+      // 前端过滤合集列表
+      const allMixes = resp.data?.mix_list || []
+      mixList.value = allMixes.filter(m =>
+        m.mix_name?.toLowerCase().includes(keyword.toLowerCase())
+      )
+      console.log('合集列表:', mixList.value)
     }
   } catch (e) {
-    console.error('加载合集列表失败:', e)
+    console.error('搜索合集失败:', e)
   } finally {
     loading.value = false
   }
+}
+
+function handleClear() {
+  searchKeyword.value = ''
+  mixList.value = []
 }
 
 function handleChange(val) {
@@ -95,6 +132,33 @@ function onImageError(e) {
 <style scoped lang="scss">
 .mix-select {
   width: 100%;
+}
+
+.search-input-wrapper {
+  padding: 8px 12px;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #94A3B8;
+  font-size: 13px;
+
+  .is-loading {
+    animation: rotating 1s linear infinite;
+  }
+
+  @keyframes rotating {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
 }
 
 .mix-option {

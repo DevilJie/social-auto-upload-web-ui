@@ -5,12 +5,29 @@
       placeholder="输入热点词搜索"
       clearable
       filterable
-      remote
-      :remote-method="searchHotspot"
       :loading="loading"
       @change="handleChange"
       style="width: 100%"
     >
+      <template #header>
+        <div class="search-input-wrapper">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="输入关键词后按回车搜索"
+            clearable
+            @keyup.enter="handleSearch"
+            @clear="handleClear"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+        <div v-if="loading" class="loading-indicator">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>加载中...</span>
+        </div>
+      </template>
       <el-option
         v-for="item in hotspotList"
         :key="item.sentence_id"
@@ -41,7 +58,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { TrendCharts } from '@element-plus/icons-vue'
+import { Search, Loading, TrendCharts } from '@element-plus/icons-vue'
 import { douyinImageApi } from '@/api/douyinImage'
 
 const props = defineProps({
@@ -60,32 +77,38 @@ const emit = defineEmits(['update:modelValue', 'change'])
 const loading = ref(false)
 const hotspotList = ref([])
 const selectedHotspot = ref(props.modelValue)
+const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedHotspot.value = val
 })
 
-let searchTimer = null
+async function handleSearch() {
+  const keyword = searchKeyword.value?.trim()
+  if (!keyword) {
+    hotspotList.value = []
+    return
+  }
 
-async function searchHotspot(keyword) {
-  if (!keyword) return
-
-  // 防抖
-  if (searchTimer) clearTimeout(searchTimer)
-
-  searchTimer = setTimeout(async () => {
-    loading.value = true
-    try {
-      const resp = await douyinImageApi.searchHotspot(props.accountId || '', keyword)
-      if (resp.code === 200) {
-        hotspotList.value = resp.data?.sentences || []
-      }
-    } catch (e) {
-      console.error('搜索热点失败:', e)
-    } finally {
-      loading.value = false
+  console.log('触发热点搜索:', keyword)
+  loading.value = true
+  try {
+    const resp = await douyinImageApi.searchHotspot(props.accountId || '', keyword)
+    console.log('热点搜索结果:', resp)
+    if (resp.code === 200) {
+      hotspotList.value = resp.data?.sentences || []
+      console.log('热点列表:', hotspotList.value)
     }
-  }, 300)
+  } catch (e) {
+    console.error('搜索热点失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function handleClear() {
+  searchKeyword.value = ''
+  hotspotList.value = []
 }
 
 function handleChange(val) {
@@ -110,6 +133,33 @@ function onImageError(e) {
 <style scoped lang="scss">
 .hotspot-select {
   width: 100%;
+}
+
+.search-input-wrapper {
+  padding: 8px 12px;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #94A3B8;
+  font-size: 13px;
+
+  .is-loading {
+    animation: rotating 1s linear infinite;
+  }
+
+  @keyframes rotating {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
 }
 
 .hotspot-option {

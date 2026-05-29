@@ -317,7 +317,8 @@ body {
 
   .el-select-dropdown__item {
     color: #F8FAFC !important;
-    padding: 8px 12px !important;
+    height: auto !important;
+    padding: 0 !important;
     transition: all 0.2s ease !important;
 
     &:hover {
@@ -336,6 +337,13 @@ body {
 
     &.is-disabled {
       color: #64748B !important;
+    }
+
+    .activity-option,
+    .mix-option,
+    .hotspot-option,
+    .music-option {
+      padding: 12px 16px;
     }
   }
 

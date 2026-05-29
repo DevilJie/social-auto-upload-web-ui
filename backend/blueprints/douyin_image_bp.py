@@ -531,9 +531,10 @@ def search_miniapp():
         logger.info(f"[小程序搜索] form_data: {form_data}")
         result = run_async(_fetch_with_browser_post(cookie_file, url, form_data))
         logger.info(f"[小程序搜索] 返回结果: success={result.get('success')}")
-
         if result.get("success"):
-            return jsonify({"code": 200, "data": result["data"]})
+            data = result["data"]
+            logger.info(f"[小程序搜索] 返回数据: status_code={data.get('status_code')}, anchor_list数量={len(data.get('anchor_list', []))}")
+            return jsonify({"code": 200, "data": data})
         else:
             logger.error(f"[小程序搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
@@ -565,9 +566,10 @@ def search_game():
         logger.info(f"[游戏搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
         logger.info(f"[游戏搜索] 返回结果: success={result.get('success')}")
-
         if result.get("success"):
-            return jsonify({"code": 200, "data": result["data"]})
+            data = result["data"]
+            logger.info(f"[游戏搜索] 返回数据: status_code={data.get('status_code')}, mount_games数量={len(data.get('data', {}).get('mount_games', []))}")
+            return jsonify({"code": 200, "data": data})
         else:
             logger.error(f"[游戏搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
@@ -599,9 +601,10 @@ def search_mark_spu():
         logger.info(f"[标记万物搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
         logger.info(f"[标记万物搜索] 返回结果: success={result.get('success')}")
-
         if result.get("success"):
-            return jsonify({"code": 200, "data": result["data"]})
+            data = result["data"]
+            logger.info(f"[标记万物搜索] 返回数据: status_code={data.get('status_code')}, spu_list数量={len(data.get('data', {}).get('spu_list', []))}")
+            return jsonify({"code": 200, "data": data})
         else:
             logger.error(f"[标记万物搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500

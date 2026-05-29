@@ -115,8 +115,8 @@ function onImageError(e) {
 .hotspot-option {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 0;
+  gap: 12px;
+  padding: 8px 0;
 }
 
 .hotspot-cover {

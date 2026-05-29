@@ -18,6 +18,7 @@ Thumbs.db
 *.env.local
 .superpowers/
 data/logs/*
+data/data/logs/*
 
 
 # Tauri

@@ -126,7 +126,7 @@ function getPlaceholder() {
 function getSearchPlaceholder() {
   const placeholders = {
     poi: '输入地点名称搜索',
-    miniapp: '输入小程序名称搜索',
+    miniapp: '粘贴抖音小程序链接',
     game: '输入游戏名称搜索',
     mark: '输入商品名称搜索'
   }

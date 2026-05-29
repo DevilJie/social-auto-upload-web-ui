@@ -441,22 +441,30 @@ def search_poi():
 
 @douyin_image_bp.route('/search-miniapp', methods=['GET'])
 def search_miniapp():
-    """搜索小程序"""
+    """搜索小程序 - 通过链接中的token查询"""
     account_id = request.args.get('account_id')
-    keyword = request.args.get('keyword', '')
+    link = request.args.get('link', '')
 
-    logger.info(f"[小程序搜索] 收到请求: account_id={account_id}, keyword={keyword}")
+    logger.info(f"[小程序搜索] 收到请求: account_id={account_id}, link={link}")
 
-    if not keyword:
-        return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+    if not link:
+        return jsonify({"code": 400, "msg": "缺少link参数"}), 400
 
     try:
+        # 从链接中提取token
+        token = ''
+        if 'token=' in link:
+            token = link.split('token=')[1].split('&')[0]
+            logger.info(f"[小程序搜索] 提取到token: {token}")
+        else:
+            return jsonify({"code": 400, "msg": "链接格式不正确，未找到token参数"}), 400
+
         cookie_file = _get_account_cookie_file(account_id)
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
-        # 小程序搜索使用 keyword 参数
-        url = f"https://creator.douyin.com/web/api/media/anchor/search/?keyword={quote(keyword)}&aid=1128"
+        # 使用token搜索小程序
+        url = f"https://creator.douyin.com/web/api/media/anchor/search/?token={quote(token)}&aid=1128"
         logger.info(f"[小程序搜索] 请求URL: {url}")
         result = run_async(_fetch_with_browser(cookie_file, url))
         logger.info(f"[小程序搜索] 返回结果: success={result.get('success')}")

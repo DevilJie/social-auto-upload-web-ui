@@ -2,7 +2,7 @@
   <div class="activity-select">
     <el-select
       v-model="selectedActivityId"
-      placeholder="输入活动名称搜索"
+      placeholder="选择官方活动"
       clearable
       filterable
       :loading="loading"
@@ -10,19 +10,6 @@
       style="width: 100%"
     >
       <template #header>
-        <div class="search-input-wrapper">
-          <el-input
-            v-model="searchKeyword"
-            placeholder="输入关键词后按回车搜索"
-            clearable
-            @keyup.enter="handleSearch"
-            @clear="handleClear"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
         <div v-if="loading" class="loading-indicator">
           <el-icon class="is-loading"><Loading /></el-icon>
           <span>加载中...</span>
@@ -60,8 +47,8 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { Search, Loading, Promotion } from '@element-plus/icons-vue'
+import { ref, onMounted, watch } from 'vue'
+import { Loading, Promotion } from '@element-plus/icons-vue'
 import { douyinImageApi } from '@/api/douyinImage'
 
 const props = defineProps({
@@ -80,42 +67,27 @@ const emit = defineEmits(['update:modelValue', 'change'])
 const loading = ref(false)
 const activityList = ref([])
 const selectedActivityId = ref(props.modelValue)
-const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedActivityId.value = val
 })
 
-async function handleSearch() {
-  const keyword = searchKeyword.value?.trim()
-  if (!keyword) {
-    activityList.value = []
-    return
-  }
+onMounted(() => {
+  loadActivityList()
+})
 
-  console.log('触发活动搜索:', keyword)
+async function loadActivityList() {
   loading.value = true
   try {
     const resp = await douyinImageApi.getActivityList(props.accountId || '')
-    console.log('活动搜索结果:', resp)
     if (resp.code === 200) {
-      // 前端过滤活动列表
-      const allActivities = resp.data?.activity_list || []
-      activityList.value = allActivities.filter(a =>
-        a.activity_name?.toLowerCase().includes(keyword.toLowerCase())
-      )
-      console.log('活动列表:', activityList.value)
+      activityList.value = resp.data?.activity_list || []
     }
   } catch (e) {
-    console.error('搜索活动失败:', e)
+    console.error('加载活动列表失败:', e)
   } finally {
     loading.value = false
   }
-}
-
-function handleClear() {
-  searchKeyword.value = ''
-  activityList.value = []
 }
 
 function handleChange(val) {

@@ -44,7 +44,7 @@ def _get_account_cookie_file(account_id: str) -> str:
 
 
 async def _fetch_with_browser(cookie_file: str, url: str, base_url: str = "https://creator.douyin.com/") -> dict:
-    """使用CloakBrowser发送请求"""
+    """使用CloakBrowser发送GET请求"""
     cookie_path = _get_cookie_path(cookie_file)
 
     browser = await create_browser(headless=True)
@@ -74,6 +74,67 @@ async def _fetch_with_browser(cookie_file: str, url: str, base_url: str = "https
                                 'Accept': 'application/json',
                                 'Referer': '{referer}',
                             }}
+                        }});
+
+                        // 先获取文本，再尝试解析JSON
+                        const text = await response.text();
+
+                        if (!response.ok) {{
+                            return {{ success: false, error: `HTTP ${{response.status}}: ${{text.substring(0, 200)}}` }};
+                        }}
+
+                        try {{
+                            const data = JSON.parse(text);
+                            return {{ success: true, data: data }};
+                        }} catch (jsonError) {{
+                            return {{ success: false, error: `JSON解析失败: ${{jsonError.message}}, 响应内容: ${{text.substring(0, 200)}}` }};
+                        }}
+                    }} catch (e) {{
+                        return {{ success: false, error: e.message }};
+                    }}
+                }}
+            """)
+
+            return result
+        finally:
+            await context.close()
+    finally:
+        await browser.close()
+
+
+async def _fetch_with_browser_post(cookie_file: str, url: str, form_data: dict, base_url: str = "https://creator.douyin.com/") -> dict:
+    """使用CloakBrowser发送POST请求"""
+    cookie_path = _get_cookie_path(cookie_file)
+
+    browser = await create_browser(headless=True)
+    try:
+        context = await create_context(browser, storage_state=cookie_path)
+        try:
+            page = await context.new_page()
+
+            # 先打开基础URL，确保cookie生效
+            await page.goto(base_url, wait_until="domcontentloaded")
+            await page.wait_for_timeout(2000)
+
+            # 使用fetch API发送POST请求
+            escaped_url = url.replace("'", "\\'").replace('"', '\\"')
+
+            # 将form_data转为JSON字符串
+            import json
+            form_data_json = json.dumps(form_data)
+
+            result = await page.evaluate(f"""
+                async () => {{
+                    try {{
+                        const response = await fetch("{escaped_url}", {{
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: {{
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Referer': 'https://creator.douyin.com/',
+                            }},
+                            body: new URLSearchParams({form_data_json})
                         }});
 
                         // 先获取文本，再尝试解析JSON
@@ -441,7 +502,7 @@ def search_poi():
 
 @douyin_image_bp.route('/search-miniapp', methods=['GET'])
 def search_miniapp():
-    """搜索小程序 - 通过链接中的token查询"""
+    """搜索小程序 - 通过链接查询"""
     account_id = request.args.get('account_id')
     link = request.args.get('link', '')
 
@@ -451,22 +512,18 @@ def search_miniapp():
         return jsonify({"code": 400, "msg": "缺少link参数"}), 400
 
     try:
-        # 从链接中提取token
-        token = ''
-        if 'token=' in link:
-            token = link.split('token=')[1].split('&')[0]
-            logger.info(f"[小程序搜索] 提取到token: {token}")
-        else:
-            return jsonify({"code": 400, "msg": "链接格式不正确，未找到token参数"}), 400
-
         cookie_file = _get_account_cookie_file(account_id)
         if not cookie_file:
             return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
 
-        # 使用token搜索小程序
-        url = f"https://creator.douyin.com/web/api/media/anchor/search/?token={quote(token)}&aid=1128"
-        logger.info(f"[小程序搜索] 请求URL: {url}")
-        result = run_async(_fetch_with_browser(cookie_file, url))
+        # 小程序搜索是POST请求，使用form data
+        url = "https://creator.douyin.com/web/api/media/anchor/search/?aid=1128"
+        form_data = {
+            "keyword": link,
+            "anchor_type": "4"
+        }
+        logger.info(f"[小程序搜索] 请求URL: {url}, form_data: {form_data}")
+        result = run_async(_fetch_with_browser_post(cookie_file, url, form_data))
         logger.info(f"[小程序搜索] 返回结果: success={result.get('success')}")
 
         if result.get("success"):

@@ -92,7 +92,7 @@ async function searchMusic(keyword) {
 function handleChange(val) {
   if (val) {
     const music = musicList.value.find(m => m.title === val)
-    emit('update:modelValue', music)
+    emit('update:modelValue', val)
     emit('change', music)
   } else {
     emit('update:modelValue', null)

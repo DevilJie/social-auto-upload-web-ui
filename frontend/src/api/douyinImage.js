@@ -27,9 +27,9 @@ export const douyinImageApi = {
     return http.get(`/api/douyin-image/search-poi?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&count=${count}`)
   },
 
-  // 搜索小程序
-  searchMiniapp(accountId, keyword) {
-    return http.get(`/api/douyin-image/search-miniapp?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}`)
+  // 搜索小程序（通过链接中的token）
+  searchMiniapp(accountId, link) {
+    return http.get(`/api/douyin-image/search-miniapp?account_id=${accountId}&link=${encodeURIComponent(link)}`)
   },
 
   // 搜索游戏

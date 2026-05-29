@@ -271,6 +271,18 @@
                     </el-select>
                   </div>
                 </div>
+
+                <div class="setting-row">
+                  <!-- 添加标签 -->
+                  <div class="setting-item full-width">
+                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
+                    <DouyinTagSelect
+                      :account-id="selectedAccountId"
+                      v-model="form.selectedTag"
+                      @change="handleTagSelect"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -548,6 +560,7 @@ import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
 import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
 import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
 import DouyinMusicSelect from '@/components/douyin/MusicSelect.vue'
+import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -616,6 +629,7 @@ const platformConfigs = reactive({
     activityId: '',      // 官方活动ID
     hotspotId: '',       // 热点ID
     selectedMusic: null, // 选中的音乐
+    selectedTag: null,   // 选中的标签
     declaration: '',     // 自主声明
   },
   xiaohongshu: { title: '', description: '' },
@@ -911,6 +925,15 @@ function handleMusicSelect(music) {
     ElMessage.success(`音乐已选择: ${music.title}`)
   } else {
     form.selectedMusic = ''
+  }
+}
+
+function handleTagSelect(tag) {
+  if (tag) {
+    form.selectedTag = tag
+    ElMessage.success(`标签已选择: ${tag.name}`)
+  } else {
+    form.selectedTag = null
   }
 }
 
@@ -1912,6 +1935,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+
+  &.full-width {
+    grid-column: 1 / -1;
+  }
 
   .setting-label {
     font-size: 13px;

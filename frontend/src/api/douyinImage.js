@@ -20,5 +20,25 @@ export const douyinImageApi = {
   // 搜索音乐
   searchMusic(accountId, keyword, cursor = 0, count = 20) {
     return http.get(`/api/douyin-image/music-search?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&cursor=${cursor}&count=${count}`)
+  },
+
+  // 搜索位置
+  searchPoi(accountId, keyword, count = 12) {
+    return http.get(`/api/douyin-image/search-poi?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&count=${count}`)
+  },
+
+  // 搜索小程序
+  searchMiniapp(accountId, keyword) {
+    return http.get(`/api/douyin-image/search-miniapp?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}`)
+  },
+
+  // 搜索游戏
+  searchGame(accountId, keyword, count = 20) {
+    return http.get(`/api/douyin-image/search-game?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&count=${count}`)
+  },
+
+  // 搜索标记万物商品
+  searchMarkSpu(accountId, keyword, pageSize = 10) {
+    return http.get(`/api/douyin-image/search-mark-spu?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&page_size=${pageSize}`)
   }
 }

@@ -407,3 +407,122 @@ async def _search_music_via_browser(cookie_file: str, keyword: str, cursor_val: 
                 test_image.unlink()
         except Exception:
             pass
+
+
+@douyin_image_bp.route('/search-poi', methods=['GET'])
+def search_poi():
+    """搜索位置"""
+    account_id = request.args.get('account_id')
+    keyword = request.args.get('keyword', '')
+    count = request.args.get('count', '12')
+
+    logger.info(f"[位置搜索] 收到请求: account_id={account_id}, keyword={keyword}")
+
+    if not keyword:
+        return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
+
+        url = f"https://creator.douyin.com/aweme/v1/life/video_api/search/poi/?count={count}&from_webapp=1&get_current_loc=1&is_image_album_style=1&keywords={quote(keyword)}&search_type=0&poi_anchor_tab=2&page=1&poi_mode=2&aid=1128"
+        result = run_async(_fetch_with_browser(cookie_file, url))
+
+        if result.get("success"):
+            return jsonify({"code": 200, "data": result["data"]})
+        else:
+            return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
+
+    except Exception as e:
+        logger.error(f"搜索位置失败: {e}")
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@douyin_image_bp.route('/search-miniapp', methods=['GET'])
+def search_miniapp():
+    """搜索小程序"""
+    account_id = request.args.get('account_id')
+    keyword = request.args.get('keyword', '')
+
+    logger.info(f"[小程序搜索] 收到请求: account_id={account_id}, keyword={keyword}")
+
+    if not keyword:
+        return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
+
+        url = f"https://creator.douyin.com/web/api/media/anchor/search/?keyword={quote(keyword)}&aid=1128"
+        result = run_async(_fetch_with_browser(cookie_file, url))
+
+        if result.get("success"):
+            return jsonify({"code": 200, "data": result["data"]})
+        else:
+            return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
+
+    except Exception as e:
+        logger.error(f"搜索小程序失败: {e}")
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@douyin_image_bp.route('/search-game', methods=['GET'])
+def search_game():
+    """搜索游戏"""
+    account_id = request.args.get('account_id')
+    keyword = request.args.get('keyword', '')
+    count = request.args.get('count', '20')
+
+    logger.info(f"[游戏搜索] 收到请求: account_id={account_id}, keyword={keyword}")
+
+    if not keyword:
+        return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
+
+        url = f"https://creator.douyin.com/webcast/gamecp/mount_page/search?game_name={quote(keyword)}&count={count}&scene=3&version_code=24.0.0&aid=2906"
+        result = run_async(_fetch_with_browser(cookie_file, url))
+
+        if result.get("success"):
+            return jsonify({"code": 200, "data": result["data"]})
+        else:
+            return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
+
+    except Exception as e:
+        logger.error(f"搜索游戏失败: {e}")
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@douyin_image_bp.route('/search-mark-spu', methods=['GET'])
+def search_mark_spu():
+    """搜索标记万物商品"""
+    account_id = request.args.get('account_id')
+    keyword = request.args.get('keyword', '')
+    page_size = request.args.get('page_size', '10')
+
+    logger.info(f"[标记万物搜索] 收到请求: account_id={account_id}, keyword={keyword}")
+
+    if not keyword:
+        return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
+
+        url = f"https://creator.douyin.com/web/api/media/aweme/mark_anchor/spu_list?query_word={quote(keyword)}&page_size={page_size}&page=0&aid=1128"
+        result = run_async(_fetch_with_browser(cookie_file, url))
+
+        if result.get("success"):
+            return jsonify({"code": 200, "data": result["data"]})
+        else:
+            return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
+
+    except Exception as e:
+        logger.error(f"搜索标记万物失败: {e}")
+        return jsonify({"code": 500, "msg": str(e)}), 500

@@ -959,45 +959,37 @@ function confirmAccountSelection() {
 // ========== Publish Methods ==========
 
 async function saveDraft() {
-  try {
-    const imageIds = commonConfig.images.map(img => img.id)
-    const accountConfigs = [...publishAccountIds].map(id => {
-      const account = accountStore.accounts.find(a => a.id === id)
-      const group = imageAccountGroups.value.find(g => g.accounts.some(a => a.id === id))
-      const pSettings = platformConfigs[group?.key] || {}
-      const accountOverride = accountOverrides[id]
-      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
-        ? { ...pSettings, ...Object.fromEntries(
-            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
-          )}
-        : { ...pSettings }
-      return {
-        account_id: id,
-        platform: account?.platform || '',
-        title: mergedSettings.title || '',
-        description: mergedSettings.description || '',
-        ...mergedSettings,
-      }
-    })
-
-    if (currentDraftId.value) {
-      const resp = await imagePublishApi.saveDraft({ id: currentDraftId.value, image_ids: imageIds, account_configs: accountConfigs })
-      if (resp.code === 200) {
-        ElMessage.success('草稿已更新')
-      } else {
-        ElMessage.error(resp.msg || '草稿更新失败')
-      }
-    } else {
-      const resp = await imagePublishApi.saveDraft({ image_ids: imageIds, account_configs: accountConfigs })
-      if (resp.code === 200) {
-        currentDraftId.value = resp.data.id
-        ElMessage.success('草稿已保存')
-      } else {
-        ElMessage.error(resp.msg || '草稿保存失败')
-      }
+  const imageIds = commonConfig.images.map(img => img.id)
+  const accountConfigs = [...publishAccountIds].map(id => {
+    const account = accountStore.accounts.find(a => a.id === id)
+    const group = imageAccountGroups.value.find(g => g.accounts.some(a => a.id === id))
+    const pSettings = platformConfigs[group?.key] || {}
+    const accountOverride = accountOverrides[id]
+    const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
+      ? { ...pSettings, ...Object.fromEntries(
+          Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+        )}
+      : { ...pSettings }
+    return {
+      account_id: id,
+      platform: account?.platform || '',
+      title: mergedSettings.title || '',
+      description: mergedSettings.description || '',
+      ...mergedSettings,
     }
-  } catch (e) {
-    ElMessage.error(e.message || '草稿保存失败')
+  })
+
+  if (currentDraftId.value) {
+    const resp = await imagePublishApi.saveDraft({ id: currentDraftId.value, image_ids: imageIds, account_configs: accountConfigs })
+    if (resp.code === 200) {
+      ElMessage.success('草稿已更新')
+    }
+  } else {
+    const resp = await imagePublishApi.saveDraft({ image_ids: imageIds, account_configs: accountConfigs })
+    if (resp.code === 200) {
+      currentDraftId.value = resp.data.id
+      ElMessage.success('草稿已保存')
+    }
   }
 }
 

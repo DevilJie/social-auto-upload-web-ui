@@ -132,6 +132,16 @@ const filteredMaterials = computed(() => {
 })
 
 function getMaterialUrl(mat) {
+  // 如果已经有完整的 url 字段，直接使用
+  if (mat.url) {
+    // 如果是相对路径，加上 baseUrl
+    if (mat.url.startsWith('/')) {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+      return `${baseUrl}${mat.url}`
+    }
+    return mat.url
+  }
+  // 兼容旧格式
   const filename = (mat.file_path || '').split('/').pop() || mat.filename
   return materialApi.getMaterialPreviewUrl(filename)
 }

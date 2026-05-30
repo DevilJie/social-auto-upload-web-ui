@@ -99,6 +99,17 @@ watch(() => props.modelValue, (val) => {
   if (val) {
     selectedType.value = val.type || ''
     selectedTagId.value = val.id || ''
+    // 如果有值但 tagList 中没有对应的选项，添加一个占位项
+    if (val.id && !tagList.value.find(t => t.id === val.id)) {
+      tagList.value.unshift({
+        id: val.id,
+        name: val.name,
+        desc: val.desc || '',
+        icon: val.icon || '',
+        type: val.type,
+        data: val.data || val
+      })
+    }
   } else {
     selectedTagId.value = ''
   }

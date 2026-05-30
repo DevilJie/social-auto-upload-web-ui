@@ -263,8 +263,7 @@ def save_draft():
         common_config = draft_data.get('commonConfig', {})
         images = common_config.get('images', [])
         image_ids = [img['id'] for img in images] if isinstance(images, list) else []
-        if not image_ids:
-            return jsonify({"code": 400, "msg": "请选择至少一张图片"}), 400
+        # 允许保存没有图片的草稿
         draft_id = data.get('id')
         now = datetime.now().isoformat()
         try:

@@ -120,8 +120,11 @@ function handleClear() {
 }
 
 function handleChange(val) {
+  console.log('HotspotSelect handleChange called with:', val)
+  console.log('hotspotList:', hotspotList.value)
   emit('update:modelValue', val)
   const hotspot = hotspotList.value.find(h => h.word === val)
+  console.log('Found hotspot:', hotspot)
   emit('change', hotspot ? { ...hotspot, _searchKeyword: searchKeyword.value } : null)
 }
 

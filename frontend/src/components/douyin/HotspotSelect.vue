@@ -69,6 +69,10 @@ const props = defineProps({
   modelValue: {
     type: String,
     default: ''
+  },
+  data: {
+    type: Object,
+    default: null
   }
 })
 
@@ -83,11 +87,16 @@ watch(() => props.modelValue, (val) => {
   selectedHotspot.value = val
   // 如果有值但 hotspotList 中没有对应的选项，添加一个占位项
   if (val && !hotspotList.value.find(h => h.word === val)) {
-    hotspotList.value.unshift({
-      word: val,
-      sentence_id: val,
-      hot_value: 0,
-    })
+    // 使用完整对象或创建占位项
+    if (props.data && props.data.word === val) {
+      hotspotList.value.unshift(props.data)
+    } else {
+      hotspotList.value.unshift({
+        word: val,
+        sentence_id: val,
+        hot_value: 0,
+      })
+    }
   }
 }, { immediate: true })
 

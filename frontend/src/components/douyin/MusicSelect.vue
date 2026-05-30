@@ -68,6 +68,10 @@ const props = defineProps({
   modelValue: {
     type: String,
     default: ''
+  },
+  data: {
+    type: Object,
+    default: null
   }
 })
 
@@ -82,13 +86,18 @@ watch(() => props.modelValue, (val) => {
   selectedMusicId.value = val || ''
   // 如果有值但 musicList 中没有对应的选项，添加一个占位项
   if (val && !musicList.value.find(m => m.title === val)) {
-    musicList.value.unshift({
-      id: val,
-      title: val,
-      author: '',
-      duration: 0,
-      user_count: 0,
-    })
+    // 使用完整对象或创建占位项
+    if (props.data && props.data.title === val) {
+      musicList.value.unshift(props.data)
+    } else {
+      musicList.value.unshift({
+        id: val,
+        title: val,
+        author: '',
+        duration: 0,
+        user_count: 0,
+      })
+    }
   }
 }, { immediate: true })
 

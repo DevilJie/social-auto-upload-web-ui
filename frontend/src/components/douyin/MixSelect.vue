@@ -67,6 +67,10 @@ const props = defineProps({
   modelValue: {
     type: String,
     default: ''
+  },
+  data: {
+    type: Object,
+    default: null
   }
 })
 
@@ -81,11 +85,16 @@ watch(() => props.modelValue, (val) => {
   selectedMixId.value = val
   // 如果有值但 mixList 中没有对应的选项，添加一个占位项
   if (val && !mixList.value.find(m => m.mix_name === val)) {
-    mixList.value.unshift({
-      mix_id: val,
-      mix_name: val,
-      desc: '',
-    })
+    // 使用完整对象或创建占位项
+    if (props.data && props.data.mix_name === val) {
+      mixList.value.unshift(props.data)
+    } else {
+      mixList.value.unshift({
+        mix_id: val,
+        mix_name: val,
+        desc: '',
+      })
+    }
   }
 }, { immediate: true })
 

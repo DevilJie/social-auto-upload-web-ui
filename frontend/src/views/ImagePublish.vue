@@ -241,6 +241,7 @@
                     <DouyinMusicSelect
                       :account-id="selectedAccountId"
                       v-model="form.selectedMusic"
+                      :data="form.selectedMusicData"
                       @change="handleMusicSelect"
                     />
                   </div>
@@ -252,6 +253,7 @@
                     <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
                     <DouyinHotspotSelect
                       v-model="form.hotspotId"
+                      :data="form.selectedHotspotData"
                       @change="handleHotspotChange"
                     />
                   </div>
@@ -297,6 +299,7 @@
                     <DouyinMixSelect
                       :account-id="selectedAccountId"
                       v-model="form.mixId"
+                      :data="form.selectedMixData"
                       @change="handleMixChange"
                     />
                   </div>

@@ -788,7 +788,7 @@ class DouyinPlatform(BasePlatform):
                 else:
                     logger.warning("Timeout waiting for image upload. Uploaded: %d/%d", uploaded_count, len(file_paths))
 
-                await asyncio.sleep(2)
+                await asyncio.sleep(5)  # 等待更长时间确保页面加载完成
 
                 # Fill title
                 logger.info("Filling title: %s", title[:20])
@@ -861,7 +861,24 @@ class DouyinPlatform(BasePlatform):
                     ).first
                     await publish_btn.click()
                     await asyncio.sleep(3)
-                    logger.info("Published successfully")
+
+                    # 检查是否发布成功（跳转到 manage 页面）
+                    try:
+                        await page.wait_for_url(
+                            "https://creator.douyin.com/creator-micro/content/manage*",
+                            timeout=30000
+                        )
+                        logger.info("Published successfully - redirected to manage page")
+                        result = True
+                    except Exception:
+                        # 检查当前URL
+                        current_url = page.url
+                        if "content/manage" in current_url:
+                            logger.info("Published successfully - already on manage page")
+                            result = True
+                        else:
+                            logger.warning("Publish may have failed - current URL: %s", current_url)
+                            result = False
 
                     # Save cookie state
                     await context.storage_state(path=account_file)
@@ -871,13 +888,7 @@ class DouyinPlatform(BasePlatform):
                     logger.info("========================================")
                     logger.info("点击发布！发布成功！")
                     logger.info("========================================")
-                    logger.info("Dry run mode - keeping browser open for review")
-                    logger.info("Browser will stay open. Close it manually when done.")
-                    # Keep the browser open indefinitely (until user closes it)
-                    try:
-                        await page.wait_for_event("close", timeout=0)
-                    except Exception:
-                        pass
+                    result = True
 
             finally:
                 await context.close()

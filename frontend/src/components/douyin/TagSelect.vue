@@ -96,11 +96,13 @@ const selectedTagId = ref('')
 const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
+  console.log('TagSelect watch modelValue:', val)
   if (val) {
     selectedType.value = val.type || ''
     selectedTagId.value = val.id || ''
     // 如果有值但 tagList 中没有对应的选项，添加一个占位项
     if (val.id && !tagList.value.find(t => t.id === val.id)) {
+      console.log('Adding tag to tagList:', val)
       tagList.value.unshift({
         id: val.id,
         name: val.name,
@@ -113,7 +115,7 @@ watch(() => props.modelValue, (val) => {
   } else {
     selectedTagId.value = ''
   }
-})
+}, { immediate: true, deep: true })
 
 function handleTypeChange() {
   // 切换类型时清空搜索结果和已选标签

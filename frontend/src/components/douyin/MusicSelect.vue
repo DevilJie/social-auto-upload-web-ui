@@ -90,7 +90,7 @@ watch(() => props.modelValue, (val) => {
       user_count: 0,
     })
   }
-})
+}, { immediate: true })
 
 async function handleSearch() {
   const keyword = searchKeyword.value?.trim()

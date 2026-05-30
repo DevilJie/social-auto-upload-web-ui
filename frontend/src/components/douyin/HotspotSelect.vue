@@ -81,7 +81,15 @@ const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedHotspot.value = val
-})
+  // 如果有值但 hotspotList 中没有对应的选项，添加一个占位项
+  if (val && !hotspotList.value.find(h => h.word === val)) {
+    hotspotList.value.unshift({
+      word: val,
+      sentence_id: val,
+      hot_value: 0,
+    })
+  }
+}, { immediate: true })
 
 async function handleSearch() {
   const keyword = searchKeyword.value?.trim()

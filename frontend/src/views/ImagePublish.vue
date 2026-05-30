@@ -920,9 +920,11 @@ function handleMusicSelect(music) {
 }
 
 function handleHotspotChange(hotspot) {
+  console.log('handleHotspotChange called with:', hotspot)
   if (hotspot) {
     form.hotspotId = hotspot.word
     form.hotspotData = hotspot
+    console.log('form.hotspotData set to:', form.hotspotData)
     // 如果选择了热点，自动添加到话题
     if (!commonConfig.topics.includes(hotspot.word)) {
       commonConfig.topics.push(hotspot.word)

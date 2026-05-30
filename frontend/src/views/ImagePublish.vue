@@ -649,7 +649,7 @@ const platformConfigs = reactive({
     title: '', description: '',
     // 图文发布特有
     mixId: '',           // 合集ID（账号级）
-    activityId: '',      // 官方活动ID
+    activityId: [],      // 官方活动ID（多选，最多5个）
     hotspotId: '',       // 热点ID
     selectedMusic: null, // 选中的音乐
     selectedTag: null,   // 选中的标签
@@ -1242,9 +1242,9 @@ async function publishAll() {
       tag_type: selectedTag ? (tagTypeMap[selectedTag.type] || '') : '',
       tag_value: tag_value,
       mini_link: mini_link,
-      activities: platformSettings.activityId ? [platformSettings.activityId] : [],
+      activities: platformSettings.activityId || [],
       cover_path: platformSettings.coverImage?.path || '',
-      dry_run: true,  // 默认先核对数据，不点击发布
+      dry_run: false,  // 实际发布
     }
   })
 

@@ -1,10 +1,12 @@
 <template>
   <div class="activity-select">
     <el-select
-      v-model="selectedActivityId"
-      placeholder="选择官方活动"
+      v-model="selectedActivities"
+      placeholder="选择官方活动（最多5个）"
       clearable
       filterable
+      multiple
+      multiple-limit="5"
       no-data-text=" "
       @change="handleChange"
       style="width: 100%"
@@ -57,8 +59,8 @@ const props = defineProps({
     default: ''
   },
   modelValue: {
-    type: [String, Number],
-    default: ''
+    type: Array,
+    default: () => []
   }
 })
 
@@ -66,10 +68,10 @@ const emit = defineEmits(['update:modelValue', 'change'])
 
 const loading = ref(false)
 const activityList = ref([])
-const selectedActivityId = ref(props.modelValue)
+const selectedActivities = ref(props.modelValue || [])
 
 watch(() => props.modelValue, (val) => {
-  selectedActivityId.value = val
+  selectedActivities.value = val || []
 })
 
 onMounted(() => {
@@ -92,12 +94,12 @@ async function loadActivityList() {
 
 function handleChange(val) {
   emit('update:modelValue', val)
-  const activity = activityList.value.find(a => a.activity_name === val)
-  emit('change', activity || null)
+  const activities = activityList.value.filter(a => val.includes(a.activity_name))
+  emit('change', activities)
 }
 
 function onImageError(e) {
-  e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iMjAiIHk9IjI0IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuKcqOW+izwvdGV4dD48L3N2Zz4='
+  e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iMjAiIHk9IjI0IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuKcqOW+izwvdGV4dD48L3N2Zz4=''
 }
 </script>
 

@@ -192,7 +192,9 @@ async function handleSearch() {
             desc: anchor.summary,
             icon: anchor.poster?.url_list?.[0],
             type: 'miniapp',
-            data: anchor
+            data: anchor,
+            enable_mount: anchor.enable_mount !== false,
+            reason: anchor.reason || ''
           }))
         }
         break
@@ -245,6 +247,11 @@ function handleClear() {
 function handleChange(val) {
   if (val) {
     const tag = tagList.value.find(t => t.id === val)
+    // 检查小程序是否可挂载
+    if (tag && tag.type === 'miniapp' && !tag.enable_mount) {
+      ElMessage.error(tag.reason || '该小程序不可用')
+      return
+    }
     emit('update:modelValue', tag)
     emit('change', tag ? { ...tag, _searchKeyword: searchKeyword.value } : null)
   } else {

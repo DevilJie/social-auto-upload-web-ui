@@ -89,12 +89,19 @@ watch(() => props.modelValue, (val) => {
   if (val && !hotspotList.value.find(h => h.word === val)) {
     // 使用完整对象或创建占位项
     if (props.data && props.data.word === val) {
-      hotspotList.value.unshift(props.data)
+      // 确保数据结构完整
+      hotspotList.value.unshift({
+        word: props.data.word,
+        sentence_id: props.data.sentence_id || val,
+        hot_value: props.data.hot_value || 0,
+        word_cover: props.data.word_cover || null,
+      })
     } else {
       hotspotList.value.unshift({
         word: val,
         sentence_id: val,
         hot_value: 0,
+        word_cover: null,
       })
     }
   }

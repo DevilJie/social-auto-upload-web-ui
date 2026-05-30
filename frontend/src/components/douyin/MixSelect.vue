@@ -87,12 +87,19 @@ watch(() => props.modelValue, (val) => {
   if (val && !mixList.value.find(m => m.mix_name === val)) {
     // 使用完整对象或创建占位项
     if (props.data && props.data.mix_name === val) {
-      mixList.value.unshift(props.data)
+      // 确保数据结构完整
+      mixList.value.unshift({
+        mix_id: props.data.mix_id || val,
+        mix_name: props.data.mix_name,
+        desc: props.data.desc || '',
+        cover_url: props.data.cover_url || null,
+      })
     } else {
       mixList.value.unshift({
         mix_id: val,
         mix_name: val,
         desc: '',
+        cover_url: null,
       })
     }
   }

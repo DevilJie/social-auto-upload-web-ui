@@ -1330,9 +1330,9 @@ async function loadDraft(draftId) {
           console.log('恢复抖音选择数据:', dd.douyinSelections)
           form.selectedMusic = dd.douyinSelections.selectedMusic || ''
           form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
-          form.selectedHotspot = dd.douyinSelections.selectedHotspot || ''
+          form.hotspotId = dd.douyinSelections.selectedHotspot || ''
           form.selectedHotspotData = dd.douyinSelections.selectedHotspotData || null
-          form.selectedMix = dd.douyinSelections.selectedMix || ''
+          form.mixId = dd.douyinSelections.selectedMix || ''
           form.selectedMixData = dd.douyinSelections.selectedMixData || null
           form.selectedTag = dd.douyinSelections.selectedTag || null
           form.selectedTagData = dd.douyinSelections.selectedTagData || null

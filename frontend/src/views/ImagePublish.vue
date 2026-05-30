@@ -98,6 +98,15 @@
             <span class="hint">所有账号共享</span>
           </div>
 
+          <!-- 封面图片 -->
+          <div class="cover-section">
+            <ImageCoverUpload
+              v-model="form.coverImage"
+              label="封面图片"
+              @open-library="openMaterialLibraryForCover"
+            />
+          </div>
+
           <!-- Image Upload Section -->
           <div class="media-section">
             <ImageUploader
@@ -218,15 +227,6 @@
                 show-word-limit
               />
             </div>
-          </div>
-
-          <!-- 封面图片（公共设置） -->
-          <div class="platform-title-desc">
-            <ImageCoverUpload
-              v-model="form.coverImage"
-              label="封面图片"
-              @open-library="openMaterialLibraryForCover"
-            />
           </div>
 
           <!-- ===== 抖音图文特有配置 ===== -->
@@ -1826,6 +1826,11 @@ onBeforeUnmount(() => {
     background: rgba(255, 255, 255, 0.04);
     border-radius: 12px;
   }
+}
+
+// ========== Cover Section ==========
+.cover-section {
+  margin-bottom: 16px;
 }
 
 // ========== Media Section ==========

@@ -941,9 +941,11 @@ function handleMixChange(mix) {
 }
 
 function handleTagSelect(tag) {
+  console.log('handleTagSelect:', tag)
   if (tag) {
     form.selectedTag = tag
     form.selectedTagData = tag
+    console.log('form.selectedTag set to:', form.selectedTag)
     ElMessage.success(`标签已选择: ${tag.name}`)
   } else {
     form.selectedTag = null
@@ -1322,6 +1324,7 @@ async function loadDraft(draftId) {
 
         // 恢复抖音选择数据
         if (dd.douyinSelections) {
+          console.log('恢复抖音选择数据:', dd.douyinSelections)
           form.selectedMusic = dd.douyinSelections.selectedMusic || ''
           form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
           form.selectedHotspot = dd.douyinSelections.selectedHotspot || ''
@@ -1330,6 +1333,7 @@ async function loadDraft(draftId) {
           form.selectedMixData = dd.douyinSelections.selectedMixData || null
           form.selectedTag = dd.douyinSelections.selectedTag || null
           form.selectedTagData = dd.douyinSelections.selectedTagData || null
+          console.log('form.selectedTag after restore:', form.selectedTag)
         }
 
         ElMessage.success('草稿已加载')

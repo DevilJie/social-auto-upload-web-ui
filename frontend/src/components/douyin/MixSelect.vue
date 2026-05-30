@@ -83,25 +83,9 @@ const searchKeyword = ref('')
 
 watch(() => props.modelValue, (val) => {
   selectedMixId.value = val
-  // 如果有值但 mixList 中没有对应的选项，添加一个占位项
-  if (val && !mixList.value.find(m => m.mix_name === val)) {
-    // 使用完整对象或创建占位项
-    if (props.data && props.data.mix_name === val) {
-      // 确保数据结构完整
-      mixList.value.unshift({
-        mix_id: props.data.mix_id || val,
-        mix_name: props.data.mix_name,
-        desc: props.data.desc || '',
-        cover_url: props.data.cover_url || null,
-      })
-    } else {
-      mixList.value.unshift({
-        mix_id: val,
-        mix_name: val,
-        desc: '',
-        cover_url: null,
-      })
-    }
+  // 如果有值但 mixList 中没有对应的选项，直接把完整对象放到列表
+  if (val && props.data && !mixList.value.find(m => m.mix_name === val)) {
+    mixList.value.unshift(props.data)
   }
 }, { immediate: true })
 

@@ -628,6 +628,635 @@ class DouyinPlatform(BasePlatform):
         return False
 
     # ------------------------------------------------------------------
+    # publish_image — Douyin image note upload pipeline
+    # ------------------------------------------------------------------
+
+    async def publish_image(self, **kwargs) -> bool:
+        """Publish an image note to Douyin via CloakBrowser.
+
+        Accepted keyword arguments:
+
+        - ``title`` (*str*) -- note title (max 20 chars)
+        - ``files`` (*list[str]*) -- image file names (relative to image-publish/)
+        - ``tags`` (*list[str]*) -- hashtags
+        - ``account_file`` (*list[str]*) -- cookie file names
+        - ``desc`` (*str*, optional) -- description (max 1000 chars)
+        - ``cover_path`` (*str*, optional) -- cover image file name
+        - ``mix_id`` (*str*, optional) -- mix/collection ID
+        - ``music_name`` (*str*, optional) -- music name to search and select
+        - ``hotspot`` (*str*, optional) -- hotspot keyword to search and select
+        - ``tag_type`` (*str*, optional) -- tag type: 'location' | 'miniapp' | 'gamepad' | 'mark'
+        - ``tag_value`` (*str*, optional) -- tag value (keyword or link)
+        - ``mini_link`` (*str*, optional) -- mini app link (for miniapp type)
+        - ``enableTimer`` (*bool*, optional)
+        - ``schedule_time_str`` (*str*, optional)
+        - ``ai_content`` (*str*, optional) -- AI content declaration
+        - ``activities`` (*list[str]*, optional) -- official activities (appended as #tags)
+        - ``dry_run`` (*bool*, optional) -- if True, skip publish button click (default True)
+        """
+        title = kwargs.get("title", "")
+        files = kwargs.get("files", [])
+        tags = kwargs.get("tags", []) or []
+        account_file = kwargs.get("account_file", [])
+        desc = kwargs.get("desc", "")
+        cover_path = kwargs.get("cover_path", "")
+        mix_id = kwargs.get("mix_id", "")
+        music_name = kwargs.get("music_name", "")
+        hotspot = kwargs.get("hotspot", "")
+        tag_type = kwargs.get("tag_type", "")
+        tag_value = kwargs.get("tag_value", "")
+        mini_link = kwargs.get("mini_link", "")
+        enable_timer = kwargs.get("enableTimer", False)
+        schedule_time_str = kwargs.get("schedule_time_str", "")
+        ai_content = kwargs.get("ai_content", "")
+        activities = kwargs.get("activities", []) or []
+        dry_run = kwargs.get("dry_run", True)  # Default to dry run for safety
+
+        # Resolve full paths
+        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
+        file_paths = [str(Path(BASE_DIR / "image-publish" / f)) for f in files]
+
+        # Resolve cover path - check both image-publish and videoFile directories
+        if cover_path:
+            cover_path_image = Path(BASE_DIR / "image-publish" / cover_path)
+            cover_path_video = Path(BASE_DIR / "videoFile" / cover_path)
+            if cover_path_image.exists():
+                cover_path = str(cover_path_image)
+            elif cover_path_video.exists():
+                cover_path = str(cover_path_video)
+            else:
+                logger.warning("Cover file not found: %s", cover_path)
+                cover_path = ""
+
+        # Append activities as hashtags to description
+        if activities:
+            activity_tags = " ".join([f"#{act}" for act in activities])
+            desc = f"{desc} {activity_tags}".strip()
+
+        for cookie_path in account_paths:
+            await self._upload_image_note(
+                title=title,
+                file_paths=file_paths,
+                tags=tags,
+                account_file=cookie_path,
+                desc=desc,
+                cover_path=cover_path,
+                mix_id=mix_id,
+                music_name=music_name,
+                hotspot=hotspot,
+                tag_type=tag_type,
+                tag_value=tag_value,
+                mini_link=mini_link,
+                enable_timer=enable_timer,
+                schedule_time_str=schedule_time_str,
+                ai_content=ai_content,
+                dry_run=dry_run,
+            )
+        return True
+
+    async def _upload_image_note(
+        self,
+        title: str,
+        file_paths: list,
+        tags: list,
+        account_file: str,
+        desc: str = "",
+        cover_path: str = "",
+        mix_id: str = "",
+        music_name: str = "",
+        hotspot: str = "",
+        tag_type: str = "",
+        tag_value: str = "",
+        mini_link: str = "",
+        enable_timer: bool = False,
+        schedule_time_str: str = "",
+        ai_content: str = "",
+        dry_run: bool = True,
+    ):
+        """Upload image note to one Douyin account."""
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(browser, storage_state=account_file)
+            try:
+                await context.grant_permissions(["geolocation"])
+                page = await context.new_page()
+
+                # Navigate to image upload page
+                logger.info("Navigating to Douyin image upload page")
+                await page.goto(
+                    "https://creator.douyin.com/creator-micro/content/upload?default-tab=3"
+                )
+                await page.wait_for_url(
+                    "https://creator.douyin.com/creator-micro/content/upload?default-tab=3"
+                )
+                await asyncio.sleep(2)
+
+                # Upload images via hidden input
+                logger.info("Uploading %d images", len(file_paths))
+                file_input = page.locator("div[class^='container'] input[type='file']")
+                await file_input.set_input_files(file_paths)
+
+                # Wait for redirect to image publish page
+                logger.info("Waiting for redirect to publish page...")
+                max_wait = 120  # seconds - longer timeout for many images
+                start_time = asyncio.get_event_loop().time()
+                while (asyncio.get_event_loop().time() - start_time) < max_wait:
+                    current_url = page.url
+                    if "content/upload" not in current_url:
+                        logger.info("Redirected to: %s", current_url)
+                        break
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("Timeout waiting for redirect")
+
+                # Wait for all images to upload successfully
+                # Calculate timeout based on image count: 30s per image, min 120s, max 600s
+                upload_timeout_per_image = 30
+                max_upload_wait = max(120, min(len(file_paths) * upload_timeout_per_image, 600))
+                logger.info("Waiting for all %d images to upload (timeout: %ds)...", len(file_paths), max_upload_wait)
+                uploaded_count = 0
+                upload_start = asyncio.get_event_loop().time()
+                while (asyncio.get_event_loop().time() - upload_start) < max_upload_wait:
+                    # Check for uploaded image count in the UI
+                    image_items = page.locator('div[class*="img-"][draggable="true"]')
+                    uploaded_count = await image_items.count()
+                    logger.info("Uploaded images: %d/%d", uploaded_count, len(file_paths))
+                    if uploaded_count >= len(file_paths):
+                        logger.info("All %d images uploaded successfully!", len(file_paths))
+                        break
+                    await asyncio.sleep(3)
+                else:
+                    logger.warning("Timeout waiting for image upload. Uploaded: %d/%d", uploaded_count, len(file_paths))
+
+                await asyncio.sleep(2)
+
+                # Fill title
+                logger.info("Filling title: %s", title[:20])
+                title_input = page.locator(
+                    'div[class^="container-sGoJ9f"] input[type="text"]'
+                ).first
+                await title_input.wait_for(state="visible", timeout=10000)
+                await title_input.fill(title[:20])
+
+                # Fill description
+                logger.info("Filling description")
+                desc_editor = page.locator(
+                    'div[data-zone-container="*"][contenteditable="true"]'
+                ).first
+                await desc_editor.wait_for(state="visible", timeout=10000)
+                await desc_editor.click()
+                await page.keyboard.press("Control+KeyA")
+                await page.keyboard.press("Delete")
+                await page.keyboard.type(desc[:1000])
+
+                # Add tags
+                for tag in tags:
+                    await page.keyboard.type(f" #{tag}")
+                    await page.keyboard.press("Space")
+                    await asyncio.sleep(0.5)
+
+                # Set cover if provided
+                if cover_path:
+                    logger.info("Setting cover image")
+                    await self._set_image_cover(page, cover_path)
+
+                # Set mix/collection if provided
+                if mix_id:
+                    logger.info("Setting mix/collection: %s", mix_id)
+                    await self._set_image_mix(page, mix_id)
+
+                # Set music if provided
+                if music_name:
+                    logger.info("Selecting music: %s", music_name)
+                    await self._select_music(page, music_name)
+
+                # Set hotspot if provided
+                if hotspot:
+                    logger.info("Setting hotspot: %s", hotspot)
+                    await self._set_hotspot(page, hotspot)
+
+                # Set tag (位置/小程序/游戏手柄/标记万物) if provided
+                if tag_type and tag_value:
+                    logger.info("Setting tag: type=%s, value=%s, mini_link=%s", tag_type, tag_value, mini_link)
+                    await self._set_tag(page, tag_type, tag_value, mini_link)
+
+                # Set AI content declaration
+                if ai_content:
+                    await self._set_declaration(page, ai_content)
+
+                # Set schedule time if needed
+                if enable_timer and schedule_time_str:
+                    publish_date = parse_schedule_time(
+                        schedule_time_str, 1, enable_timer, 1, None, 0
+                    )[0]
+                    if publish_date != 0:
+                        await self._set_schedule_time(page, publish_date)
+
+                logger.info("Form filling completed. dry_run=%s", dry_run)
+
+                if not dry_run:
+                    # Click publish button
+                    publish_btn = page.locator(
+                        'button:has-text("发布"):not(:has-text("暂存"))'
+                    ).first
+                    await publish_btn.click()
+                    await asyncio.sleep(3)
+                    logger.info("Published successfully")
+
+                    # Save cookie state
+                    await context.storage_state(path=account_file)
+                    logger.info("Cookie state updated")
+                else:
+                    # Dry run mode - simulate publish
+                    logger.info("========================================")
+                    logger.info("点击发布！发布成功！")
+                    logger.info("========================================")
+                    logger.info("Dry run mode - keeping browser open for review")
+                    logger.info("Browser will stay open. Close it manually when done.")
+                    # Keep the browser open indefinitely (until user closes it)
+                    try:
+                        await page.wait_for_event("close", timeout=0)
+                    except Exception:
+                        pass
+
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+
+    # ------------------------------------------------------------------
+    # Helper: set image cover
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_image_cover(page, cover_path: str):
+        """Set cover image for image note."""
+        try:
+            # Click edit cover button - use text content for stability
+            edit_cover_btn = page.get_by_text("编辑封面", exact=True)
+            await edit_cover_btn.click()
+            await asyncio.sleep(2)
+
+            # Click upload cover tab
+            upload_tab = page.get_by_role("tab", name="上传封面")
+            await upload_tab.click()
+            await asyncio.sleep(1)
+
+            # Find hidden input=file in the upload area
+            # Look for input[type="file"] that accepts images
+            cover_input = page.locator('input[type="file"][accept*="image"]').first
+            if not await cover_input.count():
+                # Fallback: find any hidden file input
+                cover_input = page.locator('input[type="file"]').first
+
+            await cover_input.set_input_files(cover_path)
+            await asyncio.sleep(3)
+
+            # Click confirm in crop dialog - find button with text "确定"
+            # Wait for crop dialog to appear
+            await page.wait_for_selector('button:has-text("确定")', timeout=5000)
+            # Click the confirm button (not the cancel button)
+            confirm_buttons = page.locator('button:has-text("确定")')
+            count = await confirm_buttons.count()
+            logger.info("Found %d confirm buttons", count)
+            # Click the last one (should be the crop confirm)
+            await confirm_buttons.last.click()
+            await asyncio.sleep(2)
+
+            # Click final confirm in cover editor
+            final_confirm = page.locator('button:has-text("确定")').last
+            await final_confirm.click()
+            await asyncio.sleep(2)
+
+            logger.info("Cover image set successfully")
+        except Exception as e:
+            logger.warning("Failed to set cover: %s", e)
+
+    # ------------------------------------------------------------------
+    # Helper: set mix/collection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_image_mix(page, mix_id: str):
+        """Set mix/collection for image note."""
+        try:
+            # Click mix dropdown
+            mix_dropdown = page.locator(
+                'div.semi-select:has-text("不选择合集")'
+            ).first
+            await mix_dropdown.click()
+            await asyncio.sleep(2)
+
+            # Select mix by ID or text
+            mix_option = page.locator(
+                f'div.semi-select-option:has-text("{mix_id}")'
+            ).first
+            if await mix_option.count():
+                await mix_option.click()
+                logger.info("Mix selected: %s", mix_id)
+            else:
+                logger.warning("Mix not found: %s", mix_id)
+                # Close dropdown
+                await page.keyboard.press("Escape")
+
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning("Failed to set mix: %s", e)
+
+    # ------------------------------------------------------------------
+    # Helper: select music
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _select_music(page, music_name: str):
+        """Search and select music."""
+        try:
+            # Click select music button - find the one in the music section
+            # Use XPath to find the specific "选择音乐" button
+            music_btn = page.locator('xpath=//div[contains(@class, "container-right")]//span[text()="选择音乐"]')
+            if not await music_btn.count():
+                # Fallback: find by text and click the visible one
+                music_btn = page.get_by_text("选择音乐", exact=True).last
+            await music_btn.click()
+            await asyncio.sleep(3)
+
+            # Search music - use placeholder for stability
+            search_input = page.locator('input[placeholder="搜索音乐"]')
+            await search_input.wait_for(state="visible", timeout=5000)
+            await search_input.fill(music_name)
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(3)
+
+            # Find matching music card
+            music_cards = page.locator('div.card-container-tmocjc')
+            count = await music_cards.count()
+            logger.info("Found %d music cards", count)
+
+            # Find the card that matches the search text
+            target_card = None
+            for i in range(count):
+                card = music_cards.nth(i)
+                card_text = await card.text_content()
+                if music_name in card_text:
+                    target_card = card
+                    logger.info("Found matching music: %s", card_text[:50])
+                    break
+
+            if not target_card and count > 0:
+                # Fallback: use first card
+                target_card = music_cards.first
+                logger.info("Using first music card as fallback")
+
+            if target_card:
+                # Hover to show "使用" button
+                await target_card.hover()
+                await asyncio.sleep(1)
+
+                # Click use button within this card
+                use_btn = target_card.locator('button:has-text("使用")')
+                if await use_btn.count():
+                    await use_btn.click(force=True)
+                    logger.info("Music selected: %s", music_name)
+                else:
+                    logger.warning("Use button not found for music: %s", music_name)
+            else:
+                logger.warning("Music card not found for: %s", music_name)
+
+            await asyncio.sleep(2)
+        except Exception as e:
+            logger.warning("Failed to select music: %s", e)
+
+    # ------------------------------------------------------------------
+    # Helper: set hotspot
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_hotspot(page, hotspot: str):
+        """Search and select hotspot."""
+        try:
+            # Click hotspot - use text for stability (it's a span, not input)
+            hotspot_text = page.get_by_text("点击输入热点词", exact=True)
+            await hotspot_text.click()
+            await asyncio.sleep(1)
+
+            # Type hotspot keyword
+            await page.keyboard.type(hotspot)
+            await asyncio.sleep(3)
+
+            # Find matching hotspot option in dropdown
+            hotspot_options = page.locator('div[role="option"]:not([aria-disabled="true"])')
+            count = await hotspot_options.count()
+            logger.info("Found %d hotspot options", count)
+
+            # Click the option that matches the search text
+            clicked = False
+            for i in range(count):
+                option = hotspot_options.nth(i)
+                option_text = await option.text_content()
+                if hotspot in option_text:
+                    await option.click()
+                    logger.info("Hotspot selected: %s (matched: %s)", hotspot, option_text[:50])
+                    clicked = True
+                    break
+
+            if not clicked:
+                # Fallback: click first option if no exact match
+                if count > 0:
+                    await hotspot_options.first.click()
+                    logger.info("Hotspot selected: %s (first option)", hotspot)
+                else:
+                    logger.warning("Hotspot not found: %s", hotspot)
+                    await page.keyboard.press("Escape")
+
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning("Failed to set hotspot: %s", e)
+
+    # ------------------------------------------------------------------
+    # Helper: set tag (位置/小程序/游戏手柄/标记万物)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_tag(page, tag_type: str, tag_value: str, mini_link: str = ""):
+        """Set tag with type and value.
+
+        tag_type: 'location' | 'miniapp' | 'gamepad' | 'mark'
+        tag_value: the search keyword or link
+        mini_link: mini app link (for miniapp type)
+        """
+        try:
+            # Tag type mapping
+            type_map = {
+                'location': '位置',
+                'miniapp': '小程序',
+                'gamepad': '游戏手柄',
+                'mark': '标记万物',
+            }
+            type_text = type_map.get(tag_type, '位置')
+
+            # Click tag type dropdown
+            tag_dropdown = page.locator(
+                'div.select-GDaqAd'
+            ).first
+            await tag_dropdown.click()
+            await asyncio.sleep(1)
+
+            # Select tag type
+            type_option = page.get_by_role("option", name=type_text)
+            await type_option.click()
+            await asyncio.sleep(1)
+
+            # Helper function to find and click matching option
+            async def find_and_click_option(page, tag_value, option_selector='div[role="option"]'):
+                options = page.locator(option_selector)
+                count = await options.count()
+                logger.info("Found %d options", count)
+
+                # Try to find exact match
+                for i in range(count):
+                    option = options.nth(i)
+                    option_text = await option.text_content()
+                    if tag_value in option_text:
+                        await option.click()
+                        logger.info("Tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        return True
+
+                # Fallback: click first option
+                if count > 0:
+                    await options.first.click()
+                    logger.info("Tag set: %s (first option)", tag_value)
+                    return True
+                return False
+
+            # Based on tag type, handle differently
+            if tag_type == 'location':
+                # Location: click to activate, then input search keyword
+                location_select = page.get_by_text("输入相关位置，让更多人看到你的作品", exact=True)
+                await location_select.click()
+                await asyncio.sleep(1)
+
+                # Use keyboard to type directly since input is already focused
+                await page.keyboard.type(tag_value, delay=50)
+                logger.info("Typed location keyword: %s", tag_value)
+                await asyncio.sleep(5)  # 位置查询可能有延迟，等待更长时间
+
+                # Select matching result
+                await find_and_click_option(page, tag_value)
+
+            elif tag_type == 'miniapp':
+                # Mini app: click to activate, then paste link
+                miniapp_select = page.get_by_text("粘贴抖音小程序链接", exact=True)
+                await miniapp_select.click()
+                await asyncio.sleep(1)
+
+                # Use mini_link if provided, otherwise use tag_value
+                link_to_use = mini_link if mini_link else tag_value
+                await page.keyboard.type(link_to_use, delay=50)
+                logger.info("Typed miniapp link: %s", link_to_use)
+                await asyncio.sleep(2)
+
+                # Select matching result
+                await find_and_click_option(page, tag_value, 'div[role="option"]:not([aria-disabled="true"])')
+
+            elif tag_type == 'gamepad':
+                # Game: click the semi-select component by placeholder text
+                game_select = page.get_by_text("添加作品同款游戏", exact=True)
+                await game_select.click()
+                await asyncio.sleep(1)
+
+                # Use keyboard to type directly since input is already focused
+                await page.keyboard.type(tag_value, delay=50)
+                logger.info("Typed game tag value: %s", tag_value)
+                await asyncio.sleep(3)
+
+                # Find matching game option in dropdown
+                game_options = page.locator('div.semi-popover [class*="anchor-game-option"]')
+                count = await game_options.count()
+                logger.info("Found %d game options", count)
+
+                # Click the option that matches the search text
+                clicked = False
+                for i in range(count):
+                    option = game_options.nth(i)
+                    option_text = await option.text_content()
+                    if tag_value in option_text:
+                        await option.click()
+                        logger.info("Game tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        clicked = True
+                        break
+
+                if not clicked:
+                    # Fallback: click first option if no exact match
+                    if count > 0:
+                        await game_options.first.click()
+                        logger.info("Game tag set: %s (first option)", tag_value)
+                    else:
+                        logger.warning("Game option not found for: %s", tag_value)
+
+            elif tag_type == 'mark':
+                # Mark: input search keyword
+                mark_input = page.get_by_placeholder("请输入或选择标记的物品")
+                await mark_input.click()
+                await page.keyboard.type(tag_value)
+                await asyncio.sleep(2)
+
+                # Find matching mark option in dropdown
+                mark_options = page.locator('div.semi-popover [class*="option-"]')
+                count = await mark_options.count()
+                logger.info("Found %d mark options", count)
+
+                # Click the option that matches the search text
+                clicked = False
+                for i in range(count):
+                    option = mark_options.nth(i)
+                    option_text = await option.text_content()
+                    if tag_value in option_text:
+                        await option.click()
+                        logger.info("Mark tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        clicked = True
+                        break
+
+                if not clicked:
+                    # Fallback: click first option if no exact match
+                    if count > 0:
+                        await mark_options.first.click()
+                        logger.info("Mark tag set: %s (first option)", tag_value)
+                    else:
+                        logger.warning("Mark option not found for: %s", tag_value)
+
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning("Failed to set tag: %s", e)
+
+    @staticmethod
+    async def _set_location_tag(page, location: str):
+        """Search and select location tag."""
+        try:
+            # Click location input
+            location_input = page.get_by_placeholder("输入相关位置，让更多人看到你的作品")
+            await location_input.click()
+            await asyncio.sleep(1)
+
+            # Type location keyword
+            await page.keyboard.type(location)
+            await asyncio.sleep(2)
+
+            # Select first result
+            location_option = page.locator(
+                'div[role="option"]'
+            ).first
+            if await location_option.count():
+                await location_option.click()
+                logger.info("Location selected: %s", location)
+            else:
+                logger.warning("Location not found: %s", location)
+                await page.keyboard.press("Escape")
+
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning("Failed to set location: %s", e)
+
+    # ------------------------------------------------------------------
     # Helper: set AI content declaration
     # ------------------------------------------------------------------
 

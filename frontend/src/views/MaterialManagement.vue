@@ -39,7 +39,7 @@
                 <span class="play-icon">&#9654;</span>
               </div>
               <div class="thumbnail-cell thumbnail-image" v-else-if="isImageFile(scope.row.filename)">
-                <img :src="getPreviewUrl(scope.row.file_path)" alt="" />
+                <img :src="getPreviewUrl(scope.row)" alt="" />
               </div>
               <div class="thumbnail-cell thumbnail-other" v-else>
                 <el-icon><Document /></el-icon>
@@ -153,12 +153,12 @@
         <div class="preview-frame">
           <div v-if="isVideoFile(currentMaterial.filename)" class="video-preview">
             <video controls>
-              <source :src="getPreviewUrl(currentMaterial.file_path)" type="video/mp4">
+              <source :src="getPreviewUrl(currentMaterial)" type="video/mp4">
               您的浏览器不支持视频播放
             </video>
           </div>
           <div v-else-if="isImageFile(currentMaterial.filename)" class="image-preview">
-            <img :src="getPreviewUrl(currentMaterial.file_path)" />
+            <img :src="getPreviewUrl(currentMaterial)" />
           </div>
           <div v-else class="file-info">
             <div class="file-info-icon">
@@ -396,7 +396,17 @@ const handleDelete = (material) => {
 }
 
 // 获取预览URL
-const getPreviewUrl = (filePath) => {
+const getPreviewUrl = (material) => {
+  // 如果有完整的 url 字段，直接使用
+  if (material.url) {
+    if (material.url.startsWith('/')) {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+      return `${baseUrl}${material.url}`
+    }
+    return material.url
+  }
+  // 兼容旧格式
+  const filePath = material.file_path || ''
   const filename = filePath.split('/').pop()
   return materialApi.getMaterialPreviewUrl(filename)
 }

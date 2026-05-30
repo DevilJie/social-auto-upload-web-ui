@@ -71,6 +71,19 @@
       <div v-else class="empty-data">
         <el-empty description="暂无素材数据" />
       </div>
+
+      <!-- 分页 -->
+      <div class="pagination-wrapper" v-if="totalCount > 0">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="pageSizeOptions"
+          :total="totalCount"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="handleCurrentChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
     </div>
 
     <!-- Upload Dialog -->
@@ -190,6 +203,11 @@ const searchKeyword = ref('')
 const isRefreshing = ref(false)
 const isUploading = ref(false)
 
+// 分页
+const currentPage = ref(1)
+const pageSize = ref(20)
+const pageSizeOptions = [10, 20, 50, 100]
+
 // 对话框控制
 const uploadDialogVisible = ref(false)
 const previewDialogVisible = ref(false)
@@ -231,7 +249,7 @@ const fetchMaterials = async () => {
 }
 
 // 过滤素材
-const filteredMaterials = computed(() => {
+const filteredMaterialsAll = computed(() => {
   if (!searchKeyword.value) return appStore.materials
 
   const keyword = searchKeyword.value.toLowerCase()
@@ -240,9 +258,30 @@ const filteredMaterials = computed(() => {
   )
 })
 
+// 分页后的素材
+const filteredMaterials = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredMaterialsAll.value.slice(start, end)
+})
+
+// 总数
+const totalCount = computed(() => filteredMaterialsAll.value.length)
+
 // 搜索处理
 const handleSearch = () => {
-  // 搜索逻辑已通过计算属性实现
+  // 搜索时重置到第一页
+  currentPage.value = 1
+}
+
+// 分页事件
+const handleCurrentChange = (page) => {
+  currentPage.value = page
+}
+
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
 }
 
 // 上传素材
@@ -530,6 +569,14 @@ onMounted(() => {
 
   .empty-data {
     padding: 60px 0;
+  }
+
+  .pagination-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid $border-light;
   }
 }
 

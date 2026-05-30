@@ -115,6 +115,12 @@ class BasePlatform(ABC):
             f"{self.__class__.__name__} does not support note publishing"
         )
 
+    async def publish_image(self, **kwargs) -> bool:
+        """Publish an image post (default: not supported)."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support image publishing"
+        )
+
     async def get_statistics(self, **kwargs) -> dict:
         """Fetch account statistics (default: not supported)."""
         raise NotImplementedError(

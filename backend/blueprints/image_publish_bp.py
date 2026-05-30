@@ -139,6 +139,9 @@ def delete_image(image_id):
 @image_publish_bp.route('/publish', methods=['POST'])
 def publish_images():
     """发布图文内容到各平台"""
+    import asyncio
+    from impl.registry import get_platform
+
     data = request.get_json()
     if not data:
         return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
@@ -171,15 +174,132 @@ def publish_images():
             )
 
         conn.commit()
+
+        # 获取图片文件名
+        image_files = []
+        for img_id in image_ids:
+            row = conn.execute(
+                "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
+            ).fetchone()
+            if row:
+                image_files.append(row['stored_filename'])
         conn.close()
 
-        return jsonify({
-            "code": 200,
-            "msg": "发布任务已创建",
-            "data": {"task_id": task_id}
-        })
+        if not image_files:
+            return jsonify({"code": 400, "msg": "未找到有效的图片文件"}), 400
+
+        # 执行实际发布（取第一个账号配置）
+        config = account_configs[0]
+        platform_type = config.get('platform')
+        if not platform_type:
+            return jsonify({"code": 400, "msg": "缺少平台类型"}), 400
+
+        # 平台类型映射（支持中文名称和英文key）
+        platform_map = {
+            'douyin': 3,
+            '抖音': 3,
+            'xiaohongshu': 1,
+            '小红书': 1,
+            'kuaishou': 4,
+            '快手': 4,
+        }
+        platform_id = platform_map.get(platform_type)
+        if not platform_id:
+            return jsonify({"code": 400, "msg": f"不支持的平台: {platform_type}"}), 400
+
+        platform = get_platform(platform_id)
+        if not platform:
+            return jsonify({"code": 400, "msg": "无法获取平台实例"}), 400
+
+        # 获取账号cookie文件（直接使用前端传递的 filePath）
+        cookie_file = config.get('filePath')
+        if not cookie_file:
+            return jsonify({"code": 400, "msg": "缺少账号cookie文件路径"}), 400
+
+        # 获取 dry_run 参数（默认为 True，先核对数据）
+        dry_run = config.get('dry_run', True)
+
+        # 调试日志
+        logger.info(f"发布参数: dry_run={dry_run}, cover_path={config.get('cover_path')}, "
+                    f"music_name={config.get('music_name')}, hotspot={config.get('hotspot')}, "
+                    f"aiContent={config.get('aiContent')}, tags={config.get('tags')}, "
+                    f"mix_id={config.get('mix_id')}, tag_type={config.get('tag_type')}, "
+                    f"tag_value={config.get('tag_value')}, mini_link={config.get('mini_link')}")
+
+        # 调用平台的 publish_image 方法
+        publish_fn = platform.publish_image
+        if asyncio.iscoroutinefunction(publish_fn):
+            result = asyncio.run(publish_fn(
+                title=config.get('title', ''),
+                files=image_files,
+                tags=config.get('tags', []),
+                account_file=[cookie_file],
+                desc=config.get('description', ''),
+                cover_path=config.get('cover_path', ''),
+                mix_id=config.get('mix_id', ''),
+                music_name=config.get('music_name', ''),
+                hotspot=config.get('hotspot', ''),
+                tag_type=config.get('tag_type', ''),
+                tag_value=config.get('tag_value', ''),
+                mini_link=config.get('mini_link', ''),
+                enableTimer=bool(config.get('scheduleTime')),
+                schedule_time_str=config.get('scheduleTime', ''),
+                ai_content=config.get('aiContent', ''),
+                activities=config.get('activities', []),
+                dry_run=dry_run,
+            ))
+        else:
+            result = publish_fn(
+                title=config.get('title', ''),
+                files=image_files,
+                tags=config.get('tags', []),
+                account_file=[cookie_file],
+                desc=config.get('description', ''),
+                cover_path=config.get('cover_path', ''),
+                mix_id=config.get('mix_id', ''),
+                music_name=config.get('music_name', ''),
+                hotspot=config.get('hotspot', ''),
+                tag_type=config.get('tag_type', ''),
+                tag_value=config.get('tag_value', ''),
+                mini_link=config.get('mini_link', ''),
+                enableTimer=bool(config.get('scheduleTime')),
+                schedule_time_str=config.get('scheduleTime', ''),
+                ai_content=config.get('aiContent', ''),
+                activities=config.get('activities', []),
+                dry_run=dry_run,
+            )
+
+        if result:
+            # 更新任务状态为成功
+            conn = _get_db()
+            conn.execute(
+                "UPDATE image_publish_tasks SET status = 'success' WHERE id = ?",
+                (task_id,)
+            )
+            conn.execute(
+                "UPDATE image_publish_logs SET status = 'success' WHERE task_id = ?",
+                (task_id,)
+            )
+            conn.commit()
+            conn.close()
+            return jsonify({"code": 200, "msg": "发布成功", "data": {"task_id": task_id}})
+        else:
+            # 更新任务状态为失败
+            conn = _get_db()
+            conn.execute(
+                "UPDATE image_publish_tasks SET status = 'failed' WHERE id = ?",
+                (task_id,)
+            )
+            conn.execute(
+                "UPDATE image_publish_logs SET status = 'failed' WHERE task_id = ?",
+                (task_id,)
+            )
+            conn.commit()
+            conn.close()
+            return jsonify({"code": 500, "msg": "发布失败"}), 500
+
     except Exception as e:
-        logger.error(f"创建发布任务失败: {e}")
+        logger.error(f"发布失败: {e}")
         return jsonify({"code": 500, "msg": f"发布失败: {str(e)}"}), 500
 
 
@@ -406,3 +526,92 @@ def get_history():
     except Exception as e:
         logger.error(f"获取发布历史失败: {e}")
         return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+# ========== 实际发布执行 ==========
+
+@image_publish_bp.route('/execute-publish', methods=['POST'])
+def execute_publish():
+    """执行图文发布任务 - 调用平台API"""
+    import asyncio
+    from impl.registry import get_platform
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
+
+    platform_type = data.get('platform_type')
+    if not platform_type:
+        return jsonify({"code": 400, "msg": "缺少平台类型"}), 400
+
+    platform = get_platform(platform_type)
+    if not platform:
+        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    try:
+        # 准备图片文件路径列表
+        image_ids = data.get('image_ids', [])
+        if not image_ids:
+            return jsonify({"code": 400, "msg": "请选择至少一张图片"}), 400
+
+        # 从数据库获取图片文件名
+        conn = _get_db()
+        image_files = []
+        for img_id in image_ids:
+            row = conn.execute(
+                "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
+            ).fetchone()
+            if row:
+                image_files.append(row['stored_filename'])
+        conn.close()
+
+        if not image_files:
+            return jsonify({"code": 400, "msg": "未找到有效的图片文件"}), 400
+
+        # 调用平台的 publish_image 方法
+        publish_fn = platform.publish_image
+        if asyncio.iscoroutinefunction(publish_fn):
+            result = asyncio.run(publish_fn(
+                title=data.get('title', ''),
+                files=image_files,
+                tags=data.get('tags', []),
+                account_file=data.get('account_file', []),
+                desc=data.get('desc', ''),
+                cover_path=data.get('cover_path', ''),
+                mix_id=data.get('mix_id', ''),
+                music_name=data.get('music_name', ''),
+                hotspot=data.get('hotspot', ''),
+                location=data.get('location', ''),
+                enableTimer=data.get('enableTimer', False),
+                schedule_time_str=data.get('schedule_time_str', ''),
+                ai_content=data.get('ai_content', ''),
+                activities=data.get('activities', []),
+                dry_run=data.get('dry_run', True),
+            ))
+        else:
+            result = publish_fn(
+                title=data.get('title', ''),
+                files=image_files,
+                tags=data.get('tags', []),
+                account_file=data.get('account_file', []),
+                desc=data.get('desc', ''),
+                cover_path=data.get('cover_path', ''),
+                mix_id=data.get('mix_id', ''),
+                music_name=data.get('music_name', ''),
+                hotspot=data.get('hotspot', ''),
+                location=data.get('location', ''),
+                enableTimer=data.get('enableTimer', False),
+                schedule_time_str=data.get('schedule_time_str', ''),
+                ai_content=data.get('ai_content', ''),
+                activities=data.get('activities', []),
+                dry_run=data.get('dry_run', True),
+            )
+
+        if result:
+            return jsonify({"code": 200, "msg": "发布任务已执行", "data": None})
+        else:
+            return jsonify({"code": 500, "msg": "发布失败"}), 500
+
+    except Exception as e:
+        logger.error(f"执行发布失败: {e}")
+        return jsonify({"code": 500, "msg": f"发布失败: {str(e)}"}), 500

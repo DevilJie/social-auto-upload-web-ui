@@ -271,14 +271,17 @@
                   <div class="setting-item">
                     <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
                     <el-select
-                      v-model="form.declaration"
+                      v-model="form.aiContent"
                       placeholder="请选择自主声明"
                       clearable
                       style="width: 100%"
                     >
-                      <el-option label="内容由AI生成" value="ai_generated" />
-                      <el-option label="内容包含广告" value="contains_ad" />
-                      <el-option label="内容为虚构演绎" value="fictional" />
+                      <el-option
+                        v-for="opt in declarationOptions"
+                        :key="opt.value"
+                        :label="opt.label"
+                        :value="opt.value"
+                      />
                     </el-select>
                   </div>
                 </div>
@@ -620,6 +623,13 @@ const currentPlatformConfig = computed(() =>
   selectedPlatform.value ? getPlatformByKey(selectedPlatform.value) : null
 )
 
+// 自主声明选项 - 从平台配置中获取
+const declarationOptions = computed(() => {
+  if (!currentPlatformConfig.value) return []
+  const aiContentField = currentPlatformConfig.value.settingsFields?.find(f => f.key === 'aiContent')
+  return aiContentField?.options || []
+})
+
 // 图文发布不需要 platformSettingsFields，所有配置都在模板中直接定义
 const imagePlatformSettingsFields = computed(() => {
   return []
@@ -643,7 +653,9 @@ const platformConfigs = reactive({
     hotspotId: '',       // 热点ID
     selectedMusic: null, // 选中的音乐
     selectedTag: null,   // 选中的标签
-    declaration: '',     // 自主声明
+    aiContent: '',       // 自主声明
+    tagType: '',         // 标签类型: location/miniapp/gamepad/mark
+    tagValue: '',        // 标签值
   },
   xiaohongshu: { title: '', description: '' },
   kuaishou: { title: '', description: '' },
@@ -978,13 +990,29 @@ function handleMixChange(mix) {
 }
 
 function handleTagSelect(tag) {
-  console.log('handleTagSelect:', tag)
+  console.log('=== handleTagSelect called ===', tag)
   if (tag) {
     form.selectedTag = tag
-    console.log('form.selectedTag set to:', form.selectedTag)
+    // Map tag type to backend format
+    const typeMap = {
+      'poi': 'location',
+      'miniapp': 'miniapp',
+      'game': 'gamepad',
+      'mark': 'mark'
+    }
+    const newTagType = typeMap[tag.type] || ''
+    const newTagValue = tag.name || tag.id || ''
+    console.log('Setting form.tagType to:', newTagType)
+    console.log('Setting form.tagValue to:', newTagValue)
+    form.tagType = newTagType
+    form.tagValue = newTagValue
+    console.log('form.tagType after set:', form.tagType)
+    console.log('form.tagValue after set:', form.tagValue)
     ElMessage.success(`标签已选择: ${tag.name}`)
   } else {
     form.selectedTag = null
+    form.tagType = ''
+    form.tagValue = ''
   }
 }
 
@@ -1059,6 +1087,8 @@ async function saveDraft() {
         mixId: form.mixId || null,
         mixData: form.mixData || null,
         selectedTag: form.selectedTag || null,
+        tagType: form.tagType || '',
+        tagValue: form.tagValue || '',
         coverImage: form.coverImage || null,
       }
     }
@@ -1182,18 +1212,39 @@ async function publishAll() {
   const accountConfigs = allTasks.map(({ account, group, platformSettings }) => {
     const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
     const allTags = [...commonConfig.topics, ...customTags]
+    // 直接从对象中提取需要的数据
+    const selectedTag = platformSettings.selectedTag || accountOverride?.selectedTag
+    const tagTypeMap = { 'poi': 'location', 'miniapp': 'miniapp', 'game': 'gamepad', 'mark': 'mark' }
+
+    // 小程序需要传递搜索时输入的链接
+    let tag_value = ''
+    let mini_link = ''
+    if (selectedTag) {
+      tag_value = selectedTag.name || selectedTag.id || ''
+      // 如果是小程序，使用搜索时输入的内容（_searchKeyword）
+      if (selectedTag.type === 'miniapp') {
+        mini_link = selectedTag._searchKeyword || ''
+      }
+    }
+
     return {
       account_id: account.id,
       platform: account.platform,
+      filePath: account.filePath,
       title: platformSettings.title,
       description: platformSettings.description || '',
       tags: allTags,
       scheduleTime: platformSettings.scheduleTime || '',
       aiContent: platformSettings.aiContent || '',
-      productLink: platformSettings.productLink || '',
-      productTitle: platformSettings.productTitle || '',
-      visibility: platformSettings.visibility || 'public',
-      allowDownload: platformSettings.allowDownload !== false,
+      mix_id: platformSettings.mixId || '',
+      music_name: platformSettings.selectedMusic || '',
+      hotspot: platformSettings.hotspotId || '',
+      tag_type: selectedTag ? (tagTypeMap[selectedTag.type] || '') : '',
+      tag_value: tag_value,
+      mini_link: mini_link,
+      activities: platformSettings.activityId ? [platformSettings.activityId] : [],
+      cover_path: platformSettings.coverImage?.path || '',
+      dry_run: true,  // 默认先核对数据，不点击发布
     }
   })
 

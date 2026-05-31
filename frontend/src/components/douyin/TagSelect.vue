@@ -245,10 +245,14 @@ function handleClear() {
 }
 
 function handleChange(val) {
+  console.log('handleChange called with:', val)
   if (val) {
     const tag = tagList.value.find(t => t.id === val)
+    console.log('Found tag:', tag)
+    console.log('tag.enable_mount:', tag?.enable_mount)
     // 检查小程序是否可挂载
     if (tag && tag.type === 'miniapp' && !tag.enable_mount) {
+      console.log('Blocking miniapp - enable_mount is false')
       ElMessage.error(tag.reason || '该小程序不可用')
       // 清空选择
       selectedTagId.value = ''

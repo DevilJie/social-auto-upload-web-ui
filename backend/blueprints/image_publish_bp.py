@@ -399,13 +399,16 @@ def _extract_image_draft_title(draft_data):
 
 
 def _extract_image_draft_cover(draft_data):
-    """从图文草稿数据中提取封面（第一张图片）"""
+    """从图文草稿数据中提取封面（第一张图片的相对路径）"""
     common_config = draft_data.get('commonConfig', {})
     images = common_config.get('images', [])
     if images and len(images) > 0:
         img = images[0]
         if isinstance(img, dict):
-            return img.get('url', '') or img.get('path', '')
+            # 优先用 path（文件名）构造相对路径，保持和视频草稿一致
+            filename = img.get('path', '') or img.get('name', '')
+            if filename:
+                return f"/api/image-publish/files/{filename}"
     return ''
 
 

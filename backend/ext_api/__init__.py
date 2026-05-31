@@ -510,31 +510,13 @@ def get_drafts():
             except json.JSONDecodeError:
                 d['channels_summary'] = []
 
-            # 图文草稿：从 draft_data 中提取 image_ids 和 image_urls
-            if d.get('type') == 'image' and d.get('draft_data'):
+            # 图文草稿：兜底修复 channels_summary
+            if d.get('type') == 'image' and d.get('draft_data') and not d['channels_summary']:
                 try:
                     dd = json.loads(d['draft_data'])
-                    images = dd.get('commonConfig', {}).get('images', [])
-                    image_ids = [img['id'] for img in images] if isinstance(images, list) else []
-                    d['image_ids'] = image_ids
-                    # 查询 image_records 获取 stored_filename 构建 URL
-                    image_urls = []
-                    for img_id in image_ids:
-                        img_row = conn.execute(
-                            "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
-                        ).fetchone()
-                        if img_row:
-                            image_urls.append(f"/api/image-publish/files/{img_row['stored_filename']}")
-                        else:
-                            image_urls.append(None)
-                    d['image_urls'] = image_urls
-
-                    # 兜底：如果 channels_summary 为空，从 draft_data 重新提取
-                    if not d['channels_summary']:
-                        d['channels_summary'] = _extract_image_channels_from_draft(conn, dd)
+                    d['channels_summary'] = _extract_image_channels_from_draft(conn, dd)
                 except (json.JSONDecodeError, KeyError):
-                    d['image_ids'] = []
-                    d['image_urls'] = []
+                    pass
             d.pop('draft_data', None)  # 不在列表接口返回完整 draft_data
 
             d['created_at'] = _to_beijing_time(d.get('created_at'))

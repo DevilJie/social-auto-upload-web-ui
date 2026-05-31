@@ -80,22 +80,15 @@
 
       <div v-else class="draft-grid">
         <div v-for="draft in imageDrafts" :key="draft.id" class="draft-card">
-          <div class="card-cover image-cover">
-            <div v-if="draft.image_urls && draft.image_urls.length > 0" class="image-grid-preview">
-              <img
-                v-for="(url, idx) in draft.image_urls.slice(0, 4)"
-                :key="idx"
-                :src="getImageUrl(url)"
-                alt="图片"
-                class="grid-image"
-              />
-            </div>
+          <div class="card-cover">
+            <img
+              v-if="draft.cover_path"
+              :src="getCoverUrl(draft.cover_path)"
+              alt="封面"
+            />
             <div v-else class="cover-placeholder">
               <el-icon :size="32"><Picture /></el-icon>
             </div>
-            <span v-if="draft.image_ids" class="image-count-badge">
-              {{ draft.image_ids.length }} 张
-            </span>
           </div>
 
           <div class="card-body">
@@ -152,12 +145,6 @@ const overflowMap = ref({})
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 
 function getCoverUrl(path) {
-  if (!path) return ''
-  if (path.startsWith('http')) return path
-  return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`
-}
-
-function getImageUrl(path) {
   if (!path) return ''
   if (path.startsWith('http')) return path
   return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`
@@ -364,8 +351,7 @@ onMounted(loadAllDrafts)
     color: $text-muted;
   }
 
-  .duration-badge,
-  .image-count-badge {
+  .duration-badge {
     position: absolute;
     bottom: 8px;
     right: 8px;
@@ -374,25 +360,6 @@ onMounted(loadAllDrafts)
     font-size: 12px;
     padding: 2px 6px;
     border-radius: 4px;
-  }
-}
-
-.image-cover {
-  aspect-ratio: 16 / 9;
-
-  .image-grid-preview {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 2px;
-    width: 100%;
-    height: 100%;
-
-    .grid-image {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
   }
 }
 

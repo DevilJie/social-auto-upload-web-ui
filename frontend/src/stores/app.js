@@ -98,11 +98,6 @@ export const useAppStore = defineStore('app', () => {
     materials.value = materialList
   }
 
-  // 添加新素材
-  const addMaterial = (material) => {
-    materials.value.push(material)
-  }
-
   // 删除素材
   const removeMaterial = (materialId) => {
     const index = materials.value.findIndex(m => m.id === materialId)
@@ -138,7 +133,6 @@ export const useAppStore = defineStore('app', () => {
     setMaterialManagementVisited,
     resetVisitStatus,
     setMaterials,
-    addMaterial,
     removeMaterial,
     setAccountRefreshing
   }

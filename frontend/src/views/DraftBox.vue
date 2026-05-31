@@ -62,7 +62,7 @@
             <button class="action-btn action-edit" @click="editVideoDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
-            <button class="action-btn action-delete" @click="confirmDeleteVideo(draft.id)">
+            <button class="action-btn action-delete" @click="confirmDelete(draft.id, 'video')">
               <el-icon><Delete /></el-icon> 删除
             </button>
           </div>
@@ -101,15 +101,15 @@
           <div class="card-body">
             <div class="card-title">{{ getImageDraftTitle(draft) || '无标题' }}</div>
 
-            <div v-if="draft.account_configs" class="card-channels">
+            <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
               <div class="channels-track">
-                <span v-for="(config, accountId) in draft.account_configs" :key="accountId" class="channel-tag">
+                <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
                   <img
-                    v-if="getPlatformLogo(config.platform)"
-                    :src="getPlatformLogo(config.platform)"
+                    v-if="getPlatformLogo(ch.platform)"
+                    :src="getPlatformLogo(ch.platform)"
                     class="channel-icon"
                   />
-                  {{ config.platform }}
+                  {{ ch.name }} × {{ ch.count }}
                 </span>
               </div>
             </div>
@@ -123,7 +123,7 @@
             <button class="action-btn action-edit" @click="editImageDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
-            <button class="action-btn action-delete" @click="confirmDeleteImage(draft.id)">
+            <button class="action-btn action-delete" @click="confirmDelete(draft.id, 'image')">
               <el-icon><Delete /></el-icon> 删除
             </button>
           </div>
@@ -139,7 +139,6 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Edit, Delete } from '@element-plus/icons-vue'
 import { draftApi } from '@/api/draft'
-import { imagePublishApi } from '@/api/imagePublish'
 import { getPlatformByKey } from '@/config/platforms'
 
 const router = useRouter()
@@ -170,10 +169,18 @@ function getPlatformLogo(platformKey) {
 }
 
 function getImageDraftTitle(draft) {
-  if (draft.account_configs) {
-    const configs = Object.values(draft.account_configs)
-    if (configs.length > 0) {
-      return configs[0].title || ''
+  // 优先使用 title 字段（后端已提取）
+  if (draft.title && draft.title !== '无标题') {
+    return draft.title
+  }
+  // 从 draft_data 中提取
+  if (draft.draft_data) {
+    const pc = draft.draft_data.platformConfigs || {}
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+      const title = pc[key]?.title
+      if (title && title.trim()) {
+        return title.trim()
+      }
     }
   }
   return ''
@@ -229,58 +236,34 @@ function isOverflow(draftId) {
   return overflowMap.value[draftId]
 }
 
-async function confirmDeleteVideo(id) {
+async function confirmDelete(id, type) {
+  const typeName = type === 'video' ? '视频' : '图文'
   try {
-    await ElMessageBox.confirm('确定删除这个视频草稿吗？', '删除确认', {
+    await ElMessageBox.confirm(`确定删除这个${typeName}草稿吗？`, '删除确认', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
     })
     await draftApi.deleteDraft(id)
     ElMessage.success('草稿已删除')
-    await loadVideoDrafts()
+    await loadAllDrafts()
   } catch {
     // cancelled or error
-  }
-}
-
-async function confirmDeleteImage(id) {
-  try {
-    await ElMessageBox.confirm('确定删除这个图文草稿吗？', '删除确认', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
-    await imagePublishApi.deleteDraft(id)
-    ElMessage.success('草稿已删除')
-    await loadImageDrafts()
-  } catch {
-    // cancelled or error
-  }
-}
-
-async function loadVideoDrafts() {
-  try {
-    const resp = await draftApi.getDrafts()
-    videoDrafts.value = resp.data || []
-  } catch (e) {
-    console.error('Failed to load video drafts:', e)
-  }
-}
-
-async function loadImageDrafts() {
-  try {
-    const resp = await imagePublishApi.getDrafts()
-    imageDrafts.value = resp.data || []
-  } catch (e) {
-    console.error('Failed to load image drafts:', e)
   }
 }
 
 async function loadAllDrafts() {
   loading.value = true
   try {
-    await Promise.all([loadVideoDrafts(), loadImageDrafts()])
+    // 统一从 /api/v2/drafts 获取，根据 type 分类
+    const [videoResp, imageResp] = await Promise.all([
+      draftApi.getDrafts('video'),
+      draftApi.getDrafts('image')
+    ])
+    videoDrafts.value = videoResp.data || []
+    imageDrafts.value = imageResp.data || []
+  } catch (e) {
+    console.error('Failed to load drafts:', e)
   } finally {
     loading.value = false
   }

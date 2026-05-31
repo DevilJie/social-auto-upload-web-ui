@@ -84,6 +84,7 @@ def init_database():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS drafts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT DEFAULT 'video',
         title TEXT DEFAULT '',
         cover_path TEXT DEFAULT '',
         draft_data TEXT DEFAULT '{}',

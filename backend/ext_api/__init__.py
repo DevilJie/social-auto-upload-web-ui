@@ -38,6 +38,7 @@ def _ensure_tables(conn):
         conn.execute("""
         CREATE TABLE IF NOT EXISTS drafts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT DEFAULT 'video',
             title TEXT DEFAULT '',
             cover_path TEXT DEFAULT '',
             draft_data TEXT DEFAULT '{}',
@@ -48,6 +49,11 @@ def _ensure_tables(conn):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        # 迁移：为旧表添加 type 列
+        try:
+            conn.execute('ALTER TABLE drafts ADD COLUMN type TEXT DEFAULT "video"')
+        except sqlite3.OperationalError:
+            pass  # 列已存在
         conn.commit()
     except Exception:
         pass
@@ -452,12 +458,19 @@ def update_settings():
 
 @ext_api.route('/drafts', methods=['GET'])
 def get_drafts():
-    """获取草稿列表"""
+    """获取草稿列表（支持 type 过滤：video/image）"""
+    draft_type = request.args.get('type')
     try:
         conn = _db_conn()
-        rows = conn.execute(
-            "SELECT id, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
-        ).fetchall()
+        if draft_type:
+            rows = conn.execute(
+                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts WHERE type = ? ORDER BY updated_at DESC",
+                (draft_type,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
+            ).fetchall()
         drafts = []
         for row in rows:
             d = dict(row)
@@ -482,6 +495,7 @@ def create_draft():
         return jsonify({"code": 400, "msg": "草稿数据不能为空"}), 400
 
     draft_data = data['draft_data']
+    draft_type = data.get('type', 'video')  # 默认视频类型
     title = _extract_draft_title(draft_data)
     cover_path = _extract_draft_cover(draft_data)
     channels_summary = _extract_channels_summary(draft_data)
@@ -491,9 +505,9 @@ def create_draft():
     try:
         conn = _db_conn()
         cursor = conn.execute(
-            """INSERT INTO drafts (title, cover_path, draft_data, channels_summary, video_duration, video_file_size)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+            """INSERT INTO drafts (type, title, cover_path, draft_data, channels_summary, video_duration, video_file_size)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (draft_type, title, cover_path, json.dumps(draft_data, ensure_ascii=False),
              json.dumps(channels_summary, ensure_ascii=False),
              video_duration, video_file_size)
         )

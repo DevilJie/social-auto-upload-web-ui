@@ -222,9 +222,15 @@ def publish_images():
         # 调试日志
         logger.info(f"发布参数: dry_run={dry_run}, cover_path={config.get('cover_path')}, "
                     f"music_name={config.get('music_name')}, hotspot={config.get('hotspot')}, "
+                    f"hotspot_tags={config.get('hotspot_tags')}, "
                     f"aiContent={config.get('aiContent')}, tags={config.get('tags')}, "
                     f"mix_id={config.get('mix_id')}, tag_type={config.get('tag_type')}, "
                     f"tag_value={config.get('tag_value')}, mini_link={config.get('mini_link')}")
+
+        # 合并热点标签到 tags 中
+        hotspot_tags = config.get('hotspot_tags', [])
+        original_tags = config.get('tags', [])
+        merged_tags = list(set(original_tags + hotspot_tags))  # 去重合并
 
         # 调用平台的 publish_image 方法
         publish_fn = platform.publish_image
@@ -232,7 +238,7 @@ def publish_images():
             result = asyncio.run(publish_fn(
                 title=config.get('title', ''),
                 files=image_files,
-                tags=config.get('tags', []),
+                tags=merged_tags,
                 account_file=[cookie_file],
                 desc=config.get('description', ''),
                 cover_path=config.get('cover_path', ''),
@@ -252,7 +258,7 @@ def publish_images():
             result = publish_fn(
                 title=config.get('title', ''),
                 files=image_files,
-                tags=config.get('tags', []),
+                tags=merged_tags,
                 account_file=[cookie_file],
                 desc=config.get('description', ''),
                 cover_path=config.get('cover_path', ''),
@@ -303,119 +309,36 @@ def publish_images():
         return jsonify({"code": 500, "msg": f"发布失败: {str(e)}"}), 500
 
 
-# ========== 草稿管理 ==========
+# ========== 草稿管理（已迁移到 /api/v2/drafts，保留兼容接口） ==========
 
 @image_publish_bp.route('/drafts', methods=['GET'])
 def get_drafts():
-    """获取图文草稿列表"""
-    try:
-        conn = _get_db()
-        rows = conn.execute(
-            "SELECT * FROM image_drafts ORDER BY updated_at DESC"
-        ).fetchall()
-
-        drafts = []
-        for row in rows:
-            d = dict(row)
-
-            # 优先解析 draft_data（新格式）
-            if d.get('draft_data'):
-                try:
-                    parsed = json.loads(d['draft_data'])
-                    d['draft_data'] = parsed
-                    # 从 draft_data 提取 image_ids
-                    common_config = parsed.get('commonConfig', {})
-                    images = common_config.get('images', [])
-                    d['image_ids'] = [img['id'] for img in images] if isinstance(images, list) else []
-                    d['commonConfig'] = common_config
-                    d['account_configs'] = parsed.get('accountConfigs', {})
-                    d['platformConfigs'] = parsed.get('platformConfigs', {})
-                    d['accountOverrides'] = parsed.get('accountOverrides', {})
-                    d['publishAccountIds'] = parsed.get('publishAccountIds', [])
-                    d['expandedGroups'] = parsed.get('expandedGroups', [])
-                    d['selectedPlatform'] = parsed.get('selectedPlatform', '')
-                    d['selectedAccountId'] = parsed.get('selectedAccountId', None)
-                except json.JSONDecodeError:
-                    d['image_ids'] = []
-            else:
-                # 旧格式兼容
-                try:
-                    d['image_ids'] = json.loads(d.get('image_ids', '[]'))
-                except json.JSONDecodeError:
-                    d['image_ids'] = []
-                try:
-                    d['account_configs'] = json.loads(d.get('account_configs', '[]'))
-                except json.JSONDecodeError:
-                    d['account_configs'] = []
-
-            # 获取图片 URL 列表
-            image_urls = []
-            for img_id in d['image_ids']:
-                img_row = conn.execute(
-                    "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
-                ).fetchone()
-                if img_row:
-                    image_urls.append(f"/api/image-publish/files/{img_row['stored_filename']}")
-                else:
-                    image_urls.append(None)
-            d['image_urls'] = image_urls
-
-            drafts.append(d)
-
-        conn.close()
-        return jsonify({"code": 200, "data": drafts})
-    except Exception as e:
-        logger.error(f"获取草稿列表失败: {e}")
-        return jsonify({"code": 500, "msg": str(e)}), 500
+    """获取图文草稿列表（重定向到统一接口）"""
+    import asyncio
+    from ext_api import get_drafts as v2_get_drafts
+    # 直接调用 v2 接口，传递 type=image 参数
+    from flask import request as req
+    # 修改请求参数
+    req.args = req.args.copy()
+    req.args['type'] = 'image'
+    return v2_get_drafts()
 
 
 @image_publish_bp.route('/drafts', methods=['POST'])
 def save_draft():
-    """保存图文草稿"""
+    """保存图文草稿（重定向到统一接口）"""
     data = request.get_json()
     if not data:
         return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
 
-    # 新格式：完整状态存储（与视频发布一致）
     draft_data = data.get('draft_data')
-    if draft_data:
-        # 从 commonConfig.images 提取 image_ids
-        common_config = draft_data.get('commonConfig', {})
-        images = common_config.get('images', [])
-        image_ids = [img['id'] for img in images] if isinstance(images, list) else []
-        # 允许保存没有图片的草稿
-        draft_id = data.get('id')
-        now = datetime.now().isoformat()
-        try:
-            conn = _get_db()
-            if draft_id:
-                changes = conn.execute(
-                    """UPDATE image_drafts SET draft_data=?, updated_at=? WHERE id=?""",
-                    (json.dumps(draft_data, ensure_ascii=False), now, draft_id)
-                ).rowcount
-                conn.commit()
-                conn.close()
-                if changes == 0:
-                    return jsonify({"code": 404, "msg": "草稿不存在"}), 404
-            else:
-                draft_id = str(uuid.uuid4())
-                conn.execute(
-                    """INSERT INTO image_drafts (id, draft_data, created_at, updated_at)
-                       VALUES (?, ?, ?, ?)""",
-                    (draft_id, json.dumps(draft_data, ensure_ascii=False), now, now)
-                )
-                conn.commit()
-                conn.close()
-            return jsonify({"code": 200, "msg": "草稿保存成功", "data": {"id": draft_id}})
-        except Exception as e:
-            logger.error(f"保存草稿失败: {e}")
-            return jsonify({"code": 500, "msg": f"保存失败: {str(e)}"}), 500
+    if not draft_data:
+        return jsonify({"code": 400, "msg": "草稿数据不能为空"}), 400
 
-    # 旧格式：兼容处理
-    image_ids = data.get('image_ids', [])
-    account_configs = data.get('account_configs', [])
-    if not image_ids:
-        return jsonify({"code": 400, "msg": "请选择至少一张图片"}), 400
+    # 从 commonConfig.images 提取 image_ids
+    common_config = draft_data.get('commonConfig', {})
+    images = common_config.get('images', [])
+    image_ids = [img['id'] for img in images] if isinstance(images, list) else []
 
     draft_id = data.get('id')
     now = datetime.now().isoformat()
@@ -423,22 +346,32 @@ def save_draft():
     try:
         conn = _get_db()
         if draft_id:
+            # 更新现有草稿
+            title = _extract_image_draft_title(draft_data)
+            channels_summary = _extract_image_channels_summary(draft_data)
+            cover_path = _extract_image_draft_cover(draft_data)
             changes = conn.execute(
-                """UPDATE image_drafts SET image_ids=?, account_configs=?, updated_at=? WHERE id=?""",
-                (json.dumps(image_ids), json.dumps(account_configs, ensure_ascii=False), now, draft_id)
+                """UPDATE drafts SET title=?, cover_path=?, draft_data=?, channels_summary=?, updated_at=? WHERE id=? AND type='image'""",
+                (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+                 json.dumps(channels_summary, ensure_ascii=False), now, draft_id)
             ).rowcount
             conn.commit()
             conn.close()
             if changes == 0:
                 return jsonify({"code": 404, "msg": "草稿不存在"}), 404
         else:
-            draft_id = str(uuid.uuid4())
-            conn.execute(
-                """INSERT INTO image_drafts (id, image_ids, account_configs, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (draft_id, json.dumps(image_ids), json.dumps(account_configs, ensure_ascii=False), now, now)
+            # 创建新草稿
+            title = _extract_image_draft_title(draft_data)
+            channels_summary = _extract_image_channels_summary(draft_data)
+            cover_path = _extract_image_draft_cover(draft_data)
+            cursor = conn.execute(
+                """INSERT INTO drafts (type, title, cover_path, draft_data, channels_summary)
+                   VALUES ('image', ?, ?, ?, ?)""",
+                (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+                 json.dumps(channels_summary, ensure_ascii=False))
             )
             conn.commit()
+            draft_id = cursor.lastrowid
             conn.close()
         return jsonify({"code": 200, "msg": "草稿保存成功", "data": {"id": draft_id}})
     except Exception as e:
@@ -446,12 +379,75 @@ def save_draft():
         return jsonify({"code": 500, "msg": f"保存失败: {str(e)}"}), 500
 
 
+def _extract_image_draft_title(draft_data):
+    """从图文草稿数据中提取标题"""
+    # 优先从 accountOverrides 中获取第一个非空标题（账号级配置）
+    account_overrides = draft_data.get('accountOverrides', {})
+    for account_id, override in account_overrides.items():
+        title = override.get('title', '')
+        if title and title.strip():
+            return title.strip()[:100]
+
+    # 然后从 platformConfigs 中获取（渠道级配置）
+    pc = draft_data.get('platformConfigs', {})
+    for key in ['douyin', 'xiaohongshu', 'kuaishou']:
+        title = pc.get(key, {}).get('title', '')
+        if title and title.strip():
+            return title.strip()[:100]
+
+    return '无标题'
+
+
+def _extract_image_draft_cover(draft_data):
+    """从图文草稿数据中提取封面（第一张图片）"""
+    common_config = draft_data.get('commonConfig', {})
+    images = common_config.get('images', [])
+    if images and len(images) > 0:
+        img = images[0]
+        if isinstance(img, dict):
+            return img.get('url', '') or img.get('path', '')
+    return ''
+
+
+def _extract_image_channels_summary(draft_data):
+    """从图文草稿数据中提取渠道摘要"""
+    publish_account_ids = draft_data.get('publishAccountIds', [])
+    if not publish_account_ids:
+        return []
+
+    platform_map = {
+        'xiaohongshu': '小红书', 'douyin': '抖音',
+        'kuaishou': '快手',
+    }
+
+    try:
+        conn = _get_db()
+        placeholders = ','.join(['?'] * len(publish_account_ids))
+        rows = conn.execute(
+            f"SELECT id, platform FROM user_info WHERE id IN ({placeholders})",
+            publish_account_ids
+        ).fetchall()
+        conn.close()
+
+        platform_counts = {}
+        for row in rows:
+            platform = row['platform']
+            platform_counts[platform] = platform_counts.get(platform, 0) + 1
+
+        # 反向映射
+        name_to_key = {v: k for k, v in platform_map.items()}
+        return [{"platform": name_to_key.get(name, name), "name": name, "count": count}
+                for name, count in platform_counts.items()]
+    except Exception:
+        return []
+
+
 @image_publish_bp.route('/drafts/<draft_id>', methods=['DELETE'])
 def delete_draft(draft_id):
     """删除图文草稿"""
     try:
         conn = _get_db()
-        changes = conn.execute("DELETE FROM image_drafts WHERE id = ?", (draft_id,)).rowcount
+        changes = conn.execute("DELETE FROM drafts WHERE id = ? AND type='image'", (draft_id,)).rowcount
         conn.commit()
         conn.close()
 

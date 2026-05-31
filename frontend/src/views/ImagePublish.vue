@@ -101,7 +101,7 @@
           <!-- 封面图片 -->
           <div class="cover-section">
             <ImageCoverUpload
-              v-model="form.coverImage"
+              v-model="commonConfig.coverImage"
               label="封面图片"
               @open-library="openMaterialLibraryForCover"
             />
@@ -154,29 +154,6 @@
                 <el-icon :size="15"><Promotion /></el-icon><span>同步到所有平台</span>
               </button>
             </div>
-          </div>
-
-          <!-- Quick tag buttons -->
-          <div class="quick-tags">
-            <button class="cover-action-btn" @click="topicDialogVisible = true">
-              <span># 添加话题</span>
-            </button>
-            <button class="cover-action-btn">
-              <span>$ 参加活动</span>
-            </button>
-            <button class="cover-action-btn">
-              <span>@ 添加好友</span>
-            </button>
-          </div>
-          <div v-if="commonConfig.topics.length" class="topics-row">
-            <el-tag
-              v-for="(t, i) in commonConfig.topics"
-              :key="i"
-              closable
-              @close="commonConfig.topics.splice(i, 1)"
-              size="small"
-              class="cursor-pointer"
-            >#{{ t }}</el-tag>
           </div>
         </div>
 
@@ -231,92 +208,97 @@
 
           <!-- ===== 抖音图文特有配置 ===== -->
           <template v-if="selectedPlatform === 'douyin'">
-            <div class="config-group">
-              <div class="group-title">扩展信息</div>
-              <div class="group-content">
-                <div class="setting-row">
-                  <!-- 官方活动 -->
-                  <div class="setting-item">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
-                    <DouyinActivitySelect
-                      v-model="form.activityId"
-                      @change="handleActivityChange"
-                    />
-                  </div>
+            <div class="settings-grid">
+              <!-- 官方活动 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
+                <DouyinActivitySelect
+                  v-model="form.activityId"
+                  @change="handleActivityChange"
+                />
+              </div>
 
-                  <!-- 选择音乐 -->
-                  <div class="setting-item">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
-                    <DouyinMusicSelect
-                      :account-id="selectedAccountId"
-                      v-model="form.selectedMusic"
-                      :data="form.selectedMusicData"
-                      @change="handleMusicSelect"
-                    />
-                  </div>
-                </div>
+              <!-- 选择音乐 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
+                <DouyinMusicSelect
+                  :account-id="selectedAccountId"
+                  v-model="form.selectedMusic"
+                  :data="form.selectedMusicData"
+                  @change="handleMusicSelect"
+                />
+              </div>
 
-                <div class="setting-row">
-                  <!-- 关联热点 -->
-                  <div class="setting-item">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
-                    <DouyinHotspotSelect
-                      v-model="form.hotspotId"
-                      :data="form.hotspotData"
-                      @change="handleHotspotChange"
-                    />
-                  </div>
+              <!-- 关联热点 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
+                <DouyinHotspotSelect
+                  v-model="form.hotspotId"
+                  :data="form.hotspotData"
+                  @change="handleHotspotChange"
+                />
+              </div>
 
-                  <!-- 自主声明 -->
-                  <div class="setting-item">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
-                    <el-select
-                      v-model="form.aiContent"
-                      placeholder="请选择自主声明"
-                      clearable
-                      style="width: 100%"
-                    >
-                      <el-option
-                        v-for="opt in declarationOptions"
-                        :key="opt.value"
-                        :label="opt.label"
-                        :value="opt.value"
-                      />
-                    </el-select>
-                  </div>
-                </div>
-
-                <div class="setting-row">
-                  <!-- 添加标签 -->
-                  <div class="setting-item full-width">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
-                    <DouyinTagSelect
-                      :account-id="selectedAccountId"
-                      v-model="form.selectedTag"
-                      @change="handleTagSelect"
-                    />
-                  </div>
+              <!-- 热点标签 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">热点标签</div>
+                <div class="setting-hint">输入标签内容，按回车确认（官方活动+热点标签最多5个）</div>
+                <el-input
+                  v-model="hotspotTagInput"
+                  placeholder="输入标签内容，按回车添加"
+                  @keyup.enter="addHotspotTag"
+                  clearable
+                />
+                <div v-if="form.hotspotTags && form.hotspotTags.length > 0" class="hotspot-tags-list">
+                  <el-tag
+                    v-for="(tag, index) in form.hotspotTags"
+                    :key="index"
+                    closable
+                    @close="removeHotspotTag(index)"
+                    size="small"
+                  >
+                    #{{ tag }}
+                  </el-tag>
                 </div>
               </div>
-            </div>
 
-            <!-- 账号级别配置：合集 -->
-            <div v-if="selectedAccountId" class="config-group">
-              <div class="group-title">账号配置</div>
-              <div class="group-content">
-                <div class="setting-row">
-                  <!-- 添加合集 -->
-                  <div class="setting-item">
-                    <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
-                    <DouyinMixSelect
-                      :account-id="selectedAccountId"
-                      v-model="form.mixId"
-                      :data="form.mixData"
-                      @change="handleMixChange"
-                    />
-                  </div>
-                  <div class="setting-item"></div>
-                </div>
+              <!-- 自主声明 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
+                <el-select
+                  v-model="form.aiContent"
+                  placeholder="请选择自主声明"
+                  clearable
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="opt in declarationOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+              </div>
+
+              <!-- 添加标签 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
+                <DouyinTagSelect
+                  :account-id="selectedAccountId"
+                  v-model="form.selectedTag"
+                  @change="handleTagSelect"
+                />
+              </div>
+
+              <!-- 添加合集（仅账号级） -->
+              <div v-if="selectedAccountId" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
+                <DouyinMixSelect
+                  :account-id="selectedAccountId"
+                  v-model="form.mixId"
+                  :data="form.mixData"
+                  @change="handleMixChange"
+                />
               </div>
             </div>
           </template>
@@ -455,43 +437,6 @@
       </template>
     </el-dialog>
 
-    <!-- Topic Selection Dialog -->
-    <el-dialog
-      v-model="topicDialogVisible"
-      title="添加话题"
-      width="560px"
-      class="topic-dialog"
-    >
-      <div class="topic-dialog-content">
-        <div class="custom-topic-input">
-          <el-input v-model="customTopic" placeholder="输入自定义话题" class="custom-input">
-            <template #prepend>#</template>
-          </el-input>
-          <el-button type="primary" @click="addCustomTopic" class="cursor-pointer">添加</el-button>
-        </div>
-
-        <div class="recommended-topics">
-          <h4>推荐话题</h4>
-          <div class="topic-grid">
-            <el-button
-              v-for="topic in recommendedTopics"
-              :key="topic"
-              :type="commonConfig.topics.includes(topic) ? 'primary' : 'default'"
-              @click="toggleRecommendedTopic(topic)"
-              class="topic-btn cursor-pointer"
-            >{{ topic }}</el-button>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="dialog-footer-right">
-          <el-button @click="topicDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="topicDialogVisible = false">确定</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
     <!-- Material Select Dialog -->
     <MaterialSelectDialog
       ref="materialSelectDialogRef"
@@ -562,6 +507,7 @@ import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { accountApi } from '@/api/account'
 import { imagePublishApi } from '@/api/imagePublish'
+import { draftApi } from '@/api/draft'
 import { platformList, getPlatformByKey, PLATFORMS } from '@/config/platforms'
 import { useRoute } from 'vue-router'
 
@@ -639,6 +585,7 @@ const imagePlatformSettingsFields = computed(() => {
 const commonConfig = reactive({
   images: [],      // Array of { id, name, url, path, size, type }
   topics: [],
+  coverImage: null, // 封面图片（公共配置）
 })
 
 const currentPreviewIndex = ref(0)
@@ -651,6 +598,7 @@ const platformConfigs = reactive({
     mixId: '',           // 合集ID（账号级）
     activityId: [],      // 官方活动ID（多选，最多5个）
     hotspotId: '',       // 热点ID
+    hotspotTags: [],     // 热点标签列表
     selectedMusic: null, // 选中的音乐
     selectedTag: null,   // 选中的标签
     aiContent: '',       // 自主声明
@@ -746,6 +694,38 @@ function resetAccountOverride(accountId) {
   ElMessage.success('已恢复为渠道默认设置')
 }
 
+// ========== Hotspot Tags ==========
+const hotspotTagInput = ref('')
+
+function addHotspotTag() {
+  const tag = hotspotTagInput.value.trim()
+  if (!tag) return
+
+  // 检查官方活动 + 热点标签总数是否超过5个
+  const activityCount = form.activityId?.length || 0
+  const tagCount = form.hotspotTags?.length || 0
+  if (activityCount + tagCount >= 5) {
+    ElMessage.warning('官方活动 + 热点标签最多5个')
+    return
+  }
+
+  if (!form.hotspotTags) {
+    form.hotspotTags = []
+  }
+
+  if (form.hotspotTags.includes(tag)) {
+    ElMessage.warning('标签已存在')
+    return
+  }
+
+  form.hotspotTags.push(tag)
+  hotspotTagInput.value = ''
+}
+
+function removeHotspotTag(index) {
+  form.hotspotTags.splice(index, 1)
+}
+
 // ========== Batch title/description sync ==========
 const batchTitle = ref('')
 const batchDescription = ref('')
@@ -768,7 +748,6 @@ if (firstGroup) {
 
 // ========== Dialog State ==========
 const accountDialogVisible = ref(false)
-const topicDialogVisible = ref(false)
 const batchPublishDialogVisible = ref(false)
 
 // Account dialog state
@@ -791,14 +770,6 @@ watch(accountDialogVisible, async (visible) => {
     }
   }
 })
-
-// Topic dialog state
-const customTopic = ref('')
-const recommendedTopics = [
-  '游戏', '电影', '音乐', '美食', '旅行', '文化',
-  '科技', '生活', '娱乐', '体育', '教育', '艺术',
-  '健康', '时尚', '美妆', '摄影', '宠物', '汽车',
-]
 
 // Refs
 const imageUploaderRef = ref(null)
@@ -884,7 +855,7 @@ function onMaterialSelected(material) {
 
   // 如果是选择封面
   if (materialSelectMode.value === 'cover') {
-    form.coverImage = {
+    commonConfig.coverImage = {
       id: imageData.id,
       name: material.name,
       url: material.url,
@@ -908,32 +879,6 @@ function onMaterialSelected(material) {
     } else {
       ElMessage.warning('最多只能上传 35 张图片')
     }
-  }
-}
-
-// ========== Topic Methods ==========
-
-function addCustomTopic() {
-  const topic = customTopic.value.trim()
-  if (!topic) {
-    ElMessage.warning('请输入话题内容')
-    return
-  }
-  if (commonConfig.topics.includes(topic)) {
-    ElMessage.warning('话题已存在')
-    return
-  }
-  commonConfig.topics.push(topic)
-  customTopic.value = ''
-  ElMessage.success('话题添加成功')
-}
-
-function toggleRecommendedTopic(topic) {
-  const idx = commonConfig.topics.indexOf(topic)
-  if (idx > -1) {
-    commonConfig.topics.splice(idx, 1)
-  } else {
-    commonConfig.topics.push(topic)
   }
 }
 
@@ -1071,6 +1016,7 @@ async function saveDraft() {
       commonConfig: {
         topics: [...commonConfig.topics],
         images: commonConfig.images.map(img => ({ id: img.id, name: img.name, url: img.url, path: img.path, size: img.size, type: img.type })),
+        coverImage: commonConfig.coverImage || null,
       },
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
       accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
@@ -1089,7 +1035,6 @@ async function saveDraft() {
         selectedTag: form.selectedTag || null,
         tagType: form.tagType || '',
         tagValue: form.tagValue || '',
-        coverImage: form.coverImage || null,
       }
     }
 
@@ -1176,6 +1121,41 @@ async function publishAll() {
     return
   }
 
+  // 检查抖音平台的官方活动+热点标签数量（先检查渠道级别）
+  const douyinPlatformSettings = platformConfigs.douyin || {}
+  const douyinPlatformActivityCount = douyinPlatformSettings.activityId?.length || 0
+  const douyinPlatformHotspotTagCount = douyinPlatformSettings.hotspotTags?.length || 0
+  if (douyinPlatformActivityCount + douyinPlatformHotspotTagCount > 5) {
+    ElMessage.error(`抖音渠道的官方活动(${douyinPlatformActivityCount}个) + 热点标签(${douyinPlatformHotspotTagCount}个) 超过5个，请减少后重试`)
+    return
+  }
+
+  // 再检查账号级别
+  const accountsWithTooManyTags = []
+  for (const group of imageAccountGroups.value) {
+    if (group.key !== 'douyin') continue  // 只检查抖音平台
+    if (group.accounts.length === 0) continue
+    const pSettings = platformConfigs[group.key] || {}
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      const accountOverride = accountOverrides[account.id]
+      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
+        ? { ...pSettings, ...Object.fromEntries(
+            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+          )}
+        : { ...pSettings }
+      const activityCount = mergedSettings.activityId?.length || 0
+      const hotspotTagCount = mergedSettings.hotspotTags?.length || 0
+      if (activityCount + hotspotTagCount > 5) {
+        accountsWithTooManyTags.push(`${account.name}(${activityCount}个活动+${hotspotTagCount}个标签)`)
+      }
+    }
+  }
+  if (accountsWithTooManyTags.length > 0) {
+    ElMessage.error(`以下抖音账号的官方活动+热点标签超过5个：${accountsWithTooManyTags.join('、')}`)
+    return
+  }
+
   publishing.value = true
   publishProgress.value = 0
   publishResults.value = []
@@ -1239,11 +1219,12 @@ async function publishAll() {
       mix_id: platformSettings.mixId || '',
       music_name: platformSettings.selectedMusic || '',
       hotspot: platformSettings.hotspotId || '',
+      hotspot_tags: platformSettings.hotspotTags || [],
       tag_type: selectedTag ? (tagTypeMap[selectedTag.type] || '') : '',
       tag_value: tag_value,
       mini_link: mini_link,
       activities: platformSettings.activityId || [],
-      cover_path: platformSettings.coverImage?.path || '',
+      cover_path: commonConfig.coverImage?.path || '',
       dry_run: false,  // 实际发布
     }
   })
@@ -1344,86 +1325,111 @@ watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
 // ========== Load Draft ==========
 async function loadDraft(draftId) {
   try {
-    const resp = await imagePublishApi.getDrafts()
+    // 使用统一的 draftApi 获取单个草稿
+    const resp = await draftApi.getDraft(draftId)
     if (resp.code === 200) {
-      const draft = resp.data.find(d => d.id === draftId)
-      if (draft) {
-        const dd = draft.draft_data
-        if (!dd) {
-          ElMessage.error('草稿数据为空')
-          return
+      const draft = resp.data
+      const dd = draft.draft_data
+      if (!dd) {
+        ElMessage.error('草稿数据为空')
+        return
+      }
+
+      // 恢复草稿 ID
+      currentDraftId.value = draft.id
+
+      // 恢复 commonConfig
+      if (dd.commonConfig) {
+        if (dd.commonConfig.images) {
+          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+          commonConfig.images = dd.commonConfig.images.map((img, index) => ({
+            id: img.id,
+            name: img.name || `图片 ${index + 1}`,
+            url: img.url || (img.id ? `${baseUrl}/api/image-publish/files/${img.id}` : ''),
+            path: img.path || '',
+            size: img.size || 0,
+            type: img.type || 'image/jpeg',
+            uploading: false,
+            progress: 100,
+          }))
         }
+        if (dd.commonConfig.topics) {
+          commonConfig.topics = dd.commonConfig.topics
+        }
+        if (dd.commonConfig.coverImage) {
+          commonConfig.coverImage = dd.commonConfig.coverImage
+        }
+      }
 
-        // 恢复草稿 ID
-        currentDraftId.value = draft.id
-
-        // 恢复 commonConfig
-        if (dd.commonConfig) {
-          if (dd.commonConfig.images) {
-            const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
-            commonConfig.images = dd.commonConfig.images.map((img, index) => ({
-              id: img.id,
-              name: img.name || `图片 ${index + 1}`,
-              url: img.url || (img.id ? `${baseUrl}/api/image-publish/files/${img.id}` : ''),
-              path: img.path || '',
-              size: img.size || 0,
-              type: img.type || 'image/jpeg',
-              uploading: false,
-              progress: 100,
-            }))
-          }
-          if (dd.commonConfig.topics) {
-            commonConfig.topics = dd.commonConfig.topics
+      // 恢复 platformConfigs（深度合并以保留可能新增的字段）
+      if (dd.platformConfigs) {
+        for (const [key, val] of Object.entries(dd.platformConfigs)) {
+          if (platformConfigs[key]) {
+            Object.assign(platformConfigs[key], val)
           }
         }
+      }
 
-        // 恢复 platformConfigs（深度合并以保留可能新增的字段）
-        if (dd.platformConfigs) {
-          for (const [key, val] of Object.entries(dd.platformConfigs)) {
-            if (platformConfigs[key]) {
-              Object.assign(platformConfigs[key], val)
+      // 恢复 accountOverrides
+      if (dd.accountOverrides) {
+        Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
+        Object.assign(accountOverrides, dd.accountOverrides)
+      }
+
+      // 恢复 publishAccountIds
+      if (dd.publishAccountIds) {
+        publishAccountIds.clear()
+        dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
+      }
+
+      // 恢复 expandedGroups
+      if (dd.expandedGroups) {
+        expandedGroups.value = new Set(dd.expandedGroups)
+      }
+
+      // 恢复 selectedPlatform
+      if (dd.selectedPlatform) {
+        selectedPlatform.value = dd.selectedPlatform
+      }
+
+      // 恢复 selectedAccountId
+      if (dd.selectedAccountId) {
+        selectedAccountId.value = dd.selectedAccountId
+      } else if (dd.publishAccountIds && dd.publishAccountIds.length > 0) {
+        // 如果没有 selectedAccountId，从 publishAccountIds 中选择第一个
+        selectedAccountId.value = dd.publishAccountIds[0]
+      }
+
+      // 恢复抖音选择数据
+      if (dd.douyinSelections) {
+        console.log('恢复抖音选择数据:', dd.douyinSelections)
+        form.selectedMusic = dd.douyinSelections.selectedMusic || ''
+        form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
+        form.hotspotId = dd.douyinSelections.hotspotId || ''
+        form.hotspotData = dd.douyinSelections.hotspotData || null
+        form.mixId = dd.douyinSelections.mixId || ''
+        form.mixData = dd.douyinSelections.mixData || null
+        form.selectedTag = dd.douyinSelections.selectedTag || null
+        // coverImage 已在 commonConfig 中恢复，不再重复恢复
+        console.log('form.selectedTag after restore:', form.selectedTag)
+      }
+
+      // 兼容旧草稿：如果 commonConfig 中没有封面，从 douyinSelections 或 accountOverrides 中恢复
+      if (!form.coverImage) {
+        if (dd.douyinSelections?.coverImage) {
+          form.coverImage = dd.douyinSelections.coverImage
+        } else {
+          // 从 accountOverrides 中找封面
+          for (const override of Object.values(dd.accountOverrides || {})) {
+            if (override.coverImage) {
+              form.coverImage = override.coverImage
+              break
             }
           }
         }
-
-        // 恢复 accountOverrides
-        if (dd.accountOverrides) {
-          Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
-          Object.assign(accountOverrides, dd.accountOverrides)
-        }
-
-        // 恢复 publishAccountIds
-        if (dd.publishAccountIds) {
-          publishAccountIds.clear()
-          dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
-        }
-
-        // 恢复 expandedGroups
-        if (dd.expandedGroups) {
-          expandedGroups.value = new Set(dd.expandedGroups)
-        }
-
-        // 恢复 selectedPlatform
-        if (dd.selectedPlatform) {
-          selectedPlatform.value = dd.selectedPlatform
-        }
-
-        // 恢复抖音选择数据
-        if (dd.douyinSelections) {
-          console.log('恢复抖音选择数据:', dd.douyinSelections)
-          form.selectedMusic = dd.douyinSelections.selectedMusic || ''
-          form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
-          form.hotspotId = dd.douyinSelections.hotspotId || ''
-          form.hotspotData = dd.douyinSelections.hotspotData || null
-          form.mixId = dd.douyinSelections.mixId || ''
-          form.mixData = dd.douyinSelections.mixData || null
-          form.selectedTag = dd.douyinSelections.selectedTag || null
-          form.coverImage = dd.douyinSelections.coverImage || null
-          console.log('form.selectedTag after restore:', form.selectedTag)
-        }
-
-        ElMessage.success('草稿已加载')
       }
+
+      ElMessage.success('草稿已加载')
     }
   } catch (e) {
     console.error('加载草稿失败:', e)
@@ -1442,7 +1448,7 @@ onMounted(() => {
   // 检查是否有 draft 参数
   const draftId = route.query.draft
   if (draftId) {
-    loadDraft(draftId)
+    loadDraft(Number(draftId))
   }
 })
 
@@ -1934,44 +1940,6 @@ onBeforeUnmount(() => {
   }
 }
 
-// ========== Quick Tags — pill buttons ==========
-.quick-tags {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-
-  .cover-action-btn {
-    border-radius: 22px;
-    padding: 8px 20px;
-    font-weight: 600;
-    font-size: 13px;
-    background: rgba(139, 92, 246, 0.06);
-    border-color: rgba(139, 92, 246, 0.15);
-
-    &:hover {
-      background: rgba(139, 92, 246, 0.12);
-      border-color: rgba(139, 92, 246, 0.3);
-    }
-  }
-}
-
-.topics-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-
-  .el-tag {
-    background: rgba(139, 92, 246, 0.12);
-    border-color: rgba(139, 92, 246, 0.2);
-    color: #c4b5fd;
-    border-radius: 16px;
-    padding: 0 14px;
-    font-weight: 500;
-  }
-}
-
 // ========== Divider — fade ==========
 .divider {
   height: 1px;
@@ -2028,56 +1996,6 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-// ========== Config Group Cards ==========
-.config-group {
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 14px;
-  overflow: hidden;
-  transition: all 0.2s ease;
-  background: rgba(14, 18, 35, 0.5);
-
-  & + .config-group { margin-top: 14px; }
-
-  &:hover { border-color: rgba(99, 102, 241, 0.2); }
-}
-
-.group-title {
-  padding: 13px 18px;
-  font-size: 14px;
-  font-weight: 700;
-  color: #f8fafc;
-  background: rgba(139, 92, 246, 0.06);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.group-content {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.setting-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.setting-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  &.full-width {
-    grid-column: 1 / -1;
-  }
-
-  .setting-label {
-    font-size: 13px;
-    font-weight: 600;
-    color: #94a3b8;
-  }
-}
 
 // ========== Setting Card ==========
 .setting-card {
@@ -2164,6 +2082,29 @@ onBeforeUnmount(() => {
       .radio-text.muted { opacity: 0.5; }
     }
   }
+}
+
+// ========== Hotspot Tags ==========
+.hotspot-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+
+  .el-tag {
+    background: rgba(139, 92, 246, 0.12);
+    border-color: rgba(139, 92, 246, 0.2);
+    color: #c4b5fd;
+    border-radius: 16px;
+    padding: 0 14px;
+    font-weight: 500;
+  }
+}
+
+.setting-hint {
+  font-size: 12px;
+  color: $text-muted;
+  margin-bottom: 8px;
 }
 
 // ========== No Platform Hint ==========
@@ -2494,46 +2435,6 @@ onBeforeUnmount(() => {
 
     .selected-count { font-size: 13px; color: $text-muted; }
     .dialog-footer-btns { display: flex; gap: 8px; }
-  }
-}
-
-// ========== Topic Dialog ==========
-.topic-dialog {
-  .topic-dialog-content {
-    .custom-topic-input {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-      .custom-input { flex: 1; }
-    }
-
-    .recommended-topics {
-      h4 {
-        margin: 0 0 16px 0;
-        font-size: 15px;
-        font-weight: 700;
-        color: #f8fafc;
-      }
-
-      .topic-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-        gap: 10px;
-
-        .topic-btn {
-          height: 36px;
-          font-size: 14px;
-          border-radius: 10px;
-          min-width: 100px;
-          padding: 0 12px;
-          white-space: nowrap;
-          text-align: center;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-      }
-    }
   }
 }
 

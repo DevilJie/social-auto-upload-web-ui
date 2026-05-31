@@ -1,8 +1,9 @@
 import { http } from '@/utils/request'
 
 export const draftApi = {
-  getDrafts() {
-    return http.get('/api/v2/drafts')
+  getDrafts(type) {
+    const params = type ? `?type=${type}` : ''
+    return http.get(`/api/v2/drafts${params}`)
   },
   createDraft(data) {
     return http.post('/api/v2/drafts', data)

@@ -798,8 +798,8 @@ class DouyinPlatform(BasePlatform):
                 await title_input.wait_for(state="visible", timeout=10000)
                 await title_input.fill(title[:20])
 
-                # Fill description
-                logger.info("Filling description")
+                # Fill description with tags
+                logger.info("Filling description with tags")
                 desc_editor = page.locator(
                     'div[data-zone-container="*"][contenteditable="true"]'
                 ).first
@@ -807,13 +807,29 @@ class DouyinPlatform(BasePlatform):
                 await desc_editor.click()
                 await page.keyboard.press("Control+KeyA")
                 await page.keyboard.press("Delete")
-                await page.keyboard.type(desc[:1000])
 
-                # Add tags
+                # 构建完整的描述文本（包含标签）
+                full_desc = desc[:1000]
                 for tag in tags:
-                    await page.keyboard.type(f" #{tag}")
-                    await page.keyboard.press("Space")
-                    await asyncio.sleep(0.5)
+                    # 对于包含空格或特殊字符的标签，使用方括号格式 #[标签内容]
+                    # 这样可以保证标签的完整性，避免空格触发标签激活
+                    if ' ' in tag or any(c in tag for c in '！？，。、；：""''（）【】《》'):
+                        full_desc += f" #[{tag}]"
+                    else:
+                        full_desc += f" #{tag}"
+
+                # 使用 JavaScript 直接设置内容，避免键盘输入触发标签激活
+                await page.evaluate("""(text) => {
+                    const editor = document.querySelector('div[data-zone-container="*"][contenteditable="true"]');
+                    if (editor) {
+                        editor.focus();
+                        // 清空现有内容
+                        editor.innerHTML = '';
+                        // 使用 insertText 命令设置新内容
+                        document.execCommand('insertText', false, text);
+                    }
+                }""", full_desc)
+                await asyncio.sleep(0.5)
 
                 # Set cover if provided
                 if cover_path:
@@ -856,17 +872,17 @@ class DouyinPlatform(BasePlatform):
 
                 if not dry_run:
                     # Click publish button
-                    publish_btn = page.locator(
-                        'button:has-text("发布"):not(:has-text("暂存"))'
-                    ).first
+                    # 使用稳定的文本匹配：精确匹配"发布"按钮，排除"暂存离开"
+                    publish_btn = page.get_by_role("button", name="发布", exact=True)
+                    await publish_btn.wait_for(state="visible", timeout=10000)
                     await publish_btn.click()
-                    await asyncio.sleep(3)
+                    logger.info("Publish button clicked, waiting for page redirect...")
 
-                    # 检查是否发布成功（跳转到 manage 页面）
+                    # 等待页面跳转 - 跳转到 manage 页面才是发布成功
                     try:
                         await page.wait_for_url(
                             "https://creator.douyin.com/creator-micro/content/manage*",
-                            timeout=30000
+                            timeout=60000
                         )
                         logger.info("Published successfully - redirected to manage page")
                         result = True

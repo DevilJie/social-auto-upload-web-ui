@@ -415,29 +415,36 @@ def _extract_image_channels_summary(draft_data):
     if not publish_account_ids:
         return []
 
-    platform_map = {
-        'xiaohongshu': '小红书', 'douyin': '抖音',
-        'kuaishou': '快手',
+    # 平台ID到名称和key的映射
+    platform_id_to_name = {
+        1: ('xiaohongshu', '小红书'),
+        2: ('shipinhao', '视频号'),
+        3: ('douyin', '抖音'),
+        4: ('kuaishou', '快手'),
+        5: ('bilibili', 'B站'),
+        6: ('baijiahao', '百家号'),
     }
 
     try:
         conn = _get_db()
         placeholders = ','.join(['?'] * len(publish_account_ids))
         rows = conn.execute(
-            f"SELECT id, platform FROM user_info WHERE id IN ({placeholders})",
+            f"SELECT id, type FROM user_info WHERE id IN ({placeholders})",
             publish_account_ids
         ).fetchall()
         conn.close()
 
-        platform_counts = {}
+        # 统计每个平台的账号数
+        counts = {}  # platform_key -> {'name': ..., 'count': ...}
         for row in rows:
-            platform = row['platform']
-            platform_counts[platform] = platform_counts.get(platform, 0) + 1
+            ptype = row['type']
+            key, name = platform_id_to_name.get(ptype, (str(ptype), f'平台{ptype}'))
+            if key not in counts:
+                counts[key] = {'name': name, 'count': 0}
+            counts[key]['count'] += 1
 
-        # 反向映射
-        name_to_key = {v: k for k, v in platform_map.items()}
-        return [{"platform": name_to_key.get(name, name), "name": name, "count": count}
-                for name, count in platform_counts.items()]
+        return [{"platform": key, "name": info['name'], "count": info['count']}
+                for key, info in counts.items()]
     except Exception:
         return []
 

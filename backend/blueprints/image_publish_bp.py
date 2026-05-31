@@ -350,11 +350,19 @@ def save_draft():
             title = _extract_image_draft_title(draft_data)
             channels_summary = _extract_image_channels_summary(draft_data)
             cover_path = _extract_image_draft_cover(draft_data)
-            changes = conn.execute(
-                """UPDATE drafts SET title=?, cover_path=?, draft_data=?, channels_summary=?, updated_at=? WHERE id=? AND type='image'""",
-                (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
-                 json.dumps(channels_summary, ensure_ascii=False), now, draft_id)
-            ).rowcount
+            if cover_path:
+                changes = conn.execute(
+                    """UPDATE drafts SET title=?, cover_path=?, draft_data=?, channels_summary=?, updated_at=? WHERE id=? AND type='image'""",
+                    (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+                     json.dumps(channels_summary, ensure_ascii=False), now, draft_id)
+                ).rowcount
+            else:
+                # coverImage 为空时保留原 cover_path
+                changes = conn.execute(
+                    """UPDATE drafts SET title=?, draft_data=?, channels_summary=?, updated_at=? WHERE id=? AND type='image'""",
+                    (title, json.dumps(draft_data, ensure_ascii=False),
+                     json.dumps(channels_summary, ensure_ascii=False), now, draft_id)
+                ).rowcount
             conn.commit()
             conn.close()
             if changes == 0:
@@ -399,24 +407,20 @@ def _extract_image_draft_title(draft_data):
 
 
 def _extract_image_draft_cover(draft_data):
-    """从图文草稿数据中提取封面的相对路径"""
+    """从图文草稿数据中提取封面文件名（与视频草稿格式一致，只存文件名）"""
     common_config = draft_data.get('commonConfig', {})
 
-    # 优先使用用户选择的封面（来自素材库，存放在 videoFile 目录）
+    # 优先使用用户选择的封面
     cover = common_config.get('coverImage')
     if cover and isinstance(cover, dict):
-        filename = cover.get('path', '') or cover.get('name', '')
-        if filename:
-            return f"/getFile?filename={filename}"
+        return cover.get('path', '') or cover.get('name', '') or ''
 
-    # 兜底：第一张图文图片（存放在 image-publish 目录）
+    # 兜底：第一张图片
     images = common_config.get('images', [])
     if images:
         img = images[0]
         if isinstance(img, dict):
-            filename = img.get('path', '') or img.get('name', '')
-            if filename:
-                return f"/api/image-publish/files/{filename}"
+            return img.get('path', '') or img.get('name', '') or ''
     return ''
 
 

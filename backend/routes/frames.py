@@ -16,9 +16,11 @@ frames_bp = Blueprint('frames', __name__)
 
 
 def _resolve_video_path(video_path):
-    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
-    if os.path.isfile(full_path):
-        return full_path
+    from storage import get_storage
+    storage = get_storage()
+    local = storage.get_local_path(video_path)
+    if local:
+        return local
     if os.path.isfile(video_path):
         return video_path
     return None

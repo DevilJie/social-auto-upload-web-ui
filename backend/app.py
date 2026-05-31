@@ -100,28 +100,6 @@ def serve_changelog(filename):
     return send_from_directory(str(changelog_dir), filename)
 
 
-_VIDEOFILE_DIR = None
-
-def _get_videofile_dir():
-    global _VIDEOFILE_DIR
-    if _VIDEOFILE_DIR is None:
-        _VIDEOFILE_DIR = str(BASE_DIR / "videoFile")
-        Path(_VIDEOFILE_DIR).mkdir(parents=True, exist_ok=True)
-    return _VIDEOFILE_DIR
-
-
-@app.route('/<path:filename>')
-def serve_videofile(filename):
-    """Serve files from videoFile directory (covers, etc.)"""
-    if '..' in filename or filename.startswith('/'):
-        return jsonify({"code": 400, "msg": "Invalid filename"}), 400
-    vf_dir = _get_videofile_dir()
-    fpath = Path(vf_dir) / filename
-    if fpath.exists():
-        return send_from_directory(vf_dir, filename)
-    return jsonify({"code": 404, "msg": "File not found"}), 404
-
-
 # ── Helper ──────────────────────────────────────────────────
 
 def _get_db_path():
@@ -143,156 +121,14 @@ def _get_account_record(account_id):
         return dict(row) if row else None
 
 
-# ── File management ─────────────────────────────────────────
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"code": 400, "data": None, "msg": "No file part in the request"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"code": 400, "data": None, "msg": "No selected file"}), 400
-    try:
-        uuid_v1 = uuid.uuid1()
-        final_filename = f"{uuid_v1}_{file.filename}"
-        filepath = Path(BASE_DIR / "videoFile" / final_filename)
-        file.save(filepath)
-
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.execute(
-                'INSERT INTO file_records (filename, filesize, file_path) VALUES (?, ?, ?)',
-                (file.filename, round(float(os.path.getsize(filepath)) / (1024 * 1024), 2), final_filename)
-            )
-
-        return jsonify({
-            "code": 200, "msg": "File uploaded successfully",
-            "data": {"filename": file.filename, "filepath": final_filename}
-        }), 200
-    except Exception as e:
-        return jsonify({"code": 500, "msg": str(e), "data": None}), 500
-
-
-@app.route('/getFile', methods=['GET'])
-def get_file():
-    filename = request.args.get('filename')
-    if not filename:
-        return jsonify({"code": 400, "msg": "filename is required", "data": None}), 400
-    if '..' in filename or filename.startswith('/'):
-        return jsonify({"code": 400, "msg": "Invalid filename", "data": None}), 400
-    return send_from_directory(str(Path(BASE_DIR / "videoFile")), filename)
-
-
-@app.route('/uploadSave', methods=['POST'])
-def upload_save():
-    if 'file' not in request.files:
-        return jsonify({"code": 400, "data": None, "msg": "No file part in the request"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"code": 400, "data": None, "msg": "No selected file"}), 400
-
-    custom_filename = request.form.get('filename', None)
-    if custom_filename:
-        filename = custom_filename + "." + file.filename.split('.')[-1]
-    else:
-        filename = file.filename
-
-    try:
-        uuid_v1 = uuid.uuid1()
-        final_filename = f"{uuid_v1}_{filename}"
-        filepath = Path(BASE_DIR / "videoFile" / final_filename)
-        file.save(filepath)
-
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.execute(
-                'INSERT INTO file_records (filename, filesize, file_path) VALUES (?, ?, ?)',
-                (filename, round(float(os.path.getsize(filepath)) / (1024 * 1024), 2), final_filename)
-            )
-
-        return jsonify({
-            "code": 200, "msg": "File uploaded and saved successfully",
-            "data": {"filename": filename, "filepath": final_filename}
-        }), 200
-    except Exception as e:
-        return jsonify({"code": 500, "msg": f"upload failed: {e}", "data": None}), 500
-
-
-@app.route('/getFiles', methods=['GET'])
-def get_all_files():
-    try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-
-            data = []
-
-            # 1. 查询素材库文件 (file_records)
-            cursor.execute("SELECT * FROM file_records")
-            rows = cursor.fetchall()
-            for row in rows:
-                row_dict = dict(row)
-                if row_dict.get('file_path'):
-                    file_path_parts = row_dict['file_path'].split('_', 1)
-                    row_dict['uuid'] = file_path_parts[0] if file_path_parts else ''
-                else:
-                    row_dict['uuid'] = ''
-                row_dict['source'] = 'material'  # 标记来源
-                # 统一字段名
-                row_dict['name'] = row_dict.get('filename', '')
-                row_dict['url'] = f"/getFile?filename={row_dict.get('file_path', '')}"
-                data.append(row_dict)
-
-            # 2. 查询图文发布图片 (image_records)
-            cursor.execute("SELECT * FROM image_records")
-            rows = cursor.fetchall()
-            for row in rows:
-                row_dict = dict(row)
-                row_dict['source'] = 'image-publish'  # 标记来源
-                # 统一字段名
-                row_dict['name'] = row_dict.get('original_filename', '')
-                row_dict['filename'] = row_dict.get('original_filename', '')
-                row_dict['file_path'] = row_dict.get('stored_filename', '')
-                row_dict['url'] = f"/api/image-publish/files/{row_dict.get('stored_filename', '')}"
-                row_dict['uuid'] = ''
-                data.append(row_dict)
-
-        return jsonify({"code": 200, "msg": "success", "data": data}), 200
-    except Exception as e:
-        return jsonify({"code": 500, "msg": "get file failed!", "data": None}), 500
-
-
-@app.route('/deleteFile', methods=['GET'])
-def delete_file():
-    file_id = request.args.get('id')
-    if not file_id or not file_id.isdigit():
-        return jsonify({"code": 400, "msg": "Invalid or missing file ID", "data": None}), 400
-
-    try:
-        with sqlite3.connect(str(DB_PATH)) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM file_records WHERE id = ?", (file_id,))
-            record = cursor.fetchone()
-
-            if not record:
-                return jsonify({"code": 404, "msg": "File not found", "data": None}), 404
-
-            record = dict(record)
-            file_path = Path(BASE_DIR / "videoFile" / record['file_path'])
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except Exception as e:
-                    logger.info(f"[WARN] 删除实际文件失败: {e}")
-
-            cursor.execute("DELETE FROM file_records WHERE id = ?", (file_id,))
-            conn.commit()
-
-        return jsonify({
-            "code": 200, "msg": "File deleted successfully",
-            "data": {"id": record['id'], "filename": record['filename']}
-        }), 200
-    except Exception as e:
-        return jsonify({"code": 500, "msg": "delete failed!", "data": None}), 500
+def _resolve_material_path(path_or_stored_path):
+    """从 stored_path 获取本地文件绝对路径"""
+    from storage import get_storage
+    storage = get_storage()
+    local = storage.get_local_path(path_or_stored_path)
+    if local:
+        return local
+    return path_or_stored_path
 
 
 # ── Account management ──────────────────────────────────────
@@ -567,6 +403,11 @@ def postVideo():
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
 
     try:
+        # Resolve file paths through storage abstraction
+        file_list = [_resolve_material_path(f) for f in data.get('fileList', [])]
+        thumbnail_landscape = _resolve_material_path(data.get('thumbnailLandscape', ''))
+        thumbnail_portrait = _resolve_material_path(data.get('thumbnailPortrait', ''))
+
         # Some platforms have sync publish_video, others async.
         # asyncio.run() only works with coroutines — calling it on a
         # sync function that already uses asyncio.run() internally
@@ -575,7 +416,7 @@ def postVideo():
         if asyncio.iscoroutinefunction(publish_fn):
             result = asyncio.run(publish_fn(
                 title=data.get('title'),
-                files=data.get('fileList', []),
+                files=file_list,
                 tags=data.get('tags'),
                 account_file=data.get('accountList', []),
                 category=data.get('category'),
@@ -584,8 +425,8 @@ def postVideo():
                 daily_times=data.get('dailyTimes'),
                 start_days=data.get('startDays'),
                 thumbnail_path=data.get('thumbnail', ''),
-                thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
-                thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+                thumbnail_landscape_path=thumbnail_landscape,
+                thumbnail_portrait_path=thumbnail_portrait,
                 productLink=data.get('productLink', ''),
                 productTitle=data.get('productTitle', ''),
                 desc=data.get('description', ''),
@@ -602,7 +443,7 @@ def postVideo():
         else:
             result = publish_fn(
                 title=data.get('title'),
-                files=data.get('fileList', []),
+                files=file_list,
                 tags=data.get('tags'),
                 account_file=data.get('accountList', []),
                 category=data.get('category'),
@@ -611,8 +452,8 @@ def postVideo():
                 daily_times=data.get('dailyTimes'),
                 start_days=data.get('startDays'),
                 thumbnail_path=data.get('thumbnail', ''),
-                thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
-                thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+                thumbnail_landscape_path=thumbnail_landscape,
+                thumbnail_portrait_path=thumbnail_portrait,
                 productLink=data.get('productLink', ''),
                 productTitle=data.get('productTitle', ''),
                 desc=data.get('description', ''),
@@ -649,11 +490,16 @@ def postVideoBatch():
             continue
 
         try:
+            # Resolve file paths through storage abstraction
+            file_list = [_resolve_material_path(f) for f in data.get('fileList', [])]
+            thumbnail_landscape = _resolve_material_path(data.get('thumbnailLandscape', ''))
+            thumbnail_portrait = _resolve_material_path(data.get('thumbnailPortrait', ''))
+
             publish_fn = platform.publish_video
             if asyncio.iscoroutinefunction(publish_fn):
                 result = asyncio.run(publish_fn(
                     title=data.get('title'),
-                    files=data.get('fileList', []),
+                    files=file_list,
                     tags=data.get('tags'),
                     account_file=data.get('accountList', []),
                     category=data.get('category'),
@@ -662,8 +508,8 @@ def postVideoBatch():
                     daily_times=data.get('dailyTimes'),
                     start_days=data.get('startDays'),
                     thumbnail_path=data.get('thumbnail', ''),
-                    thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
-                    thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+                    thumbnail_landscape_path=thumbnail_landscape,
+                    thumbnail_portrait_path=thumbnail_portrait,
                     productLink=data.get('productLink', ''),
                     productTitle=data.get('productTitle', ''),
                     desc=data.get('description', ''),
@@ -680,7 +526,7 @@ def postVideoBatch():
             else:
                 result = publish_fn(
                     title=data.get('title'),
-                    files=data.get('fileList', []),
+                    files=file_list,
                     tags=data.get('tags'),
                     account_file=data.get('accountList', []),
                     category=data.get('category'),
@@ -689,8 +535,8 @@ def postVideoBatch():
                     daily_times=data.get('dailyTimes'),
                     start_days=data.get('startDays'),
                     thumbnail_path=data.get('thumbnail', ''),
-                    thumbnail_landscape_path=data.get('thumbnailLandscape', ''),
-                    thumbnail_portrait_path=data.get('thumbnailPortrait', ''),
+                    thumbnail_landscape_path=thumbnail_landscape,
+                    thumbnail_portrait_path=thumbnail_portrait,
                     productLink=data.get('productLink', ''),
                     productTitle=data.get('productTitle', ''),
                     desc=data.get('description', ''),

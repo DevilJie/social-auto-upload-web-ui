@@ -4,13 +4,12 @@
 """
 
 import json
-import os
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_from_directory
+from flask import Blueprint, jsonify, request
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,10 +21,6 @@ logger = get_channel_logger("image_publish")
 image_publish_bp = Blueprint('image_publish', __name__, url_prefix='/api/image-publish')
 
 DB_PATH = BASE_DIR / "db" / "database.db"
-UPLOAD_DIR = BASE_DIR / "image-publish"
-
-# 支持的图片格式
-ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
 
 
 def _get_db():
@@ -34,105 +29,7 @@ def _get_db():
     return conn
 
 
-def _allowed_file(filename):
-    return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
-
-
 # ========== 图片上传 ==========
-
-@image_publish_bp.route('/upload', methods=['POST'])
-def upload_image():
-    """上传图片文件"""
-    if 'file' not in request.files:
-        return jsonify({"code": 400, "msg": "没有文件"}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"code": 400, "msg": "文件名为空"}), 400
-
-    if not _allowed_file(file.filename):
-        return jsonify({"code": 400, "msg": f"不支持的图片格式，仅支持: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
-
-    try:
-        image_id = str(uuid.uuid4())
-        ext = Path(file.filename).suffix.lower()
-        stored_filename = f"{image_id}{ext}"
-
-        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        filepath = UPLOAD_DIR / stored_filename
-        file.save(str(filepath))
-
-        filesize = round(os.path.getsize(filepath) / 1024, 2)  # KB
-
-        conn = _get_db()
-        conn.execute(
-            """INSERT INTO image_records (id, original_filename, stored_filename, filesize)
-               VALUES (?, ?, ?, ?)""",
-            (image_id, file.filename, stored_filename, filesize)
-        )
-        conn.commit()
-        conn.close()
-
-        return jsonify({
-            "code": 200,
-            "msg": "上传成功",
-            "data": {
-                "id": image_id,
-                "filename": file.filename,
-                "stored_filename": stored_filename,
-                "filesize": filesize,
-                "url": f"/api/image-publish/files/{stored_filename}",
-            }
-        })
-    except Exception as e:
-        logger.error(f"上传图片失败: {e}")
-        return jsonify({"code": 500, "msg": f"上传失败: {str(e)}"}), 500
-
-
-# ========== 图片访问 ==========
-
-@image_publish_bp.route('/files/<path:filepath>')
-def serve_image(filepath):
-    """提供已上传图片的访问"""
-    if '..' in filepath or filepath.startswith('/'):
-        return jsonify({"code": 400, "msg": "无效的文件路径"}), 400
-
-    full_path = UPLOAD_DIR / filepath
-    if not full_path.exists():
-        return jsonify({"code": 404, "msg": "文件不存在"}), 404
-
-    return send_from_directory(str(UPLOAD_DIR), filepath)
-
-
-# ========== 图片删除 ==========
-
-@image_publish_bp.route('/images/<image_id>', methods=['DELETE'])
-def delete_image(image_id):
-    """删除已上传的图片"""
-    try:
-        conn = _get_db()
-        row = conn.execute(
-            "SELECT stored_filename FROM image_records WHERE id = ?", (image_id,)
-        ).fetchone()
-
-        if not row:
-            conn.close()
-            return jsonify({"code": 404, "msg": "图片不存在"}), 404
-
-        stored_filename = row['stored_filename']
-        filepath = UPLOAD_DIR / stored_filename
-        if filepath.exists():
-            filepath.unlink()
-
-        conn.execute("DELETE FROM image_records WHERE id = ?", (image_id,))
-        conn.commit()
-        conn.close()
-
-        return jsonify({"code": 200, "msg": "删除成功"})
-    except Exception as e:
-        logger.error(f"删除图片失败: {e}")
-        return jsonify({"code": 500, "msg": f"删除失败: {str(e)}"}), 500
-
 
 # ========== 发布 ==========
 
@@ -175,14 +72,20 @@ def publish_images():
 
         conn.commit()
 
-        # 获取图片文件名
+        # 获取图片文件路径（从 materials 表读取 stored_path，再解析本地路径）
+        from storage import get_storage
+        storage = get_storage()
         image_files = []
         for img_id in image_ids:
             row = conn.execute(
-                "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
+                "SELECT stored_path FROM materials WHERE id = ?", (img_id,)
             ).fetchone()
             if row:
-                image_files.append(row['stored_filename'])
+                local_path = storage.get_local_path(row['stored_path'])
+                if local_path:
+                    image_files.append(local_path)
+                else:
+                    image_files.append(row['stored_path'])
         conn.close()
 
         if not image_files:
@@ -410,9 +313,13 @@ def _extract_image_draft_cover(draft_data):
     """从图文草稿数据中提取封面路径"""
     common_config = draft_data.get('commonConfig', {})
 
-    # 优先使用用户选择的封面（素材库选的 url 形如 /api/image-publish/files/xxx）
+    # 优先使用用户选择的封面
     cover = common_config.get('coverImage')
     if cover and isinstance(cover, dict):
+        # 优先返回 stored_path（新存储系统）
+        stored_path = cover.get('stored_path', '')
+        if stored_path:
+            return stored_path
         url = cover.get('url', '')
         if url:
             # 去掉 http://localhost:5409 前缀，保留相对路径
@@ -422,12 +329,12 @@ def _extract_image_draft_cover(draft_data):
             return url
         return cover.get('path', '') or cover.get('name', '') or ''
 
-    # 兜底：第一张图片（path 是文件名，需拼前缀）
+    # 兜底：第一张图片（优先 stored_path，兼容旧 path 字段）
     images = common_config.get('images', [])
     if images:
         img = images[0]
         if isinstance(img, dict):
-            return img.get('path', '') or img.get('name', '') or ''
+            return img.get('stored_path', '') or img.get('path', '') or img.get('name', '') or ''
     return ''
 
 
@@ -579,15 +486,21 @@ def execute_publish():
         if not image_ids:
             return jsonify({"code": 400, "msg": "请选择至少一张图片"}), 400
 
-        # 从数据库获取图片文件名
+        # 从数据库获取图片文件路径（从 materials 表读取 stored_path，再解析本地路径）
+        from storage import get_storage
+        storage = get_storage()
         conn = _get_db()
         image_files = []
         for img_id in image_ids:
             row = conn.execute(
-                "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
+                "SELECT stored_path FROM materials WHERE id = ?", (img_id,)
             ).fetchone()
             if row:
-                image_files.append(row['stored_filename'])
+                local_path = storage.get_local_path(row['stored_path'])
+                if local_path:
+                    image_files.append(local_path)
+                else:
+                    image_files.append(row['stored_path'])
         conn.close()
 
         if not image_files:

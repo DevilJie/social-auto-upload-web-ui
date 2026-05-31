@@ -548,11 +548,8 @@
         class="video-upload"
         drag
         :auto-upload="true"
-        :action="`${apiBaseUrl}/uploadSave`"
-        :on-success="handleVideoUploadSuccess"
-        :on-error="handleUploadError"
+        :http-request="handleVideoUpload"
         accept="video/*"
-        :headers="authHeaders"
       >
         <el-icon class="el-icon--upload" :size="48"><Upload /></el-icon>
         <div class="el-upload__text">
@@ -660,7 +657,8 @@ import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
-import { materialApi } from '@/api/material'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 import { accountApi } from '@/api/account'
 import { http } from '@/utils/request'
 import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platforms'
@@ -677,8 +675,6 @@ appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
 appStore.loadAutoSaveSettings()  // 加载自动保存草稿设置
 appStore.loadCoverRatioSettings()  // 加载封面比例设置
 const route = useRoute()
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
-const authHeaders = computed(() => ({ 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }))
 
 // ========== Left Sidebar State ==========
 const expandedGroups = ref(new Set())
@@ -964,15 +960,12 @@ const recommendedTopics = [
 const selectedMaterials = ref([])
 const materials = computed(() => appStore.materials)
 
-const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-const videoExts = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv']
-
 const filteredMaterials = computed(() => {
   const list = materials.value
   if (materialLibraryMode.value === 'cover') {
-    return list.filter(m => imageExts.some(ext => (m.filename || '').toLowerCase().endsWith(ext)))
+    return list.filter(m => m.file_type === 'image')
   }
-  return list.filter(m => videoExts.some(ext => (m.filename || '').toLowerCase().endsWith(ext)))
+  return list.filter(m => m.file_type === 'video')
 })
 
 // Batch publish state
@@ -1042,10 +1035,10 @@ function openCoverEditor(tab = 'landscape') {
 }
 
 function triggerFrameExtraction(videoData, type) {
-  if (!videoData?.path) return
+  if (!videoData?.stored_path) return
   const doExtract = async () => {
     try {
-      const resp = await frameApi.extractFrames(videoData.path)
+      const resp = await frameApi.extractFrames(videoData.stored_path)
       if (resp.data) {
         const allFrames = resp.data.frames || []
         const recommended = pickRecommendedFrames(allFrames, 6)
@@ -1070,58 +1063,56 @@ function pickRecommendedFrames(frames, count) {
   return result
 }
 
-function handleVideoUploadSuccess(response, file) {
-  if (response.code === 200) {
-    const filePath = response.data.filepath || response.data
-    const filename = filePath.split('/').pop()
-    const videoData = {
-      name: file.name,
-      url: materialApi.getMaterialPreviewUrl(filename),
-      path: filePath,
-      size: file.size,
-      type: file.type,
-    }
-    if (videoUploadTarget.value === 'portrait') {
-      commonConfig.videoPortrait = videoData
-    } else {
-      commonConfig.videoLandscape = videoData
-    }
-    videoUploadDialogVisible.value = false
-    ElMessage.success('视频上传成功')
-    // Auto-fill title from video filename
-    if (appStore.autoFillTitle) {
-      const title = file.name.replace(/\.[^.]+$/, '')
-      // 1. 更新所有渠道级标题
-      for (const key of Object.keys(platformConfigs)) {
-        platformConfigs[key].title = title
+async function handleVideoUpload(options) {
+  const file = options.file
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const resp = await materialsApi.upload(formData)
+    if (resp.code === 200) {
+      const d = resp.data
+      const videoData = {
+        name: d.original_filename,
+        url: getFileUrl(d.stored_path),
+        stored_path: d.stored_path,
+        size: d.file_size,
+        type: d.mime_type,
       }
-      // 2. 对已有账号级标题的账号，也一并更新
-      for (const group of accountGroups.value) {
-        for (const account of group.accounts) {
-          if (accountOverrides[account.id]?.title) {
-            accountOverrides[account.id].title = title
+      if (videoUploadTarget.value === 'portrait') {
+        commonConfig.videoPortrait = videoData
+      } else {
+        commonConfig.videoLandscape = videoData
+      }
+      videoUploadDialogVisible.value = false
+      ElMessage.success('视频上传成功')
+      if (appStore.autoFillTitle) {
+        const title = file.name.replace(/\.[^.]+$/, '')
+        for (const key of Object.keys(platformConfigs)) {
+          platformConfigs[key].title = title
+        }
+        for (const group of accountGroups.value) {
+          for (const account of group.accounts) {
+            if (accountOverrides[account.id]?.title) {
+              accountOverrides[account.id].title = title
+            }
+          }
+        }
+        if (selectedPlatform.value) {
+          const accountId = selectedAccountId.value
+          if (accountId && accountOverrides[accountId]?.title) {
+            form.title = accountOverrides[accountId].title
+          } else if (platformConfigs[selectedPlatform.value]) {
+            form.title = platformConfigs[selectedPlatform.value].title
           }
         }
       }
-      // 3. 同步到当前表单显示
-      if (selectedPlatform.value) {
-        const accountId = selectedAccountId.value
-        if (accountId && accountOverrides[accountId]?.title) {
-          form.title = accountOverrides[accountId].title
-        } else if (platformConfigs[selectedPlatform.value]) {
-          form.title = platformConfigs[selectedPlatform.value].title
-        }
-      }
+      triggerFrameExtraction(videoData, videoUploadTarget.value)
+    } else {
+      options.onError(new Error(resp.msg || '上传失败'))
     }
-    // Extract frames for the uploaded type; the other cover falls back via computed
-    triggerFrameExtraction(videoData, videoUploadTarget.value)
-  } else {
-    ElMessage.error(response.msg || '上传失败')
+  } catch (error) {
+    options.onError(error)
   }
-}
-
-function handleUploadError() {
-  ElMessage.error('文件上传失败')
 }
 
 // ========== Material Library ==========
@@ -1135,7 +1126,7 @@ async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape
   }
   // 每次打开素材库都重新加载，确保看到最新上传的文件
   try {
-    const response = await materialApi.getAllMaterials()
+    const response = await materialsApi.list()
     if (response.code === 200) {
       appStore.setMaterials(response.data)
     } else {
@@ -1161,11 +1152,11 @@ function confirmMaterialSelect() {
     const material = materials.value.find(m => m.id === selectedMaterials.value[0])
     if (material) {
       const coverData = {
-        name: material.filename,
-        url: materialApi.getMaterialPreviewUrl(material.file_path.split('/').pop()),
-        path: material.file_path,
-        size: material.filesize * 1024 * 1024,
-        type: 'image/jpeg',
+        name: material.original_filename,
+        url: getFileUrl(material.stored_path),
+        stored_path: material.stored_path,
+        size: material.file_size,
+        type: material.mime_type,
       }
       if (materialLibraryCoverTarget.value === 'portrait') {
         commonConfig.coverPortrait = coverData
@@ -1179,11 +1170,11 @@ function confirmMaterialSelect() {
     const material = materials.value.find(m => m.id === selectedMaterials.value[0])
     if (material) {
       const videoData = {
-        name: material.filename,
-        url: materialApi.getMaterialPreviewUrl(material.file_path.split('/').pop()),
-        path: material.file_path,
-        size: material.filesize * 1024 * 1024,
-        type: 'video/mp4',
+        name: material.original_filename,
+        url: getFileUrl(material.stored_path),
+        stored_path: material.stored_path,
+        size: material.file_size,
+        type: material.mime_type,
       }
       if (materialLibraryVideoTarget.value === 'portrait') {
         commonConfig.videoPortrait = videoData
@@ -1192,7 +1183,7 @@ function confirmMaterialSelect() {
       }
       ElMessage.success('视频已设置')
       if (appStore.autoFillTitle) {
-        const title = material.filename.replace(/\.[^.]+$/, '')
+        const title = material.original_filename.replace(/\.[^.]+$/, '')
         // 1. 更新所有渠道级标题
         for (const key of Object.keys(platformConfigs)) {
           platformConfigs[key].title = title
@@ -1295,16 +1286,16 @@ async function saveDraft() {
       commonConfig: {
         topics: [...commonConfig.topics],
         videoLandscape: commonConfig.videoLandscape
-          ? { name: commonConfig.videoLandscape.name, path: commonConfig.videoLandscape.path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
+          ? { name: commonConfig.videoLandscape.name, stored_path: commonConfig.videoLandscape.stored_path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
           : null,
         videoPortrait: commonConfig.videoPortrait
-          ? { name: commonConfig.videoPortrait.name, path: commonConfig.videoPortrait.path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type }
+          ? { name: commonConfig.videoPortrait.name, stored_path: commonConfig.videoPortrait.stored_path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type }
           : null,
         coverLandscape: commonConfig.coverLandscape
-          ? { name: commonConfig.coverLandscape.name, path: commonConfig.coverLandscape.path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type, _fromFrame: commonConfig.coverLandscape._fromFrame }
+          ? { name: commonConfig.coverLandscape.name, stored_path: commonConfig.coverLandscape.stored_path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type, _fromFrame: commonConfig.coverLandscape._fromFrame }
           : null,
         coverPortrait: commonConfig.coverPortrait
-          ? { name: commonConfig.coverPortrait.name, path: commonConfig.coverPortrait.path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type, _fromFrame: commonConfig.coverPortrait._fromFrame }
+          ? { name: commonConfig.coverPortrait.name, stored_path: commonConfig.coverPortrait.stored_path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type, _fromFrame: commonConfig.coverPortrait._fromFrame }
           : null,
       },
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
@@ -1342,10 +1333,26 @@ async function restoreDraft(draftId) {
     // 恢复 commonConfig
     if (dd.commonConfig) {
       if (dd.commonConfig.topics) commonConfig.topics = dd.commonConfig.topics
-      if (dd.commonConfig.videoLandscape) commonConfig.videoLandscape = dd.commonConfig.videoLandscape
-      if (dd.commonConfig.videoPortrait) commonConfig.videoPortrait = dd.commonConfig.videoPortrait
-      if (dd.commonConfig.coverLandscape) commonConfig.coverLandscape = dd.commonConfig.coverLandscape
-      if (dd.commonConfig.coverPortrait) commonConfig.coverPortrait = dd.commonConfig.coverPortrait
+      if (dd.commonConfig.videoLandscape) {
+        const v = dd.commonConfig.videoLandscape
+        if (v.stored_path) v.url = getFileUrl(v.stored_path)
+        commonConfig.videoLandscape = v
+      }
+      if (dd.commonConfig.videoPortrait) {
+        const v = dd.commonConfig.videoPortrait
+        if (v.stored_path) v.url = getFileUrl(v.stored_path)
+        commonConfig.videoPortrait = v
+      }
+      if (dd.commonConfig.coverLandscape) {
+        const v = dd.commonConfig.coverLandscape
+        if (v.stored_path) v.url = getFileUrl(v.stored_path)
+        commonConfig.coverLandscape = v
+      }
+      if (dd.commonConfig.coverPortrait) {
+        const v = dd.commonConfig.coverPortrait
+        if (v.stored_path) v.url = getFileUrl(v.stored_path)
+        commonConfig.coverPortrait = v
+      }
     }
 
     // 恢复 platformConfigs（深度合并以保留可能新增的字段）
@@ -1641,11 +1648,11 @@ async function publishAll() {
         title: platformSettings.title,
         description: platformSettings.description || '',
         tags: allTags,
-        fileList: [selectedVideo.path],
+        fileList: [selectedVideo.stored_path],
         videoFormat: videoFormat,
         accountList: [account.filePath],
-        thumbnailLandscape: commonConfig.coverLandscape ? commonConfig.coverLandscape.path : '',
-        thumbnailPortrait: commonConfig.coverPortrait ? commonConfig.coverPortrait.path : '',
+        thumbnailLandscape: commonConfig.coverLandscape ? commonConfig.coverLandscape.stored_path : '',
+        thumbnailPortrait: commonConfig.coverPortrait ? commonConfig.coverPortrait.stored_path : '',
         enableTimer: platformSettings.scheduleTime ? 1 : 0,
         scheduleTime: platformSettings.scheduleTime || '',
         videosPerDay: 1,

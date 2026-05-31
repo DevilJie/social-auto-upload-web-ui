@@ -508,6 +508,7 @@ import { useAppStore } from '@/stores/app'
 import { accountApi } from '@/api/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { draftApi } from '@/api/draft'
+import { getFileUrl } from '@/utils/storage'
 import { platformList, getPlatformByKey, PLATFORMS } from '@/config/platforms'
 import { useRoute } from 'vue-router'
 
@@ -843,10 +844,10 @@ const materialSelectMode = ref('image') // 'image' or 'cover'
 
 function onMaterialSelected(material) {
   const imageData = {
-    id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    id: material.id,
     name: material.name,
     url: material.url,
-    path: material.path,
+    stored_path: material.stored_path,
     size: material.size,
     type: material.type,
     uploading: false,
@@ -856,10 +857,10 @@ function onMaterialSelected(material) {
   // 如果是选择封面
   if (materialSelectMode.value === 'cover') {
     commonConfig.coverImage = {
-      id: imageData.id,
+      id: material.id,
       name: material.name,
       url: material.url,
-      path: material.path,
+      stored_path: material.stored_path,
       size: material.size,
       type: material.type,
     }
@@ -1015,7 +1016,7 @@ async function saveDraft() {
     const draftData = {
       commonConfig: {
         topics: [...commonConfig.topics],
-        images: commonConfig.images.map(img => ({ id: img.id, name: img.name, url: img.url, path: img.path, size: img.size, type: img.type })),
+        images: commonConfig.images.map(img => ({ id: img.id, name: img.name, url: img.url, stored_path: img.stored_path, size: img.size, type: img.type })),
         coverImage: commonConfig.coverImage || null,
       },
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
@@ -1224,7 +1225,7 @@ async function publishAll() {
       tag_value: tag_value,
       mini_link: mini_link,
       activities: platformSettings.activityId || [],
-      cover_path: commonConfig.coverImage?.path || '',
+      cover_path: commonConfig.coverImage?.stored_path || '',
       dry_run: false,  // 实际发布
     }
   })
@@ -1341,12 +1342,11 @@ async function loadDraft(draftId) {
       // 恢复 commonConfig
       if (dd.commonConfig) {
         if (dd.commonConfig.images) {
-          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
           commonConfig.images = dd.commonConfig.images.map((img, index) => ({
             id: img.id,
             name: img.name || `图片 ${index + 1}`,
-            url: img.url || (img.id ? `${baseUrl}/api/image-publish/files/${img.id}` : ''),
-            path: img.path || '',
+            url: img.stored_path ? getFileUrl(img.stored_path) : (img.url || ''),
+            stored_path: img.stored_path || '',
             size: img.size || 0,
             type: img.type || 'image/jpeg',
             uploading: false,
@@ -1357,7 +1357,11 @@ async function loadDraft(draftId) {
           commonConfig.topics = dd.commonConfig.topics
         }
         if (dd.commonConfig.coverImage) {
-          commonConfig.coverImage = dd.commonConfig.coverImage
+          const ci = dd.commonConfig.coverImage
+          commonConfig.coverImage = {
+            ...ci,
+            url: ci.stored_path ? getFileUrl(ci.stored_path) : (ci.url || ''),
+          }
         }
       }
 

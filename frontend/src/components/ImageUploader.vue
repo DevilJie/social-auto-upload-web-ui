@@ -94,7 +94,8 @@ import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Delete, RefreshRight, FolderOpened, Rank } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
-import { imagePublishApi } from '@/api/imagePublish'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
@@ -181,64 +182,53 @@ function onFileSelected(e) {
 
 // Upload a single file
 async function uploadFile(file) {
-  // Validate file type
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
-  if (!allowedTypes.includes(file.type)) {
-    ElMessage.error(`不支持的文件格式: ${file.name}`)
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp']
+  if (!validTypes.includes(file.type)) {
+    ElMessage.warning('不支持的图片格式')
+    return
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过 10MB')
     return
   }
 
-  // Validate file size (10MB)
-  const maxSize = 10 * 1024 * 1024
-  if (file.size > maxSize) {
-    ElMessage.error(`文件过大: ${file.name}，最大支持 10MB`)
-    return
-  }
-
-  // Create a placeholder for the uploading image
   const placeholder = {
-    id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: file.name,
     url: URL.createObjectURL(file),
-    path: '',
+    stored_path: '',
     size: file.size,
     type: file.type,
     uploading: true,
     progress: 0,
   }
-
   images.value.push(placeholder)
   const index = images.value.length - 1
 
   try {
-    const resp = await imagePublishApi.uploadImage(file, (percent) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const resp = await materialsApi.upload(formData, (percent) => {
       if (images.value[index]) {
         images.value[index].progress = percent
       }
     })
-
     if (resp.code === 200) {
-      const data = resp.data
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
-
-      // Update the placeholder with real data
+      const d = resp.data
       images.value[index] = {
-        ...images.value[index],
-        id: data.id || `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        name: data.filename || file.name,
-        url: data.url ? `${baseUrl}${data.url}` : URL.createObjectURL(file),
-        path: data.stored_filename || '',
-        size: data.filesize || file.size,
+        id: d.id,
+        name: d.original_filename,
+        url: getFileUrl(d.stored_path),
+        stored_path: d.stored_path,
+        size: d.file_size,
+        type: d.mime_type,
         uploading: false,
         progress: 100,
       }
-    } else {
-      throw new Error(resp.msg || '上传失败')
     }
-  } catch (error) {
-    ElMessage.error(`上传失败: ${error.message || file.name}`)
-    // Remove the failed item
+  } catch {
     images.value.splice(index, 1)
+    ElMessage.error('图片上传失败')
   }
 }
 

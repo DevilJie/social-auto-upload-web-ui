@@ -57,7 +57,8 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload, Delete, FolderOpened } from '@element-plus/icons-vue'
-import { imagePublishApi } from '@/api/imagePublish'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 
 const props = defineProps({
   label: { type: String, default: '封面图片' },
@@ -89,15 +90,18 @@ async function onFileSelected(e) {
   }
 
   try {
-    const resp = await imagePublishApi.uploadImage(file)
+    const formData = new FormData()
+    formData.append('file', file)
+    const resp = await materialsApi.upload(formData)
     if (resp.code === 200) {
+      const d = resp.data
       emit('update:modelValue', {
-        id: resp.data.id,
-        name: file.name,
-        url: resp.data.url,
-        path: resp.data.path,
-        size: file.size,
-        type: file.type,
+        id: d.id,
+        name: d.original_filename,
+        url: getFileUrl(d.stored_path),
+        stored_path: d.stored_path,
+        size: d.file_size,
+        type: d.mime_type,
       })
       ElMessage.success('封面上传成功')
     } else {

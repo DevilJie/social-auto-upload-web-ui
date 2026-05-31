@@ -250,6 +250,10 @@ function handleChange(val) {
     // 检查小程序是否可挂载
     if (tag && tag.type === 'miniapp' && !tag.enable_mount) {
       ElMessage.error(tag.reason || '该小程序不可用')
+      // 清空选择
+      selectedTagId.value = ''
+      emit('update:modelValue', null)
+      emit('change', null)
       return
     }
     emit('update:modelValue', tag)

@@ -684,7 +684,7 @@ class S3Storage(StorageBackend):
 
 ## 8. 改动汇总清单
 
-### 8.1 新增文件（5 个）
+### 8.1 新增文件（7 个）
 
 | 文件 | 说明 |
 |------|------|
@@ -712,7 +712,7 @@ class S3Storage(StorageBackend):
 | `backend/init_db.py` | — | 新增 `materials` 表创建语句 |
 | `backend/conf.py` | — | 无改动 |
 
-### 8.4 前端修改文件（9 个）
+### 8.4 前端修改文件（11 个）
 
 | 文件 | 改动范围 |
 |------|---------|

@@ -187,7 +187,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { accountApi } from '@/api/account'
-import { materialApi } from '@/api/material'
+import { materialsApi } from '@/api/materials'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { platformList } from '@/config/platforms'
@@ -290,7 +290,7 @@ const fetchDashboardData = async () => {
     // 并行获取账号和素材数据
     const [accountRes, materialRes] = await Promise.allSettled([
       accountApi.getAccounts(),
-      materialApi.getAllMaterials()
+      materialsApi.list()
     ])
 
     if (accountRes.status === 'fulfilled' && accountRes.value.code === 200) {

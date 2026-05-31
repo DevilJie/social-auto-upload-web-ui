@@ -150,6 +150,23 @@ def init_database():
     )
     """)
 
+    # 素材库表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS materials (
+        id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        stored_path TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        mime_type TEXT,
+        file_size INTEGER DEFAULT 0,
+        storage_type TEXT NOT NULL DEFAULT 'local',
+        width INTEGER DEFAULT 0,
+        height INTEGER DEFAULT 0,
+        duration REAL DEFAULT 0,
+        upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
     logger.info(f"Database initialized at {DB_PATH}")

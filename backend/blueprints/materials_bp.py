@@ -126,3 +126,22 @@ def serve_file(relative_path):
 
     storage = get_storage()
     return storage.serve(relative_path)
+
+
+@materials_bp.route("/test-s3", methods=["POST"])
+def test_s3_connection():
+    """测试 S3 连接"""
+    data = request.get_json(force=True)
+    try:
+        import boto3
+        client = boto3.client(
+            "s3",
+            endpoint_url=data.get("endpoint", ""),
+            aws_access_key_id=data.get("access_key", ""),
+            aws_secret_access_key=data.get("secret_key", ""),
+            region_name=data.get("region", ""),
+        )
+        client.head_bucket(Bucket=data.get("bucket", ""))
+        return jsonify({"code": 200, "msg": "连接成功"})
+    except Exception as e:
+        return jsonify({"code": 400, "msg": f"连接失败: {str(e)}"})

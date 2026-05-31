@@ -589,6 +589,12 @@ def api_update_settings():
     current = _read_settings()
     current.update(data)
     _write_settings(current)
+
+    # 如果存储配置变更，重置存储实例
+    if data.get('storage'):
+        from storage import reset_storage
+        reset_storage()
+
     return jsonify({"code": 200, "msg": "保存成功", "data": current})
 
 

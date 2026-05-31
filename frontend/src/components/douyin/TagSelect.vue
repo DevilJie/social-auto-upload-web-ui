@@ -193,7 +193,7 @@ async function handleSearch() {
             icon: anchor.poster?.url_list?.[0],
             type: 'miniapp',
             data: anchor,
-            enable_mount: anchor.enable_mount !== false,
+            enable_mount: anchor.enable_mount === true,
             reason: anchor.reason || ''
           }))
         }

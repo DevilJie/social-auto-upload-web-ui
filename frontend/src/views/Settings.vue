@@ -90,6 +90,79 @@
       </div>
     </div>
 
+    <!-- 文件存储 -->
+    <div class="settings-card">
+      <h3 class="card-title">
+        <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        文件存储
+      </h3>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">存储类型</span>
+          <span class="setting-desc">选择素材文件的存储方式，S3 兼容存储支持 MinIO、阿里云 OSS、AWS S3 等</span>
+        </div>
+        <div class="setting-control">
+          <el-radio-group v-model="settings.storage.type">
+            <el-radio value="local">本地存储</el-radio>
+            <el-radio value="s3">S3 兼容存储</el-radio>
+          </el-radio-group>
+        </div>
+      </div>
+      <template v-if="settings.storage.type === 's3'">
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Endpoint</span>
+          </div>
+          <div class="setting-control">
+            <el-input v-model="settings.storage.s3.endpoint" placeholder="http://127.0.0.1:9000" style="width: 300px" />
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Access Key</span>
+          </div>
+          <div class="setting-control">
+            <el-input v-model="settings.storage.s3.access_key" style="width: 300px" />
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Secret Key</span>
+          </div>
+          <div class="setting-control">
+            <el-input v-model="settings.storage.s3.secret_key" type="password" show-password style="width: 300px" />
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Bucket</span>
+          </div>
+          <div class="setting-control">
+            <el-input v-model="settings.storage.s3.bucket" style="width: 300px" />
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">Region</span>
+          </div>
+          <div class="setting-control">
+            <el-input v-model="settings.storage.s3.region" placeholder="可选" style="width: 300px" />
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">连接测试</span>
+            <span class="setting-desc">验证 S3 配置是否正确，确认可以正常连接</span>
+          </div>
+          <div class="setting-control">
+            <button class="cache-btn" style="border-color: rgba(var(--el-color-primary-rgb), 0.3); background: rgba(var(--el-color-primary-rgb), 0.06); color: var(--el-color-primary);" :disabled="s3Testing" @click="testS3Connection">
+              {{ s3Testing ? '测试中...' : '测试连接' }}
+            </button>
+          </div>
+        </div>
+      </template>
+    </div>
+
     <!-- 缓存管理 -->
     <div class="settings-card">
       <h3 class="card-title">
@@ -243,7 +316,28 @@ const settings = reactive({
   autoSaveInterval: 10,
   portraitRatio: '9:16',
   landscapeRatio: '16:9',
+  storage: {
+    type: 'local',
+    s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
+  },
 })
+
+const s3Testing = ref(false)
+
+async function testS3Connection() {
+  s3Testing.value = true
+  try {
+    const resp = await http.post('/api/materials/test-s3', settings.storage.s3)
+    if (resp.code === 200) {
+      ElMessage.success('S3 连接成功')
+    } else {
+      ElMessage.error(resp.msg || '连接失败')
+    }
+  } catch (e) {
+    ElMessage.error('连接失败: ' + (e.message || '未知错误'))
+  }
+  s3Testing.value = false
+}
 
 // 海外平台列表
 const overseasPlatforms = platformList.filter(p => ['youtube', 'tiktok'].includes(p.key))
@@ -279,6 +373,9 @@ const fetchSettings = async () => {
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.portraitRatio !== undefined) settings.portraitRatio = res.data.portraitRatio
       if (res.data.landscapeRatio !== undefined) settings.landscapeRatio = res.data.landscapeRatio
+      if (res.data.storage) {
+        settings.storage = { ...settings.storage, ...res.data.storage }
+      }
     }
   } catch (e) {
     console.error(e)
@@ -297,6 +394,7 @@ const handleSave = async () => {
       autoSaveInterval: settings.autoSaveInterval,
       portraitRatio: settings.portraitRatio,
       landscapeRatio: settings.landscapeRatio,
+      storage: settings.storage,
     })
     if (res.code === 200) {
       appStore.setPortraitRatio(settings.portraitRatio)

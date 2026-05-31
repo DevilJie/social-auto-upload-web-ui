@@ -44,8 +44,8 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Picture, Upload, Edit, Delete } from '@element-plus/icons-vue'
-import { http } from '@/utils/request'
-import { materialApi } from '@/api/material'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 
 const props = defineProps({
   label: { type: String, default: '横版封面' },
@@ -67,18 +67,15 @@ async function onFileSelected(e) {
   const formData = new FormData()
   formData.append('file', file)
   try {
-    const resp = await http.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const resp = await materialsApi.upload(formData)
     if (resp.code === 200) {
-      const filePath = resp.data.filepath || resp.data
-      const filename = filePath.split('/').pop()
+      const d = resp.data
       emit('update:modelValue', {
-        name: file.name,
-        url: materialApi.getMaterialPreviewUrl(filename),
-        path: filePath,
-        size: file.size,
-        type: file.type,
+        name: d.original_filename,
+        url: getFileUrl(d.stored_path),
+        stored_path: d.stored_path,
+        size: d.file_size,
+        type: d.mime_type,
       })
       ElMessage.success('封面上传成功')
     } else {

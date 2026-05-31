@@ -85,8 +85,8 @@
 import { ref, reactive, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload, Picture, Check } from '@element-plus/icons-vue'
-import { http } from '@/utils/request'
-import { materialApi } from '@/api/material'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 import { frameApi } from '@/api/frame'
 import VideoTimeline from './VideoTimeline.vue'
 
@@ -145,7 +145,7 @@ const cropSelectionStyle = computed(() => ({
 }))
 
 function getMaterialUrl(mat) {
-  return materialApi.getMaterialPreviewUrl(mat.file_path.split('/').pop())
+  return getFileUrl(mat.file_path || mat.stored_path)
 }
 
 function open(tab = 'landscape') {
@@ -404,11 +404,10 @@ async function confirmCrop() {
   const formData = new FormData()
   formData.append('file', blob, `cover_${activeTab.value}_${Date.now()}.jpg`)
   try {
-    const resp = await http.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    const resp = await materialsApi.upload(formData)
     if (resp.code === 200) {
-      const filePath = resp.data.filepath || resp.data
-      const filename = filePath.split('/').pop()
-      const coverData = { name: `cover_${activeTab.value}.jpg`, url: materialApi.getMaterialPreviewUrl(filename), path: filePath, size: blob.size, type: 'image/jpeg' }
+      const d = resp.data
+      const coverData = { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
       if (activeTab.value === 'portrait') emit('update:coverPortrait', coverData)
       else emit('update:coverLandscape', coverData)
       ElMessage.success('封面设置成功')

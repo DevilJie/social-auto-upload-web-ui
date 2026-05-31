@@ -622,6 +622,8 @@ if row:
     image_files.append(local_path or row['stored_path'])
 ```
 
+同时修改行 244 附近的 `cover_path` 处理，将 `config.get('cover_path', '')` 获取到的值通过 `_resolve_material_path` 转换为本地路径。
+
 - [ ] **Step 6: 修改 `_extract_image_draft_cover` 函数**
 
 将函数改为直接返回 `stored_path`，不再解析旧 URL 格式：
@@ -708,6 +710,10 @@ git commit -m "refactor: 抽帧路由适配新的存储路径格式"
 
 **Files:**
 - Modify: `backend/app.py`（settings 路由区域，行 713-742）
+
+- [ ] **Step 0: 确认 `GET /api/v2/settings` 自动返回 storage 字段**
+
+当前 `_read_settings()` 函数直接读取整个 `settings.json` 文件并返回，所以只要 `settings.json` 中包含 `storage` 字段，GET 路由就会自动返回它。无需单独修改 GET 路由。
 
 - [ ] **Step 1: 在 `PUT /api/v2/settings` 路由中添加 storage 配置变更时重置存储实例**
 
@@ -1103,6 +1109,8 @@ import { getFileUrl } from '@/utils/storage'
 
 - [ ] **Step 2: 重写 `uploadFile` 函数（行 183-243）**
 
+注意：`reUpload()`（行 251-264）内部调用 `uploadFile()`，`onDrop()`（行 295-315）也调用 `uploadFile()`，所以重写 `uploadFile` 后这两个方法自动适配，无需单独修改。
+
 ```javascript
 async function uploadFile(file) {
   // 验证文件类型和大小
@@ -1370,7 +1378,17 @@ const imageData = {
 }
 ```
 
-- [ ] **Step 3: 修改 `publishAll` 中的 cover_path（行 1227）**
+- [ ] **Step 3: 修改 `publishAll` 中的 imageIds 和 cover_path（行 1191, 1227）**
+
+imageIds 改为使用素材 id（后端从 materials 表查 stored_path）：
+```javascript
+const imageIds = commonConfig.images.map(img => img.id)
+```
+
+cover_path：
+```javascript
+cover_path: commonConfig.coverImage?.stored_path || ''
+```
 
 ```javascript
 cover_path: commonConfig.coverImage?.stored_path || ''

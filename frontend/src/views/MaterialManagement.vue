@@ -35,10 +35,10 @@
         <el-table :data="filteredMaterials" style="width: 100%" class="material-table">
           <el-table-column label="缩略图" width="80" align="center">
             <template #default="scope">
-              <div class="thumbnail-cell" v-if="isVideoFile(scope.row.filename)">
+              <div class="thumbnail-cell" v-if="isVideoFile(scope.row)">
                 <span class="play-icon">&#9654;</span>
               </div>
-              <div class="thumbnail-cell thumbnail-image" v-else-if="isImageFile(scope.row.filename)">
+              <div class="thumbnail-cell thumbnail-image" v-else-if="isImageFile(scope.row)">
                 <img :src="getPreviewUrl(scope.row)" alt="" />
               </div>
               <div class="thumbnail-cell thumbnail-other" v-else>
@@ -46,10 +46,10 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="filename" label="文件名" min-width="240" show-overflow-tooltip />
-          <el-table-column prop="filesize" label="文件大小" width="120" align="center">
+          <el-table-column prop="original_filename" label="文件名" min-width="240" show-overflow-tooltip />
+          <el-table-column label="文件大小" width="120" align="center">
             <template #default="scope">
-              {{ scope.row.filesize }} MB
+              {{ formatFileSize(scope.row.file_size) }}
             </template>
           </el-table-column>
           <el-table-column prop="upload_time" label="上传时间" width="180" align="center" />
@@ -164,21 +164,21 @@
     >
       <div class="preview-container" v-if="currentMaterial">
         <div class="preview-frame">
-          <div v-if="isVideoFile(currentMaterial.filename)" class="video-preview">
+          <div v-if="isVideoFile(currentMaterial)" class="video-preview">
             <video controls>
               <source :src="getPreviewUrl(currentMaterial)" type="video/mp4">
               您的浏览器不支持视频播放
             </video>
           </div>
-          <div v-else-if="isImageFile(currentMaterial.filename)" class="image-preview">
+          <div v-else-if="isImageFile(currentMaterial)" class="image-preview">
             <img :src="getPreviewUrl(currentMaterial)" />
           </div>
           <div v-else class="file-info">
             <div class="file-info-icon">
               <el-icon :size="48"><Document /></el-icon>
             </div>
-            <p>文件名: {{ currentMaterial.filename }}</p>
-            <p>文件大小: {{ currentMaterial.filesize }} MB</p>
+            <p>文件名: {{ currentMaterial.original_filename }}</p>
+            <p>文件大小: {{ formatFileSize(currentMaterial.file_size) }}</p>
             <p>上传时间: {{ currentMaterial.upload_time }}</p>
             <el-button type="primary" @click="downloadFile(currentMaterial)">下载文件</el-button>
           </div>
@@ -192,7 +192,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { Refresh, Upload, View, Delete, Document } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { materialApi } from '@/api/material'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 import { useAppStore } from '@/stores/app'
 
 // 获取应用状态管理
@@ -232,7 +233,7 @@ watch(fileList, (newList) => {
 const fetchMaterials = async () => {
   isRefreshing.value = true
   try {
-    const response = await materialApi.getAllMaterials()
+    const response = await materialsApi.list()
 
     if (response.code === 200) {
       appStore.setMaterials(response.data)
@@ -254,7 +255,7 @@ const filteredMaterialsAll = computed(() => {
 
   const keyword = searchKeyword.value.toLowerCase()
   return appStore.materials.filter(material =>
-    material.filename.toLowerCase().includes(keyword)
+    material.original_filename.toLowerCase().includes(keyword)
   )
 })
 
@@ -345,7 +346,7 @@ const submitUpload = async () => {
       let lastLoaded = 0;
       let lastTime = Date.now();
 
-      const response = await materialApi.uploadMaterial(formData, (progressEvent) => {
+      const response = await materialsApi.upload(formData, (progressEvent) => {
         const progressData = uploadProgress.value[file.uid];
         if (!progressData) return;
 
@@ -406,7 +407,7 @@ const handlePreview = async (material) => {
 // 删除素材
 const handleDelete = (material) => {
   ElMessageBox.confirm(
-    `确定要删除素材 ${material.filename} 吗？`,
+    `确定要删除素材 ${material.original_filename} 吗？`,
     '警告',
     {
       confirmButtonText: '确定',
@@ -416,7 +417,7 @@ const handleDelete = (material) => {
   )
     .then(async () => {
       try {
-        const response = await materialApi.deleteMaterial(material.id)
+        const response = await materialsApi.delete(material.id)
 
         if (response.code === 200) {
           appStore.removeMaterial(material.id)
@@ -436,36 +437,25 @@ const handleDelete = (material) => {
 
 // 获取预览URL
 const getPreviewUrl = (material) => {
-  // 如果有完整的 url 字段，直接使用
-  if (material.url) {
-    if (material.url.startsWith('/')) {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
-      return `${baseUrl}${material.url}`
-    }
-    return material.url
-  }
-  // 兼容旧格式
-  const filePath = material.file_path || ''
-  const filename = filePath.split('/').pop()
-  return materialApi.getMaterialPreviewUrl(filename)
+  return getFileUrl(material.stored_path)
 }
 
 // 下载文件
 const downloadFile = (material) => {
-  const url = materialApi.downloadMaterial(material.file_path)
-  window.open(url, '_blank')
+  window.open(getFileUrl(material.stored_path), '_blank')
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
 // 判断文件类型
-const isVideoFile = (filename) => {
-  const videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv']
-  return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext))
-}
-
-const isImageFile = (filename) => {
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-  return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext))
-}
+const isVideoFile = (material) => material.file_type === 'video'
+const isImageFile = (material) => material.file_type === 'image'
 
 // 组件挂载时获取素材列表
 onMounted(() => {

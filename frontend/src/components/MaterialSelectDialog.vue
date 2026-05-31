@@ -40,7 +40,7 @@
             <img
               v-if="isImage(mat)"
               :src="getMaterialUrl(mat)"
-              :alt="mat.filename"
+              :alt="mat.original_filename"
               loading="lazy"
               @error="onImageError"
             />
@@ -54,8 +54,8 @@
           </div>
           <!-- Info -->
           <div class="msd-card-info">
-            <span class="msd-card-name" :title="mat.filename">{{ mat.filename }}</span>
-            <span class="msd-card-meta">{{ formatSize(mat.filesize) }}</span>
+            <span class="msd-card-name" :title="mat.original_filename">{{ mat.original_filename }}</span>
+            <span class="msd-card-meta">{{ formatSize(mat.file_size) }}</span>
           </div>
         </div>
       </div>
@@ -82,10 +82,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed } from 'vue'
 import { Search, VideoPlay, Check, Picture } from '@element-plus/icons-vue'
-import { materialApi } from '@/api/material'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 
 const props = defineProps({
   /** 'all' | 'image' | 'video' - 默认过滤类型 */
@@ -101,19 +101,8 @@ const searchQuery = ref('')
 const typeFilter = ref('all')
 const selectedId = ref(null)
 
-// File extension sets
-const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-const videoExts = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v']
-
-function isImage(mat) {
-  const name = (mat.filename || '').toLowerCase()
-  return imageExts.some(ext => name.endsWith(ext))
-}
-
-function isVideo(mat) {
-  const name = (mat.filename || '').toLowerCase()
-  return videoExts.some(ext => name.endsWith(ext))
-}
+const isImage = (mat) => mat.file_type === 'image'
+const isVideo = (mat) => mat.file_type === 'video'
 
 const filteredMaterials = computed(() => {
   let list = materials.value
@@ -126,31 +115,20 @@ const filteredMaterials = computed(() => {
   // Search filter
   const q = searchQuery.value.trim().toLowerCase()
   if (q) {
-    list = list.filter(m => (m.filename || '').toLowerCase().includes(q))
+    list = list.filter(m => (m.original_filename || '').toLowerCase().includes(q))
   }
   return list
 })
 
 function getMaterialUrl(mat) {
-  // 如果已经有完整的 url 字段，直接使用
-  if (mat.url) {
-    // 如果是相对路径，加上 baseUrl
-    if (mat.url.startsWith('/')) {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
-      return `${baseUrl}${mat.url}`
-    }
-    return mat.url
-  }
-  // 兼容旧格式
-  const filename = (mat.file_path || '').split('/').pop() || mat.filename
-  return materialApi.getMaterialPreviewUrl(filename)
+  return getFileUrl(mat.stored_path)
 }
 
-function formatSize(mb) {
-  if (!mb && mb !== 0) return ''
-  if (mb < 1) return `${(mb * 1024).toFixed(0)} KB`
-  if (mb < 1024) return `${mb.toFixed(1)} MB`
-  return `${(mb / 1024).toFixed(1)} GB`
+function formatSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
 function onImageError(e) {
@@ -168,41 +146,28 @@ async function open() {
 async function loadMaterials() {
   loading.value = true
   try {
-    const resp = await materialApi.getAllMaterials()
+    const resp = await materialsApi.list(props.filterType)
     if (resp.code === 200) {
       materials.value = resp.data || []
-    } else {
-      ElMessage.error('获取素材列表失败')
     }
-  } catch (err) {
-    console.error('获取素材列表出错:', err)
-    ElMessage.error('获取素材列表失败')
-  } finally {
-    loading.value = false
+  } catch (e) {
+    console.error('加载素材失败:', e)
   }
+  loading.value = false
 }
 
 function confirmSelect() {
-  if (!selectedId.value) {
-    ElMessage.warning('请选择一个素材')
-    return
-  }
+  if (!selectedId.value) return
   const material = materials.value.find(m => m.id === selectedId.value)
-  if (!material) {
-    ElMessage.warning('所选素材不存在')
-    return
-  }
-  // Build the result object compatible with the rest of the app
-  const filename = (material.file_path || '').split('/').pop() || material.filename
-  const result = {
+  if (!material) return
+  emit('select', {
     id: material.id,
-    name: material.filename,
-    url: materialApi.getMaterialPreviewUrl(filename),
-    path: material.file_path,
-    size: (material.filesize || 0) * 1024 * 1024,
-    type: isImage(material) ? 'image/jpeg' : 'video/mp4',
-  }
-  emit('select', result)
+    name: material.original_filename,
+    url: getFileUrl(material.stored_path),
+    stored_path: material.stored_path,
+    size: material.file_size,
+    type: material.mime_type,
+  })
   visible.value = false
 }
 

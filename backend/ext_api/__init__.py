@@ -456,6 +456,37 @@ def update_settings():
 
 # ========== 草稿箱 ==========
 
+_PLATFORM_ID_MAP = {
+    1: ('xiaohongshu', '小红书'),
+    2: ('shipinhao', '视频号'),
+    3: ('douyin', '抖音'),
+    4: ('kuaishou', '快手'),
+    5: ('bilibili', 'B站'),
+    6: ('baijiahao', '百家号'),
+}
+
+
+def _extract_image_channels_from_draft(conn, draft_data):
+    """从图文草稿的 draft_data 中提取渠道摘要（兜底）"""
+    account_ids = draft_data.get('publishAccountIds', [])
+    if not account_ids:
+        return []
+    try:
+        placeholders = ','.join(['?'] * len(account_ids))
+        rows = conn.execute(
+            f"SELECT type FROM user_info WHERE id IN ({placeholders})", account_ids
+        ).fetchall()
+        counts = {}
+        for row in rows:
+            key, name = _PLATFORM_ID_MAP.get(row['type'], (str(row['type']), f'平台{row["type"]}'))
+            if key not in counts:
+                counts[key] = {'name': name, 'count': 0}
+            counts[key]['count'] += 1
+        return [{"platform": k, "name": v['name'], "count": v['count']} for k, v in counts.items()]
+    except Exception:
+        return []
+
+
 @ext_api.route('/drafts', methods=['GET'])
 def get_drafts():
     """获取草稿列表（支持 type 过滤：video/image）"""
@@ -497,6 +528,10 @@ def get_drafts():
                         else:
                             image_urls.append(None)
                     d['image_urls'] = image_urls
+
+                    # 兜底：如果 channels_summary 为空，从 draft_data 重新提取
+                    if not d['channels_summary']:
+                        d['channels_summary'] = _extract_image_channels_from_draft(conn, dd)
                 except (json.JSONDecodeError, KeyError):
                     d['image_ids'] = []
                     d['image_urls'] = []

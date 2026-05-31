@@ -74,6 +74,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { Search, Loading, Location, Connection, Menu, Goods } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { douyinImageApi } from '@/api/douyinImage'
 
 const props = defineProps({

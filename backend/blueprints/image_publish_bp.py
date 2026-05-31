@@ -407,15 +407,22 @@ def _extract_image_draft_title(draft_data):
 
 
 def _extract_image_draft_cover(draft_data):
-    """从图文草稿数据中提取封面文件名（与视频草稿格式一致，只存文件名）"""
+    """从图文草稿数据中提取封面路径"""
     common_config = draft_data.get('commonConfig', {})
 
-    # 优先使用用户选择的封面
+    # 优先使用用户选择的封面（素材库选的 url 形如 /api/image-publish/files/xxx）
     cover = common_config.get('coverImage')
     if cover and isinstance(cover, dict):
+        url = cover.get('url', '')
+        if url:
+            # 去掉 http://localhost:5409 前缀，保留相对路径
+            if '://' in url:
+                from urllib.parse import urlparse
+                url = urlparse(url).path
+            return url
         return cover.get('path', '') or cover.get('name', '') or ''
 
-    # 兜底：第一张图片
+    # 兜底：第一张图片（path 是文件名，需拼前缀）
     images = common_config.get('images', [])
     if images:
         img = images[0]

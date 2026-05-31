@@ -464,12 +464,12 @@ def get_drafts():
         conn = _db_conn()
         if draft_type:
             rows = conn.execute(
-                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts WHERE type = ? ORDER BY updated_at DESC",
+                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, draft_data, created_at, updated_at FROM drafts WHERE type = ? ORDER BY updated_at DESC",
                 (draft_type,)
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
+                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, draft_data, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
             ).fetchall()
         drafts = []
         for row in rows:
@@ -478,6 +478,30 @@ def get_drafts():
                 d['channels_summary'] = json.loads(d.get('channels_summary', '[]'))
             except json.JSONDecodeError:
                 d['channels_summary'] = []
+
+            # 图文草稿：从 draft_data 中提取 image_ids 和 image_urls
+            if d.get('type') == 'image' and d.get('draft_data'):
+                try:
+                    dd = json.loads(d['draft_data'])
+                    images = dd.get('commonConfig', {}).get('images', [])
+                    image_ids = [img['id'] for img in images] if isinstance(images, list) else []
+                    d['image_ids'] = image_ids
+                    # 查询 image_records 获取 stored_filename 构建 URL
+                    image_urls = []
+                    for img_id in image_ids:
+                        img_row = conn.execute(
+                            "SELECT stored_filename FROM image_records WHERE id = ?", (img_id,)
+                        ).fetchone()
+                        if img_row:
+                            image_urls.append(f"/api/image-publish/files/{img_row['stored_filename']}")
+                        else:
+                            image_urls.append(None)
+                    d['image_urls'] = image_urls
+                except (json.JSONDecodeError, KeyError):
+                    d['image_ids'] = []
+                    d['image_urls'] = []
+            d.pop('draft_data', None)  # 不在列表接口返回完整 draft_data
+
             d['created_at'] = _to_beijing_time(d.get('created_at'))
             d['updated_at'] = _to_beijing_time(d.get('updated_at'))
             drafts.append(d)

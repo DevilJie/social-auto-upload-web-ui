@@ -399,13 +399,21 @@ def _extract_image_draft_title(draft_data):
 
 
 def _extract_image_draft_cover(draft_data):
-    """从图文草稿数据中提取封面（第一张图片的相对路径）"""
+    """从图文草稿数据中提取封面的相对路径"""
     common_config = draft_data.get('commonConfig', {})
+
+    # 优先使用用户选择的封面（来自素材库，存放在 videoFile 目录）
+    cover = common_config.get('coverImage')
+    if cover and isinstance(cover, dict):
+        filename = cover.get('path', '') or cover.get('name', '')
+        if filename:
+            return f"/getFile?filename={filename}"
+
+    # 兜底：第一张图文图片（存放在 image-publish 目录）
     images = common_config.get('images', [])
-    if images and len(images) > 0:
+    if images:
         img = images[0]
         if isinstance(img, dict):
-            # 优先用 path（文件名）构造相对路径，保持和视频草稿一致
             filename = img.get('path', '') or img.get('name', '')
             if filename:
                 return f"/api/image-publish/files/{filename}"

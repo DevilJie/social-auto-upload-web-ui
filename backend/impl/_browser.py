@@ -3,10 +3,14 @@
 All browser creation goes through this module.
 """
 
+import os
+
 from conf import LOGIN_HEADLESS, LOCAL_CHROME_HEADLESS
 from util._logger import get_channel_logger
 
 logger = get_channel_logger("browser")
+
+DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
 
 
 def _download_binary():
@@ -54,6 +58,8 @@ async def create_context(
     viewport: dict | None = None,
 ):
     """Create a browser context with optional auth state."""
+    if viewport is None:
+        viewport = DEFAULT_VIEWPORT
     return await browser.new_context(
         storage_state=storage_state,
         user_agent=user_agent,
@@ -74,6 +80,7 @@ async def create_persistent_context(
         headless=headless,
         proxy=proxy,
         args=extra_args,
+        viewport=DEFAULT_VIEWPORT,
     )
 
 
@@ -84,3 +91,8 @@ def create_browser_sync(
     """Synchronous browser launch (for ``open_creator_center``)."""
     from cloakbrowser import launch
     return launch(headless=headless, args=extra_args)
+
+
+def get_default_viewport():
+    """公开接口：获取默认 viewport，供外部 new_context 调用。"""
+    return DEFAULT_VIEWPORT

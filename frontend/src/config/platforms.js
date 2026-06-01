@@ -154,7 +154,6 @@ export const PLATFORMS = {
         { label: '生活兴趣', value: '生活兴趣' },
         { label: '生活经验', value: '生活经验' },
       ] },
-      { key: 'tags', label: '标签', type: 'input', placeholder: '如：#标签1 #标签2 或 逗号分隔' },
       { key: 'topic', label: '话题', type: 'select', placeholder: '选择话题' },
       { key: 'creationDeclaration', label: '创作声明', type: 'select', placeholder: '选择创作声明', options: [
         { label: '内容无需标注', value: '内容无需标注' },
@@ -168,7 +167,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', zone: '', tags: '', topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', zone: '', topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BAIJIAHAO: {
     id: 6,

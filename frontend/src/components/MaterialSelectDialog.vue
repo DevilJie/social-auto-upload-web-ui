@@ -66,21 +66,55 @@
               @error="onImageError"
             />
             <template v-else>
-              <img
-                v-if="mat.thumbnail_url"
-                :src="getThumbUrl(mat)"
-                :alt="mat.original_filename"
-                loading="lazy"
-                class="msd-card-video-thumb"
-                @error="onImageError"
+              <!-- 播放模式：内嵌视频 -->
+              <video
+                v-if="playingId === mat.id"
+                :src="getMaterialFullUrl(mat)"
+                class="msd-card-video-el"
+                autoplay
+                controls
+                muted
+                playsinline
+                preload="metadata"
+                @click.stop
+                @ended="onVideoEnded(mat.id)"
               />
-              <div v-else class="msd-card-video-fallback">
-                <el-icon :size="32"><VideoPlay /></el-icon>
-              </div>
-              <div class="msd-card-video-badge">
-                <el-icon :size="11"><VideoPlay /></el-icon>
-                <span>视频</span>
-              </div>
+              <!-- 关闭按钮（叠加在视频左上） -->
+              <button
+                v-if="playingId === mat.id"
+                class="msd-card-video-close"
+                aria-label="关闭预览"
+                @click.stop="togglePlay(mat.id)"
+              >
+                <el-icon :size="14"><Close /></el-icon>
+              </button>
+              <!-- 缩略图模式 -->
+              <template v-else>
+                <img
+                  v-if="mat.thumbnail_url"
+                  :src="getThumbUrl(mat)"
+                  :alt="mat.original_filename"
+                  loading="lazy"
+                  class="msd-card-video-thumb"
+                  @error="onImageError"
+                />
+                <div v-else class="msd-card-video-fallback">
+                  <el-icon :size="32"><VideoPlay /></el-icon>
+                </div>
+                <!-- 居中播放按钮 -->
+                <button
+                  class="msd-card-play-btn"
+                  :aria-label="`预览 ${mat.original_filename}`"
+                  @click.stop="togglePlay(mat.id)"
+                >
+                  <el-icon :size="20"><VideoPlay /></el-icon>
+                </button>
+                <!-- 视频类型徽章 -->
+                <div class="msd-card-video-badge">
+                  <el-icon :size="11"><VideoPlay /></el-icon>
+                  <span>视频</span>
+                </div>
+              </template>
             </template>
 
             <!-- Selected check -->
@@ -157,6 +191,7 @@ import {
   Search,
   VideoPlay,
   Check,
+  Close,
   Picture,
   PictureFilled,
   VideoCamera,
@@ -183,6 +218,8 @@ const pageSize = ref(24)
 const searchKeyword = ref('')
 const typeFilter = ref('all')
 const selectedId = ref(null)
+// 当前正在播放的视频素材 id（互斥，同一时间只能播一个）
+const playingId = ref(null)
 
 const typeOptions = computed(() => {
   const opts = [{ value: 'all', label: '全部', icon: Grid }]
@@ -208,6 +245,20 @@ function getThumbUrl(mat) {
   return getFileUrl(mat.stored_path)
 }
 
+function getMaterialFullUrl(mat) {
+  return getFileUrl(mat.stored_path)
+}
+
+function togglePlay(id) {
+  playingId.value = playingId.value === id ? null : id
+}
+
+function onVideoEnded(id) {
+  if (playingId.value === id) {
+    playingId.value = null
+  }
+}
+
 function formatSize(bytes) {
   if (!bytes) return ''
   if (bytes < 1024) return bytes + ' B'
@@ -224,13 +275,9 @@ function formatDate(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// 预编码的 fallback SVG（占位图），用于图片加载失败时
 const placeholderSvg =
-  'data:image/svg+xml;base64,' +
-  btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
-    <rect width="200" height="200" fill="#1a1d24"/>
-    <text x="100" y="105" font-family="sans-serif" font-size="14" fill="#666"
-      text-anchor="middle">加载失败</text>
-  </svg>`)
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzFhMWQyNCIvPjx0ZXh0IHg9IjEwMCIgeT0iMTA1IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TG9hZGluZyBmYWlsZWQ8L3RleHQ+PC9zdmc+'
 
 function onImageError(e) {
   e.target.src = placeholderSvg
@@ -273,9 +320,12 @@ async function loadPage() {
     if (resp.code === 200) {
       items.value = resp.data.items || []
       total.value = resp.data.total || 0
-      // 翻页后，如果当前选中不在新页面则清空
+      // 翻页后，如果当前选中/正在播放的素材不在新页面则清空
       if (selectedId.value && !items.value.some((m) => m.id === selectedId.value)) {
         selectedId.value = null
+      }
+      if (playingId.value && !items.value.some((m) => m.id === playingId.value)) {
+        playingId.value = null
       }
     }
   } catch (e) {
@@ -307,6 +357,7 @@ function onClosed() {
   typeFilter.value = 'all'
   page.value = 1
   selectedId.value = null
+  playingId.value = null
   items.value = []
   total.value = 0
 }
@@ -589,6 +640,67 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   color: #fff;
   font-size: 10px;
   font-weight: 500;
+}
+
+// 居中播放按钮 — 默认半透明，hover 缩放高亮
+.msd-card-play-btn {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 0 3px; // 视觉居中（图标三角形）
+  opacity: 0.85;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+
+  &:hover {
+    opacity: 1;
+    transform: scale(1.08);
+    background: linear-gradient(135deg, $brand-1, $brand-2);
+    box-shadow: 0 4px 18px rgba($brand-1, 0.5);
+  }
+}
+
+.msd-card-video-el {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+.msd-card-video-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 2;
+
+  &:hover {
+    background: rgba(220, 38, 38, 0.85);
+    transform: scale(1.08);
+  }
 }
 
 .msd-card-check {

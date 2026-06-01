@@ -915,10 +915,6 @@ function handleHotspotChange(hotspot) {
     form.hotspotId = hotspot.word
     form.hotspotData = hotspot
     console.log('form.hotspotData set to:', form.hotspotData)
-    // 如果选择了热点，自动添加到话题
-    if (!commonConfig.topics.includes(hotspot.word)) {
-      commonConfig.topics.push(hotspot.word)
-    }
   } else {
     form.hotspotId = ''
     form.hotspotData = null
@@ -1411,6 +1407,11 @@ async function loadDraft(draftId) {
         form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
         form.hotspotId = dd.douyinSelections.hotspotId || ''
         form.hotspotData = dd.douyinSelections.hotspotData || null
+        // 清理旧草稿残留：之前 handleHotspotChange 会把热点词
+        // 推入 commonConfig.topics，现在移除（热点独立设置）
+        if (form.hotspotData?.word && commonConfig.topics.includes(form.hotspotData.word)) {
+          commonConfig.topics = commonConfig.topics.filter(t => t !== form.hotspotData.word)
+        }
         form.mixId = dd.douyinSelections.mixId || ''
         form.mixData = dd.douyinSelections.mixData || null
         form.selectedTag = dd.douyinSelections.selectedTag || null

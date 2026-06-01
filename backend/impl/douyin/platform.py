@@ -806,29 +806,15 @@ class DouyinPlatform(BasePlatform):
                 await page.keyboard.press("Control+KeyA")
                 await page.keyboard.press("Delete")
 
-                # 构建完整的描述文本（包含标签）
-                full_desc = desc[:1000]
-                for tag in tags:
-                    if ' ' in tag or any(c in tag for c in '！？，。、；：""''（）【】《》'):
-                        full_desc += f" #[{tag}]"
-                    else:
-                        full_desc += f" #{tag}"
+                # 逐字输入描述文本
+                await page.keyboard.type(desc[:1000])
+                await asyncio.sleep(0.2)
 
-                # 使用 JavaScript 直接设置内容，避免键盘输入触发标签激活
-                await page.evaluate("""(text) => {
-                    const editor = document.querySelector('div[data-zone-container="*"][contenteditable="true"]');
-                    if (editor) {
-                        editor.focus();
-                        // 清空现有内容
-                        editor.innerHTML = '';
-                        // 使用 insertText 命令设置新内容
-                        document.execCommand('insertText', false, text);
-                    }
-                }""", full_desc)
-                await asyncio.sleep(0.3)
-                # 触发一次键盘输入事件，让抖音前端识别 #标签
-                await page.keyboard.press('Space')
-                await page.keyboard.press('Backspace')
+                # 逐个输入标签，每个标签后按空格触发抖音识别
+                for tag in tags:
+                    await page.keyboard.type(" #" + tag)
+                    await page.keyboard.press("Space")
+                    await asyncio.sleep(0.1)
                 await asyncio.sleep(0.3)
 
                 # Set cover if provided

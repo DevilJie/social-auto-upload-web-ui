@@ -827,7 +827,11 @@ class DouyinPlatform(BasePlatform):
                         document.execCommand('insertText', false, text);
                     }
                 }""", full_desc)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
+                # 触发一次键盘输入事件，让抖音前端识别 #标签
+                await page.keyboard.press('Space')
+                await page.keyboard.press('Backspace')
+                await asyncio.sleep(0.3)
 
                 # Set cover if provided
                 if cover_path:

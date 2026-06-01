@@ -365,6 +365,27 @@ class BilibiliPlatform(BasePlatform):
                 await self._wait_upload_complete(page)
                 await asyncio.sleep(3)
 
+                # 2.5 等待页面就绪：B 站"推荐标签"区域（div.tag-wrp 下
+                # 的 .hot-tag-container）出现后才说明表单已渲染完整，
+                # 此时再开始填充标题/分类/标签等，否则可能因为表单
+                # 元素未就绪而操作失败
+                try:
+                    hot_tag = page.locator(
+                        'div.tag-wrp div.hot-tag-container'
+                    ).first
+                    await hot_tag.wait_for(
+                        state="attached", timeout=15000
+                    )
+                    logger.info(
+                        "[bilibili] hot-tag-container ready, "
+                        "form is interactive"
+                    )
+                except Exception as exc:
+                    logger.info(
+                        f"[bilibili] hot-tag-container wait failed "
+                        f"(continue anyway): {exc}"
+                    )
+
                 # Pre-form screenshot
                 await page.screenshot(
                     path=str(log_dir / "bilibili_before_form.png"),

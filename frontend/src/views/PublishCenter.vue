@@ -242,6 +242,29 @@
             </div>
           </div>
 
+          <!-- 抖音专属配置 -->
+          <template v-if="selectedPlatform === 'douyin'">
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
+              <DouyinActivitySelect v-model="form.activityId" @change="handleDouyinActivityChange" />
+            </div>
+
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
+              <DouyinHotspotSelect v-model="form.hotspotId" :data="form.hotspotData" @change="handleDouyinHotspotChange" />
+            </div>
+
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
+              <DouyinTagSelect :account-id="selectedAccountId" v-model="form.selectedTag" @change="handleDouyinTagSelect" />
+            </div>
+
+            <div v-if="selectedAccountId" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
+              <DouyinMixSelect :account-id="selectedAccountId" v-model="form.mixId" :data="form.mixData" @change="handleDouyinMixChange" />
+            </div>
+          </template>
+
           <div class="settings-grid">
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
@@ -471,6 +494,10 @@ import BatchPublishDialog from '@/components/BatchPublishDialog.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
+import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
+import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
+import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
+import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { frameApi } from '@/api/frame'
 import { draftApi } from '@/api/draft'
@@ -538,7 +565,7 @@ const landscapeCoverFrames = computed(() =>
 
 // ========== Per-platform Config ==========
 const platformConfigs = reactive({
-  douyin: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '', tags: [] },
+  douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
@@ -691,6 +718,52 @@ function addTag() {
 
 function removeTag(index) {
   form.tags.splice(index, 1)
+}
+
+// ========== Douyin-specific Methods ==========
+function handleDouyinActivityChange(activity) {
+  if (activity?.challenge?.length > 0) {
+    for (const topic of activity.challenge) {
+      if (form.tags && !form.tags.includes(topic)) {
+        if ((form.activityId?.length || 0) + (form.tags?.length || 0) >= 5) break
+        form.tags.push(topic)
+      }
+    }
+  }
+}
+
+function handleDouyinHotspotChange(hotspot) {
+  if (hotspot) {
+    form.hotspotId = hotspot.word
+    form.hotspotData = hotspot
+  } else {
+    form.hotspotId = ''
+    form.hotspotData = null
+  }
+}
+
+function handleDouyinTagSelect(tag) {
+  if (tag) {
+    form.selectedTag = tag
+    const m = { poi: 'location', miniapp: 'miniapp', game: 'gamepad', mark: 'mark' }
+    form.tagType = m[tag.type] || ''
+    form.tagValue = tag.name || tag.id || ''
+    ElMessage.success(`标签已选择: ${tag.name}`)
+  } else {
+    form.selectedTag = null
+    form.tagType = ''
+    form.tagValue = ''
+  }
+}
+
+function handleDouyinMixChange(mix) {
+  if (mix) {
+    form.mixId = mix.mix_name
+    form.mixData = mix
+  } else {
+    form.mixId = ''
+    form.mixData = null
+  }
 }
 
 // ========== Batch sync ==========

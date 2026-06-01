@@ -76,8 +76,6 @@ export const PLATFORMS = {
     cssClass: 'douyin',
     creatorUrl: 'https://creator.douyin.com/',
     settingsFields: [
-      { key: 'productTitle', label: '商品名称', type: 'input', placeholder: '请输入商品名称' },
-      { key: 'productLink', label: '商品链接', type: 'input', placeholder: '请输入商品链接' },
       { key: 'aiContent', label: '自主声明', type: 'select', placeholder: '请选择自主声明', options: [
         { label: '内容由AI生成', value: '内容由AI生成' },
         { label: '内容为个人观点或见解', value: '内容为个人观点或见解' },
@@ -88,11 +86,8 @@ export const PLATFORMS = {
       ] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
-      { key: 'visibility', label: '谁可以看', type: 'radio', options: [{ label: '公开', value: 'public' }, { label: '私密', value: 'private' }] },
-      { key: 'allowDownload', label: '允许下载', type: 'switch' },
-      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '' },
+    defaultSettings: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   KUAISHOU: {
     id: 4,

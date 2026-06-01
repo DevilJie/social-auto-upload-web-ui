@@ -108,31 +108,35 @@ const declarationOptions = computed(() => {
   return field?.options || []
 })
 
+// ===== Helpers =====
+function hasValues(v) {
+  if (v === undefined || v === '' || v === false) return false
+  if (Array.isArray(v)) return v.length > 0
+  return true
+}
+
+function hasMeaningfulOverride(override) {
+  return override && Object.values(override).some(hasValues)
+}
+
+function getMergedConfig(accountId) {
+  const override = accountOverrides[accountId] || {}
+  const merged = { ...platformConfig }
+  for (const [k, v] of Object.entries(override)) {
+    if (hasValues(v)) merged[k] = Array.isArray(v) ? [...v] : v
+  }
+  return merged
+}
+
+// ===== Helpers to reset form =====
+function applyToForm(source) {
+  Object.keys(form).forEach(k => delete form[k])
+  Object.assign(form, source)
+}
+
 // ===== Watch accountId to switch form =====
 watch(() => props.accountId, (newId) => {
-  if (!newId) {
-    Object.keys(form).forEach(k => delete form[k])
-    Object.assign(form, { ...platformConfig })
-  } else {
-    const override = accountOverrides[newId]
-    const hasOverride = override && Object.keys(override).some(
-      k => override[k] !== undefined && override[k] !== '' && override[k] !== false
-        && !(Array.isArray(override[k]) && override[k].length === 0)
-    )
-    Object.keys(form).forEach(k => delete form[k])
-    if (hasOverride) {
-      const merged = { ...platformConfig }
-      for (const [k, v] of Object.entries(override)) {
-        if (v !== undefined && v !== '' && v !== false
-            && !(Array.isArray(v) && v.length === 0)) {
-          merged[k] = v
-        }
-      }
-      Object.assign(form, merged)
-    } else {
-      Object.assign(form, { ...platformConfig })
-    }
-  }
+  applyToForm(newId ? getMergedConfig(newId) : { ...platformConfig })
 }, { immediate: true })
 
 // ===== Watch form changes to sync to platformConfig / accountOverrides =====
@@ -158,11 +162,7 @@ watch(form, (newVal) => {
         diff[key] = current
       }
     }
-    const hasValues = Object.entries(diff).some(([, v]) => {
-      if (Array.isArray(v)) return v.length > 0
-      if (typeof v === 'object' && v !== null) return Object.keys(v).length > 0
-      return v !== undefined && v !== '' && v !== false
-    })
+    const hasValues = Object.entries(diff).some(([, v]) => hasValues(v))
     if (hasValues) {
       accountOverrides[props.accountId] = { ...diff }
     } else {
@@ -262,8 +262,7 @@ function handleMixChange(mix) {
 function resetOverride() {
   if (props.accountId) {
     delete accountOverrides[props.accountId]
-    Object.keys(form).forEach(k => delete form[k])
-    Object.assign(form, { ...platformConfig })
+    applyToForm({ ...platformConfig })
     emit('config-changed')
     ElMessage.success('已恢复为渠道默认设置')
   }
@@ -273,15 +272,7 @@ function resetOverride() {
 defineExpose({
   // Publish single account
   async publish(accountId, accountName, commonData) {
-    const override = accountOverrides[accountId] || {}
-    const merged = { ...platformConfig }
-    for (const [k, v] of Object.entries(override)) {
-      if (v !== undefined && v !== '' && v !== false
-          && !(Array.isArray(v) && v.length === 0)) {
-        merged[k] = v
-      }
-    }
-
+    const merged = getMergedConfig(accountId)
     const account = accountStore.accounts.find(a => a.id === accountId)
     if (!account) {
       emit('publish-result', { accountName, status: 'fail', message: '账号不存在' })
@@ -315,7 +306,6 @@ defineExpose({
           mix_id: merged.mixId || '',
           music_name: merged.selectedMusic || '',
           hotspot: merged.hotspotId || '',
-          hotspot_tags: merged.hotspotTags || [],
           tag_type: selectedTag ? (tagTypeMap[selectedTag.type] || '') : '',
           tag_value: tagValue,
           mini_link: miniLink,
@@ -342,17 +332,7 @@ defineExpose({
     Object.assign(platformConfig, DOUYIN_DEFAULTS, config)
     Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
     if (overrides) Object.assign(accountOverrides, overrides)
-    Object.keys(form).forEach(k => delete form[k])
-    if (props.accountId) {
-      const override = accountOverrides[props.accountId]
-      const hasOverride = override && Object.keys(override).some(
-        k => override[k] !== undefined && override[k] !== '' && override[k] !== false
-          && !(Array.isArray(override[k]) && override[k].length === 0)
-      )
-      Object.assign(form, hasOverride ? { ...platformConfig, ...override } : { ...platformConfig })
-    } else {
-      Object.assign(form, { ...platformConfig })
-    }
+    applyToForm(props.accountId ? getMergedConfig(props.accountId) : { ...platformConfig })
   },
 
   syncTitle(title) {
@@ -372,12 +352,7 @@ defineExpose({
 
   validate(accountId) {
     const errors = []
-    const override = accountOverrides[accountId] || {}
-    const hasOverride = Object.keys(override).some(
-      k => override[k] !== undefined && override[k] !== '' && override[k] !== false
-        && !(Array.isArray(override[k]) && override[k].length === 0)
-    )
-    const merged = hasOverride ? { ...platformConfig, ...override } : { ...platformConfig }
+    const merged = getMergedConfig(accountId)
     if (!merged.title || !merged.title.trim()) errors.push('标题不能为空')
     if (!merged.aiContent) errors.push('请选择自主声明')
     const activityCount = merged.activityId?.length || 0
@@ -390,11 +365,7 @@ defineExpose({
 
   hasAccountOverride(accountId) {
     const override = accountOverrides[accountId]
-    if (!override) return false
-    return Object.values(override).some(
-      v => v !== undefined && v !== '' && v !== false
-        && !(Array.isArray(v) && v.length === 0)
-    )
+    return hasMeaningfulOverride(override)
   },
 })
 </script>

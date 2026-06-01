@@ -1103,6 +1103,41 @@ async function restoreDraft(draftId) {
       }
     }
 
+    // 兼容旧草稿格式：将 commonConfig.topics 迁移到各平台的 tags
+    if (dd.commonConfig?.topics && dd.commonConfig.topics.length > 0) {
+      for (const key of Object.keys(platformConfigs)) {
+        if (!platformConfigs[key].tags || platformConfigs[key].tags.length === 0) {
+          platformConfigs[key].tags = [...dd.commonConfig.topics]
+        }
+      }
+    }
+
+    // 兼容旧草稿格式：bilibili 的 tags 从字符串转数组
+    if (dd.platformConfigs?.bilibili && typeof dd.platformConfigs.bilibili.tags === 'string') {
+      const str = dd.platformConfigs.bilibili.tags
+      platformConfigs.bilibili.tags = str.split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
+    }
+
+    // 兼容旧草稿格式：为缺少 tags 的平台补充空数组
+    for (const key of Object.keys(platformConfigs)) {
+      if (!Array.isArray(platformConfigs[key].tags)) {
+        platformConfigs[key].tags = []
+      }
+    }
+
+    // 兼容旧草稿格式：为抖音补充新增字段
+    if (dd.platformConfigs?.douyin) {
+      const dy = platformConfigs.douyin
+      if (!Array.isArray(dy.activityId)) dy.activityId = []
+      if (dy.hotspotId === undefined) dy.hotspotId = ''
+      if (dy.hotspotData === undefined) dy.hotspotData = null
+      if (dy.selectedTag === undefined) dy.selectedTag = null
+      if (dy.tagType === undefined) dy.tagType = ''
+      if (dy.tagValue === undefined) dy.tagValue = ''
+      if (dy.mixId === undefined) dy.mixId = ''
+      if (dy.mixData === undefined) dy.mixData = null
+    }
+
     if (dd.accountOverrides) {
       Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
       Object.assign(accountOverrides, dd.accountOverrides)

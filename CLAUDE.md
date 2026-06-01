@@ -60,6 +60,15 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+
+## 5.Learn to Use Context7 MCP
+
+**Avoid overly complex implementations and outdated tech stacks.**
+
+If your implementation solution is overly complicated, stop development immediately. Then use the Context7 MCP service to check the latest technical documentation and implement it in a more elegant way.
+
+
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

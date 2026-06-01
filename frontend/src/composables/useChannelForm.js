@@ -74,7 +74,8 @@ export function useChannelForm(defaults, { props, emit }, { publishFn, validateF
         }
       }
       if (Object.entries(diff).some(([, v]) => hasValues(v))) {
-        accountOverrides[props.accountId] = { ...diff }
+        const existing = accountOverrides[props.accountId] || {}
+        accountOverrides[props.accountId] = { ...existing, ...diff }
       } else {
         delete accountOverrides[props.accountId]
       }

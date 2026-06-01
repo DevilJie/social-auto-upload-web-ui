@@ -192,7 +192,7 @@
           </div>
 
           <DouyinImagePublishPanel
-            ref="el => panelRefs.douyin = el"
+            ref="douyinPanelRef"
             :account-id="selectedPlatform === 'douyin' ? selectedAccountId : null"
             :disabled="publishing"
             v-show="selectedPlatform === 'douyin'"
@@ -200,7 +200,7 @@
             @publish-result="onPublishResult"
           />
           <XiaohongshuImagePublishPanel
-            ref="el => panelRefs.xiaohongshu = el"
+            ref="xiaohongshuPanelRef"
             :account-id="selectedPlatform === 'xiaohongshu' ? selectedAccountId : null"
             :disabled="publishing"
             v-show="selectedPlatform === 'xiaohongshu'"
@@ -208,7 +208,7 @@
             @publish-result="onPublishResult"
           />
           <KuaishouImagePublishPanel
-            ref="el => panelRefs.kuaishou = el"
+            ref="kuaishouPanelRef"
             :account-id="selectedPlatform === 'kuaishou' ? selectedAccountId : null"
             :disabled="publishing"
             v-show="selectedPlatform === 'kuaishou'"
@@ -490,11 +490,14 @@ const commonConfig = reactive({
 const currentPreviewIndex = ref(0)
 
 // ========== Channel Panel Refs & Helpers ==========
-const panelRefs = reactive({
-  douyin: null,
-  xiaohongshu: null,
-  kuaishou: null,
-})
+const douyinPanelRef = ref(null)
+const xiaohongshuPanelRef = ref(null)
+const kuaishouPanelRef = ref(null)
+
+function getPanel(key) {
+  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef }
+  return map[key]?.value
+}
 
 function getAccountDisplayName(accountId) {
   const account = accountStore.accounts.find(a => a.id === accountId)
@@ -517,7 +520,7 @@ function onPublishResult({ accountName, status, message }) {
 
 function hasAccountOverride(accountId) {
   for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
-    const panel = panelRefs[key]
+    const panel = getPanel(key)
     if (panel && panel.hasAccountOverride(accountId)) return true
   }
   return false
@@ -541,7 +544,7 @@ function addBatchTag() {
 function syncBatchToAll() {
   const platforms = ['douyin', 'xiaohongshu', 'kuaishou']
   for (const key of platforms) {
-    const panel = panelRefs[key]
+    const panel = getPanel(key)
     if (!panel) continue
     if (batchTitle.value) panel.syncTitle(batchTitle.value)
     if (batchDescription.value) panel.syncDescription(batchDescription.value)
@@ -743,7 +746,7 @@ async function saveDraft() {
     const allPlatformConfigs = {}
     const allAccountOverrides = {}
     for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
-      const panel = panelRefs[key]
+      const panel = getPanel(key)
       if (panel) {
         const configs = panel.getConfigs()
         allPlatformConfigs[key] = configs.platformConfig
@@ -794,7 +797,7 @@ async function publishAll() {
   // Delegate validation to channel components
   for (const group of imageAccountGroups.value) {
     if (group.accounts.length === 0) continue
-    const panel = panelRefs[group.key]
+    const panel = getPanel(group.key)
     if (!panel) continue
     for (const account of group.accounts) {
       if (!publishAccountIds.has(account.id)) continue
@@ -840,7 +843,7 @@ async function publishAll() {
     currentPublishingAccount.value = account.name
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
-    const panel = panelRefs[groupKey]
+    const panel = getPanel(groupKey)
     if (panel) {
       await panel.publish(account.id, account.name, commonData)
     }
@@ -969,7 +972,7 @@ async function loadDraft(draftId) {
 
     if (dd.platformConfigs) {
       for (const [key, val] of Object.entries(dd.platformConfigs)) {
-        const panel = panelRefs[key]
+        const panel = getPanel(key)
         if (panel && val) {
           panel.restoreConfigs(val, dd.accountOverrides || {})
         }

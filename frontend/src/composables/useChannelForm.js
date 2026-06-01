@@ -31,7 +31,11 @@ export function useChannelForm(defaults, { props, emit }, { publishFn, validateF
 
   function getMergedConfig(accountId) {
     const override = accountOverrides[accountId] || {}
-    const merged = { ...platformConfig }
+    const merged = {}
+    // 深拷贝 platformConfig，数组字段必须断开引用，否则 form 和 platformConfig 共享同一数组
+    for (const [k, v] of Object.entries(platformConfig)) {
+      merged[k] = Array.isArray(v) ? [...v] : v
+    }
     for (const [k, v] of Object.entries(override)) {
       if (hasValues(v)) merged[k] = Array.isArray(v) ? [...v] : v
     }

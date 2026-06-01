@@ -125,28 +125,6 @@
             </div>
           </div>
 
-          <!-- Quick tag buttons -->
-          <div class="quick-tags">
-            <button class="cover-action-btn" @click="topicDialogVisible = true">
-              <span># 添加话题</span>
-            </button>
-            <button class="cover-action-btn">
-              <span>$ 参加活动</span>
-            </button>
-            <button class="cover-action-btn">
-              <span>@ 添加好友</span>
-            </button>
-          </div>
-          <div v-if="commonConfig.topics.length" class="topics-row">
-            <el-tag
-              v-for="(t, i) in commonConfig.topics"
-              :key="i"
-              closable
-              @close="commonConfig.topics.splice(i, 1)"
-              size="small"
-              class="cursor-pointer"
-            >#{{ t }}</el-tag>
-          </div>
         </div>
 
         <!-- Divider -->
@@ -386,43 +364,6 @@
       @confirm="onAccountConfirm"
     />
 
-    <!-- Topic Selection Dialog -->
-    <el-dialog
-      v-model="topicDialogVisible"
-      title="添加话题"
-      width="560px"
-      class="topic-dialog"
-    >
-      <div class="topic-dialog-content">
-        <div class="custom-topic-input">
-          <el-input v-model="customTopic" placeholder="输入自定义话题" class="custom-input">
-            <template #prepend>#</template>
-          </el-input>
-          <el-button type="primary" @click="addCustomTopic" class="cursor-pointer">添加</el-button>
-        </div>
-
-        <div class="recommended-topics">
-          <h4>推荐话题</h4>
-          <div class="topic-grid">
-            <el-button
-              v-for="topic in recommendedTopics"
-              :key="topic"
-              :type="commonConfig.topics.includes(topic) ? 'primary' : 'default'"
-              @click="toggleRecommendedTopic(topic)"
-              class="topic-btn cursor-pointer"
-            >{{ topic }}</el-button>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="dialog-footer-right">
-          <el-button @click="topicDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="topicDialogVisible = false">确定</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
     <!-- Video Upload Dialog -->
     <el-dialog
       v-model="videoUploadDialogVisible"
@@ -473,7 +414,7 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
-import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete, Document, WarningFilled } from '@element-plus/icons-vue'
+import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Promotion, Delete, Document, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -538,7 +479,6 @@ const commonConfig = reactive({
   videoPortrait: null,
   coverLandscape: null,
   coverPortrait: null,
-  topics: [],
 })
 
 // Cover editor
@@ -715,7 +655,6 @@ if (firstGroup) {
 
 // ========== Dialog State ==========
 const accountDialogVisible = ref(false)
-const topicDialogVisible = ref(false)
 const videoUploadDialogVisible = ref(false)
 const videoUploadTarget = ref('landscape')
 const materialSelectRef = ref(null)
@@ -733,14 +672,6 @@ const isCancelled = ref(false)
 
 // Selected accounts
 const publishAccountIds = reactive(new Set())
-
-// Topic dialog
-const customTopic = ref('')
-const recommendedTopics = [
-  '游戏', '电影', '音乐', '美食', '旅行', '文化',
-  '科技', '生活', '娱乐', '体育', '教育', '艺术',
-  '健康', '时尚', '美妆', '摄影', '宠物', '汽车',
-]
 
 // ========== Sidebar Methods ==========
 
@@ -927,32 +858,6 @@ function onMaterialSelect(material) {
   }
 }
 
-// ========== Topic Methods ==========
-
-function addCustomTopic() {
-  const topic = customTopic.value.trim()
-  if (!topic) {
-    ElMessage.warning('请输入话题内容')
-    return
-  }
-  if (commonConfig.topics.includes(topic)) {
-    ElMessage.warning('话题已存在')
-    return
-  }
-  commonConfig.topics.push(topic)
-  customTopic.value = ''
-  ElMessage.success('话题添加成功')
-}
-
-function toggleRecommendedTopic(topic) {
-  const idx = commonConfig.topics.indexOf(topic)
-  if (idx > -1) {
-    commonConfig.topics.splice(idx, 1)
-  } else {
-    commonConfig.topics.push(topic)
-  }
-}
-
 // Auto-select video format
 watch(effectiveVideoFormat, (format) => {
   if (format && selectedPlatform.value && !currentSettings.value?.videoFormat) {
@@ -974,7 +879,6 @@ async function saveDraft() {
   try {
     const draftData = {
       commonConfig: {
-        topics: [...commonConfig.topics],
         videoLandscape: commonConfig.videoLandscape
           ? { id: commonConfig.videoLandscape.id, name: commonConfig.videoLandscape.name, stored_path: commonConfig.videoLandscape.stored_path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
           : null,
@@ -1021,7 +925,6 @@ async function restoreDraft(draftId) {
     }
 
     if (dd.commonConfig) {
-      if (dd.commonConfig.topics) commonConfig.topics = dd.commonConfig.topics
       if (dd.commonConfig.videoLandscape) {
         const v = dd.commonConfig.videoLandscape
         if (v.stored_path) v.url = getFileUrl(v.stored_path)
@@ -1256,13 +1159,12 @@ async function publishAll() {
 
     try {
       const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
-      const allTags = [...commonConfig.topics, ...customTags]
 
       const publishData = {
         type: group.id,
         title: platformSettings.title,
         description: platformSettings.description || '',
-        tags: allTags,
+        tags: customTags,
         fileList: [selectedVideo.stored_path],
         videoFormat: videoFormat,
         accountList: [account.filePath],
@@ -1883,27 +1785,6 @@ function formatSize(bytes) {
   }
 }
 
-// ========== Quick Tags ==========
-.quick-tags {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-
-.topics-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-
-  .el-tag {
-    background: $gradient-brand-subtle;
-    border-color: $border-active;
-    color: $text-primary;
-  }
-}
-
 // ========== Divider ==========
 .divider {
   height: 1px;
@@ -2065,49 +1946,6 @@ function formatSize(bytes) {
   .hint-sub {
     font-size: 13px;
     color: $text-muted;
-  }
-}
-
-// ========== Topic Dialog ==========
-.topic-dialog {
-  .topic-dialog-content {
-    .custom-topic-input {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-
-      .custom-input {
-        flex: 1;
-      }
-    }
-
-    .recommended-topics {
-      h4 {
-        margin: 0 0 16px 0;
-        font-size: 15px;
-        font-weight: 600;
-        color: $text-primary;
-      }
-
-      .topic-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-        gap: 10px;
-
-        .topic-btn {
-          height: 36px;
-          font-size: 14px;
-          border-radius: $radius-base;
-          min-width: 100px;
-          padding: 0 12px;
-          white-space: nowrap;
-          text-align: center;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-      }
-    }
   }
 }
 

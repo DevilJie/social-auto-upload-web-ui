@@ -710,8 +710,8 @@ const currentPlatformConfig = computed(() =>
 
 // ========== Public Config (shared across all accounts) ==========
 const commonConfig = reactive({
-  videoLandscape: null,  // { name, url, path, size, type }
-  videoPortrait: null,   // { name, url, path, size, type }
+  videoLandscape: null,  // { id, name, url, stored_path, size, type }
+  videoPortrait: null,   // { id, name, url, stored_path, size, type }
   coverLandscape: null, // 横版封面 16:9
   coverPortrait: null,  // 竖版封面 9:16
   topics: [],
@@ -1035,10 +1035,10 @@ function openCoverEditor(tab = 'landscape') {
 }
 
 function triggerFrameExtraction(videoData, type) {
-  if (!videoData?.stored_path) return
+  if (!videoData?.id) return
   const doExtract = async () => {
     try {
-      const resp = await frameApi.extractFrames(videoData.stored_path)
+      const resp = await frameApi.extractFrames(videoData.id)
       if (resp.data) {
         const allFrames = resp.data.frames || []
         const recommended = pickRecommendedFrames(allFrames, 6)
@@ -1072,6 +1072,7 @@ async function handleVideoUpload(options) {
     if (resp.code === 200) {
       const d = resp.data
       const videoData = {
+        id: d.id,
         name: d.original_filename,
         url: getFileUrl(d.stored_path),
         stored_path: d.stored_path,
@@ -1170,6 +1171,7 @@ function confirmMaterialSelect() {
     const material = materials.value.find(m => m.id === selectedMaterials.value[0])
     if (material) {
       const videoData = {
+        id: material.id,
         name: material.original_filename,
         url: getFileUrl(material.stored_path),
         stored_path: material.stored_path,

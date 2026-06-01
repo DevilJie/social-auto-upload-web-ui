@@ -155,25 +155,25 @@ function open(tab = 'landscape') {
   loadTabState()
 }
 
-function currentVideoPath() {
+function currentVideoMaterialId() {
   if (activeTab.value === 'landscape') {
-    return props.videoLandscape?.path || props.videoPortrait?.path || ''
+    return props.videoLandscape?.id || props.videoPortrait?.id || ''
   }
-  return props.videoPortrait?.path || props.videoLandscape?.path || ''
+  return props.videoPortrait?.id || props.videoLandscape?.id || ''
 }
 
 async function loadFrames() {
-  const videoPath = currentVideoPath()
-  if (!videoPath) return
+  const materialId = currentVideoMaterialId()
+  if (!materialId) return
   stopPolling()
   try {
     extracting.value = true
-    const resp = await frameApi.extractFrames(videoPath)
+    const resp = await frameApi.extractFrames(materialId)
     if (resp.data) {
       frames.value = resp.data.frames || []
       videoDuration.value = resp.data.duration || 0
       if (resp.data.status === 'processing') {
-        startPolling(videoPath)
+        startPolling(materialId)
       } else {
         extracting.value = false
       }
@@ -183,10 +183,10 @@ async function loadFrames() {
   }
 }
 
-function startPolling(videoPath) {
+function startPolling(materialId) {
   pollingTimer = setInterval(async () => {
     try {
-      const resp = await frameApi.getFrames(videoPath)
+      const resp = await frameApi.getFrames(materialId)
       if (resp.data) {
         frames.value = resp.data.frames || []
         videoDuration.value = resp.data.duration || 0
@@ -219,9 +219,9 @@ function loadTabState() {
     if (cover?.url) {
       let src = cover.url
       if (cover._fromFrame !== undefined) {
-        const videoPath = currentVideoPath()
-        if (videoPath) {
-          src = frameApi.getFrameImageUrl(videoPath, cover._fromFrame, false)
+        const materialId = currentVideoMaterialId()
+        if (materialId) {
+          src = frameApi.getFrameImageUrl(materialId, cover._fromFrame, false)
         }
       }
       currentImageSrc.value = src
@@ -282,8 +282,8 @@ function initCropCanvas(img) {
 }
 
 function onTimelineSelect(seconds) {
-  const videoPath = currentVideoPath()
-  const url = frameApi.getFrameImageUrl(videoPath, seconds, false)
+  const materialId = currentVideoMaterialId()
+  const url = frameApi.getFrameImageUrl(materialId, seconds, false)
   currentImageSrc.value = url
   loadImageToCanvas(url)
 }

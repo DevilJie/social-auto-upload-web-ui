@@ -37,3 +37,20 @@ def get_storage():
 def reset_storage():
     """切换存储配置后调用（目前不需要缓存，每次 get_storage 重新读取配置）"""
     pass
+
+
+def resolve_material_path(path_or_stored_path):
+    """统一素材路径解析：stored_path → 本地绝对路径。
+
+    视频发布、图文发布、抽帧、封面……所有需要把素材表的
+    stored_path 转成本地可读路径的地方都应使用此函数，避免
+    重复实现和分散逻辑。
+
+    - 输入：本地存储下为相对路径（如 materials/2026/06/01/uuid.jpg）
+            或已是绝对路径
+    - 输出：本地绝对路径（若 storage 能解析）；否则原样返回
+    """
+    if not path_or_stored_path:
+        return path_or_stored_path
+    local = get_storage().get_local_path(path_or_stored_path)
+    return local if local else path_or_stored_path

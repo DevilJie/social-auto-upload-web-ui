@@ -122,13 +122,9 @@ def _get_account_record(account_id):
 
 
 def _resolve_material_path(path_or_stored_path):
-    """从 stored_path 获取本地文件绝对路径"""
-    from storage import get_storage
-    storage = get_storage()
-    local = storage.get_local_path(path_or_stored_path)
-    if local:
-        return local
-    return path_or_stored_path
+    """兼容旧调用：转发到 storage.resolve_material_path"""
+    from storage import resolve_material_path
+    return resolve_material_path(path_or_stored_path)
 
 
 # ── Account management ──────────────────────────────────────

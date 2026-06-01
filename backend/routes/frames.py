@@ -17,9 +17,8 @@ frames_bp = Blueprint('frames', __name__)
 
 def _resolve_video_path(video_path):
     """兼容旧格式：直接传文件路径的情况"""
-    from storage import get_storage
-    storage = get_storage()
-    local = storage.get_local_path(video_path)
+    from storage import resolve_material_path
+    local = resolve_material_path(video_path)
     if local:
         return local
     if os.path.isfile(video_path):
@@ -37,10 +36,8 @@ def _resolve_material_video(material_id):
     conn.close()
     if not row:
         return None
-    from storage import get_storage
-    storage = get_storage()
-    local = storage.get_local_path(row["stored_path"])
-    return local
+    from storage import resolve_material_path
+    return resolve_material_path(row["stored_path"])
 
 
 @frames_bp.post('/api/extract-frames')

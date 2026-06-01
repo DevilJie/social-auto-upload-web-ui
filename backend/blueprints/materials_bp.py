@@ -40,9 +40,8 @@ def _generate_video_thumbnail(material_id: str, source_path: str) -> str | None:
     from conf import BASE_DIR
 
     abs_source = None
-    from storage import get_storage
-    storage = get_storage()
-    local = storage.get_local_path(source_path)
+    from storage import resolve_material_path
+    local = resolve_material_path(source_path)
     if local and os.path.isfile(local):
         abs_source = local
     elif os.path.isfile(source_path):

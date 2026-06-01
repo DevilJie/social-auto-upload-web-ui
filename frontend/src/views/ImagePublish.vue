@@ -970,6 +970,17 @@ async function loadDraft(draftId) {
 
     migrateOldDraftFormat(dd)
 
+    // 先恢复 UI 状态（selectedPlatform/selectedAccountId），
+    // 这样 restoreConfigs 中的 applyToForm 能拿到正确的 accountId
+    if (dd.selectedPlatform) selectedPlatform.value = dd.selectedPlatform
+    if (dd.selectedAccountId) {
+      selectedAccountId.value = dd.selectedAccountId
+    } else if (dd.publishAccountIds?.length > 0) {
+      selectedAccountId.value = dd.publishAccountIds[0]
+    }
+    if (dd.expandedGroups) expandedGroups.value = new Set(dd.expandedGroups)
+
+    // 再恢复渠道配置（此时 accountId prop 已更新）
     if (dd.platformConfigs) {
       for (const [key, val] of Object.entries(dd.platformConfigs)) {
         const panel = getPanel(key)
@@ -984,14 +995,6 @@ async function loadDraft(draftId) {
       dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
     }
 
-    if (dd.expandedGroups) expandedGroups.value = new Set(dd.expandedGroups)
-    if (dd.selectedPlatform) selectedPlatform.value = dd.selectedPlatform
-    if (dd.selectedAccountId) {
-      selectedAccountId.value = dd.selectedAccountId
-    } else if (dd.publishAccountIds?.length > 0) {
-      selectedAccountId.value = dd.publishAccountIds[0]
-    }
-
     ElMessage.success('草稿已加载')
   } catch (e) {
     console.error('加载草稿失败:', e)
@@ -1004,13 +1007,25 @@ function getPlatformKeyByName(platformName) {
   return platform?.key || ''
 }
 
-onMounted(() => {
+onMounted(async () => {
   startAutoSaveTimer()
+
+  // 加载账号列表，确保侧栏和草稿还原能正常工作
+  if (accountStore.accounts.length === 0) {
+    try {
+      const res = await accountApi.getAccounts()
+      if (res.code === 200 && res.data) {
+        accountStore.setAccounts(res.data)
+      }
+    } catch (e) {
+      console.error('加载账号失败:', e)
+    }
+  }
 
   // 检查是否有 draft 参数
   const draftId = route.query.draft
   if (draftId) {
-    loadDraft(Number(draftId))
+    await loadDraft(Number(draftId))
   }
 })
 

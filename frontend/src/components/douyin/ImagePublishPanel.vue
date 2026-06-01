@@ -161,8 +161,8 @@ watch(form, (newVal) => {
         diff[key] = current
       }
     }
-    const hasValues = Object.entries(diff).some(([, v]) => hasValues(v))
-    if (hasValues) {
+    const hasDiff = Object.entries(diff).some(([, v]) => hasValues(v))
+    if (hasDiff) {
       accountOverrides[props.accountId] = { ...diff }
     } else {
       delete accountOverrides[props.accountId]

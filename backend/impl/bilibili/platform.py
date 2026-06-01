@@ -802,6 +802,12 @@ class BilibiliPlatform(BasePlatform):
                 ".upload-video-cover",
                 'div[class*="cover"] >> text=选择封面',
                 'div[class*="cover"] >> text=封面',
+                # 新版 B 站：scoped 样式的"封面设置"按钮
+                'span.edit-text:has-text("封面设置")',
+                '[class*="edit-text"]:has-text("封面设置")',
+                'span:has-text("封面设置")',
+                'button:has-text("封面设置")',
+                'text=封面设置',
             ]
             for sel in trigger_selectors:
                 count = await page.locator(sel).count()
@@ -821,10 +827,23 @@ class BilibiliPlatform(BasePlatform):
                 return
 
             # Wait for cover editor dialog
-            dialog = page.locator(
-                'div.bcc-dialog:has-text("封面制作")'
-            ).first
-            await dialog.wait_for(state="visible", timeout=15000)
+            # 兼容旧版"封面制作"和新版"封面设置"两种标题
+            dialog = None
+            for dialog_sel in [
+                'div.bcc-dialog:has-text("封面制作")',
+                'div.bcc-dialog:has-text("封面设置")',
+                'div.bcc-dialog',
+            ]:
+                cand = page.locator(dialog_sel).first
+                try:
+                    await cand.wait_for(state="visible", timeout=8000)
+                    dialog = cand
+                    break
+                except Exception:
+                    continue
+            if dialog is None:
+                raise RuntimeError("封面编辑弹窗未出现")
+            await asyncio.sleep(1)
             await asyncio.sleep(1)
 
             await page.screenshot(

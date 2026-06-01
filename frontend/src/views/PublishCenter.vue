@@ -119,6 +119,26 @@
                   maxlength="2000"
                 />
               </div>
+              <div class="form-field">
+                <div class="field-head">
+                  <span>公共标签</span>
+                </div>
+                <el-input
+                  v-model="batchTagInput"
+                  placeholder="输入标签内容，按回车添加"
+                  @keyup.enter="addBatchTag"
+                  clearable
+                />
+                <div v-if="batchTags.length > 0" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
+                  <el-tag
+                    v-for="(t, i) in batchTags"
+                    :key="i"
+                    closable
+                    @close="batchTags.splice(i, 1)"
+                    size="small"
+                  >#{{ t }}</el-tag>
+                </div>
+              </div>
               <button class="cover-action-btn primary" @click="syncBatchToAll">
                 <el-icon :size="15"><Promotion /></el-icon><span>同步到所有平台</span>
               </button>
@@ -197,6 +217,28 @@
             </div>
             <div v-if="!commonConfig.videoLandscape && !commonConfig.videoPortrait" class="setting-desc" style="font-size: 12px;">
               请先上传视频
+            </div>
+          </div>
+
+          <!-- 通用标签输入 -->
+          <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+            <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
+            <div class="setting-hint">输入标签内容，按回车确认</div>
+            <el-input
+              v-model="tagInput"
+              placeholder="输入标签内容，按回车添加"
+              @keyup.enter="addTag"
+              clearable
+            />
+            <div v-if="form.tags && form.tags.length > 0" class="tags-list">
+              <el-tag
+                v-for="(tag, index) in form.tags"
+                :key="index"
+                closable
+                @close="removeTag(index)"
+                size="small"
+                :disable-transitions="false"
+              >#{{ tag }}</el-tag>
             </div>
           </div>
 
@@ -496,16 +538,16 @@ const landscapeCoverFrames = computed(() =>
 
 // ========== Per-platform Config ==========
 const platformConfigs = reactive({
-  douyin: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '' },
-  xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
-  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
-  bilibili: { title: '', description: '', zone: '', tags: '', topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
-  channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '' },
-  baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '' },
-  tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
-  youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '' },
-  iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '' },
-  tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '' },
+  douyin: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '', tags: [] },
+  xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  bilibili: { title: '', description: '', zone: '', tags: [], topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+  channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '', tags: [] },
+  baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '', tags: [] },
+  tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '', tags: [] },
+  iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '', tags: [] },
+  tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -632,14 +674,47 @@ function resetAccountOverride(accountId) {
 const currentDraftId = ref(null)
 const { hasChanges, startAutoSaveTimer } = useAutoSave(() => saveDraft())
 
+// ========== Tag Input ==========
+const tagInput = ref('')
+
+function addTag() {
+  const tag = tagInput.value.trim()
+  if (!tag) return
+  if (!form.tags) form.tags = []
+  if (form.tags.includes(tag)) {
+    ElMessage.warning('标签已存在')
+    return
+  }
+  form.tags.push(tag)
+  tagInput.value = ''
+}
+
+function removeTag(index) {
+  form.tags.splice(index, 1)
+}
+
 // ========== Batch sync ==========
 const batchTitle = ref('')
 const batchDescription = ref('')
+const batchTagInput = ref('')
+const batchTags = ref([])
+
+function addBatchTag() {
+  const tag = batchTagInput.value.trim()
+  if (!tag) return
+  if (batchTags.value.includes(tag)) {
+    ElMessage.warning('标签已存在')
+    return
+  }
+  batchTags.value.push(tag)
+  batchTagInput.value = ''
+}
 
 function syncBatchToAll() {
   for (const key of Object.keys(platformConfigs)) {
     if (batchTitle.value) platformConfigs[key].title = batchTitle.value
     if (batchDescription.value) platformConfigs[key].description = batchDescription.value
+    if (batchTags.value.length > 0) platformConfigs[key].tags = [...batchTags.value]
   }
   ElMessage.success('已同步到所有平台')
 }
@@ -1158,7 +1233,9 @@ async function publishAll() {
       }
 
     try {
-      const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
+      const customTags = Array.isArray(platformSettings.tags)
+        ? platformSettings.tags.map(t => t.replace(/^#/, '').trim()).filter(Boolean)
+        : (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
 
       const publishData = {
         type: group.id,
@@ -1921,6 +1998,20 @@ function formatSize(bytes) {
       .radio-text.muted { opacity: 0.5; }
     }
   }
+}
+
+.setting-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.tags-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 // ========== No Platform Hint ==========

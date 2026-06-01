@@ -556,44 +556,6 @@ def postVideoBatch():
     return jsonify({"code": 200, "msg": None, "data": None}), 200
 
 
-# ── Settings (file-based, for proxy etc.) ───────────────────
-
-SETTINGS_FILE = BASE_DIR / "settings.json"
-
-
-def _read_settings():
-    if SETTINGS_FILE.exists():
-        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
-
-
-def _write_settings(data):
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-@app.route('/api/v2/settings', methods=['GET'])
-def api_get_settings():
-    return jsonify({"code": 200, "msg": None, "data": _read_settings()})
-
-
-@app.route('/api/v2/settings', methods=['PUT'])
-def api_update_settings():
-    data = request.get_json(force=True)
-    current = _read_settings()
-    current.update(data)
-    _write_settings(current)
-
-    # 如果存储配置变更，重置存储实例
-    if data.get('storage'):
-        from storage import reset_storage
-        reset_storage()
-
-    return jsonify({"code": 200, "msg": "保存成功", "data": current})
-
-
 # ── Publish history tracking ────────────────────────────────
 
 def _record_publish(task_id, platform, account_name, video_path, title, description, tags, status, started_at, finished_at=None, error_message=""):

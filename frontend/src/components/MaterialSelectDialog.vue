@@ -122,6 +122,12 @@
               <el-icon :size="14"><Check /></el-icon>
             </div>
 
+            <!-- 存储方式标识 -->
+            <span class="msd-card-storage-badge" :class="{ s3: mat.storage_type === 's3' }">
+              <el-icon :size="10"><component :is="mat.storage_type === 's3' ? 'Upload' : 'Monitor'" /></el-icon>
+              {{ mat.storage_type === 's3' ? 'S3' : '本地' }}
+            </span>
+
             <!-- Hover overlay -->
             <div class="msd-card-hover-info">
               <span class="msd-card-size">{{ formatSize(mat.file_size) }}</span>
@@ -196,6 +202,8 @@ import {
   PictureFilled,
   VideoCamera,
   Grid,
+  Upload,
+  Monitor,
 } from '@element-plus/icons-vue'
 import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
@@ -641,6 +649,31 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   color: #fff;
   font-size: 10px;
   font-weight: 500;
+}
+
+.msd-card-storage-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #d1d5db;
+  font-size: 11px;
+  font-weight: 600;
+  z-index: 2;
+  letter-spacing: 0.3px;
+
+  &.s3 {
+    color: #fff;
+    background: rgba(37, 99, 235, 0.7);
+    border-color: rgba(96, 165, 250, 0.5);
+  }
 }
 
 // 居中播放按钮 — 默认半透明，hover 缩放高亮

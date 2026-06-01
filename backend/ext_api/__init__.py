@@ -394,6 +394,28 @@ def get_stats():
 
 # ========== 系统设置 ==========
 
+def _read_json_settings():
+    """读取 settings.json（storage / proxyUrl 的持久化文件）"""
+    settings_file = BASE_DIR / "settings.json"
+    if settings_file.exists():
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+
+def _write_json_settings(data):
+    """写入 settings.json"""
+    settings_file = BASE_DIR / "settings.json"
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    current = {}
+    if settings_file.exists():
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            current = json.load(f)
+    current.update(data)
+    with open(settings_file, 'w', encoding='utf-8') as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+
+
 @ext_api.route('/settings', methods=['GET'])
 def get_settings():
     """获取系统设置"""
@@ -427,6 +449,12 @@ def get_settings():
                     defaults[key] = int(defaults[key])
                 except (ValueError, TypeError):
                     pass
+
+        # storage / proxyUrl 从 settings.json 读取（get_storage / get_proxy_url 依赖此文件）
+        json_settings = _read_json_settings()
+        defaults['storage'] = json_settings.get('storage', {'type': 'local', 's3': {}})
+        defaults['proxyUrl'] = json_settings.get('proxyUrl', '')
+
         return jsonify({"code": 200, "data": defaults})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
@@ -440,6 +468,19 @@ def update_settings():
         return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
 
     try:
+        # storage / proxyUrl 写入 settings.json（get_storage / get_proxy_url 依赖此文件）
+        json_keys = {'storage', 'proxyUrl'}
+        json_data = {}
+        for key in json_keys:
+            if key in data:
+                json_data[key] = data.pop(key)
+        if json_data:
+            _write_json_settings(json_data)
+            if 'storage' in json_data:
+                from storage import reset_storage
+                reset_storage()
+
+        # 其余设置写入 SQLite
         conn = _db_conn()
         for key, value in data.items():
             conn.execute(

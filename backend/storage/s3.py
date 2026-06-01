@@ -8,12 +8,14 @@ class S3Storage(StorageBackend):
 
     def __init__(self, endpoint, access_key, secret_key, bucket, region=""):
         import boto3
+        from botocore.config import Config
         self.client = boto3.client(
             "s3",
             endpoint_url=endpoint,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
+            config=Config(proxies={"http": None, "https": None}),
         )
         self.bucket = bucket
 

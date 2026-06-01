@@ -56,7 +56,7 @@
         <div class="sidebar-scroll">
           <div class="sidebar-grid" v-if="imageMaterials.length > 0">
             <div v-for="mat in imageMaterials" :key="mat.id" class="sidebar-thumb" @click="onMaterialClick(mat)">
-              <img :src="getMaterialUrl(mat)" :alt="mat.filename" />
+              <img :src="getMaterialUrl(mat)" :alt="mat.original_filename" />
               <div class="thumb-overlay">
                 <el-icon :size="12"><Check /></el-icon>
               </div>
@@ -126,8 +126,8 @@ const tabState = reactive({
 })
 
 const imageMaterials = computed(() => {
-  const imgExts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-  return props.materials.filter(m => imgExts.some(ext => m.filename.toLowerCase().endsWith(ext)))
+  if (!props.materials?.length) return []
+  return props.materials.filter(m => m.file_type === 'image')
 })
 
 const currentRatioLabel = computed(() => activeTab.value === 'portrait' ? props.portraitRatio : props.landscapeRatio)

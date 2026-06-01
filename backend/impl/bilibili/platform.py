@@ -1075,27 +1075,65 @@ class BilibiliPlatform(BasePlatform):
                 'input.bcc-select-input-inner[placeholder*="创作声明"]'
             )
             if await select_input.count() == 0:
-                logger.info(
-                    "[bilibili] creation declaration dropdown not "
-                    "present, skipping"
-                )
-                return
+                # 兼容：用 section title "创作声明" 定位所在容器的 select input
+                scoped = page.locator(
+                    'div.statement-content, '
+                    'div[class*="statement-content"]'
+                ).first
+                scoped_input = scoped.locator(
+                    'input.bcc-select-input-inner'
+                ).first
+                if await scoped_input.count() > 0:
+                    select_input = scoped_input
+                else:
+                    logger.info(
+                        "[bilibili] creation declaration dropdown not "
+                        "present, skipping"
+                    )
+                    return
 
             await select_input.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
             await select_input.first.click(force=True)
             await asyncio.sleep(1)
 
-            await page.wait_for_selector(
-                "li.bcc-option:visible", timeout=3000
+            # 等下拉打开：检测 bcc-select-list-wrap 从 display:none 变为可见
+            # 用户给的 DOM 里 .bcc-select-list-wrap 默认 display: none，
+            # 展开后 inline style 被去除（display: block / 默认）。用
+            # 内联 style 判定更准确（避免 :visible 在 display:none 时失效）
+            list_wrap = page.locator(
+                '.bcc-select-list-wrap:not([style*="display: none"])'
             )
-            options = page.locator("li.bcc-option:visible")
-            count = await options.count()
+            try:
+                await list_wrap.first.wait_for(
+                    state="attached", timeout=5000
+                )
+            except Exception:
+                # 兜底：bcc-select 容器加 'is-open'/'is-focus' 类
+                fallback = page.locator(
+                    '.bcc-select.is-open, .bcc-select.is-focus, '
+                    '.bcc-select[class*="open"], .bcc-select[class*="focus"]'
+                )
+                await fallback.first.wait_for(state="attached", timeout=3000)
+
+            # 在创作声明容器内查选项（避免命中页面其他 bcc-select）
+            scoped_options = page.locator(
+                'div.statement-content, '
+                'div[class*="statement-content"]'
+            ).first.locator('li.bcc-option')
+            try:
+                await scoped_options.first.wait_for(
+                    state="attached", timeout=5000
+                )
+            except Exception:
+                pass
+
+            count = await scoped_options.count()
 
             target_text = creation_declaration.strip()
             clicked = False
             for i in range(count):
-                opt = options.nth(i)
+                opt = scoped_options.nth(i)
                 span = opt.locator("span").first
                 opt_text = (await span.text_content() or "").strip()
                 if opt_text == target_text:

@@ -750,11 +750,7 @@ async function saveDraft() {
       if (panel) {
         const configs = panel.getConfigs()
         allPlatformConfigs[key] = configs.platformConfig
-        // 深合并：同账号 ID 的覆盖字段合并而非替换
-        for (const [accId, accOverride] of Object.entries(configs.accountOverrides)) {
-          if (!allAccountOverrides[accId]) allAccountOverrides[accId] = {}
-          Object.assign(allAccountOverrides[accId], accOverride)
-        }
+        Object.assign(allAccountOverrides, configs.accountOverrides)
       }
     }
 
@@ -994,7 +990,21 @@ async function loadDraft(draftId) {
       for (const [key, val] of Object.entries(dd.platformConfigs)) {
         const panel = getPanel(key)
         if (panel && val) {
-          panel.restoreConfigs(val, dd.accountOverrides || {})
+          // 只传属于本平台的账号覆盖，不同渠道互不干扰
+          const ownOverrides = {}
+          if (dd.accountOverrides) {
+            const ownAccountIds = new Set(
+              accountStore.accounts
+                .filter(a => getPlatformKeyByName(a.platform) === key)
+                .map(a => a.id)
+            )
+            for (const [accId, accOverride] of Object.entries(dd.accountOverrides)) {
+              if (ownAccountIds.has(Number(accId))) {
+                ownOverrides[accId] = accOverride
+              }
+            }
+          }
+          panel.restoreConfigs(val, ownOverrides)
         }
       }
     }

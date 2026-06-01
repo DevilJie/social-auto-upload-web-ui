@@ -515,11 +515,6 @@ function onPublishResult({ accountName, status, message }) {
   publishResults.value.push({ label: accountName, status, message })
 }
 
-function getAccountName(accountId) {
-  const account = accountStore.accounts.find(a => a.id === accountId)
-  return account ? account.name : '未知'
-}
-
 function hasAccountOverride(accountId) {
   for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
     const panel = panelRefs[key]

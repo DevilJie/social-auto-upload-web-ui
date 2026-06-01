@@ -290,14 +290,14 @@ const fetchDashboardData = async () => {
     // 并行获取账号和素材数据
     const [accountRes, materialRes] = await Promise.allSettled([
       accountApi.getAccounts(),
-      materialsApi.list()
+      materialsApi.list({ page_size: 200 })
     ])
 
     if (accountRes.status === 'fulfilled' && accountRes.value.code === 200) {
       accountStore.setAccounts(accountRes.value.data)
     }
     if (materialRes.status === 'fulfilled' && materialRes.value.code === 200) {
-      appStore.setMaterials(materialRes.value.data)
+      appStore.setMaterials(materialRes.value.data.items || [])
     }
   } catch (error) {
     console.error('获取仪表盘数据失败:', error)

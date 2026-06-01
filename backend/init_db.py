@@ -163,6 +163,7 @@ def init_database():
         width INTEGER DEFAULT 0,
         height INTEGER DEFAULT 0,
         duration REAL DEFAULT 0,
+        thumbnail_path TEXT DEFAULT '',
         upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -195,6 +196,13 @@ def migrate_database():
     try:
         cursor.execute('ALTER TABLE image_drafts ADD COLUMN draft_data TEXT DEFAULT "{}"')
         logger.info("已添加 image_drafts.draft_data 列")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+
+    # materials 添加 thumbnail_path 列
+    try:
+        cursor.execute('ALTER TABLE materials ADD COLUMN thumbnail_path TEXT DEFAULT ""')
+        logger.info("已添加 materials.thumbnail_path 列")
     except sqlite3.OperationalError:
         pass  # 列已存在
 

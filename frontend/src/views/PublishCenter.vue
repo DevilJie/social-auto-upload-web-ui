@@ -1127,9 +1127,9 @@ async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape
   }
   // 每次打开素材库都重新加载，确保看到最新上传的文件
   try {
-    const response = await materialsApi.list()
+    const response = await materialsApi.list({ page_size: 200 })
     if (response.code === 200) {
-      appStore.setMaterials(response.data)
+      appStore.setMaterials(response.data.items || [])
     } else {
       ElMessage.error('获取素材列表失败')
       return

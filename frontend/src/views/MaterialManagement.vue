@@ -233,10 +233,10 @@ watch(fileList, (newList) => {
 const fetchMaterials = async () => {
   isRefreshing.value = true
   try {
-    const response = await materialsApi.list()
+    const response = await materialsApi.list({ page_size: 200 })
 
     if (response.code === 200) {
-      appStore.setMaterials(response.data)
+      appStore.setMaterials(response.data.items || [])
       ElMessage.success('刷新成功')
     } else {
       ElMessage.error('获取素材列表失败')

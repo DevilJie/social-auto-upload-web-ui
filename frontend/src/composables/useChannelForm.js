@@ -44,6 +44,11 @@ export function useChannelForm(defaults, { props, emit }, { publishFn, validateF
 
   function applyToForm(source) {
     syncing = true
+    // 清除 form 中存在但 source 不存在的动态字段（如 mixData, selectedMusicData 等），
+    // 这些是账号级专属字段，不存在于 platformConfig 默认值中，切换账号时必须清空
+    for (const key of Object.keys(form)) {
+      if (!(key in source)) delete form[key]
+    }
     Object.assign(form, source)
     syncing = false
   }

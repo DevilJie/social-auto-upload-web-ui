@@ -807,7 +807,7 @@ class DouyinPlatform(BasePlatform):
                 await page.keyboard.press("Delete")
 
                 # 注入描述文本
-                await page.keyboard.insertText(desc[:1000])
+                await page.keyboard.insert_text(desc[:1000])
                 await asyncio.sleep(0.2)
 
                 # 逐个字符输入标签，每个标签后按空格触发抖音识别

@@ -1,64 +1,19 @@
 <template>
   <div class="publish-center">
     <!-- ========== LEFT SIDEBAR ========== -->
-    <aside class="account-sidebar">
-      <div class="sidebar-header">
-        <span class="sidebar-title">账号管理</span>
-        <span class="sidebar-count">{{ totalCount }}</span>
-      </div>
-
-      <div class="group-list">
-        <div
-          v-for="group in accountGroups"
-          :key="group.key"
-          :class="['group-wrap', { 'is-selected': selectedPlatform === group.key }]"
-        >
-          <!-- Group header -->
-          <div
-            class="group-header cursor-pointer"
-            @click="toggleGroup(group.key)"
-          >
-            <el-icon class="expand-icon" :style="{ color: selectedPlatform === group.key ? group.color : '' }">
-              <component :is="expandedGroups.has(group.key) ? ArrowDown : ArrowRight" />
-            </el-icon>
-            <span class="platform-badge">
-              <img v-if="group.logo" :src="group.logo" :alt="group.name" class="platform-badge-img">
-              <template v-else>{{ group.letter }}</template>
-            </span>
-            <span class="group-name">{{ group.name }}</span>
-            <span class="group-count">{{ group.accounts.filter(a => publishAccountIds.has(a.id)).length }}</span>
-          </div>
-
-          <!-- Expandable account list -->
-          <transition name="slide">
-            <div v-show="expandedGroups.has(group.key)" class="group-accounts">
-              <div
-                v-for="account in group.accounts.filter(a => publishAccountIds.has(a.id))"
-                :key="account.id"
-                :class="['account-item cursor-pointer', {
-                  active: selectedAccountId === account.id,
-                  'has-override': hasAccountOverride(account.id)
-                }]"
-                @click="selectAccount(account, group)"
-              >
-                <div class="account-avatar" :style="{ borderColor: group.color }">
-                  {{ account.name ? account.name.charAt(0) : '?' }}
-                </div>
-                <span class="account-name">{{ account.name }}</span>
-                <span :class="['dot', account.status === '正常' ? 'on' : 'off']"></span>
-                <el-icon v-if="hasAccountOverride(account.id)" class="override-icon" title="已自定义配置"><StarFilled /></el-icon>
-                <el-icon class="account-remove" @click.stop="removePublishAccount(account.id)"><Close /></el-icon>
-              </div>
-              <div v-if="group.accounts.filter(a => publishAccountIds.has(a.id)).length === 0" class="no-accounts">暂无账号</div>
-            </div>
-          </transition>
-        </div>
-      </div>
-
-      <div class="sidebar-footer">
-        <div class="add-btn cursor-pointer" @click="accountDialogVisible = true">+ 添加账号</div>
-      </div>
-    </aside>
+    <AccountSidebar
+      :account-groups="accountGroups"
+      :total-count="totalCount"
+      :selected-platform="selectedPlatform"
+      :selected-account-id="selectedAccountId"
+      :expanded-groups="expandedGroups"
+      :publish-account-ids="publishAccountIds"
+      :has-account-override="hasAccountOverride"
+      @toggle-group="toggleGroup"
+      @select-account="selectAccount"
+      @remove-account="removePublishAccount"
+      @open-account-dialog="accountDialogVisible = true"
+    />
 
     <!-- ========== RIGHT MAIN AREA ========== -->
     <main class="publish-main">
@@ -208,18 +163,15 @@
             <span class="hint">{{ selectedAccountId ? '仅对该账号生效' : '对该分组所有未自定义的账号生效' }}</span>
           </div>
 
-          <!-- 如果选中了账号且有自定义配置，显示"恢复默认"按钮 -->
           <div v-if="selectedAccountId && hasAccountOverride(selectedAccountId)" style="margin-bottom: 12px;">
             <el-button size="small" @click="resetAccountOverride(selectedAccountId)">恢复为渠道默认</el-button>
           </div>
 
-          <!-- 小红书反检测警告 -->
           <div v-if="selectedPlatform === 'xiaohongshu'" class="xhs-warning">
             <el-icon><WarningFilled /></el-icon>
             <span>由于小红书反检测机制比较恶心，如果出现被警告的情况！请立即停止使用小红书渠道！</span>
           </div>
 
-          <!-- 账号级 or 渠道级标题描述 -->
           <div class="platform-title-desc">
             <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标题</div>
@@ -243,7 +195,6 @@
             </div>
           </div>
 
-          <!-- 视频格式选择 -->
           <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a', marginBottom: '12px' }">
             <div class="setting-label" :style="{ color: currentPlatformConfig.color }">视频格式</div>
             <div class="radio-row">
@@ -273,7 +224,6 @@
 
           <div class="settings-grid">
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
-              <!-- 其他字段通用渲染（排除 title, description, videoFormat） -->
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
                   class="setting-card"
@@ -429,75 +379,12 @@
     <!-- ========== DIALOGS ========== -->
 
     <!-- Account Selection Dialog -->
-    <el-dialog
+    <AccountSelectDialog
       v-model="accountDialogVisible"
-      title="选择账号"
-      width="680px"
-      :close-on-click-modal="false"
-      class="account-select-dialog"
-    >
-      <div class="account-dialog-body">
-        <div class="account-dialog-content">
-          <!-- Left: platform list -->
-          <div class="dialog-platform-list">
-            <div
-              :class="['dialog-platform-item', 'cursor-pointer', { active: !accountFilterPlatform }]"
-              @click="accountFilterPlatform = ''"
-            >全部平台</div>
-            <div
-              v-for="p in platformList"
-              :key="p.key"
-              :class="['dialog-platform-item', 'cursor-pointer', { active: accountFilterPlatform === p.name }]"
-              @click="accountFilterPlatform = p.name"
-            >
-              <span class="dialog-platform-badge">
-                <img v-if="p.logo" :src="p.logo" :alt="p.name" class="dialog-platform-badge-img">
-                <template v-else>{{ p.letter }}</template>
-              </span>
-              {{ p.name }}
-            </div>
-          </div>
-
-          <!-- Right: account checkboxes -->
-          <div class="dialog-account-list">
-            <div class="dialog-select-all">
-              <el-button size="small" @click="toggleSelectAll">
-                {{ isAllSelected ? '取消全选' : '一键全选' }}
-              </el-button>
-            </div>
-            <el-checkbox-group v-model="tempSelectedAccounts">
-              <div
-                v-for="account in filteredAccounts"
-                :key="account.id"
-                :class="['dialog-account-item', { disabled: account.status !== '正常' }]"
-              >
-                <el-checkbox :label="account.id" class="cursor-pointer">
-                  <div class="dialog-account-info">
-                    <div class="dialog-account-avatar">{{ account.name ? account.name.charAt(0) : '?' }}</div>
-                    <span class="dialog-account-name">{{ account.name }}</span>
-                    <span class="dialog-account-platform">{{ account.platform }}</span>
-                    <span :class="['dialog-account-status', account.status === '正常' ? 'ok' : 'err']">
-                      {{ account.status === '正常' ? '正常' : '已失效' }}
-                    </span>
-                  </div>
-                </el-checkbox>
-              </div>
-            </el-checkbox-group>
-            <div v-if="filteredAccounts.length === 0" class="dialog-empty">暂无可选账号</div>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="dialog-footer">
-          <span class="selected-count">已选择 {{ tempSelectedAccounts.length }} 个账号</span>
-          <div class="dialog-footer-btns">
-            <el-button @click="accountDialogVisible = false">取消</el-button>
-            <el-button type="primary" @click="confirmAccountSelection">确认添加</el-button>
-          </div>
-        </div>
-      </template>
-    </el-dialog>
+      :platforms="platformList"
+      :publish-account-ids="publishAccountIds"
+      @confirm="onAccountConfirm"
+    />
 
     <!-- Topic Selection Dialog -->
     <el-dialog
@@ -574,65 +461,34 @@
     />
 
     <!-- Batch Publish Progress Dialog -->
-    <el-dialog
+    <BatchPublishDialog
       v-model="batchPublishDialogVisible"
-      title="批量发布进度"
-      width="500px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :show-close="false"
-      class="batch-progress-dialog"
-    >
-      <div class="publish-progress">
-        <el-progress
-          :percentage="publishProgress"
-          :status="publishProgress === 100 ? 'success' : ''"
-        />
-        <div v-if="currentPublishingAccount" class="current-publishing">
-          正在发布：{{ currentPublishingAccount }}
-        </div>
-
-        <div class="publish-results" v-if="publishResults.length > 0">
-          <div
-            v-for="(result, index) in publishResults"
-            :key="index"
-            :class="['result-item', result.status]"
-          >
-            <el-icon v-if="result.status === 'success'"><Check /></el-icon>
-            <el-icon v-else-if="result.status === 'error'"><Close /></el-icon>
-            <el-icon v-else><InfoFilled /></el-icon>
-            <span class="result-label">{{ result.label }}</span>
-            <span class="result-message">{{ result.message }}</span>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="dialog-footer-right">
-          <el-button @click="cancelBatch" :disabled="publishProgress === 100">取消发布</el-button>
-          <el-button type="primary" @click="batchPublishDialogVisible = false" v-if="publishProgress === 100">关闭</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- Hidden file inputs -->
+      :progress="publishProgress"
+      :results="publishResults"
+      :current-account="currentPublishingAccount"
+      @cancel="cancelBatch"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
 import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Check, Close, InfoFilled, Promotion, StarFilled, Delete, Document, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
-import { accountApi } from '@/api/account'
 import { http } from '@/utils/request'
 import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platforms'
+
+import AccountSidebar from '@/components/AccountSidebar.vue'
+import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
+import BatchPublishDialog from '@/components/BatchPublishDialog.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
+import { useAutoSave } from '@/composables/useAutoSave'
 import { frameApi } from '@/api/frame'
 import { draftApi } from '@/api/draft'
 import { useRoute } from 'vue-router'
@@ -640,9 +496,9 @@ import { useRoute } from 'vue-router'
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
 const appStore = useAppStore()
-appStore.loadAutoFillTitle()  // 加载自动填充标题开关状态
-appStore.loadAutoSaveSettings()  // 加载自动保存草稿设置
-appStore.loadCoverRatioSettings()  // 加载封面比例设置
+appStore.loadAutoFillTitle()
+appStore.loadAutoSaveSettings()
+appStore.loadCoverRatioSettings()
 const route = useRoute()
 
 // ========== Left Sidebar State ==========
@@ -650,7 +506,6 @@ const expandedGroups = ref(new Set())
 const selectedPlatform = ref(null)
 const selectedAccountId = ref(null)
 
-// Account groups computed from store
 const accountGroups = computed(() => {
   return platformList.map(p => ({
     key: p.key,
@@ -677,12 +532,12 @@ const currentPlatformConfig = computed(() =>
   selectedPlatform.value ? getPlatformByKey(selectedPlatform.value) : null
 )
 
-// ========== Public Config (shared across all accounts) ==========
+// ========== Public Config ==========
 const commonConfig = reactive({
-  videoLandscape: null,  // { id, name, url, stored_path, size, type }
-  videoPortrait: null,   // { id, name, url, stored_path, size, type }
-  coverLandscape: null, // 横版封面 16:9
-  coverPortrait: null,  // 竖版封面 9:16
+  videoLandscape: null,
+  videoPortrait: null,
+  coverLandscape: null,
+  coverPortrait: null,
   topics: [],
 })
 
@@ -690,9 +545,8 @@ const commonConfig = reactive({
 const coverEditorRef = ref(null)
 const landscapeFrames = ref([])
 const portraitFrames = ref([])
-const videoModeTab = ref('portrait')  // 'portrait' | 'landscape'
+const videoModeTab = ref('portrait')
 
-// Smart frame fallback: if only one video exists, both covers share its frames
 const portraitCoverFrames = computed(() =>
   portraitFrames.value.length > 0 ? portraitFrames.value : landscapeFrames.value
 )
@@ -714,7 +568,6 @@ const platformConfigs = reactive({
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '' },
 })
 
-// ========== Account-level Overrides (账号级覆盖, 优先级高于渠道默认) ==========
 const accountOverrides = reactive({})
 
 const currentSettings = computed(() =>
@@ -725,11 +578,10 @@ const currentSettings = computed(() =>
 const videoFormatOptions = computed(() => {
   const hasLandscape = !!commonConfig.videoLandscape
   const hasPortrait = !!commonConfig.videoPortrait
-  const options = [
+  return [
     { label: '横版', value: 'landscape', disabled: !hasLandscape && hasPortrait },
     { label: '竖版', value: 'portrait', disabled: !hasPortrait && hasLandscape },
   ]
-  return options
 })
 
 const effectiveVideoFormat = computed(() => {
@@ -739,15 +591,9 @@ const effectiveVideoFormat = computed(() => {
 })
 
 // ========== Account-level Settings Merging ==========
-/**
- * 获取合并后的账号设置：账号级覆盖优先，其次渠道默认
- * @param {string} accountId
- * @param {string} platformKey
- */
 function getAccountSettings(accountId, platformKey) {
   const platform = platformConfigs[platformKey] || {}
   const override = accountOverrides[accountId] || {}
-  // 账号级覆盖优先，其次渠道默认
   const merged = { ...platform }
   for (const key of Object.keys(merged)) {
     if (override[key] !== undefined && override[key] !== '') {
@@ -757,19 +603,14 @@ function getAccountSettings(accountId, platformKey) {
   return merged
 }
 
-/**
- * 检查账号是否有自定义覆盖配置
- */
 function hasAccountOverride(accountId) {
   const override = accountOverrides[accountId]
   if (!override) return false
   return Object.values(override).some(v => v !== undefined && v !== '' && v !== false)
 }
 
-// 表单数据（reactive 对象，支持 v-model 绑定到属性）
 const form = reactive({})
 
-// 获取当前合并后的设置
 function getMergedSettings() {
   const platformKey = selectedPlatform.value
   if (!platformKey) return {}
@@ -788,19 +629,16 @@ function getMergedSettings() {
   return { ...platform }
 }
 
-// 切换平台/账号时重新填充表单
 watch([selectedPlatform, selectedAccountId], () => {
   const merged = getMergedSettings()
   for (const key of Object.keys(merged)) {
     form[key] = merged[key]
   }
-  // 清理不存在的字段
   for (const key of Object.keys(form)) {
     if (!(key in merged)) {
       delete form[key]
     }
   }
-  // 多选字段初始化为数组
   const platformKey = selectedPlatform.value
   if (platformKey) {
     const platform = platformConfigs[platformKey] || {}
@@ -813,7 +651,6 @@ watch([selectedPlatform, selectedAccountId], () => {
   }
 }, { immediate: true })
 
-// 表单变更时同步到 store
 watch(form, (newVal) => {
   const platformKey = selectedPlatform.value
   if (!platformKey) return
@@ -823,7 +660,6 @@ watch(form, (newVal) => {
   const platform = platformConfigs[platformKey]
 
   if (selectedAccountId.value) {
-    // 账号级：计算与渠道默认的差异，存入 accountOverrides
     const diff = {}
     for (const key of Object.keys(newVal)) {
       if (newVal[key] !== platform[key]) {
@@ -836,7 +672,6 @@ watch(form, (newVal) => {
       delete accountOverrides[selectedAccountId.value]
     }
   } else {
-    // 渠道级：直接写入 platformConfigs
     for (const key of Object.keys(newVal)) {
       platform[key] = newVal[key]
     }
@@ -853,7 +688,11 @@ function resetAccountOverride(accountId) {
   ElMessage.success('已恢复为渠道默认设置')
 }
 
-// ========== Batch title/description sync ==========
+// ========== Auto-save ==========
+const currentDraftId = ref(null)
+const { hasChanges, startAutoSaveTimer } = useAutoSave(() => saveDraft())
+
+// ========== Batch sync ==========
 const batchTitle = ref('')
 const batchDescription = ref('')
 
@@ -867,7 +706,7 @@ function syncBatchToAll() {
 
 const batchSyncExpanded = ref(false)
 
-// ========== Init: expand first group with accounts ==========
+// ========== Init ==========
 const firstGroup = accountGroups.value.find(g => g.accounts.length > 0)
 if (firstGroup) {
   expandedGroups.value.add(firstGroup.key)
@@ -878,55 +717,12 @@ if (firstGroup) {
 const accountDialogVisible = ref(false)
 const topicDialogVisible = ref(false)
 const videoUploadDialogVisible = ref(false)
-const videoUploadTarget = ref('landscape') // 'landscape' | 'portrait'
+const videoUploadTarget = ref('landscape')
 const materialSelectRef = ref(null)
-const materialLibraryMode = ref('video') // 'video' | 'cover'
-const materialLibraryCoverTarget = ref('landscape') // 'landscape' | 'portrait'
-const materialLibraryVideoTarget = ref('landscape') // 'landscape' | 'portrait'
+const materialLibraryMode = ref('video')
+const materialLibraryCoverTarget = ref('landscape')
+const materialLibraryVideoTarget = ref('landscape')
 const batchPublishDialogVisible = ref(false)
-
-// Account dialog state
-const accountFilterPlatform = ref('')
-const accountSearchQuery = ref('')
-const tempSelectedAccounts = ref([])
-
-// 账号弹窗打开时，从 publishAccountIds 恢复 tempSelectedAccounts
-watch(accountDialogVisible, async (visible) => {
-  if (visible) {
-    tempSelectedAccounts.value = [...publishAccountIds]
-    if (accountStore.accounts.length === 0) {
-      try {
-        const res = await accountApi.getAccounts()
-        if (res.code === 200 && res.data) {
-          accountStore.setAccounts(res.data)
-        }
-      } catch (e) {
-        console.error('加载账号失败:', e)
-      }
-    }
-  }
-})
-
-// 自动选择视频格式（当只有一种格式可用时）
-watch(effectiveVideoFormat, (format) => {
-  if (format && selectedPlatform.value && !currentSettings.value?.videoFormat) {
-    const platformKey = selectedPlatform.value
-    if (platformConfigs[platformKey]) {
-      platformConfigs[platformKey].videoFormat = format
-    }
-  }
-})
-
-// Topic dialog state
-const customTopic = ref('')
-const recommendedTopics = [
-  '游戏', '电影', '音乐', '美食', '旅行', '文化',
-  '科技', '生活', '娱乐', '体育', '教育', '艺术',
-  '健康', '时尚', '美妆', '摄影', '宠物', '汽车',
-]
-
-// Material library state
-const materials = computed(() => appStore.materials)
 
 // Batch publish state
 const publishing = ref(false)
@@ -934,6 +730,17 @@ const publishProgress = ref(0)
 const publishResults = ref([])
 const currentPublishingAccount = ref('')
 const isCancelled = ref(false)
+
+// Selected accounts
+const publishAccountIds = reactive(new Set())
+
+// Topic dialog
+const customTopic = ref('')
+const recommendedTopics = [
+  '游戏', '电影', '音乐', '美食', '旅行', '文化',
+  '科技', '生活', '娱乐', '体育', '教育', '艺术',
+  '健康', '时尚', '美妆', '摄影', '宠物', '汽车',
+]
 
 // ========== Sidebar Methods ==========
 
@@ -947,25 +754,8 @@ function toggleGroup(key) {
   selectedAccountId.value = null
 }
 
-// Selected accounts for publishing (default empty)
-const publishAccountIds = reactive(new Set())
-const currentDraftId = ref(null) // null = 新草稿, number = 编辑已有草稿
-const autoSaveTimer = ref(null)
-const hasChanges = ref(false) // 是否有过修改
-
 function removePublishAccount(id) {
   publishAccountIds.delete(id)
-  hasChanges.value = true
-}
-
-function togglePublishAccount(account, group) {
-  selectedPlatform.value = group.key
-  expandedGroups.value.add(group.key)
-  if (publishAccountIds.has(account.id)) {
-    publishAccountIds.delete(account.id)
-  } else {
-    publishAccountIds.add(account.id)
-  }
   hasChanges.value = true
 }
 
@@ -973,6 +763,16 @@ function selectAccount(account, group) {
   selectedAccountId.value = account.id
   selectedPlatform.value = group.key
   expandedGroups.value.add(group.key)
+}
+
+// ========== Account Dialog ==========
+
+function onAccountConfirm(ids) {
+  ids.forEach(id => {
+    publishAccountIds.add(id)
+  })
+  hasChanges.value = true
+  ElMessage.success(`已选择 ${ids.length} 个账号`)
 }
 
 // ========== Upload Methods ==========
@@ -983,7 +783,6 @@ function triggerUploadVideo(target = 'landscape') {
 }
 
 function clearVideo(type) {
-  // type: 'landscape' | 'portrait'
   if (type === 'landscape') commonConfig.videoLandscape = null
   else commonConfig.videoPortrait = null
 }
@@ -1085,7 +884,6 @@ async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape
   } else {
     materialLibraryCoverTarget.value = videoOrCoverTarget
   }
-  // 异步预拉一次全量素材到 store，便于外部视图（左侧已选素材等）保持同步
   materialsApi.list({ page_size: 200 }).then((response) => {
     if (response.code === 200) {
       appStore.setMaterials(response.data.items || [])
@@ -1155,49 +953,20 @@ function toggleRecommendedTopic(topic) {
   }
 }
 
-// ========== Account Dialog Methods ==========
-
-const filteredAccounts = computed(() => {
-  let list = accountStore.accounts
-  if (accountFilterPlatform.value) {
-    list = list.filter(a => a.platform === accountFilterPlatform.value)
+// Auto-select video format
+watch(effectiveVideoFormat, (format) => {
+  if (format && selectedPlatform.value && !currentSettings.value?.videoFormat) {
+    const platformKey = selectedPlatform.value
+    if (platformConfigs[platformKey]) {
+      platformConfigs[platformKey].videoFormat = format
+    }
   }
-  if (accountSearchQuery.value.trim()) {
-    const query = accountSearchQuery.value.trim().toLowerCase()
-    list = list.filter(a => a.name.toLowerCase().includes(query))
-  }
-  return list
 })
 
-const validFilteredAccounts = computed(() =>
-  filteredAccounts.value.filter(a => a.status === '正常')
-)
-
-const isAllSelected = computed(() =>
-  validFilteredAccounts.value.length > 0 &&
-  validFilteredAccounts.value.every(a => tempSelectedAccounts.value.includes(a.id))
-)
-
-function toggleSelectAll() {
-  if (isAllSelected.value) {
-    const validIds = new Set(validFilteredAccounts.value.map(a => a.id))
-    tempSelectedAccounts.value = tempSelectedAccounts.value.filter(id => !validIds.has(id))
-  } else {
-    const validIds = validFilteredAccounts.value.map(a => a.id)
-    const merged = new Set([...tempSelectedAccounts.value, ...validIds])
-    tempSelectedAccounts.value = [...merged]
-  }
-}
-
-function confirmAccountSelection() {
-  tempSelectedAccounts.value.forEach(id => {
-    publishAccountIds.add(id)
-  })
-  hasChanges.value = true
-  accountDialogVisible.value = false
-  ElMessage.success(`已选择 ${tempSelectedAccounts.value.length} 个账号`)
-  tempSelectedAccounts.value = []
-}
+// Watch content changes
+watch(commonConfig, () => { hasChanges.value = true }, { deep: true })
+watch(platformConfigs, () => { hasChanges.value = true }, { deep: true })
+watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
 
 // ========== Publish Methods ==========
 
@@ -1251,7 +1020,6 @@ async function restoreDraft(draftId) {
       return
     }
 
-    // 恢复 commonConfig
     if (dd.commonConfig) {
       if (dd.commonConfig.topics) commonConfig.topics = dd.commonConfig.topics
       if (dd.commonConfig.videoLandscape) {
@@ -1276,7 +1044,6 @@ async function restoreDraft(draftId) {
       }
     }
 
-    // 恢复 platformConfigs（深度合并以保留可能新增的字段）
     if (dd.platformConfigs) {
       for (const [key, val] of Object.entries(dd.platformConfigs)) {
         if (platformConfigs[key]) {
@@ -1285,42 +1052,30 @@ async function restoreDraft(draftId) {
       }
     }
 
-    // 恢复 accountOverrides
     if (dd.accountOverrides) {
       Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
       Object.assign(accountOverrides, dd.accountOverrides)
     }
 
-    // 恢复 publishAccountIds
     if (dd.publishAccountIds) {
       publishAccountIds.clear()
       dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
     }
 
-    // 恢复 tempSelectedAccounts（账号选择弹窗的选中状态）
-    if (dd.publishAccountIds) {
-      tempSelectedAccounts.value = [...dd.publishAccountIds]
-    }
-
-    // 恢复 expandedGroups
     if (dd.expandedGroups) {
       expandedGroups.value = new Set(dd.expandedGroups)
     }
 
-    // 恢复 selectedPlatform
     if (dd.selectedPlatform) {
       selectedPlatform.value = dd.selectedPlatform
     }
 
-    // 恢复 videoModeTab
     if (dd.videoModeTab) {
       videoModeTab.value = dd.videoModeTab
     }
 
-    // 设置草稿编辑模式
     currentDraftId.value = draftId
 
-    // 重新提取视频抽帧（异步，不阻塞）
     if (commonConfig.videoLandscape) {
       triggerFrameExtraction(commonConfig.videoLandscape, 'landscape')
     }
@@ -1339,72 +1094,20 @@ onMounted(() => {
   if (draftId) {
     restoreDraft(Number(draftId))
   }
-  // 启动自动保存定时器
   startAutoSaveTimer()
 })
 
-onBeforeUnmount(() => {
-  if (autoSaveTimer.value) {
-    clearInterval(autoSaveTimer.value)
-    autoSaveTimer.value = null
-  }
-})
-
-function startAutoSaveTimer() {
-  if (autoSaveTimer.value) {
-    clearInterval(autoSaveTimer.value)
-    autoSaveTimer.value = null
-  }
-  if (!appStore.autoSaveDraft) return
-  autoSaveTimer.value = setInterval(() => {
-    if (hasChanges.value) {
-      saveDraft()
-      hasChanges.value = false
-    }
-  }, appStore.autoSaveInterval * 1000)
-}
-
-function stopAutoSaveTimer() {
-  if (autoSaveTimer.value) {
-    clearInterval(autoSaveTimer.value)
-    autoSaveTimer.value = null
-  }
-}
-
-// 监听自动保存设置变化，重新启动定时器
-watch(() => appStore.autoSaveDraft, (val) => {
-  if (val) {
-    startAutoSaveTimer()
-  } else {
-    stopAutoSaveTimer()
-  }
-})
-
-watch(() => appStore.autoSaveInterval, () => {
-  if (appStore.autoSaveDraft) {
-    startAutoSaveTimer()
-  }
-})
-
-// 监听需要保存的内容变化
-watch(commonConfig, () => { hasChanges.value = true }, { deep: true })
-watch(platformConfigs, () => { hasChanges.value = true }, { deep: true })
-watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
-
 async function publishAll() {
-  // Validate
   if (!commonConfig.videoLandscape && !commonConfig.videoPortrait) {
     ElMessage.error('请先上传至少一个视频文件')
     return
   }
 
-  // 封面必填
   if (!commonConfig.coverLandscape && !commonConfig.coverPortrait) {
     ElMessage.error('请先设置封面图片')
     return
   }
 
-  // 各平台声明必填检查
   const accountsWithoutDeclaration = []
   const DECLARATION_PLATFORMS = {
     xiaohongshu: 'aiContent',
@@ -1434,7 +1137,6 @@ async function publishAll() {
       const fields = Array.isArray(declFields) ? declFields : [declFields]
       for (const field of fields) {
         const value = mergedSettings[field]
-        // 数组类型检查长度；字符串检查空；布尔只看是否为 null/undefined（false 是有效值）
         const isEmpty = Array.isArray(value)
           ? value.length === 0
           : (typeof value === 'boolean' ? value === null || value === undefined : (!value && value !== 0))
@@ -1450,14 +1152,12 @@ async function publishAll() {
     return
   }
 
-  // Check each selected account has a title (platform-level or account-level)
   const accountsWithoutTitle = []
   for (const group of accountGroups.value) {
     if (group.accounts.length === 0) continue
     const pSettings = platformConfigs[group.key] || {}
     for (const account of group.accounts) {
       if (!publishAccountIds.has(account.id)) continue
-      // 合并账号级覆盖后检查标题
       const accountOverride = accountOverrides[account.id]
       const mergedTitle = (accountOverride && accountOverride.title)
         || pSettings.title
@@ -1471,7 +1171,6 @@ async function publishAll() {
     return
   }
 
-  // 视频格式必填检查
   const accountsWithoutVideoFormat = []
   for (const group of accountGroups.value) {
     if (group.accounts.length === 0) continue
@@ -1498,14 +1197,12 @@ async function publishAll() {
   currentPublishingAccount.value = ''
   batchPublishDialogVisible.value = true
 
-  // Collect selected accounts only
   const allTasks = []
   for (const group of accountGroups.value) {
     if (group.accounts.length === 0) continue
     const pSettings = platformConfigs[group.key] || {}
     for (const account of group.accounts) {
       if (!publishAccountIds.has(account.id)) continue
-      // 合并账号级覆盖
       const accountOverride = accountOverrides[account.id]
       const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
         ? { ...pSettings, ...Object.fromEntries(
@@ -1537,10 +1234,8 @@ async function publishAll() {
     currentPublishingAccount.value = account.name
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
-    // 获取视频格式（已包含账号级覆盖）
     const videoFormat = platformSettings.videoFormat || ''
 
-    // 根据格式选择视频
     let selectedVideo
     if (videoFormat === 'portrait') {
       selectedVideo = commonConfig.videoPortrait
@@ -1560,7 +1255,6 @@ async function publishAll() {
       }
 
     try {
-      // 解析平台自定义标签：支持 "#xx #xx" 和 "xx,xx" 两种格式
       const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
       const allTags = [...commonConfig.topics, ...customTags]
 
@@ -1631,7 +1325,6 @@ function cancelBatch() {
 }
 
 // ========== Utility ==========
-
 function formatSize(bytes) {
   if (!bytes) return '0B'
   if (bytes < 1024) return bytes + 'B'
@@ -1643,268 +1336,15 @@ function formatSize(bytes) {
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
-// ========== Utility Classes ==========
 .cursor-pointer {
   cursor: pointer;
 }
 
-// ========== Layout ==========
 .publish-center {
   display: flex;
   height: 100%;
   gap: 0;
   overflow: hidden;
-}
-
-// ========== LEFT SIDEBAR ==========
-.account-sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  background: $bg-base;
-  border-right: 1px solid $border;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-
-  .sidebar-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 16px 14px;
-    border-bottom: 1px solid $border;
-
-    .sidebar-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: $text-primary;
-    }
-
-    .sidebar-count {
-      font-size: 12px;
-      color: $text-muted;
-      background: $bg-surface;
-      padding: 2px 8px;
-      border-radius: 10px;
-    }
-  }
-
-  .group-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 0;
-
-    &::-webkit-scrollbar {
-      width: 4px;
-    }
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 2px;
-    }
-  }
-
-  .group-wrap {
-    margin: 2px 8px;
-    border-radius: $radius-base;
-    transition: $transition-base;
-
-    &.is-selected {
-      background: rgba(139, 92, 246, 0.06);
-      border: 1px solid rgba(139, 92, 246, 0.12);
-      margin: 2px 7px;
-    }
-  }
-
-  .group-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    border-radius: $radius-base;
-    transition: $transition-base;
-    user-select: none;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.03);
-    }
-
-    .expand-icon {
-      font-size: 12px;
-      color: $text-muted;
-      transition: $transition-base;
-    }
-
-    .platform-badge {
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 700;
-      flex-shrink: 0;
-      overflow: hidden;
-
-      .platform-badge-img {
-        width: 24px;
-        height: 24px;
-        object-fit: contain;
-      }
-    }
-
-    .group-name {
-      flex: 1;
-      font-size: 15px;
-      color: $text-secondary;
-      font-weight: 500;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .group-count {
-      font-size: 11px;
-      color: $text-muted;
-      background: rgba(255, 255, 255, 0.06);
-      padding: 1px 6px;
-      border-radius: 8px;
-    }
-  }
-
-  .group-accounts {
-    padding: 0 12px 8px 42px;
-
-    .no-accounts {
-      font-size: 12px;
-      color: $text-muted;
-      padding: 4px 0;
-    }
-  }
-
-  // Slide transition
-  .slide-enter-active,
-  .slide-leave-active {
-    transition: all 200ms ease;
-    overflow: hidden;
-  }
-  .slide-enter-from,
-  .slide-leave-to {
-    opacity: 0;
-    max-height: 0;
-  }
-  .slide-enter-to,
-  .slide-leave-from {
-    opacity: 1;
-    max-height: 500px;
-  }
-
-  .account-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 8px;
-    transition: $transition-base;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.04);
-    }
-
-    &.active {
-      background: rgba(139, 92, 246, 0.08);
-    }
-
-    .account-avatar {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.08);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      color: $text-secondary;
-      font-weight: 600;
-      flex-shrink: 0;
-      border: 2px solid transparent;
-      transition: $transition-base;
-
-      &.ring {
-        border-color: $brand-start;
-      }
-    }
-
-    .account-name {
-      flex: 1;
-      font-size: 12px;
-      color: $text-secondary;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      flex-shrink: 0;
-
-      &.on {
-        background: $success-color;
-      }
-      &.off {
-        background: $danger-color;
-      }
-    }
-
-    .account-remove {
-      font-size: 16px;
-      color: $text-muted;
-      opacity: 0.6;
-      transition: $transition-fast;
-      flex-shrink: 0;
-      margin-left: 4px;
-      cursor: pointer;
-
-      &:hover {
-        color: $danger-color;
-        opacity: 1;
-      }
-    }
-
-    &.has-override {
-      background: rgba(255, 215, 0, 0.06);
-      .account-name { font-weight: 600; }
-    }
-
-    .override-icon {
-      font-size: 12px;
-      color: #f59e0b;
-      flex-shrink: 0;
-    }
-  }
-
-  .sidebar-footer {
-    padding: 12px;
-    border-top: 1px solid $border;
-
-    .add-btn {
-      border: 1px dashed $border;
-      border-radius: $radius-base;
-      padding: 8px;
-      text-align: center;
-      font-size: 13px;
-      color: $text-muted;
-      transition: $transition-base;
-
-      &:hover {
-        border-color: $border-active;
-        color: $brand-start;
-        background: rgba(139, 92, 246, 0.06);
-      }
-    }
-  }
 }
 
 // ========== RIGHT MAIN ==========
@@ -2099,7 +1539,7 @@ function formatSize(bytes) {
   }
 }
 
-// ========== Media Section (Video & Cover) ==========
+// ========== Media Section ==========
 .media-section {
   margin-bottom: 20px;
   border: 1px solid $border;
@@ -2628,156 +2068,6 @@ function formatSize(bytes) {
   }
 }
 
-// ========== Account Dialog ==========
-.account-select-dialog {
-  .account-dialog-body {
-    .account-dialog-content {
-      display: flex;
-      gap: 0;
-      border: 1px solid $border;
-      border-radius: $radius-base;
-      overflow: hidden;
-      height: 420px;
-    }
-
-    .dialog-platform-list {
-      width: 160px;
-      flex-shrink: 0;
-      border-right: 1px solid $border;
-      background: rgba(0, 0, 0, 0.2);
-      overflow-y: auto;
-
-      .dialog-platform-item {
-        padding: 14px 16px;
-        font-size: 15px;
-        color: $text-secondary;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        transition: $transition-base;
-
-        &:hover {
-          background: rgba(255, 255, 255, 0.03);
-        }
-
-        &.active {
-          background: rgba(139, 92, 246, 0.08);
-          color: $text-primary;
-          font-weight: 500;
-        }
-
-        .dialog-platform-badge {
-          width: 28px;
-          height: 28px;
-          border-radius: 6px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #fff;
-          font-size: 11px;
-          font-weight: 700;
-          flex-shrink: 0;
-          overflow: hidden;
-
-          .dialog-platform-badge-img {
-            width: 22px;
-            height: 22px;
-            object-fit: contain;
-          }
-        }
-      }
-    }
-
-    .dialog-account-list {
-      flex: 1;
-      padding: 12px;
-      overflow-y: auto;
-
-      .dialog-select-all {
-        display: flex;
-        justify-content: flex-end;
-        margin-bottom: 8px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      }
-
-      .dialog-account-item {
-        padding: 8px 10px;
-        border-radius: $radius-sm;
-        transition: $transition-base;
-        margin-bottom: 4px;
-
-        &:hover {
-          background: rgba(255, 255, 255, 0.03);
-        }
-
-        &.disabled {
-          opacity: 0.5;
-        }
-      }
-
-      .dialog-account-info {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-
-        .dialog-account-avatar {
-          width: 26px;
-          height: 26px;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.08);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 11px;
-          color: $text-secondary;
-          font-weight: 600;
-          flex-shrink: 0;
-        }
-
-        .dialog-account-name {
-          font-size: 13px;
-          color: $text-primary;
-          font-weight: 500;
-        }
-
-        .dialog-account-platform {
-          font-size: 11px;
-          color: $text-muted;
-        }
-
-        .dialog-account-status {
-          font-size: 11px;
-          margin-left: auto;
-
-          &.ok {
-            color: $success-color;
-          }
-          &.err {
-            color: $danger-color;
-          }
-        }
-      }
-    }
-  }
-
-  .dialog-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    .selected-count {
-      font-size: 13px;
-      color: $text-muted;
-    }
-
-    .dialog-footer-btns {
-      display: flex;
-      gap: 8px;
-    }
-  }
-}
-
 // ========== Topic Dialog ==========
 .topic-dialog {
   .topic-dialog-content {
@@ -2823,7 +2113,6 @@ function formatSize(bytes) {
 
 // ========== Upload Dialogs ==========
 .video-upload-dialog,
-// ========== Material Library Dialog ==========
 .material-library-dialog {
   .material-library-content {
     .material-list {
@@ -2863,83 +2152,10 @@ function formatSize(bytes) {
   }
 }
 
-// ========== Batch Progress Dialog ==========
-.batch-progress-dialog {
-  .publish-progress {
-    padding: 12px 0;
-
-    .current-publishing {
-      margin: 16px 0;
-      text-align: center;
-      color: $text-secondary;
-      font-size: 14px;
-    }
-
-    .publish-results {
-      margin-top: 20px;
-      border-top: 1px solid $border;
-      padding-top: 16px;
-      max-height: 300px;
-      overflow-y: auto;
-
-      .result-item {
-        display: flex;
-        align-items: center;
-        padding: 8px 0;
-        color: $text-secondary;
-
-        .el-icon {
-          margin-right: 8px;
-        }
-
-        .result-label {
-          margin-right: 10px;
-          font-weight: 500;
-          color: $text-primary;
-        }
-
-        .result-message {
-          color: $text-muted;
-          font-size: 13px;
-        }
-
-        &.success {
-          .el-icon,
-          .result-label {
-            color: $success-color;
-          }
-        }
-
-        &.error {
-          .el-icon,
-          .result-label {
-            color: $danger-color;
-          }
-        }
-
-        &.cancelled {
-          color: $text-muted;
-
-          .result-label {
-            color: $text-muted;
-          }
-        }
-      }
-    }
-  }
-}
-
-// ========== Shared Dialog Styles ==========
+// ========== Shared ==========
 .dialog-footer-right {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.dialog-empty {
-  text-align: center;
-  padding: 40px 0;
-  color: $text-muted;
-  font-size: 14px;
 }
 </style>

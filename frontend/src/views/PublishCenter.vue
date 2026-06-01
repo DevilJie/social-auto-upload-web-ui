@@ -127,7 +127,6 @@
             :video-portrait="commonConfig.videoPortrait"
             :cover-landscape="commonConfig.coverLandscape"
             :cover-portrait="commonConfig.coverPortrait"
-            :materials="materials"
             :portrait-ratio="appStore.portraitRatio"
             :landscape-ratio="appStore.landscapeRatio"
             @update:cover-landscape="commonConfig.coverLandscape = $event"
@@ -1208,10 +1207,10 @@ async function saveDraft() {
       commonConfig: {
         topics: [...commonConfig.topics],
         videoLandscape: commonConfig.videoLandscape
-          ? { name: commonConfig.videoLandscape.name, stored_path: commonConfig.videoLandscape.stored_path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
+          ? { id: commonConfig.videoLandscape.id, name: commonConfig.videoLandscape.name, stored_path: commonConfig.videoLandscape.stored_path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
           : null,
         videoPortrait: commonConfig.videoPortrait
-          ? { name: commonConfig.videoPortrait.name, stored_path: commonConfig.videoPortrait.stored_path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type }
+          ? { id: commonConfig.videoPortrait.id, name: commonConfig.videoPortrait.name, stored_path: commonConfig.videoPortrait.stored_path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type }
           : null,
         coverLandscape: commonConfig.coverLandscape
           ? { name: commonConfig.coverLandscape.name, stored_path: commonConfig.coverLandscape.stored_path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type, _fromFrame: commonConfig.coverLandscape._fromFrame }

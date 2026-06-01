@@ -810,11 +810,10 @@ class DouyinPlatform(BasePlatform):
                 await page.keyboard.type(desc[:1000])
                 await asyncio.sleep(0.2)
 
-                # 逐个输入标签，每个标签后按空格触发抖音识别
+                # 快速注入标签文本，按空格触发抖音识别
                 for tag in tags:
-                    await page.keyboard.type(" #" + tag)
+                    await page.keyboard.insertText(" #" + tag)
                     await page.keyboard.press("Space")
-                    await asyncio.sleep(0.1)
                 await asyncio.sleep(0.3)
 
                 # Set cover if provided

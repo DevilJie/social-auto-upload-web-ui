@@ -119,10 +119,10 @@
             />
           </div>
 
-          <!-- Batch title/description sync -->
+          <!-- Batch title/description/tags sync -->
           <div class="batch-sync-section">
             <div class="batch-sync-header" @click="batchSyncExpanded = !batchSyncExpanded">
-              <span>批量设置标题和描述</span>
+              <span>批量设置标题、描述和标签</span>
               <el-icon class="cursor-pointer">
                 <component :is="batchSyncExpanded ? ArrowDown : ArrowRight" />
               </el-icon>
@@ -130,7 +130,7 @@
             <div v-show="batchSyncExpanded" class="batch-sync-body">
               <div class="form-field">
                 <div class="field-head">
-                  <span>公共标题</span>
+                  <span>标题</span>
                 </div>
                 <el-input
                   v-model="batchTitle"
@@ -140,7 +140,7 @@
               </div>
               <div class="form-field">
                 <div class="field-head">
-                  <span>公共描述</span>
+                  <span>描述</span>
                 </div>
                 <el-input
                   v-model="batchDescription"
@@ -149,6 +149,26 @@
                   placeholder="输入描述后点击同步..."
                   maxlength="2000"
                 />
+              </div>
+              <div class="form-field">
+                <div class="field-head">
+                  <span>标签</span>
+                </div>
+                <el-input
+                  v-model="batchTagInput"
+                  placeholder="输入标签，回车添加"
+                  @keyup.enter="addBatchTag"
+                  clearable
+                />
+                <div v-if="batchTags.length > 0" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
+                  <el-tag
+                    v-for="(t, i) in batchTags"
+                    :key="i"
+                    closable
+                    @close="batchTags.splice(i, 1)"
+                    size="small"
+                  >#{{ t }}</el-tag>
+                </div>
               </div>
               <button class="cover-action-btn primary" @click="syncBatchToAll">
                 <el-icon :size="15"><Promotion /></el-icon><span>同步到所有平台</span>
@@ -161,151 +181,44 @@
         <div class="divider"></div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-        <div v-if="currentPlatformConfig" class="config-section">
+        <div class="config-section" v-show="selectedPlatform">
           <div class="section-bar">
-            <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
+            <div class="bar" :style="{ background: currentPlatformConfig?.color }"></div>
             <span class="section-label">
-              {{ currentPlatformConfig.name }}
-              {{ selectedAccountId ? '· ' + getAccountName(selectedAccountId) : '· 默认设置' }}
+              {{ currentPlatformConfig?.name }}
+              {{ selectedAccountId ? '· ' + getAccountDisplayName(selectedAccountId) : '· 默认设置' }}
             </span>
             <span class="hint">{{ selectedAccountId ? '仅对该账号生效' : '对该分组所有未自定义的账号生效' }}</span>
           </div>
 
-          <!-- 如果选中了账号且有自定义配置，显示"恢复默认"按钮 -->
-          <div v-if="selectedAccountId && hasAccountOverride(selectedAccountId)" style="margin-bottom: 12px;">
-            <el-button size="small" @click="resetAccountOverride(selectedAccountId)">恢复为渠道默认</el-button>
-          </div>
-
-          <!-- 小红书反检测警告 -->
-          <div v-if="selectedPlatform === 'xiaohongshu'" class="xhs-warning">
-            <el-icon><WarningFilled /></el-icon>
-            <span>由于小红书反检测机制比较恶心，如果出现被警告的情况！请立即停止使用小红书渠道！</span>
-          </div>
-
-          <!-- 账号级 or 渠道级标题描述 -->
-          <div class="platform-title-desc">
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标题</div>
-              <el-input
-                v-model="form.title"
-                placeholder="请输入标题..."
-                maxlength="100"
-                show-word-limit
-              />
-            </div>
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">描述</div>
-              <el-input
-                v-model="form.description"
-                type="textarea"
-                :rows="5"
-                placeholder="请输入描述..."
-                maxlength="2000"
-                show-word-limit
-              />
-            </div>
-          </div>
-
-          <!-- ===== 抖音图文特有配置 ===== -->
-          <template v-if="selectedPlatform === 'douyin'">
-            <div class="settings-grid">
-              <!-- 官方活动 -->
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
-                <DouyinActivitySelect
-                  v-model="form.activityId"
-                  @change="handleActivityChange"
-                />
-              </div>
-
-              <!-- 选择音乐 -->
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择音乐</div>
-                <DouyinMusicSelect
-                  :account-id="selectedAccountId"
-                  v-model="form.selectedMusic"
-                  :data="form.selectedMusicData"
-                  @change="handleMusicSelect"
-                />
-              </div>
-
-              <!-- 关联热点 -->
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
-                <DouyinHotspotSelect
-                  v-model="form.hotspotId"
-                  :data="form.hotspotData"
-                  @change="handleHotspotChange"
-                />
-              </div>
-
-              <!-- 热点标签 -->
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">热点标签</div>
-                <div class="setting-hint">输入标签内容，按回车确认（官方活动+热点标签最多5个）</div>
-                <el-input
-                  v-model="hotspotTagInput"
-                  placeholder="输入标签内容，按回车添加"
-                  @keyup.enter="addHotspotTag"
-                  clearable
-                />
-                <div v-if="form.hotspotTags && form.hotspotTags.length > 0" class="hotspot-tags-list">
-                  <el-tag
-                    v-for="(tag, index) in form.hotspotTags"
-                    :key="index"
-                    closable
-                    @close="removeHotspotTag(index)"
-                    size="small"
-                  >
-                    #{{ tag }}
-                  </el-tag>
-                </div>
-              </div>
-
-              <!-- 自主声明 -->
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">自主声明</div>
-                <el-select
-                  v-model="form.aiContent"
-                  placeholder="请选择自主声明"
-                  clearable
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="opt in declarationOptions"
-                    :key="opt.value"
-                    :label="opt.label"
-                    :value="opt.value"
-                  />
-                </el-select>
-              </div>
-
-              <!-- 添加标签 -->
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
-                <DouyinTagSelect
-                  :account-id="selectedAccountId"
-                  v-model="form.selectedTag"
-                  @change="handleTagSelect"
-                />
-              </div>
-
-              <!-- 添加合集（仅账号级） -->
-              <div v-if="selectedAccountId" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
-                <DouyinMixSelect
-                  :account-id="selectedAccountId"
-                  v-model="form.mixId"
-                  :data="form.mixData"
-                  @change="handleMixChange"
-                />
-              </div>
-            </div>
-          </template>
+          <DouyinImagePublishPanel
+            ref="el => panelRefs.douyin = el"
+            :account-id="selectedPlatform === 'douyin' ? selectedAccountId : null"
+            :disabled="publishing"
+            v-show="selectedPlatform === 'douyin'"
+            @config-changed="onChannelConfigChanged"
+            @publish-result="onPublishResult"
+          />
+          <XiaohongshuImagePublishPanel
+            ref="el => panelRefs.xiaohongshu = el"
+            :account-id="selectedPlatform === 'xiaohongshu' ? selectedAccountId : null"
+            :disabled="publishing"
+            v-show="selectedPlatform === 'xiaohongshu'"
+            @config-changed="onChannelConfigChanged"
+            @publish-result="onPublishResult"
+          />
+          <KuaishouImagePublishPanel
+            ref="el => panelRefs.kuaishou = el"
+            :account-id="selectedPlatform === 'kuaishou' ? selectedAccountId : null"
+            :disabled="publishing"
+            v-show="selectedPlatform === 'kuaishou'"
+            @config-changed="onChannelConfigChanged"
+            @publish-result="onPublishResult"
+          />
         </div>
 
         <!-- No platform selected hint -->
-        <div v-else class="no-platform-hint">
+        <div v-show="!selectedPlatform" class="no-platform-hint">
           <div class="hint-icon">
             <el-icon :size="48"><PictureFilled /></el-icon>
           </div>

@@ -38,6 +38,7 @@ src-tauri/bundle-resources/*
 src-tauri/*.exe
 data/frames/*
 data/image-publish/*
+data/materials/*
 backend/bin/
 
 # 启动脚本临时文件

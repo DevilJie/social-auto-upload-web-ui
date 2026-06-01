@@ -122,7 +122,7 @@ watch(form, (newVal) => {
     }
   }
   emit('config-changed')
-}, { deep: true })
+}, { deep: true, flush: 'post' })
 
 // ===== Tag operations =====
 function addTag() {

@@ -750,7 +750,11 @@ async function saveDraft() {
       if (panel) {
         const configs = panel.getConfigs()
         allPlatformConfigs[key] = configs.platformConfig
-        Object.assign(allAccountOverrides, configs.accountOverrides)
+        // 深合并：同账号 ID 的覆盖字段合并而非替换
+        for (const [accId, accOverride] of Object.entries(configs.accountOverrides)) {
+          if (!allAccountOverrides[accId]) allAccountOverrides[accId] = {}
+          Object.assign(allAccountOverrides[accId], accOverride)
+        }
       }
     }
 

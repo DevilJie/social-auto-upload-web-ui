@@ -735,12 +735,17 @@ class DouyinPlatform(BasePlatform):
                 page = await context.new_page()
 
                 # Navigate to image upload page
+                # 抖音创作者中心是 SPA，永远不会触发 load 事件。
+                # 用 domcontentloaded + URL 匹配即可，避免 30s 等待
                 logger.info("Navigating to Douyin image upload page")
                 await page.goto(
-                    "https://creator.douyin.com/creator-micro/content/upload?default-tab=3"
+                    "https://creator.douyin.com/creator-micro/content/upload?default-tab=3",
+                    wait_until="domcontentloaded",
+                    timeout=60000,
                 )
                 await page.wait_for_url(
-                    "https://creator.douyin.com/creator-micro/content/upload?default-tab=3"
+                    "https://creator.douyin.com/creator-micro/content/upload?default-tab=3",
+                    timeout=60000,
                 )
                 await asyncio.sleep(2)
 

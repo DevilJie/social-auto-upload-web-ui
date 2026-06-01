@@ -431,12 +431,10 @@ import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
 import ImageCoverUpload from '@/components/ImageCoverUpload.vue'
 
-// 抖音图文发布组件
-import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
-import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
-import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
-import DouyinMusicSelect from '@/components/douyin/MusicSelect.vue'
-import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
+// 渠道图文发布面板
+import DouyinImagePublishPanel from '@/components/douyin/ImagePublishPanel.vue'
+import XiaohongshuImagePublishPanel from '@/components/xiaohongshu/ImagePublishPanel.vue'
+import KuaishouImagePublishPanel from '@/components/kuaishou/ImagePublishPanel.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -483,114 +481,39 @@ const currentPlatformConfig = computed(() =>
   selectedPlatform.value ? getPlatformByKey(selectedPlatform.value) : null
 )
 
-// 自主声明选项 - 从平台配置中获取
-const declarationOptions = computed(() => {
-  if (!currentPlatformConfig.value) return []
-  const aiContentField = currentPlatformConfig.value.settingsFields?.find(f => f.key === 'aiContent')
-  return aiContentField?.options || []
-})
-
-// 图文发布不需要 platformSettingsFields，所有配置都在模板中直接定义
-const imagePlatformSettingsFields = computed(() => {
-  return []
-})
-
 // ========== Public Config (shared across all accounts) ==========
 const commonConfig = reactive({
   images: [],      // Array of { id, name, url, path, size, type }
-  topics: [],
   coverImage: null, // 封面图片（公共配置）
 })
 
 const currentPreviewIndex = ref(0)
 
-// ========== Per-platform Config ==========
-const platformConfigs = reactive({
-  douyin: {
-    title: '', description: '',
-    // 图文发布特有
-    mixId: '',           // 合集ID（账号级）
-    activityId: [],      // 官方活动ID（多选，最多5个）
-    hotspotId: '',       // 热点ID
-    hotspotTags: [],     // 热点标签列表
-    selectedMusic: null, // 选中的音乐
-    selectedTag: null,   // 选中的标签
-    aiContent: '',       // 自主声明
-    tagType: '',         // 标签类型: location/miniapp/gamepad/mark
-    tagValue: '',        // 标签值
-  },
-  xiaohongshu: { title: '', description: '' },
-  kuaishou: { title: '', description: '' },
+// ========== Channel Panel Refs & Helpers ==========
+const panelRefs = reactive({
+  douyin: null,
+  xiaohongshu: null,
+  kuaishou: null,
 })
 
-
-// ========== Account-level Overrides ==========
-const accountOverrides = reactive({})
-
-// 表单数据
-const form = reactive({})
-
-function getMergedSettings() {
-  const platformKey = selectedPlatform.value
-  if (!platformKey) return {}
-  const platform = platformConfigs[platformKey] || {}
-  if (selectedAccountId.value) {
-    const override = accountOverrides[selectedAccountId.value]
-    if (override && Object.keys(override).length > 0) {
-      return {
-        ...platform,
-        ...Object.fromEntries(
-          Object.entries(override).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
-        ),
-      }
-    }
-  }
-  return { ...platform }
+function getAccountDisplayName(accountId) {
+  const account = accountStore.accounts.find(a => a.id === accountId)
+  return account ? account.name : '未知'
 }
 
-// 切换平台/账号时重新填充表单
-watch([selectedPlatform, selectedAccountId], () => {
-  const merged = getMergedSettings()
-  for (const key of Object.keys(merged)) {
-    form[key] = merged[key]
-  }
-  // 清理不存在的字段
-  for (const key of Object.keys(form)) {
-    if (!(key in merged)) {
-      delete form[key]
-    }
-  }
-}, { immediate: true })
+function getAccountName(accountId) {
+  const account = accountStore.accounts.find(a => a.id === accountId)
+  return account ? account.name : '未知'
+}
 
-// 表单变更时同步到 store
-watch(form, (newVal) => {
-  const platformKey = selectedPlatform.value
-  if (!platformKey) return
-  if (!platformConfigs[platformKey]) {
-    platformConfigs[platformKey] = {}
-  }
-  const platform = platformConfigs[platformKey]
+// ========== Channel Panel Event Handlers ==========
+function onChannelConfigChanged() {
+  hasChanges.value = true
+}
 
-  if (selectedAccountId.value) {
-    // 账号级：计算与渠道默认的差异
-    const diff = {}
-    for (const key of Object.keys(newVal)) {
-      if (newVal[key] !== platform[key]) {
-        diff[key] = newVal[key]
-      }
-    }
-    if (Object.keys(diff).length > 0) {
-      accountOverrides[selectedAccountId.value] = { ...diff }
-    } else {
-      delete accountOverrides[selectedAccountId.value]
-    }
-  } else {
-    // 渠道级：直接写入
-    for (const key of Object.keys(newVal)) {
-      platform[key] = newVal[key]
-    }
-  }
-}, { deep: true })
+function onPublishResult({ accountName, status, message }) {
+  publishResults.value.push({ label: accountName, status, message })
+}
 
 function getAccountName(accountId) {
   const account = accountStore.accounts.find(a => a.id === accountId)
@@ -598,57 +521,36 @@ function getAccountName(accountId) {
 }
 
 function hasAccountOverride(accountId) {
-  const override = accountOverrides[accountId]
-  if (!override) return false
-  return Object.values(override).some(v => v !== undefined && v !== '' && v !== false)
-}
-
-function resetAccountOverride(accountId) {
-  delete accountOverrides[accountId]
-  ElMessage.success('已恢复为渠道默认设置')
-}
-
-// ========== Hotspot Tags ==========
-const hotspotTagInput = ref('')
-
-function addHotspotTag() {
-  const tag = hotspotTagInput.value.trim()
-  if (!tag) return
-
-  // 检查官方活动 + 热点标签总数是否超过5个
-  const activityCount = form.activityId?.length || 0
-  const tagCount = form.hotspotTags?.length || 0
-  if (activityCount + tagCount >= 5) {
-    ElMessage.warning('官方活动 + 热点标签最多5个')
-    return
+  for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+    const panel = panelRefs[key]
+    if (panel && panel.hasAccountOverride(accountId)) return true
   }
-
-  if (!form.hotspotTags) {
-    form.hotspotTags = []
-  }
-
-  if (form.hotspotTags.includes(tag)) {
-    ElMessage.warning('标签已存在')
-    return
-  }
-
-  form.hotspotTags.push(tag)
-  hotspotTagInput.value = ''
+  return false
 }
 
-function removeHotspotTag(index) {
-  form.hotspotTags.splice(index, 1)
-}
-
-// ========== Batch title/description sync ==========
+// ========== Batch title/description/tags sync ==========
 const batchTitle = ref('')
 const batchDescription = ref('')
+const batchTags = ref([])
+const batchTagInput = ref('')
 const batchSyncExpanded = ref(false)
 
+function addBatchTag() {
+  const tag = batchTagInput.value.trim()
+  if (!tag) return
+  if (batchTags.value.includes(tag)) return
+  batchTags.value.push(tag)
+  batchTagInput.value = ''
+}
+
 function syncBatchToAll() {
-  for (const key of Object.keys(platformConfigs)) {
-    if (batchTitle.value) platformConfigs[key].title = batchTitle.value
-    if (batchDescription.value) platformConfigs[key].description = batchDescription.value
+  const platforms = ['douyin', 'xiaohongshu', 'kuaishou']
+  for (const key of platforms) {
+    const panel = panelRefs[key]
+    if (!panel) continue
+    if (batchTitle.value) panel.syncTitle(batchTitle.value)
+    if (batchDescription.value) panel.syncDescription(batchDescription.value)
+    if (batchTags.value.length) panel.syncTags([...batchTags.value])
   }
   ElMessage.success('已同步到所有平台')
 }
@@ -796,85 +698,6 @@ function onMaterialSelected(material) {
   }
 }
 
-// ========== 抖音图文发布 Methods ==========
-
-function handleActivityChange(activity) {
-  if (activity) {
-    // 如果选择了活动，自动添加活动话题
-    if (activity.challenge && activity.challenge.length > 0) {
-      for (const topic of activity.challenge) {
-        if (!commonConfig.topics.includes(topic)) {
-          commonConfig.topics.push(topic)
-        }
-      }
-    }
-  }
-}
-
-function handleMusicSelect(music) {
-  if (music) {
-    form.selectedMusic = music.title
-    form.selectedMusicData = music
-    ElMessage.success(`音乐已选择: ${music.title}`)
-  } else {
-    form.selectedMusic = ''
-    form.selectedMusicData = null
-  }
-}
-
-function handleHotspotChange(hotspot) {
-  console.log('handleHotspotChange called with:', hotspot)
-  if (hotspot) {
-    form.hotspotId = hotspot.word
-    form.hotspotData = hotspot
-    console.log('form.hotspotData set to:', form.hotspotData)
-  } else {
-    form.hotspotId = ''
-    form.hotspotData = null
-  }
-}
-
-function handleMixChange(mix) {
-  if (mix) {
-    form.mixId = mix.mix_name
-    form.mixData = mix
-  } else {
-    form.mixId = ''
-    form.mixData = null
-  }
-}
-
-function handleTagSelect(tag) {
-  console.log('=== handleTagSelect called ===', tag)
-  if (tag) {
-    form.selectedTag = tag
-    // Map tag type to backend format
-    const typeMap = {
-      'poi': 'location',
-      'miniapp': 'miniapp',
-      'game': 'gamepad',
-      'mark': 'mark'
-    }
-    const newTagType = typeMap[tag.type] || ''
-    const newTagValue = tag.name || tag.id || ''
-    console.log('Setting form.tagType to:', newTagType)
-    console.log('Setting form.tagValue to:', newTagValue)
-    form.tagType = newTagType
-    form.tagValue = newTagValue
-    console.log('form.tagType after set:', form.tagType)
-    console.log('form.tagValue after set:', form.tagValue)
-    ElMessage.success(`标签已选择: ${tag.name}`)
-  } else {
-    form.selectedTag = null
-    form.tagType = ''
-    form.tagValue = ''
-  }
-}
-
-function onMusicCoverError(e) {
-  e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iMjAiIHk9IjI0IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPvCflKQ8L3RleHQ+PC9zdmc+'
-}
-
 // ========== Account Dialog Methods ==========
 
 const filteredAccounts = computed(() => {
@@ -922,30 +745,28 @@ function confirmAccountSelection() {
 
 async function saveDraft() {
   try {
+    const allPlatformConfigs = {}
+    const allAccountOverrides = {}
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+      const panel = panelRefs[key]
+      if (panel) {
+        const configs = panel.getConfigs()
+        allPlatformConfigs[key] = configs.platformConfig
+        Object.assign(allAccountOverrides, configs.accountOverrides)
+      }
+    }
+
     const draftData = {
       commonConfig: {
-        topics: [...commonConfig.topics],
         images: commonConfig.images.map(img => ({ id: img.id, name: img.name, url: img.url, stored_path: img.stored_path, size: img.size, type: img.type })),
         coverImage: commonConfig.coverImage || null,
       },
-      platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
-      accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
+      platformConfigs: allPlatformConfigs,
+      accountOverrides: allAccountOverrides,
       publishAccountIds: [...publishAccountIds],
       selectedPlatform: selectedPlatform.value,
       selectedAccountId: selectedAccountId.value,
       expandedGroups: [...expandedGroups.value],
-      // 保存完整的选中对象
-      douyinSelections: {
-        selectedMusic: form.selectedMusic || null,
-        selectedMusicData: form.selectedMusicData || null,
-        hotspotId: form.hotspotId || null,
-        hotspotData: form.hotspotData || null,
-        mixId: form.mixId || null,
-        mixData: form.mixData || null,
-        selectedTag: form.selectedTag || null,
-        tagType: form.tagType || '',
-        tagValue: form.tagValue || '',
-      }
     }
 
     if (currentDraftId.value) {
@@ -958,6 +779,7 @@ async function saveDraft() {
         ElMessage.success('草稿已保存')
       }
     }
+    hasChanges.value = false
   } catch (e) {
     console.error('保存草稿失败:', e)
     ElMessage.error('草稿保存失败')
@@ -965,105 +787,28 @@ async function saveDraft() {
 }
 
 async function publishAll() {
-  // Validate
   if (commonConfig.images.length === 0) {
     ElMessage.error('请先上传至少一张图片')
     return
   }
-
-  // Check selected accounts
   if (publishAccountIds.size === 0) {
     ElMessage.error('请先添加发布账号')
     return
   }
 
-  // Check each selected account has a title
-  const accountsWithoutTitle = []
+  // Delegate validation to channel components
   for (const group of imageAccountGroups.value) {
     if (group.accounts.length === 0) continue
-    const pSettings = platformConfigs[group.key] || {}
+    const panel = panelRefs[group.key]
+    if (!panel) continue
     for (const account of group.accounts) {
       if (!publishAccountIds.has(account.id)) continue
-      const accountOverride = accountOverrides[account.id]
-      const mergedTitle = (accountOverride && accountOverride.title) || pSettings.title
-      if (!mergedTitle || !mergedTitle.trim()) {
-        accountsWithoutTitle.push(`${account.name}(${group.name})`)
+      const result = panel.validate(account.id)
+      if (!result.valid) {
+        ElMessage.error(`${account.name}(${group.name}): ${result.errors.join('; ')}`)
+        return
       }
     }
-  }
-  if (accountsWithoutTitle.length > 0) {
-    ElMessage.error(`以下账号未设置标题：${accountsWithoutTitle.join('、')}`)
-    return
-  }
-
-  // 声明必填检查
-  const accountsWithoutDeclaration = []
-  const DECLARATION_PLATFORMS = {
-    xiaohongshu: 'aiContent',
-    douyin: 'aiContent',
-    kuaishou: 'aiContent',
-  }
-
-  for (const group of imageAccountGroups.value) {
-    if (group.accounts.length === 0) continue
-    const pSettings = platformConfigs[group.key] || {}
-    for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const accountOverride = accountOverrides[account.id]
-      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
-        ? { ...pSettings, ...Object.fromEntries(
-            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
-          )}
-        : { ...pSettings }
-      const platformKey = group.key
-      const declField = DECLARATION_PLATFORMS[platformKey]
-      if (!declField) continue
-      const value = mergedSettings[declField]
-      const isEmpty = typeof value === 'boolean' ? value === null || value === undefined : (!value && value !== 0)
-      if (isEmpty) {
-        accountsWithoutDeclaration.push(`${account.name}(${group.name})`)
-        break
-      }
-    }
-  }
-  if (accountsWithoutDeclaration.length > 0) {
-    ElMessage.error(`以下账号未设置内容声明：${accountsWithoutDeclaration.join('、')}`)
-    return
-  }
-
-  // 检查抖音平台的官方活动+热点标签数量（先检查渠道级别）
-  const douyinPlatformSettings = platformConfigs.douyin || {}
-  const douyinPlatformActivityCount = douyinPlatformSettings.activityId?.length || 0
-  const douyinPlatformHotspotTagCount = douyinPlatformSettings.hotspotTags?.length || 0
-  if (douyinPlatformActivityCount + douyinPlatformHotspotTagCount > 5) {
-    ElMessage.error(`抖音渠道的官方活动(${douyinPlatformActivityCount}个) + 热点标签(${douyinPlatformHotspotTagCount}个) 超过5个，请减少后重试`)
-    return
-  }
-
-  // 再检查账号级别
-  const accountsWithTooManyTags = []
-  for (const group of imageAccountGroups.value) {
-    if (group.key !== 'douyin') continue  // 只检查抖音平台
-    if (group.accounts.length === 0) continue
-    const pSettings = platformConfigs[group.key] || {}
-    for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const accountOverride = accountOverrides[account.id]
-      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
-        ? { ...pSettings, ...Object.fromEntries(
-            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
-          )}
-        : { ...pSettings }
-      const activityCount = mergedSettings.activityId?.length || 0
-      const hotspotTagCount = mergedSettings.hotspotTags?.length || 0
-      if (activityCount + hotspotTagCount > 5) {
-        accountsWithTooManyTags.push(`${account.name}(${activityCount}个活动+${hotspotTagCount}个标签)`)
-      }
-    }
-  }
-  if (accountsWithTooManyTags.length > 0) {
-    ElMessage.error(`以下抖音账号的官方活动+热点标签超过5个：${accountsWithTooManyTags.join('、')}`)
-    return
   }
 
   publishing.value = true
@@ -1073,20 +818,14 @@ async function publishAll() {
   currentPublishingAccount.value = ''
   batchPublishDialogVisible.value = true
 
-  // Collect tasks
+  const commonData = { images: commonConfig.images, coverImage: commonConfig.coverImage }
+
   const allTasks = []
   for (const group of imageAccountGroups.value) {
     if (group.accounts.length === 0) continue
-    const pSettings = platformConfigs[group.key] || {}
     for (const account of group.accounts) {
       if (!publishAccountIds.has(account.id)) continue
-      const accountOverride = accountOverrides[account.id]
-      const mergedSettings = accountOverride && Object.keys(accountOverride).length > 0
-        ? { ...pSettings, ...Object.fromEntries(
-            Object.entries(accountOverride).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
-          )}
-        : { ...pSettings }
-      allTasks.push({ account, group, platformSettings: mergedSettings })
+      allTasks.push({ account, groupKey: group.key })
     }
   }
 
@@ -1097,96 +836,32 @@ async function publishAll() {
     return
   }
 
-  // Build account_configs for the backend
-  const imageIds = commonConfig.images.map(img => img.id)
-  const accountConfigs = allTasks.map(({ account, group, platformSettings }) => {
-    const customTags = (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
-    const allTags = [...commonConfig.topics, ...customTags]
-    // 直接从对象中提取需要的数据
-    const selectedTag = platformSettings.selectedTag || accountOverride?.selectedTag
-    const tagTypeMap = { 'poi': 'location', 'miniapp': 'miniapp', 'game': 'gamepad', 'mark': 'mark' }
-
-    // 小程序需要传递搜索时输入的链接
-    let tag_value = ''
-    let mini_link = ''
-    if (selectedTag) {
-      tag_value = selectedTag.name || selectedTag.id || ''
-      // 如果是小程序，使用搜索时输入的内容（_searchKeyword）
-      if (selectedTag.type === 'miniapp') {
-        mini_link = selectedTag._searchKeyword || ''
-      }
-    }
-
-    return {
-      account_id: account.id,
-      platform: account.platform,
-      filePath: account.filePath,
-      title: platformSettings.title,
-      description: platformSettings.description || '',
-      tags: allTags,
-      scheduleTime: platformSettings.scheduleTime || '',
-      aiContent: platformSettings.aiContent || '',
-      mix_id: platformSettings.mixId || '',
-      music_name: platformSettings.selectedMusic || '',
-      hotspot: platformSettings.hotspotId || '',
-      hotspot_tags: platformSettings.hotspotTags || [],
-      tag_type: selectedTag ? (tagTypeMap[selectedTag.type] || '') : '',
-      tag_value: tag_value,
-      mini_link: mini_link,
-      activities: platformSettings.activityId || [],
-      cover_path: commonConfig.coverImage?.stored_path || '',
-      dry_run: false,  // 实际发布
-    }
-  })
-
   for (let i = 0; i < allTasks.length; i++) {
     if (isCancelled.value) {
-      publishResults.value.push({
-        label: allTasks[i].account.name,
-        status: 'cancelled',
-        message: '已取消',
-      })
+      publishResults.value.push({ label: allTasks[i].account.name, status: 'cancelled', message: '已取消' })
       continue
     }
-
-    const { account } = allTasks[i]
+    const { account, groupKey } = allTasks[i]
     currentPublishingAccount.value = account.name
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
-    try {
-      // Call the backend publish API with the full task data
-      await imagePublishApi.publishImage({
-        image_ids: imageIds,
-        account_configs: [accountConfigs[i]],
-      })
-      publishResults.value.push({
-        label: account.name,
-        status: 'success',
-        message: '发布成功',
-      })
-    } catch (error) {
-      publishResults.value.push({
-        label: account.name,
-        status: 'error',
-        message: error.message || '发布失败',
-      })
+    const panel = panelRefs[groupKey]
+    if (panel) {
+      await panel.publish(account.id, account.name, commonData)
     }
   }
 
   publishProgress.value = 100
-  currentPublishingAccount.value = ''
   publishing.value = false
 
   const successCount = publishResults.value.filter(r => r.status === 'success').length
-  const failCount = publishResults.value.filter(r => r.status === 'error').length
+  const failCount = publishResults.value.filter(r => r.status === 'fail').length
 
   if (failCount > 0) {
     ElMessage.warning(`发布完成：${successCount}个成功，${failCount}个失败`)
   } else {
     ElMessage.success('全部发布成功')
-    setTimeout(() => {
-      batchPublishDialogVisible.value = false
-    }, 1500)
+    setTimeout(() => { batchPublishDialogVisible.value = false }, 1500)
   }
 }
 
@@ -1229,126 +904,97 @@ watch(() => appStore.autoSaveInterval, () => {
 
 // 监听内容变化
 watch(commonConfig, () => { hasChanges.value = true }, { deep: true })
-watch(platformConfigs, () => { hasChanges.value = true }, { deep: true })
-watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
+
+// ========== Old Draft Migration ==========
+function migrateOldDraftFormat(dd) {
+  if (dd.commonConfig?.topics && Array.isArray(dd.commonConfig.topics)) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+      if (dd.platformConfigs?.[key]) {
+        dd.platformConfigs[key].tags = [...dd.commonConfig.topics]
+      }
+    }
+    delete dd.commonConfig.topics
+  }
+
+  if (dd.douyinSelections) {
+    const sel = dd.douyinSelections
+    const douyinCfg = dd.platformConfigs?.douyin || {}
+    if (sel.selectedMusic !== undefined) douyinCfg.selectedMusic = sel.selectedMusic
+    if (sel.selectedMusicData !== undefined) douyinCfg.selectedMusicData = sel.selectedMusicData
+    if (sel.hotspotId !== undefined) douyinCfg.hotspotId = sel.hotspotId
+    if (sel.hotspotData !== undefined) douyinCfg.hotspotData = sel.hotspotData
+    if (sel.mixId !== undefined) douyinCfg.mixId = sel.mixId
+    if (sel.mixData !== undefined) douyinCfg.mixData = sel.mixData
+    if (sel.selectedTag !== undefined) douyinCfg.selectedTag = sel.selectedTag
+    if (sel.tagType !== undefined) douyinCfg.tagType = sel.tagType
+    if (sel.tagValue !== undefined) douyinCfg.tagValue = sel.tagValue
+    if (!dd.platformConfigs) dd.platformConfigs = {}
+    dd.platformConfigs.douyin = douyinCfg
+    delete dd.douyinSelections
+  }
+
+  if (dd.accountOverrides) {
+    for (const override of Object.values(dd.accountOverrides)) {
+      delete override.coverImage
+    }
+  }
+}
 
 // ========== Load Draft ==========
 async function loadDraft(draftId) {
   try {
-    // 使用统一的 draftApi 获取单个草稿
     const resp = await draftApi.getDraft(draftId)
-    if (resp.code === 200) {
-      const draft = resp.data
-      const dd = draft.draft_data
-      if (!dd) {
-        ElMessage.error('草稿数据为空')
-        return
+    if (resp.code !== 200) return
+    const draft = resp.data
+    const dd = draft.draft_data
+    if (!dd) { ElMessage.error('草稿数据为空'); return }
+
+    currentDraftId.value = draft.id
+
+    if (dd.commonConfig) {
+      if (dd.commonConfig.images) {
+        commonConfig.images = dd.commonConfig.images.map((img, i) => ({
+          id: img.id,
+          name: img.name || `图片 ${i + 1}`,
+          url: img.stored_path ? getFileUrl(img.stored_path) : (img.url || ''),
+          stored_path: img.stored_path || '',
+          size: img.size || 0,
+          type: img.type || 'image/jpeg',
+          uploading: false,
+          progress: 100,
+        }))
       }
-
-      // 恢复草稿 ID
-      currentDraftId.value = draft.id
-
-      // 恢复 commonConfig
-      if (dd.commonConfig) {
-        if (dd.commonConfig.images) {
-          commonConfig.images = dd.commonConfig.images.map((img, index) => ({
-            id: img.id,
-            name: img.name || `图片 ${index + 1}`,
-            url: img.stored_path ? getFileUrl(img.stored_path) : (img.url || ''),
-            stored_path: img.stored_path || '',
-            size: img.size || 0,
-            type: img.type || 'image/jpeg',
-            uploading: false,
-            progress: 100,
-          }))
-        }
-        if (dd.commonConfig.topics) {
-          commonConfig.topics = dd.commonConfig.topics
-        }
-        if (dd.commonConfig.coverImage) {
-          const ci = dd.commonConfig.coverImage
-          commonConfig.coverImage = {
-            ...ci,
-            url: ci.stored_path ? getFileUrl(ci.stored_path) : (ci.url || ''),
-          }
-        }
+      if (dd.commonConfig.coverImage) {
+        const ci = dd.commonConfig.coverImage
+        commonConfig.coverImage = { ...ci, url: ci.stored_path ? getFileUrl(ci.stored_path) : (ci.url || '') }
       }
-
-      // 恢复 platformConfigs（深度合并以保留可能新增的字段）
-      if (dd.platformConfigs) {
-        for (const [key, val] of Object.entries(dd.platformConfigs)) {
-          if (platformConfigs[key]) {
-            Object.assign(platformConfigs[key], val)
-          }
-        }
-      }
-
-      // 恢复 accountOverrides
-      if (dd.accountOverrides) {
-        Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
-        Object.assign(accountOverrides, dd.accountOverrides)
-      }
-
-      // 恢复 publishAccountIds
-      if (dd.publishAccountIds) {
-        publishAccountIds.clear()
-        dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
-      }
-
-      // 恢复 expandedGroups
-      if (dd.expandedGroups) {
-        expandedGroups.value = new Set(dd.expandedGroups)
-      }
-
-      // 恢复 selectedPlatform
-      if (dd.selectedPlatform) {
-        selectedPlatform.value = dd.selectedPlatform
-      }
-
-      // 恢复 selectedAccountId
-      if (dd.selectedAccountId) {
-        selectedAccountId.value = dd.selectedAccountId
-      } else if (dd.publishAccountIds && dd.publishAccountIds.length > 0) {
-        // 如果没有 selectedAccountId，从 publishAccountIds 中选择第一个
-        selectedAccountId.value = dd.publishAccountIds[0]
-      }
-
-      // 恢复抖音选择数据
-      if (dd.douyinSelections) {
-        console.log('恢复抖音选择数据:', dd.douyinSelections)
-        form.selectedMusic = dd.douyinSelections.selectedMusic || ''
-        form.selectedMusicData = dd.douyinSelections.selectedMusicData || null
-        form.hotspotId = dd.douyinSelections.hotspotId || ''
-        form.hotspotData = dd.douyinSelections.hotspotData || null
-        // 清理旧草稿残留：之前 handleHotspotChange 会把热点词
-        // 推入 commonConfig.topics，现在移除（热点独立设置）
-        if (form.hotspotData?.word && commonConfig.topics.includes(form.hotspotData.word)) {
-          commonConfig.topics = commonConfig.topics.filter(t => t !== form.hotspotData.word)
-        }
-        form.mixId = dd.douyinSelections.mixId || ''
-        form.mixData = dd.douyinSelections.mixData || null
-        form.selectedTag = dd.douyinSelections.selectedTag || null
-        // coverImage 已在 commonConfig 中恢复，不再重复恢复
-        console.log('form.selectedTag after restore:', form.selectedTag)
-      }
-
-      // 兼容旧草稿：如果 commonConfig 中没有封面，从 douyinSelections 或 accountOverrides 中恢复
-      if (!form.coverImage) {
-        if (dd.douyinSelections?.coverImage) {
-          form.coverImage = dd.douyinSelections.coverImage
-        } else {
-          // 从 accountOverrides 中找封面
-          for (const override of Object.values(dd.accountOverrides || {})) {
-            if (override.coverImage) {
-              form.coverImage = override.coverImage
-              break
-            }
-          }
-        }
-      }
-
-      ElMessage.success('草稿已加载')
     }
+
+    migrateOldDraftFormat(dd)
+
+    if (dd.platformConfigs) {
+      for (const [key, val] of Object.entries(dd.platformConfigs)) {
+        const panel = panelRefs[key]
+        if (panel && val) {
+          panel.restoreConfigs(val, dd.accountOverrides || {})
+        }
+      }
+    }
+
+    if (dd.publishAccountIds) {
+      publishAccountIds.clear()
+      dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
+    }
+
+    if (dd.expandedGroups) expandedGroups.value = new Set(dd.expandedGroups)
+    if (dd.selectedPlatform) selectedPlatform.value = dd.selectedPlatform
+    if (dd.selectedAccountId) {
+      selectedAccountId.value = dd.selectedAccountId
+    } else if (dd.publishAccountIds?.length > 0) {
+      selectedAccountId.value = dd.publishAccountIds[0]
+    }
+
+    ElMessage.success('草稿已加载')
   } catch (e) {
     console.error('加载草稿失败:', e)
     ElMessage.error('加载草稿失败')

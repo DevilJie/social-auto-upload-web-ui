@@ -268,6 +268,11 @@ function resetOverride() {
   }
 }
 
+// ===== Template helper (used in v-if) =====
+function hasAccountOverride(accountId) {
+  return hasMeaningfulOverride(accountOverrides[accountId])
+}
+
 // ===== Exposed methods =====
 defineExpose({
   // Publish single account
@@ -363,10 +368,7 @@ defineExpose({
     return { valid: errors.length === 0, errors }
   },
 
-  hasAccountOverride(accountId) {
-    const override = accountOverrides[accountId]
-    return hasMeaningfulOverride(override)
-  },
+  hasAccountOverride,
 })
 </script>
 

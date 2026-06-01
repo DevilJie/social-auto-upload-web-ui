@@ -140,6 +140,11 @@ function resetOverride() {
   }
 }
 
+// ===== Template helper =====
+function hasAccountOverride(accountId) {
+  return hasMeaningfulOverride(accountOverrides[accountId])
+}
+
 defineExpose({
   async publish(accountId, accountName, commonData) {
     const merged = getMergedConfig(accountId)
@@ -209,9 +214,7 @@ defineExpose({
     return { valid: errors.length === 0, errors }
   },
 
-  hasAccountOverride(accountId) {
-    return hasMeaningfulOverride(accountOverrides[accountId])
-  },
+  hasAccountOverride,
 })
 </script>
 

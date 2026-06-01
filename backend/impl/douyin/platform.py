@@ -650,8 +650,7 @@ class DouyinPlatform(BasePlatform):
         - ``enableTimer`` (*bool*, optional)
         - ``schedule_time_str`` (*str*, optional)
         - ``ai_content`` (*str*, optional) -- AI content declaration
-        - ``activities`` (*list[str]*, optional) -- DEPRECATED: 抖音
-          图文不再把官方活动拼成 #tag 追加到描述，该参数已忽略
+        - ``activities`` (*list[str]*, optional) -- official activities (appended as #tags)
         - ``dry_run`` (*bool*, optional) -- if True, skip publish button click (default True)
         """
         title = kwargs.get("title", "")
@@ -681,6 +680,11 @@ class DouyinPlatform(BasePlatform):
         if cover_path and not Path(cover_path).is_file():
             logger.warning("Cover file not found: %s", cover_path)
             cover_path = ""
+
+        # Append activities as hashtags to description
+        if activities:
+            activity_tags = " ".join([f"#{act}" for act in activities])
+            desc = f"{desc} {activity_tags}".strip()
 
         for cookie_path in account_paths:
             await self._upload_image_note(

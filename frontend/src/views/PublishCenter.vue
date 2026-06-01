@@ -1306,15 +1306,14 @@ async function publishAll() {
       }
 
     try {
-      const customTags = Array.isArray(platformSettings.tags)
-        ? platformSettings.tags.map(t => t.replace(/^#/, '').trim()).filter(Boolean)
-        : (platformSettings.tags || '').split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
+      const tags = platformSettings.tags || []
 
       const publishData = {
         type: group.id,
         title: platformSettings.title,
         description: platformSettings.description || '',
-        tags: customTags,
+        tags: tags,
+        activities: platformSettings.activityId || [],
         fileList: [selectedVideo.stored_path],
         videoFormat: videoFormat,
         accountList: [account.filePath],
@@ -1326,6 +1325,13 @@ async function publishAll() {
         dailyTimes: ['10:00'],
         startDays: 0,
         category: platformSettings.zone || (platformSettings.isOriginal ? 1 : 0),
+        // Douyin-specific fields
+        hotspot: platformSettings.hotspotId || '',
+        tag_type: platformSettings.tagType || '',
+        tag_value: platformSettings.tagValue || '',
+        mini_link: platformSettings.selectedTag?.type === 'miniapp' ? (platformSettings.selectedTag._searchKeyword || '') : '',
+        mix_id: platformSettings.mixId || '',
+        // Other platform fields
         productLink: platformSettings.productLink || '',
         productTitle: platformSettings.productTitle || '',
         isDraft: platformSettings.isDraft || false,

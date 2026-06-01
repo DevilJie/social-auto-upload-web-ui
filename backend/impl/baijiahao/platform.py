@@ -183,7 +183,7 @@ class BaijiahaoPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -227,17 +227,14 @@ class BaijiahaoPlatform(BasePlatform):
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file
         ]
-        file_paths = [
-            str(Path(BASE_DIR / "videoFile" / f)) for f in files
-        ]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
         if thumbnail_landscape_path:
-            thumbnail_landscape_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
-            )
+            # 已是绝对路径
+            thumbnail_landscape_path = str(thumbnail_landscape_path)
         if thumbnail_portrait_path:
-            thumbnail_portrait_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_portrait_path)
-            )
+            # 已是绝对路径
+            thumbnail_portrait_path = str(thumbnail_portrait_path)
 
         # Determine schedule times
         publish_datetimes = parse_schedule_time(

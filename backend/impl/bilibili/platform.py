@@ -234,7 +234,7 @@ class BilibiliPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*int*, optional)
@@ -271,16 +271,14 @@ class BilibiliPlatform(BasePlatform):
             cookie_paths = [
                 str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files
             ]
-            file_paths = [
-                str(Path(BASE_DIR / "videoFile" / f)) for f in files
-            ]
+            # files 已是绝对路径（app.py 调用 _resolve_material_path 处理过）
+            file_paths = [str(f) for f in files]
 
             # Bilibili uses landscape cover
             thumbnail_path = None
             if thumbnail_landscape:
-                thumbnail_path = str(
-                    Path(BASE_DIR / "videoFile" / thumbnail_landscape)
-                )
+                # thumbnail_landscape 已是绝对路径
+                thumbnail_path = str(thumbnail_landscape)
 
             # Parse schedule times
             publish_datetimes = parse_schedule_time(

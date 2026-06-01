@@ -202,7 +202,7 @@ class DouyinPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*int*, optional)
@@ -236,15 +236,14 @@ class DouyinPlatform(BasePlatform):
 
         # Resolve full paths
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
-        file_paths = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
         if thumbnail_landscape_path:
-            thumbnail_landscape_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
-            )
+            # thumbnail_landscape_path 已是绝对路径
+            thumbnail_landscape_path = str(thumbnail_landscape_path)
         if thumbnail_portrait_path:
-            thumbnail_portrait_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_portrait_path)
-            )
+            # thumbnail_portrait_path 已是绝对路径
+            thumbnail_portrait_path = str(thumbnail_portrait_path)
 
         # Determine publish strategy and schedule times
         publish_strategy = (
@@ -637,7 +636,7 @@ class DouyinPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- note title (max 20 chars)
-        - ``files`` (*list[str]*) -- image file names (relative to image-publish/)
+        - ``files`` (*list[str]*) -- image absolute file paths (resolved by image_publish_bp)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``desc`` (*str*, optional) -- description (max 1000 chars)
@@ -674,19 +673,13 @@ class DouyinPlatform(BasePlatform):
 
         # Resolve full paths
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
-        file_paths = [str(Path(BASE_DIR / "image-publish" / f)) for f in files]
+        # files 已是绝对路径（image_publish_bp 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
 
-        # Resolve cover path - check both image-publish and videoFile directories
-        if cover_path:
-            cover_path_image = Path(BASE_DIR / "image-publish" / cover_path)
-            cover_path_video = Path(BASE_DIR / "videoFile" / cover_path)
-            if cover_path_image.exists():
-                cover_path = str(cover_path_image)
-            elif cover_path_video.exists():
-                cover_path = str(cover_path_video)
-            else:
-                logger.warning("Cover file not found: %s", cover_path)
-                cover_path = ""
+        # cover_path 已是绝对路径，无需拼接
+        if cover_path and not Path(cover_path).is_file():
+            logger.warning("Cover file not found: %s", cover_path)
+            cover_path = ""
 
         # Append activities as hashtags to description
         if activities:

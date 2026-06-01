@@ -280,7 +280,7 @@ class YoutubePlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -308,10 +308,12 @@ class YoutubePlatform(BasePlatform):
         altered_content = kwargs.get("altered_content", False)
 
         # Resolve paths
-        video_files = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        video_files = [str(f) for f in files]
         cookie_files = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files]
         if thumbnail_path:
-            thumbnail_path = str(Path(BASE_DIR / "videoFile" / thumbnail_path))
+            # thumbnail_path 已是绝对路径
+            thumbnail_path = str(thumbnail_path)
 
         # Parse schedule times (one per file)
         publish_datetimes = parse_schedule_time(

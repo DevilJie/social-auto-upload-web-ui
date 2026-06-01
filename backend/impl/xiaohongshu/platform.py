@@ -212,7 +212,7 @@ class XiaohongshuPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional) -- enable scheduled publishing
@@ -241,13 +241,15 @@ class XiaohongshuPlatform(BasePlatform):
 
         # Resolve file paths
         account_paths = [Path(BASE_DIR / "cookiesFile" / f) for f in account_files]
-        file_paths = [Path(BASE_DIR / "videoFile" / f) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [Path(f) for f in files]
 
         # XHS is a portrait-first platform: prefer portrait cover,
         # then landscape, then generic thumbnail.
         effective_cover = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
         if effective_cover:
-            effective_cover = str(Path(BASE_DIR / "videoFile" / effective_cover))
+            # 已是绝对路径
+            effective_cover = str(effective_cover)
 
         # Parse schedule times
         publish_datetimes = parse_schedule_time(

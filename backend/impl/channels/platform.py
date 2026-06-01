@@ -809,7 +809,7 @@ class ChannelsPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*str*, optional) -- original declaration category
@@ -837,12 +837,14 @@ class ChannelsPlatform(BasePlatform):
         schedule_time_str = kwargs.get("schedule_time_str", "")
 
         # Resolve file paths
-        resolved_files = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        resolved_files = [str(f) for f in files]
         resolved_accounts = [
             str(Path(BASE_DIR / "cookiesFile" / a)) for a in account_files
         ]
         if thumbnail_path:
-            thumbnail_path = str(Path(BASE_DIR / "videoFile" / thumbnail_path))
+            # thumbnail_path 已是绝对路径
+            thumbnail_path = str(thumbnail_path)
 
         publish_datetimes = parse_schedule_time(
             schedule_time_str,

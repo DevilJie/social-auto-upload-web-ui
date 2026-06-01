@@ -221,7 +221,7 @@ class IqiyiPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -255,25 +255,25 @@ class IqiyiPlatform(BasePlatform):
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file
         ]
-        file_paths = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
 
         cover_path = ""
         for p in [thumbnail_portrait_path, thumbnail_path, thumbnail_landscape_path]:
             if p:
-                cover_path = str(Path(BASE_DIR / "videoFile" / p))
+                # 已是绝对路径
+                cover_path = str(p)
                 break
 
         landscape_cover = ""
         if thumbnail_landscape_path:
-            landscape_cover = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
-            )
+            # 已是绝对路径
+            landscape_cover = str(thumbnail_landscape_path)
 
         portrait_cover = ""
         if thumbnail_portrait_path:
-            portrait_cover = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_portrait_path)
-            )
+            # 已是绝对路径
+            portrait_cover = str(thumbnail_portrait_path)
 
         # Parse schedule times
         publish_datetimes = parse_schedule_time(

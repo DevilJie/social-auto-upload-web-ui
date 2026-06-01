@@ -204,7 +204,7 @@ class TiktokPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -236,12 +236,13 @@ class TiktokPlatform(BasePlatform):
         thumbnail_path = kwargs.get("thumbnail_path")
 
         # Resolve paths
-        file_paths = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
         cookie_paths = [
             str(Path(BASE_DIR / "cookiesFile" / c)) for c in account_files
         ]
         thumb = (
-            str(Path(BASE_DIR / "videoFile" / thumbnail_path))
+            str(thumbnail_path)
             if thumbnail_path
             else None
         )

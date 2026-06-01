@@ -231,7 +231,7 @@ class KuaishouPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title / description fallback
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*int*, optional)
@@ -279,11 +279,13 @@ class KuaishouPlatform(BasePlatform):
 
         # 构建封面完整路径
         if cover_path:
-            cover_path = str(Path(BASE_DIR / "videoFile" / cover_path))
+            # cover_path 已是绝对路径
+            cover_path = str(cover_path)
             logger.info(f"[kuaishou] cover path: {cover_path}")
 
         for idx, file_name in enumerate(files):
-            video_path = str(Path(BASE_DIR / "videoFile" / file_name))
+            # file_name 已是绝对路径
+            video_path = str(file_name)
             pub_date = publish_dates[idx] if idx < len(publish_dates) else 0
 
             for cookie_file in account_files:

@@ -221,19 +221,23 @@ const selectedId = ref(null)
 // 当前正在播放的视频素材 id（互斥，同一时间只能播一个）
 const playingId = ref(null)
 
+// 当 props.filterType 限定为 video/image 时，只显示对应按钮，不允许切换类型
 const typeOptions = computed(() => {
-  const opts = [{ value: 'all', label: '全部', icon: Grid }]
-  if (props.filterType === 'all' || props.filterType === 'image') {
-    opts.push({ value: 'image', label: '图片', icon: PictureFilled })
+  if (props.filterType === 'video') {
+    return [{ value: 'video', label: '视频', icon: VideoCamera }]
   }
-  if (props.filterType === 'all' || props.filterType === 'video') {
-    opts.push({ value: 'video', label: '视频', icon: VideoCamera })
+  if (props.filterType === 'image') {
+    return [{ value: 'image', label: '图片', icon: PictureFilled }]
   }
-  return opts
+  return [
+    { value: 'all', label: '全部', icon: Grid },
+    { value: 'image', label: '图片', icon: PictureFilled },
+    { value: 'video', label: '视频', icon: VideoCamera },
+  ]
 })
 
 const hasFilter = computed(
-  () => searchKeyword.value.trim() !== '' || typeFilter.value !== 'all',
+  () => searchKeyword.value.trim() !== '' || typeFilter.value !== props.filterType,
 )
 
 const selectedMat = computed(
@@ -354,7 +358,7 @@ function confirmSelect() {
 
 function onClosed() {
   searchKeyword.value = ''
-  typeFilter.value = 'all'
+  typeFilter.value = props.filterType || 'all'
   page.value = 1
   selectedId.value = null
   playingId.value = null
@@ -401,9 +405,7 @@ defineExpose({ open })
 
   .el-dialog__body {
     padding: 0;
-    background:
-      radial-gradient(ellipse at top, rgba(91, 140, 255, 0.08), transparent 60%),
-      var(--msd-glass);
+    background: var(--msd-glass);
   }
 
   .el-dialog__footer {
@@ -431,8 +433,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   justify-content: space-between;
   padding: 18px 22px;
   border-bottom: 1px solid $border;
-  background:
-    linear-gradient(180deg, rgba(91, 140, 255, 0.08), transparent);
+  // 标题区无独立背景，融入弹窗整体深色玻璃
 }
 
 .msd-header-title {
@@ -450,7 +451,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   height: 8px;
   border-radius: 50%;
   background: linear-gradient(135deg, $brand-1, $brand-2);
-  box-shadow: 0 0 10px rgba($brand-1, 0.6);
+  box-shadow: 0 0 8px rgba($brand-1, 0.4);
 }
 
 .msd-header-stats {

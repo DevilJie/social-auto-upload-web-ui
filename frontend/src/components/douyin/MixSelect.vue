@@ -81,6 +81,11 @@ const mixList = ref([])
 const selectedMixId = ref(props.modelValue)
 const searchKeyword = ref('')
 
+watch(() => props.accountId, () => {
+  mixList.value = []
+  searchKeyword.value = ''
+})
+
 watch(() => props.modelValue, (val) => {
   selectedMixId.value = val
   // 如果有值但 mixList 中没有对应的选项，直接把完整对象放到列表

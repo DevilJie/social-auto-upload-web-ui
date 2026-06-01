@@ -788,15 +788,17 @@ class DouyinPlatform(BasePlatform):
 
                 await asyncio.sleep(5)  # 等待更长时间确保页面加载完成
 
-                # Fill title
+                # 逐字输入标题
                 logger.info("Filling title: %s", title[:20])
                 title_input = page.locator(
                     'div[class^="container-sGoJ9f"] input[type="text"]'
                 ).first
                 await title_input.wait_for(state="visible", timeout=10000)
-                await title_input.fill(title[:20])
+                await title_input.click()
+                await title_input.fill('')
+                await page.keyboard.type(title[:20])
 
-                # Fill description with tags
+                # 逐字输入描述，一次性注入标签
                 logger.info("Filling description with tags")
                 desc_editor = page.locator(
                     'div[data-zone-container="*"][contenteditable="true"]'
@@ -806,13 +808,11 @@ class DouyinPlatform(BasePlatform):
                 await page.keyboard.press("Control+KeyA")
                 await page.keyboard.press("Delete")
 
-                # 注入描述文本
-                await page.keyboard.insert_text(desc[:1000])
+                await page.keyboard.type(desc[:1000])
                 await asyncio.sleep(0.2)
 
-                # 逐个字符输入标签，每个标签后按空格触发抖音识别
                 for tag in tags:
-                    await page.keyboard.type(" #" + tag)
+                    await page.keyboard.insert_text(" #" + tag)
                     await page.keyboard.press("Space")
                 await asyncio.sleep(0.3)
 

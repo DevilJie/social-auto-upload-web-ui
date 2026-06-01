@@ -76,7 +76,6 @@ function getMergedConfig(accountId) {
 }
 
 function applyToForm(source) {
-  Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, source)
 }
 

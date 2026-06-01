@@ -29,6 +29,20 @@ def _get_db():
     return conn
 
 
+def _resolve_cover_path(path_str):
+    """封面路径解析：兼容 stored_path 相对路径 / 已是绝对路径 / 空字符串。
+
+    修复图文发布封面传不出去的 bug：前端把 materials 表里的
+    stored_path（如 materials/2026/06/01/uuid.jpg）原样传入，
+    平台层用 Path.is_file() 检查时找不到文件 → 封面为空。
+    """
+    if not path_str:
+        return ""
+    from storage import get_storage
+    local = get_storage().get_local_path(path_str)
+    return local if local else path_str
+
+
 # ========== 图片上传 ==========
 
 # ========== 发布 ==========
@@ -144,7 +158,7 @@ def publish_images():
                 tags=merged_tags,
                 account_file=[cookie_file],
                 desc=config.get('description', ''),
-                cover_path=config.get('cover_path', ''),
+                cover_path=_resolve_cover(config.get('cover_path', '')),
                 mix_id=config.get('mix_id', ''),
                 music_name=config.get('music_name', ''),
                 hotspot=config.get('hotspot', ''),
@@ -164,7 +178,7 @@ def publish_images():
                 tags=merged_tags,
                 account_file=[cookie_file],
                 desc=config.get('description', ''),
-                cover_path=config.get('cover_path', ''),
+                cover_path=_resolve_cover(config.get('cover_path', '')),
                 mix_id=config.get('mix_id', ''),
                 music_name=config.get('music_name', ''),
                 hotspot=config.get('hotspot', ''),
@@ -515,7 +529,7 @@ def execute_publish():
                 tags=data.get('tags', []),
                 account_file=data.get('account_file', []),
                 desc=data.get('desc', ''),
-                cover_path=data.get('cover_path', ''),
+                cover_path=_resolve_cover_path(data.get('cover_path', '')),
                 mix_id=data.get('mix_id', ''),
                 music_name=data.get('music_name', ''),
                 hotspot=data.get('hotspot', ''),
@@ -533,7 +547,7 @@ def execute_publish():
                 tags=data.get('tags', []),
                 account_file=data.get('account_file', []),
                 desc=data.get('desc', ''),
-                cover_path=data.get('cover_path', ''),
+                cover_path=_resolve_cover_path(data.get('cover_path', '')),
                 mix_id=data.get('mix_id', ''),
                 music_name=data.get('music_name', ''),
                 hotspot=data.get('hotspot', ''),

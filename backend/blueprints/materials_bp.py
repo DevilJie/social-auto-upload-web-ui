@@ -204,13 +204,15 @@ def list_files():
         (*params, page_size, offset),
     ).fetchall()
 
-    storage = get_storage()
+    from storage import get_storage_by_type
+
     items = []
     for row in rows:
         item = dict(row)
-        item["url"] = storage.get_url(item["stored_path"])
+        item_storage = get_storage_by_type(item.get("storage_type", "local"))
+        item["url"] = item_storage.get_url(item["stored_path"])
         item["thumbnail_url"] = (
-            storage.get_url(item["thumbnail_path"]) if item.get("thumbnail_path") else None
+            item_storage.get_url(item["thumbnail_path"]) if item.get("thumbnail_path") else None
         )
         items.append(item)
     conn.close()
@@ -253,11 +255,18 @@ def delete(material_id):
 
 @materials_bp.route("/file/<path:relative_path>")
 def serve_file(relative_path):
-    """文件访问"""
-    from storage import get_storage
+    """文件访问 — 按素材自身的存储方式提供文件"""
+    from storage import get_storage_by_type
 
-    storage = get_storage()
-    return storage.serve(relative_path)
+    # 查数据库获取该素材的存储方式
+    conn = _get_db()
+    row = conn.execute(
+        "SELECT storage_type FROM materials WHERE stored_path = ?", (relative_path,)
+    ).fetchone()
+    conn.close()
+
+    storage_type = row["storage_type"] if row else "local"
+    return get_storage_by_type(storage_type).serve(relative_path)
 
 
 @materials_bp.route("/test-s3", methods=["POST"])

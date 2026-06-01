@@ -86,6 +86,12 @@
               </div>
             </template>
 
+            <!-- 存储方式标识 -->
+            <span class="mat-card-storage-badge" :class="{ s3: mat.storage_type === 's3' }">
+              <el-icon :size="11"><component :is="mat.storage_type === 's3' ? 'Upload' : 'Monitor'" /></el-icon>
+              {{ mat.storage_type === 's3' ? 'S3' : '本地' }}
+            </span>
+
             <!-- 删除按钮（hover 浮现） -->
             <button
               class="mat-card-delete-btn"
@@ -247,6 +253,7 @@ import {
   PictureFilled,
   VideoCamera,
   Grid,
+  Monitor,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { materialsApi } from '@/api/materials'
@@ -285,6 +292,7 @@ const fileList = ref([])
 const customFilename = ref('')
 const customFilenameDisabled = computed(() => fileList.value.length > 1)
 const uploadProgress = ref({})
+const isUploading = ref(false)
 
 watch(fileList, () => {})
 
@@ -707,6 +715,36 @@ $danger: #ef4444;
   font-size: 10px;
   font-weight: 500;
   z-index: 2;
+}
+
+.mat-card-storage-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #d1d5db;
+  font-size: 11px;
+  font-weight: 600;
+  z-index: 2;
+  letter-spacing: 0.3px;
+  transition: opacity 0.15s ease;
+
+  &.s3 {
+    color: #fff;
+    background: rgba(37, 99, 235, 0.7);
+    border-color: rgba(96, 165, 250, 0.5);
+  }
+}
+
+.mat-card:hover .mat-card-storage-badge {
+  opacity: 0;
 }
 
 .mat-card-play-btn {

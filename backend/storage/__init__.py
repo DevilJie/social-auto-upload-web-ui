@@ -34,6 +34,48 @@ def get_storage():
         return LocalStorage(BASE_DIR)
 
 
+def get_storage_by_type(storage_type: str):
+    """根据素材的 storage_type 字段返回对应的存储实例，用于读取已有文件。
+
+    与 get_storage() 不同，此函数不会参考当前全局配置，而是仅根据
+    传入的 storage_type 决定用哪个后端，确保本地存储的文件始终用
+    本地方式读取，S3 存储的文件始终用 S3 方式读取。
+    """
+    from conf import BASE_DIR
+
+    if storage_type == "s3":
+        # S3 文件需要当前 S3 配置来生成 presigned URL
+        storage = get_storage()
+        if storage.type == "s3":
+            return storage
+        # 全局配置已切回本地但部分文件在 S3 上——依然尝试用 S3 读取
+        # 需要从 settings.json 读取 S3 配置
+        settings_file = BASE_DIR / "settings.json"
+        if settings_file.exists():
+            try:
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                s3_config = settings.get("storage", {}).get("s3", {})
+                if s3_config.get("endpoint"):
+                    from storage.s3 import S3Storage
+                    return S3Storage(
+                        endpoint=s3_config["endpoint"],
+                        access_key=s3_config.get("access_key", ""),
+                        secret_key=s3_config.get("secret_key", ""),
+                        bucket=s3_config.get("bucket", ""),
+                        region=s3_config.get("region", ""),
+                    )
+            except (json.JSONDecodeError, OSError):
+                pass
+        # S3 配置不可用，回退到本地（至少能尝试）
+        from storage.local import LocalStorage
+        return LocalStorage(BASE_DIR)
+
+    # local 或其他未知类型一律用本地存储
+    from storage.local import LocalStorage
+    return LocalStorage(BASE_DIR)
+
+
 def reset_storage():
     """切换存储配置后调用（目前不需要缓存，每次 get_storage 重新读取配置）"""
     pass

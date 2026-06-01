@@ -131,18 +131,13 @@ def publish_images():
                     f"mix_id={config.get('mix_id')}, tag_type={config.get('tag_type')}, "
                     f"tag_value={config.get('tag_value')}, mini_link={config.get('mini_link')}")
 
-        # 合并热点标签到 tags 中
-        hotspot_tags = config.get('hotspot_tags', [])
-        original_tags = config.get('tags', [])
-        merged_tags = list(set(original_tags + hotspot_tags))  # 去重合并
-
         # 调用平台的 publish_image 方法
         publish_fn = platform.publish_image
         if asyncio.iscoroutinefunction(publish_fn):
             result = asyncio.run(publish_fn(
                 title=config.get('title', ''),
                 files=image_files,
-                tags=merged_tags,
+                tags=config.get('tags', []),
                 account_file=[cookie_file],
                 desc=config.get('description', ''),
                 cover_path=resolve_material_path(config.get('cover_path', '')),
@@ -162,7 +157,7 @@ def publish_images():
             result = publish_fn(
                 title=config.get('title', ''),
                 files=image_files,
-                tags=merged_tags,
+                tags=config.get('tags', []),
                 account_file=[cookie_file],
                 desc=config.get('description', ''),
                 cover_path=resolve_material_path(config.get('cover_path', '')),

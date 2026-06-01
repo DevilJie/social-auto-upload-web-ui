@@ -550,12 +550,21 @@ class BilibiliPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_upload_complete(page):
-        """Wait until the text 'upload complete' appears."""
+        """Wait until the video upload is fully complete and the form
+        is interactive.
+
+        "上传完成" 文字出现只是上传成功的标志之一，但封面区需要
+        等整个上传流程（含后处理如转码）才能点击。需要满足：
+        1. "上传完成" 文字出现
+        2. 上传进度条/转码状态消失
+        3. 封面区域 (`div.cover-main`) 出现并可见
+        """
         max_retries = 120
         retry_count = 0
         while retry_count < max_retries:
             try:
-                # Check inside iframe first
+                # Check 1: "上传完成" 文字出现（iframe 或主页）
+                done_found = False
                 try:
                     upload_frame = page.frame_locator(
                         'iframe[name="videoUpload"]'
@@ -565,19 +574,48 @@ class BilibiliPlatform(BasePlatform):
                         await done_text.count() > 0
                         and await done_text.first.is_visible()
                     ):
-                        logger.info("[bilibili] video upload complete")
-                        return
+                        done_found = True
                 except Exception:
                     pass
+                if not done_found:
+                    done_text_main = page.locator("text=上传完成")
+                    if (
+                        await done_text_main.count() > 0
+                        and await done_text_main.first.is_visible()
+                    ):
+                        done_found = True
 
-                # Fallback: main page
-                done_text_main = page.locator("text=上传完成")
-                if (
-                    await done_text_main.count() > 0
-                    and await done_text_main.first.is_visible()
-                ):
-                    logger.info("[bilibili] video upload complete")
-                    return
+                if done_found:
+                    # Check 2: 等待转码中/进度条消失
+                    transcoding_locators = [
+                        'text=转码中',
+                        'text=正在转码',
+                        'text=处理中',
+                        '.bp-upload-progress',
+                        '[class*="progress"]:has-text("100")',
+                    ]
+                    still_transcoding = False
+                    for sel in transcoding_locators:
+                        try:
+                            loc = page.locator(sel)
+                            if await loc.count() > 0 and await loc.first.is_visible():
+                                still_transcoding = True
+                                break
+                        except Exception:
+                            continue
+
+                    if not still_transcoding:
+                        # Check 3: 封面区域出现且可交互
+                        cover_main = page.locator('div.cover-main').first
+                        if (
+                            await cover_main.count() > 0
+                            and await cover_main.is_visible()
+                        ):
+                            logger.info(
+                                "[bilibili] video upload complete, "
+                                "cover area ready"
+                            )
+                            return
 
                 # Check for upload failure
                 fail_text = page.locator("text=上传失败")
@@ -774,7 +812,14 @@ class BilibiliPlatform(BasePlatform):
 
     @staticmethod
     async def _set_thumbnail(page, thumbnail_path: str | None):
-        """Upload cover image via the Bilibili cover editor modal."""
+        """Upload cover image via the Bilibili cover editor modal.
+
+        兼容性策略：避免硬编码 class 名 / scoped hash / 固定文案。
+        按"由稳到脆"顺序探测：
+        1. 页面上直接存在的 cover file input（无需点任何按钮）
+        2. 任意可点击的"封面"语义按钮（基于 role / aria-label / 文本）
+        3. class 模糊匹配（不依赖 scoped hash）
+        """
         if not thumbnail_path:
             return
         if not os.path.exists(thumbnail_path):
@@ -791,8 +836,22 @@ class BilibiliPlatform(BasePlatform):
             )
 
             # Step 1: Open cover editor dialog
+            # 路径：div.cover-main > div.cover-item > div.cover-img > span.edit-text
+            # 不使用 data-v-* scoped hash（每次发版会变）
             dialog_opened = False
             trigger_selectors = [
+                # 最精确：完整路径，不依赖 scoped hash
+                'div.cover-main div.cover-item div.cover-img span.edit-text',
+                # class 子串 + 文本
+                '[class*="cover-main"] [class*="cover-item"] [class*="cover-img"] [class*="edit-text"]',
+                'span[class*="edit-text"]:has-text("封面设置")',
+                'span.edit-text:has-text("封面设置")',
+                '[class*="edit-text"]:has-text("封面设置")',
+                # 文本兜底
+                'span:has-text("封面设置")',
+                'button:has-text("封面设置")',
+                'text=封面设置',
+                # 旧版 B 站（保留兼容）
                 "div.cover-item",
                 ".cover-item",
                 ".video-cover-container",
@@ -802,12 +861,6 @@ class BilibiliPlatform(BasePlatform):
                 ".upload-video-cover",
                 'div[class*="cover"] >> text=选择封面',
                 'div[class*="cover"] >> text=封面',
-                # 新版 B 站：scoped 样式的"封面设置"按钮
-                'span.edit-text:has-text("封面设置")',
-                '[class*="edit-text"]:has-text("封面设置")',
-                'span:has-text("封面设置")',
-                'button:has-text("封面设置")',
-                'text=封面设置',
             ]
             for sel in trigger_selectors:
                 count = await page.locator(sel).count()

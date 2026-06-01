@@ -8,7 +8,6 @@ login, cookie-check, profile-sync and publish action.
 
 import asyncio
 import os
-import os
 import threading
 import time
 from pathlib import Path
@@ -18,7 +17,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser as _create_browser_async
 from .._browser import create_browser_sync
-from .._browser import create_context as _create_context_async
+from .._browser import create_context as _create_context_async, get_default_viewport
 from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 
 from util._logger import get_channel_logger
@@ -186,7 +185,7 @@ class XiaohongshuPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = browser.new_context(storage_state=cookie_path, viewport=get_default_viewport())
                 page = context.new_page()
                 page.goto(url)
                 try:

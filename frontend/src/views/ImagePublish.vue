@@ -409,7 +409,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import {
   Upload, ArrowDown, ArrowRight, Picture, PictureFilled,
   Check, Close, InfoFilled, Promotion, StarFilled,
@@ -970,8 +970,7 @@ async function loadDraft(draftId) {
 
     migrateOldDraftFormat(dd)
 
-    // 先恢复 UI 状态（selectedPlatform/selectedAccountId），
-    // 这样 restoreConfigs 中的 applyToForm 能拿到正确的 accountId
+    // 先恢复 UI 状态和发布账号
     if (dd.selectedPlatform) selectedPlatform.value = dd.selectedPlatform
     if (dd.selectedAccountId) {
       selectedAccountId.value = dd.selectedAccountId
@@ -979,8 +978,14 @@ async function loadDraft(draftId) {
       selectedAccountId.value = dd.publishAccountIds[0]
     }
     if (dd.expandedGroups) expandedGroups.value = new Set(dd.expandedGroups)
+    if (dd.publishAccountIds) {
+      publishAccountIds.clear()
+      dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
+    }
 
-    // 再恢复渠道配置（此时 accountId prop 已更新）
+    // 等 Vue 将 selectedAccountId prop 传递到子组件后再还原配置
+    await nextTick()
+
     if (dd.platformConfigs) {
       for (const [key, val] of Object.entries(dd.platformConfigs)) {
         const panel = getPanel(key)
@@ -988,11 +993,6 @@ async function loadDraft(draftId) {
           panel.restoreConfigs(val, dd.accountOverrides || {})
         }
       }
-    }
-
-    if (dd.publishAccountIds) {
-      publishAccountIds.clear()
-      dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
     }
 
     ElMessage.success('草稿已加载')

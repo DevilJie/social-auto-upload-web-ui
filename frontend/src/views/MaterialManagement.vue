@@ -3,87 +3,143 @@
     <!-- Page Header -->
     <div class="page-header">
       <h1>素材管理</h1>
-      <p class="page-subtitle">上传和管理视频素材</p>
+      <p class="page-subtitle">统一管理所有上传的视频与图片素材</p>
     </div>
 
     <!-- Toolbar -->
     <div class="toolbar-card">
-      <el-input
-        v-model="searchKeyword"
-        placeholder="输入文件名搜索"
-        prefix-icon="Search"
-        clearable
-        @clear="handleSearch"
-        @input="handleSearch"
-        class="search-input"
-      />
+      <div class="search-input-wrap">
+        <el-input
+          v-model="searchKeyword"
+          placeholder="按文件名搜索..."
+          clearable
+          :prefix-icon="Search"
+          @input="onSearchInput"
+          @clear="onSearchClear"
+        />
+      </div>
+      <div class="type-filter">
+        <button
+          v-for="opt in typeOptions"
+          :key="opt.value"
+          :class="['type-btn', { active: typeFilter === opt.value }]"
+          @click="onTypeChange(opt.value)"
+        >
+          <el-icon :size="14"><component :is="opt.icon" /></el-icon>
+          <span>{{ opt.label }}</span>
+        </button>
+      </div>
       <div class="action-buttons">
+        <el-button class="btn-refresh" @click="fetchMaterials" :loading="false">
+          <el-icon :class="{ 'is-loading': isRefreshing }"><Refresh /></el-icon>
+          <span v-if="isRefreshing">刷新中</span>
+          <span v-else>刷新</span>
+        </el-button>
         <el-button type="primary" class="btn-upload" @click="handleUploadMaterial">
           <el-icon><Upload /></el-icon>
           <span>上传素材</span>
         </el-button>
-        <el-button class="btn-refresh" @click="fetchMaterials" :loading="false">
-          <el-icon :class="{ 'is-loading': isRefreshing }"><Refresh /></el-icon>
-          <span v-if="isRefreshing">刷新中</span>
-        </el-button>
       </div>
     </div>
 
-    <!-- Material Table -->
-    <div class="table-card">
-      <div v-if="filteredMaterials.length > 0" class="material-list">
-        <el-table :data="filteredMaterials" style="width: 100%" class="material-table">
-          <el-table-column label="缩略图" width="80" align="center">
-            <template #default="scope">
-              <div class="thumbnail-cell" v-if="isVideoFile(scope.row)">
-                <span class="play-icon">&#9654;</span>
+    <!-- Cards Grid -->
+    <div class="cards-container" v-loading="loading">
+      <div v-if="items.length > 0" class="cards-grid">
+        <div
+          v-for="mat in items"
+          :key="mat.id"
+          class="mat-card"
+        >
+          <!-- Preview -->
+          <div class="mat-card-preview">
+            <img
+              v-if="mat.file_type === 'image'"
+              :src="getThumbUrl(mat)"
+              :alt="mat.original_filename"
+              loading="lazy"
+              @error="onImageError"
+            />
+            <template v-else>
+              <img
+                v-if="mat.thumbnail_url"
+                :src="getThumbUrl(mat)"
+                :alt="mat.original_filename"
+                loading="lazy"
+                class="mat-card-video-thumb"
+                @error="onImageError"
+              />
+              <div v-else class="mat-card-video-fallback">
+                <el-icon :size="32"><VideoPlay /></el-icon>
               </div>
-              <div class="thumbnail-cell thumbnail-image" v-else-if="isImageFile(scope.row)">
-                <img :src="getPreviewUrl(scope.row)" alt="" />
-              </div>
-              <div class="thumbnail-cell thumbnail-other" v-else>
-                <el-icon><Document /></el-icon>
+              <!-- 居中播放按钮 -->
+              <button
+                class="mat-card-play-btn"
+                :aria-label="`预览 ${mat.original_filename}`"
+                @click.stop="openPreview(mat)"
+              >
+                <el-icon :size="20"><VideoPlay /></el-icon>
+              </button>
+              <!-- 类型徽章 -->
+              <div class="mat-card-video-badge">
+                <el-icon :size="11"><VideoPlay /></el-icon>
+                <span>视频</span>
               </div>
             </template>
-          </el-table-column>
-          <el-table-column prop="original_filename" label="文件名" min-width="240" show-overflow-tooltip />
-          <el-table-column label="文件大小" width="120" align="center">
-            <template #default="scope">
-              {{ formatFileSize(scope.row.file_size) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="upload_time" label="上传时间" width="180" align="center" />
-          <el-table-column label="操作" width="160" align="center">
-            <template #default="scope">
-              <div class="action-cell">
-                <button class="action-btn action-preview" @click="handlePreview(scope.row)" title="预览">
-                  <el-icon><View /></el-icon>
-                </button>
-                <button class="action-btn action-delete" @click="handleDelete(scope.row)" title="删除">
-                  <el-icon><Delete /></el-icon>
-                </button>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
+
+            <!-- 删除按钮（hover 浮现） -->
+            <button
+              class="mat-card-delete-btn"
+              :aria-label="`删除 ${mat.original_filename}`"
+              @click.stop="handleDelete(mat)"
+            >
+              <el-icon :size="14"><Delete /></el-icon>
+            </button>
+
+            <!-- 底部悬停信息 -->
+            <div class="mat-card-hover-info">
+              <span>{{ mat.file_type === 'image' ? '图片' : '视频' }}</span>
+            </div>
+          </div>
+
+          <!-- 卡片元信息 -->
+          <div class="mat-card-meta">
+            <div class="mat-card-name" :title="mat.original_filename">
+              {{ mat.original_filename }}
+            </div>
+            <div class="mat-card-stats">
+              <span class="mat-card-size">{{ formatFileSize(mat.file_size) }}</span>
+              <span class="mat-card-dot">·</span>
+              <span class="mat-card-time">{{ formatDate(mat.upload_time) }}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div v-else class="empty-data">
-        <el-empty description="暂无素材数据" />
+      <div v-else-if="!loading" class="empty-data">
+        <div class="empty-icon">
+          <el-icon :size="48"><Picture /></el-icon>
+        </div>
+        <div class="empty-title">
+          {{ hasFilter ? '没有匹配的素材' : '素材库还是空的' }}
+        </div>
+        <div class="empty-desc">
+          {{ hasFilter ? '试试其他关键词或类型' : '上传你的第一个素材吧' }}
+        </div>
       </div>
+    </div>
 
-      <!-- 分页 -->
-      <div class="pagination-wrapper" v-if="totalCount > 0">
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="pageSizeOptions"
-          :total="totalCount"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handleCurrentChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
+    <!-- Pagination -->
+    <div v-if="total > 0" class="pagination-wrap">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :page-sizes="[12, 24, 48, 96]"
+        :total="total"
+        layout="sizes, prev, pager, next, jumper"
+        background
+        @current-change="loadPage"
+        @size-change="onPageSizeChange"
+      />
     </div>
 
     <!-- Upload Dialog -->
@@ -158,30 +214,21 @@
     <el-dialog
       v-model="previewDialogVisible"
       title="素材预览"
-      width="50%"
-      :top="'10vh'"
+      width="60%"
+      :top="'8vh'"
       class="preview-dialog"
     >
       <div class="preview-container" v-if="currentMaterial">
-        <div class="preview-frame">
-          <div v-if="isVideoFile(currentMaterial)" class="video-preview">
-            <video controls>
-              <source :src="getPreviewUrl(currentMaterial)" type="video/mp4">
-              您的浏览器不支持视频播放
-            </video>
-          </div>
-          <div v-else-if="isImageFile(currentMaterial)" class="image-preview">
-            <img :src="getPreviewUrl(currentMaterial)" />
-          </div>
-          <div v-else class="file-info">
-            <div class="file-info-icon">
-              <el-icon :size="48"><Document /></el-icon>
-            </div>
-            <p>文件名: {{ currentMaterial.original_filename }}</p>
-            <p>文件大小: {{ formatFileSize(currentMaterial.file_size) }}</p>
-            <p>上传时间: {{ currentMaterial.upload_time }}</p>
-            <el-button type="primary" @click="downloadFile(currentMaterial)">下载文件</el-button>
-          </div>
+        <div v-if="currentMaterial.file_type === 'video'" class="video-preview">
+          <video :src="getFullUrl(currentMaterial)" controls autoplay />
+        </div>
+        <div v-else class="image-preview">
+          <img :src="getFullUrl(currentMaterial)" :alt="currentMaterial.original_filename" />
+        </div>
+        <div class="preview-meta">
+          <span class="preview-name">{{ currentMaterial.original_filename }}</span>
+          <span class="preview-size">{{ formatFileSize(currentMaterial.file_size) }}</span>
+          <span class="preview-time">{{ formatDate(currentMaterial.upload_time) }}</span>
         </div>
       </div>
     </el-dialog>
@@ -190,24 +237,43 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { Refresh, Upload, View, Delete, Document } from '@element-plus/icons-vue'
+import {
+  Search,
+  Refresh,
+  Upload,
+  Delete,
+  VideoPlay,
+  Picture,
+  PictureFilled,
+  VideoCamera,
+  Grid,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
 import { useAppStore } from '@/stores/app'
 
-// 获取应用状态管理
 const appStore = useAppStore()
 
-// 搜索和状态控制
+// 搜索/筛选/分页
 const searchKeyword = ref('')
+const typeFilter = ref('all')
+const page = ref(1)
+const pageSize = ref(24)
+const items = ref([])
+const total = ref(0)
+const loading = ref(false)
 const isRefreshing = ref(false)
-const isUploading = ref(false)
 
-// 分页
-const currentPage = ref(1)
-const pageSize = ref(20)
-const pageSizeOptions = [10, 20, 50, 100]
+const typeOptions = [
+  { value: 'all', label: '全部', icon: Grid },
+  { value: 'image', label: '图片', icon: PictureFilled },
+  { value: 'video', label: '视频', icon: VideoCamera },
+]
+
+const hasFilter = computed(
+  () => searchKeyword.value.trim() !== '' || typeFilter.value !== 'all',
+)
 
 // 对话框控制
 const uploadDialogVisible = ref(false)
@@ -218,161 +284,171 @@ const currentMaterial = ref(null)
 const fileList = ref([])
 const customFilename = ref('')
 const customFilenameDisabled = computed(() => fileList.value.length > 1)
-const uploadProgress = ref({}); // { [uid]: { percentage: 0, speed: '' } }
+const uploadProgress = ref({})
 
+watch(fileList, () => {})
 
-watch(fileList, (newList) => {
-  if (newList.length <= 1) {
-    // If you want to clear the custom name when going back to single file, uncomment below
-    // customFilename.value = ''
+function onSearchInput() {
+  page.value = 1
+  loadPage()
+}
+
+function onSearchClear() {
+  page.value = 1
+  loadPage()
+}
+
+function onTypeChange(value) {
+  typeFilter.value = value
+  page.value = 1
+  loadPage()
+}
+
+function onPageSizeChange() {
+  page.value = 1
+  loadPage()
+}
+
+async function loadPage() {
+  loading.value = true
+  try {
+    const resp = await materialsApi.list({
+      type: typeFilter.value,
+      keyword: searchKeyword.value.trim(),
+      page: page.value,
+      page_size: pageSize.value,
+    })
+    if (resp.code === 200) {
+      items.value = resp.data.items || []
+      total.value = resp.data.total || 0
+    }
+  } catch (e) {
+    console.error('获取素材列表出错:', e)
+    ElMessage.error('获取素材列表失败')
+  } finally {
+    loading.value = false
   }
-});
+}
 
-
-// 获取素材列表
-const fetchMaterials = async () => {
+async function fetchMaterials() {
   isRefreshing.value = true
   try {
-    const response = await materialsApi.list({ page_size: 200 })
-
-    if (response.code === 200) {
-      appStore.setMaterials(response.data.items || [])
-      ElMessage.success('刷新成功')
-    } else {
-      ElMessage.error('获取素材列表失败')
-    }
-  } catch (error) {
-    console.error('获取素材列表出错:', error)
-    ElMessage.error('获取素材列表失败')
+    await loadPage()
+    ElMessage.success('刷新成功')
   } finally {
     isRefreshing.value = false
   }
 }
 
-// 过滤素材
-const filteredMaterialsAll = computed(() => {
-  if (!searchKeyword.value) return appStore.materials
-
-  const keyword = searchKeyword.value.toLowerCase()
-  return appStore.materials.filter(material =>
-    material.original_filename.toLowerCase().includes(keyword)
-  )
-})
-
-// 分页后的素材
-const filteredMaterials = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredMaterialsAll.value.slice(start, end)
-})
-
-// 总数
-const totalCount = computed(() => filteredMaterialsAll.value.length)
-
-// 搜索处理
-const handleSearch = () => {
-  // 搜索时重置到第一页
-  currentPage.value = 1
+function getThumbUrl(mat) {
+  if (mat.thumbnail_url) return mat.thumbnail_url
+  return getFileUrl(mat.stored_path)
 }
 
-// 分页事件
-const handleCurrentChange = (page) => {
-  currentPage.value = page
+function getFullUrl(mat) {
+  return getFileUrl(mat.stored_path)
 }
 
-const handleSizeChange = (size) => {
-  pageSize.value = size
-  currentPage.value = 1
+const placeholderSvg =
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzFhMWQyNCIvPjx0ZXh0IHg9IjEwMCIgeT0iMTA1IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TG9hZGluZyBmYWlsZWQ8L3RleHQ+PC9zdmc+'
+
+function onImageError(e) {
+  e.target.src = placeholderSvg
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+}
+
+function formatDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso.replace(' ', 'T') + (iso.endsWith('Z') ? '' : 'Z'))
+  if (isNaN(d.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function openPreview(mat) {
+  currentMaterial.value = mat
+  previewDialogVisible.value = true
 }
 
 // 上传素材
-const handleUploadMaterial = () => {
-  // 清空变量
+function handleUploadMaterial() {
   fileList.value = []
   customFilename.value = ''
-  uploadProgress.value = {};
+  uploadProgress.value = {}
   uploadDialogVisible.value = true
 }
 
-// 关闭上传对话框时清空变量
-const handleUploadDialogClose = () => {
+function handleUploadDialogClose() {
   fileList.value = []
   customFilename.value = ''
-  uploadProgress.value = {};
+  uploadProgress.value = {}
 }
 
-// 文件选择变更
-const handleFileChange = (file, uploadFileList) => {
-  fileList.value = uploadFileList;
-  const newProgress = {};
+function handleFileChange(file, uploadFileList) {
+  fileList.value = uploadFileList
+  const newProgress = {}
   for (const f of uploadFileList) {
-    newProgress[f.uid] = { percentage: 0, speed: '' };
+    newProgress[f.uid] = { percentage: 0, speed: '' }
   }
-  uploadProgress.value = newProgress;
+  uploadProgress.value = newProgress
 }
 
-const handleFileRemove = (file, uploadFileList) => {
-  fileList.value = uploadFileList;
-  const newProgress = { ...uploadProgress.value };
-  delete newProgress[file.uid];
-  uploadProgress.value = newProgress;
+function handleFileRemove(file, uploadFileList) {
+  fileList.value = uploadFileList
+  const newProgress = { ...uploadProgress.value }
+  delete newProgress[file.uid]
+  uploadProgress.value = newProgress
 }
 
-// 提交上传
-const submitUpload = async () => {
+async function submitUpload() {
   if (fileList.value.length === 0) {
     ElMessage.warning('请选择要上传的文件')
     return
   }
-
   isUploading.value = true
-
   for (const file of fileList.value) {
     try {
-      // 确保文件对象存在
       if (!file || !file.raw) {
         ElMessage.warning(`文件 ${file.name} 对象无效，已跳过`)
         continue
       }
-
       const formData = new FormData()
       formData.append('file', file.raw)
-
-      // 只有当只有一个文件时，自定义文件名才生效
       if (fileList.value.length === 1 && customFilename.value.trim()) {
         formData.append('filename', customFilename.value.trim())
       }
-
-      let lastLoaded = 0;
-      let lastTime = Date.now();
-
+      let lastLoaded = 0
+      let lastTime = Date.now()
       const response = await materialsApi.upload(formData, (progressEvent) => {
-        const progressData = uploadProgress.value[file.uid];
-        if (!progressData) return;
-
+        const progressData = uploadProgress.value[file.uid]
+        if (!progressData) return
         const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-        progressData.percentage = progress;
-
-        const currentTime = Date.now();
-        const timeDiff = (currentTime - lastTime) / 1000; // in seconds
-        const loadedDiff = progressEvent.loaded - lastLoaded;
-
-        if (timeDiff > 0.5) { // Update speed every 0.5 seconds
-          const speed = loadedDiff / timeDiff; // bytes per second
+        progressData.percentage = progress
+        const currentTime = Date.now()
+        const timeDiff = (currentTime - lastTime) / 1000
+        const loadedDiff = progressEvent.loaded - lastLoaded
+        if (timeDiff > 0.5) {
+          const speed = loadedDiff / timeDiff
           if (speed > 1024 * 1024) {
-            progressData.speed = (speed / (1024 * 1024)).toFixed(2) + ' MB/s';
+            progressData.speed = (speed / (1024 * 1024)).toFixed(2) + ' MB/s'
           } else {
-            progressData.speed = (speed / 1024).toFixed(2) + ' KB/s';
+            progressData.speed = (speed / 1024).toFixed(2) + ' KB/s'
           }
-          lastLoaded = progressEvent.loaded;
-          lastTime = currentTime;
+          lastLoaded = progressEvent.loaded
+          lastTime = currentTime
         }
       })
-
       if (response.code === 200) {
         ElMessage.success(`文件 ${file.name} 上传成功`)
-        const progressData = uploadProgress.value[file.uid];
-        if(progressData) progressData.speed = '完成';
+        const progressData = uploadProgress.value[file.uid]
+        if (progressData) progressData.speed = '完成'
       } else {
         ElMessage.error(`文件 ${file.name} 上传失败: ${response.msg || '未知错误'}`)
       }
@@ -381,47 +457,39 @@ const submitUpload = async () => {
       ElMessage.error(`文件 ${file.name} 上传失败: ${error.message || '未知错误'}`)
     }
   }
-
   isUploading.value = false
-  // Keep dialog open to show results
-  // uploadDialogVisible.value = false
-  await fetchMaterials()
+  await loadPage()
+  // 同步 store（保持左侧菜单/发布界面等使用 store 的视图一致）
+  materialsApi.list({ page_size: 200 }).then((r) => {
+    if (r.code === 200) appStore.setMaterials(r.data.items || [])
+  })
 }
 
-// 预览素材
-const handlePreview = async (material) => {
-  currentMaterial.value = null
-  previewDialogVisible.value = true
-  ElMessage.info('加载中...')
-  try {
-    // 等待一小段时间以确保对话框已打开
-    await new Promise(resolve => setTimeout(resolve, 100))
-    currentMaterial.value = material
-  } catch (error) {
-    console.error('预览素材出错:', error)
-    ElMessage.error('预览加载失败')
-    previewDialogVisible.value = false
-  }
-}
-
-// 删除素材
-const handleDelete = (material) => {
+function handleDelete(mat) {
   ElMessageBox.confirm(
-    `确定要删除素材 ${material.original_filename} 吗？`,
-    '警告',
+    `确定要删除素材「${mat.original_filename}」吗？\n将同时删除对应的文件，该操作不可恢复。`,
+    '删除素材',
     {
-      confirmButtonText: '确定',
+      confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
     }
   )
     .then(async () => {
       try {
-        const response = await materialsApi.delete(material.id)
-
+        const response = await materialsApi.delete(mat.id)
         if (response.code === 200) {
-          appStore.removeMaterial(material.id)
+          appStore.removeMaterial(mat.id)
           ElMessage.success('删除成功')
+          // 当前页删完后若空了，回退到前一页
+          if (items.value.length === 1 && page.value > 1) {
+            page.value -= 1
+          }
+          await loadPage()
+          // 同步 store
+          materialsApi.list({ page_size: 200 }).then((r) => {
+            if (r.code === 200) appStore.setMaterials(r.data.items || [])
+          })
         } else {
           ElMessage.error(response.msg || '删除失败')
         }
@@ -430,338 +498,394 @@ const handleDelete = (material) => {
         ElMessage.error('删除失败')
       }
     })
-    .catch(() => {
-      // 取消删除
-    })
+    .catch(() => {})
 }
 
-// 获取预览URL
-const getPreviewUrl = (material) => {
-  return getFileUrl(material.stored_path)
-}
-
-// 下载文件
-const downloadFile = (material) => {
-  window.open(getFileUrl(material.stored_path), '_blank')
-}
-
-// 格式化文件大小
-function formatFileSize(bytes) {
-  if (!bytes) return '0 B'
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-}
-
-// 判断文件类型
-const isVideoFile = (material) => material.file_type === 'video'
-const isImageFile = (material) => material.file_type === 'image'
-
-// 组件挂载时获取素材列表
 onMounted(() => {
-  // 只有store中没有数据时才获取
-  if (appStore.materials.length === 0) {
-    fetchMaterials()
-  }
+  loadPage()
 })
 </script>
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
+$brand-1: #5b8cff;
+$brand-2: #8b5cff;
+$text-1: #e5e7eb;
+$text-2: #9ca3af;
+$text-3: #6b7280;
+$border: rgba(255, 255, 255, 0.08);
+$danger: #ef4444;
+
 @keyframes rotate {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-// ========== Page Layout ==========
 .material-management {
-  padding: 0 28px;
+  padding: 0 28px 28px;
+}
 
-  .page-header {
-    margin-bottom: $spacing-lg;
+.page-header {
+  margin-bottom: $spacing-lg;
 
-    h1 {
-      font-size: 26px;
-      font-weight: 700;
-      color: $text-primary;
-      margin: 0 0 4px 0;
-      letter-spacing: -0.5px;
-    }
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: $text-primary;
+    margin: 0 0 4px 0;
+    letter-spacing: -0.5px;
+  }
 
-    .page-subtitle {
-      font-size: 14px;
-      color: $text-muted;
-      margin: 0;
-    }
+  .page-subtitle {
+    font-size: 14px;
+    color: $text-muted;
+    margin: 0;
   }
 }
 
-// ========== Toolbar Card ==========
+// ========== Toolbar ==========
 .toolbar-card {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 14px;
   padding: $spacing-md $spacing-lg;
   margin-bottom: $spacing-lg;
   background: $bg-elevated;
   border: 1px solid $border;
   border-radius: $radius-card;
+}
 
-  .search-input {
-    width: 280px;
-  }
+.search-input-wrap {
+  width: 280px;
+  flex-shrink: 0;
 
-  .action-buttons {
-    display: flex;
-    gap: 10px;
-
-    .is-loading {
-      animation: rotate 1s linear infinite;
+  :deep(.el-input__wrapper) {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid $border;
+    border-radius: 8px;
+    box-shadow: none;
+    padding: 3px 12px;
+    &:hover { border-color: rgba(255, 255, 255, 0.16); }
+    &.is-focus {
+      border-color: rgba($brand-1, 0.5);
+      box-shadow: 0 0 0 3px rgba($brand-1, 0.12);
     }
+    .el-input__inner { color: $text-1; &::placeholder { color: $text-3; } }
+    .el-input__prefix .el-icon { color: $text-2; }
   }
+}
 
-  .btn-upload {
-    background: $gradient-brand;
-    border: none;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 500;
+.type-filter {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid $border;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
 
-    &:hover {
-      opacity: 0.9;
-    }
+.type-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: $text-2;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+
+  &:hover { color: $text-1; background: rgba(255, 255, 255, 0.04); }
+
+  &.active {
+    color: #fff;
+    background: linear-gradient(135deg, rgba($brand-1, 0.9), rgba($brand-2, 0.9));
+    box-shadow: 0 2px 8px rgba($brand-1, 0.3);
   }
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+
+  .is-loading { animation: rotate 1s linear infinite; }
 
   .btn-refresh {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid $border;
     color: $text-secondary;
+    &:hover { border-color: $border-active; color: $text-primary; }
+  }
 
-    &:hover {
-      border-color: $border-active;
-      color: $text-primary;
-    }
+  .btn-upload {
+    background: linear-gradient(135deg, $brand-1, $brand-2);
+    border: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba($brand-1, 0.3);
+    &:hover { opacity: 0.92; }
   }
 }
 
-// ========== Table Card ==========
-.table-card {
+// ========== Cards Grid ==========
+.cards-container {
+  min-height: 320px;
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.mat-card {
+  border-radius: 10px;
+  background: $bg-elevated;
+  border: 1px solid $border;
+  overflow: hidden;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: rgba($brand-1, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+
+    .mat-card-preview img { transform: scale(1.05); }
+    .mat-card-delete-btn { opacity: 1; }
+  }
+}
+
+.mat-card-preview {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.1));
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.35s ease;
+  }
+}
+
+.mat-card-video-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at center, rgba($brand-1, 0.1), transparent 70%),
+    rgba(0, 0, 0, 0.2);
+  color: $text-2;
+}
+
+.mat-card-video-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  z-index: 2;
+}
+
+.mat-card-play-btn {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 0 3px;
+  opacity: 0.85;
+  transition: all 0.2s ease;
+  z-index: 2;
+
+  &:hover {
+    opacity: 1;
+    transform: scale(1.08);
+    background: linear-gradient(135deg, $brand-1, $brand-2);
+  }
+}
+
+.mat-card-delete-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s ease;
+  z-index: 3;
+
+  &:hover {
+    background: rgba($danger, 0.9);
+    transform: scale(1.1);
+  }
+}
+
+.mat-card-hover-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 5px 8px;
+  display: flex;
+  justify-content: flex-end;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.65));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.mat-card-meta {
+  padding: 8px 10px 10px;
+}
+
+.mat-card-name {
+  font-size: 12px;
+  color: $text-1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.mat-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: $text-3;
+}
+
+.mat-card-size, .mat-card-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.mat-card-dot {
+  opacity: 0.6;
+}
+
+// ========== Empty ==========
+.empty-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 80px 0;
+  color: $text-2;
+}
+
+.empty-icon { color: $text-3; opacity: 0.5; margin-bottom: 6px; }
+.empty-title { font-size: 14px; color: $text-1; font-weight: 500; }
+.empty-desc { font-size: 12px; color: $text-3; }
+
+// ========== Pagination ==========
+.pagination-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+  padding: 14px;
   background: $bg-elevated;
   border: 1px solid $border;
   border-radius: $radius-card;
-  padding: $spacing-lg;
 
-  .material-list {
-    // table wrapper
-  }
+  :deep(.el-pagination) {
+    --el-pagination-bg-color: rgba(255, 255, 255, 0.04);
+    --el-pagination-button-bg-color: rgba(255, 255, 255, 0.04);
+    --el-pagination-button-color: #{$text-2};
+    --el-pagination-hover-color: #{$brand-1};
+    --el-pagination-button-disabled-bg-color: transparent;
 
-  .empty-data {
-    padding: 60px 0;
-  }
-
-  .pagination-wrapper {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid $border-light;
-  }
-}
-
-// ========== Thumbnail Cell ==========
-.thumbnail-cell {
-  width: 40px;
-  height: 40px;
-  border-radius: $radius-sm;
-  background: $gradient-brand-subtle;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: $brand-start;
-  font-size: 16px;
-  overflow: hidden;
-  margin: 0 auto;
-
-  .play-icon {
-    font-size: 14px;
-    line-height: 1;
-  }
-
-  &.thumbnail-image {
-    img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: $radius-sm;
+    .btn-prev, .btn-next, .el-pager li {
+      background: rgba(255, 255, 255, 0.04) !important;
+      color: $text-2 !important;
+      &:hover { color: $brand-1 !important; }
     }
-  }
-
-  &.thumbnail-other {
-    .el-icon {
-      font-size: 18px;
-      color: $text-muted;
+    .el-pager li.is-active {
+      background: linear-gradient(135deg, $brand-1, $brand-2) !important;
+      color: #fff !important;
     }
   }
 }
 
-// ========== Action Buttons ==========
-.action-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: $radius-sm;
-  border: 1px solid $border;
-  background: transparent;
-  cursor: pointer;
-  transition: all $transition-base;
-
-  .el-icon {
-    font-size: 14px;
-  }
-
-  &.action-preview {
-    color: $brand-end;
-
-    &:hover {
-      background: rgba($brand-end, 0.1);
-      border-color: rgba($brand-end, 0.3);
-    }
-  }
-
-  &.action-delete {
-    color: $danger-color;
-
-    &:hover {
-      background: rgba($danger-color, 0.1);
-      border-color: rgba($danger-color, 0.3);
-    }
-  }
-}
-
-// ========== Table Styles ==========
-.material-table {
-  :deep(thead) th {
-    background: rgba(255, 255, 255, 0.02) !important;
-    color: $text-secondary !important;
-    font-weight: 500;
-    border-bottom: 1px solid $border !important;
-  }
-
-  :deep(tbody) td {
-    border-bottom: 1px solid $border !important;
-  }
-
-  :deep(.el-table__row:hover > td) {
-    background: rgba($brand-start, 0.04) !important;
-  }
-
-  :deep(.el-table__empty-block) {
-    background: transparent;
-  }
-
-  // Transparent table background
-  :deep(.el-table__inner-wrapper),
-  :deep(.el-table__body-wrapper),
-  :deep(tr) {
-    background: transparent !important;
-  }
-
-  :deep(.el-table) {
-    --el-table-bg-color: transparent;
-    --el-table-tr-bg-color: transparent;
-    --el-table-header-bg-color: transparent;
-    --el-table-row-hover-bg-color: transparent;
-  }
-}
-
-// ========== Upload Dialog ==========
+// ========== Upload Dialog (保留原样式) ==========
 .upload-dialog {
   :deep(.el-dialog) {
     background: $bg-elevated;
     border: 1px solid $border;
     border-radius: $radius-dialog;
   }
-
   :deep(.el-dialog__header) {
     border-bottom: 1px solid $border;
     padding-bottom: 16px;
   }
-
-  :deep(.el-dialog__title) {
-    color: $text-primary;
-    font-weight: 600;
-  }
-
-  :deep(.el-dialog__body) {
-    color: $text-secondary;
-  }
-
-  :deep(.el-form-item__label) {
-    color: $text-secondary;
-  }
+  :deep(.el-dialog__title) { color: $text-primary; font-weight: 600; }
+  :deep(.el-dialog__body) { color: $text-secondary; }
+  :deep(.el-form-item__label) { color: $text-secondary; }
 }
 
 .upload-form {
   .upload-zone {
     width: 100%;
-
-    :deep(.el-upload) {
-      width: 100%;
-    }
-
+    :deep(.el-upload) { width: 100%; }
     :deep(.el-upload-dragger) {
       background: rgba(255, 255, 255, 0.02);
-      border: 2px dashed rgba($brand-start, 0.3);
+      border: 2px dashed rgba($brand-1, 0.3);
       border-radius: $radius-card;
       padding: 40px 20px;
       transition: all $transition-base;
-
-      &:hover {
-        border-color: rgba($brand-start, 0.6);
-        background: rgba($brand-start, 0.03);
-      }
+      &:hover { border-color: rgba($brand-1, 0.6); background: rgba($brand-1, 0.03); }
     }
-
-    .upload-zone-icon {
-      font-size: 48px;
-      color: $brand-start;
-      margin-bottom: 12px;
-    }
-
-    .upload-zone-text {
-      color: $text-secondary;
-      font-size: 14px;
-
-      em {
-        color: $brand-start;
-        font-style: normal;
-      }
-    }
-
-    .upload-zone-tip {
-      color: $text-muted;
-      font-size: 12px;
-      margin-top: 8px;
-      text-align: center;
-    }
+    .upload-zone-icon { font-size: 48px; color: $brand-1; margin-bottom: 12px; }
+    .upload-zone-text { color: $text-secondary; font-size: 14px; em { color: $brand-1; font-style: normal; } }
+    .upload-zone-tip { color: $text-muted; font-size: 12px; margin-top: 8px; text-align: center; }
   }
 }
 
-// ========== Upload File List ==========
-.upload-file-list {
-  width: 100%;
-}
+.upload-file-list { width: 100%; }
 
 .upload-file-item {
   border: 1px solid $border;
@@ -769,45 +893,14 @@ onMounted(() => {
   padding: 12px 16px;
   margin-bottom: 10px;
   background: $bg-elevated;
-  transition: border-color $transition-base;
-
-  &:hover {
-    border-color: $border-active;
-  }
-
-  .file-item-header {
-    margin-bottom: 8px;
-  }
-
-  .file-name {
-    font-size: 14px;
-    color: $text-primary;
-    font-weight: 500;
-  }
-
+  .file-item-header { margin-bottom: 8px; }
+  .file-name { font-size: 14px; color: $text-primary; font-weight: 500; }
   .upload-progress {
-    :deep(.el-progress-bar__outer) {
-      background: rgba(255, 255, 255, 0.06);
-      border-radius: 9px;
-    }
-
-    :deep(.el-progress-bar__inner) {
-      background: $gradient-brand;
-      border-radius: 9px;
-    }
+    :deep(.el-progress-bar__outer) { background: rgba(255, 255, 255, 0.06); border-radius: 9px; }
+    :deep(.el-progress-bar__inner) { background: $gradient-brand; border-radius: 9px; }
   }
 }
 
-:deep(.el-progress__text) {
-  color: $text-secondary !important;
-  font-size: 12px !important;
-}
-
-:deep(.el-progress--line) {
-  margin-bottom: 10px;
-}
-
-// ========== Dialog Footer ==========
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -821,86 +914,43 @@ onMounted(() => {
     border: 1px solid $border;
     border-radius: $radius-dialog;
   }
-
   :deep(.el-dialog__header) {
     border-bottom: 1px solid $border;
     padding-bottom: 16px;
   }
-
-  :deep(.el-dialog__title) {
-    color: $text-primary;
-    font-weight: 600;
-  }
-
-  :deep(.el-dialog__body) {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 0 0 $radius-dialog $radius-dialog;
-  }
+  :deep(.el-dialog__title) { color: $text-primary; font-weight: 600; }
+  :deep(.el-dialog__body) { background: rgba(0, 0, 0, 0.25); border-radius: 0 0 $radius-dialog $radius-dialog; }
 }
 
 .preview-container {
   display: flex;
-  justify-content: center;
-  align-items: center;
   flex-direction: column;
-  padding: 20px;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 4px 4px;
 
-  .preview-frame {
-    border: 1px solid rgba($brand-start, 0.2);
-    border-radius: $radius-card;
-    padding: 16px;
-    background: rgba(0, 0, 0, 0.3);
-    width: 100%;
+  .video-preview, .image-preview {
     display: flex;
     justify-content: center;
     align-items: center;
-    position: relative;
-
-    &::before {
-      content: '';
-      position: absolute;
-      inset: -1px;
-      border-radius: $radius-card;
-      padding: 1px;
-      background: linear-gradient(135deg, rgba($brand-start, 0.3), rgba($brand-end, 0.1), transparent);
-      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      pointer-events: none;
-    }
-  }
-
-  .video-preview,
-  .image-preview {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-
     video, img {
       max-width: 100%;
-      max-height: 60vh;
-      border-radius: $radius-sm;
+      max-height: 65vh;
+      border-radius: 8px;
+      background: #000;
     }
   }
+}
 
-  .file-info {
-    text-align: center;
-    padding: 20px;
-    color: $text-secondary;
+.preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: $text-secondary;
+  font-size: 12px;
+  padding-top: 6px;
 
-    .file-info-icon {
-      margin-bottom: 16px;
-      color: $brand-start;
-    }
-
-    p {
-      margin-bottom: 8px;
-      font-size: 14px;
-    }
-
-    .el-button {
-      margin-top: 16px;
-    }
-  }
+  .preview-name { color: $text-primary; font-weight: 500; }
+  .preview-size, .preview-time { color: $text-muted; font-variant-numeric: tabular-nums; }
 }
 </style>

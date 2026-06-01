@@ -568,42 +568,11 @@
     </el-dialog>
 
     <!-- Material Library Dialog -->
-    <el-dialog
-      v-model="materialLibraryVisible"
-      :title="materialLibraryMode === 'cover' ? '选择封面图片' : '选择视频素材'"
-      width="800px"
-      class="material-library-dialog"
-    >
-      <div class="material-library-content">
-        <el-checkbox-group v-model="selectedMaterials">
-          <div class="material-list">
-            <div
-              v-for="material in filteredMaterials"
-              :key="material.id"
-              class="material-item"
-            >
-              <el-checkbox :label="material.id" class="material-checkbox cursor-pointer">
-                <div class="material-info">
-                  <div class="material-name">{{ material.filename }}</div>
-                  <div class="material-details">
-                    <span class="mat-size">{{ material.filesize }}MB</span>
-                    <span class="mat-time">{{ material.upload_time }}</span>
-                  </div>
-                </div>
-              </el-checkbox>
-            </div>
-          </div>
-        </el-checkbox-group>
-        <div v-if="filteredMaterials.length === 0" class="dialog-empty">素材库暂无{{ materialLibraryMode === 'cover' ? '图片' : '视频' }}素材</div>
-      </div>
-
-      <template #footer>
-        <div class="dialog-footer-right">
-          <el-button @click="materialLibraryVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmMaterialSelect">确定</el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <MaterialSelectDialog
+      ref="materialSelectRef"
+      :filter-type="materialLibraryMode === 'cover' ? 'image' : 'video'"
+      @select="onMaterialSelect"
+    />
 
     <!-- Batch Publish Progress Dialog -->
     <el-dialog
@@ -664,6 +633,7 @@ import { http } from '@/utils/request'
 import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platforms'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
+import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
 import { frameApi } from '@/api/frame'
 import { draftApi } from '@/api/draft'
 import { useRoute } from 'vue-router'
@@ -910,7 +880,7 @@ const accountDialogVisible = ref(false)
 const topicDialogVisible = ref(false)
 const videoUploadDialogVisible = ref(false)
 const videoUploadTarget = ref('landscape') // 'landscape' | 'portrait'
-const materialLibraryVisible = ref(false)
+const materialSelectRef = ref(null)
 const materialLibraryMode = ref('video') // 'video' | 'cover'
 const materialLibraryCoverTarget = ref('landscape') // 'landscape' | 'portrait'
 const materialLibraryVideoTarget = ref('landscape') // 'landscape' | 'portrait'
@@ -957,16 +927,7 @@ const recommendedTopics = [
 ]
 
 // Material library state
-const selectedMaterials = ref([])
 const materials = computed(() => appStore.materials)
-
-const filteredMaterials = computed(() => {
-  const list = materials.value
-  if (materialLibraryMode.value === 'cover') {
-    return list.filter(m => m.file_type === 'image')
-  }
-  return list.filter(m => m.file_type === 'video')
-})
 
 // Batch publish state
 const publishing = ref(false)
@@ -1125,89 +1086,48 @@ async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape
   } else {
     materialLibraryCoverTarget.value = videoOrCoverTarget
   }
-  // 每次打开素材库都重新加载，确保看到最新上传的文件
-  try {
-    const response = await materialsApi.list({ page_size: 200 })
+  // 异步预拉一次全量素材到 store，便于外部视图（左侧已选素材等）保持同步
+  materialsApi.list({ page_size: 200 }).then((response) => {
     if (response.code === 200) {
       appStore.setMaterials(response.data.items || [])
-    } else {
-      ElMessage.error('获取素材列表失败')
-      return
-      }
-    } catch (error) {
-      console.error('获取素材列表出错:', error)
-      ElMessage.error('获取素材列表失败')
-      return
     }
-  selectedMaterials.value = []
-  materialLibraryVisible.value = true
+  }).catch((err) => console.error('预拉素材列表出错:', err))
+  materialSelectRef.value?.open()
 }
 
-function confirmMaterialSelect() {
-  if (selectedMaterials.value.length === 0) {
-    ElMessage.warning('请选择至少一个素材')
-    return
-  }
+function onMaterialSelect(material) {
   if (materialLibraryMode.value === 'cover') {
-    // 封面模式：只用第一张图片素材
-    const material = materials.value.find(m => m.id === selectedMaterials.value[0])
-    if (material) {
-      const coverData = {
-        name: material.original_filename,
-        url: getFileUrl(material.stored_path),
-        stored_path: material.stored_path,
-        size: material.file_size,
-        type: material.mime_type,
-      }
-      if (materialLibraryCoverTarget.value === 'portrait') {
-        commonConfig.coverPortrait = coverData
-      } else {
-        commonConfig.coverLandscape = coverData
-      }
-      ElMessage.success('封面已设置')
+    if (materialLibraryCoverTarget.value === 'portrait') {
+      commonConfig.coverPortrait = material
+    } else {
+      commonConfig.coverLandscape = material
     }
+    ElMessage.success('封面已设置')
   } else {
-    // 素材库选择视频模式，只用第一个
-    const material = materials.value.find(m => m.id === selectedMaterials.value[0])
-    if (material) {
-      const videoData = {
-        id: material.id,
-        name: material.original_filename,
-        url: getFileUrl(material.stored_path),
-        stored_path: material.stored_path,
-        size: material.file_size,
-        type: material.mime_type,
+    if (materialLibraryVideoTarget.value === 'portrait') {
+      commonConfig.videoPortrait = material
+    } else {
+      commonConfig.videoLandscape = material
+    }
+    ElMessage.success('视频已设置')
+    if (appStore.autoFillTitle) {
+      const title = material.name.replace(/\.[^.]+$/, '')
+      for (const key of Object.keys(platformConfigs)) {
+        platformConfigs[key].title = title
       }
-      if (materialLibraryVideoTarget.value === 'portrait') {
-        commonConfig.videoPortrait = videoData
-      } else {
-        commonConfig.videoLandscape = videoData
-      }
-      ElMessage.success('视频已设置')
-      if (appStore.autoFillTitle) {
-        const title = material.original_filename.replace(/\.[^.]+$/, '')
-        // 1. 更新所有渠道级标题
-        for (const key of Object.keys(platformConfigs)) {
-          platformConfigs[key].title = title
-        }
-        // 2. 对已有账号级标题的账号，也一并更新
-        for (const group of accountGroups.value) {
-          for (const account of group.accounts) {
-            if (accountOverrides[account.id]?.title) {
-              accountOverrides[account.id].title = title
-            }
+      for (const group of accountGroups.value) {
+        for (const account of group.accounts) {
+          if (accountOverrides[account.id]?.title) {
+            accountOverrides[account.id].title = title
           }
         }
-        // 3. 同步到当前表单显示
-        if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
-          form.title = platformConfigs[selectedPlatform.value].title
-        }
       }
-      triggerFrameExtraction(videoData, materialLibraryVideoTarget.value)
+      if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
+        form.title = platformConfigs[selectedPlatform.value].title
+      }
     }
+    triggerFrameExtraction(material, materialLibraryVideoTarget.value)
   }
-  materialLibraryVisible.value = false
-  selectedMaterials.value = []
 }
 
 // ========== Topic Methods ==========

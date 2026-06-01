@@ -133,6 +133,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Edit, Delete } from '@element-plus/icons-vue'
 import { draftApi } from '@/api/draft'
 import { getPlatformByKey } from '@/config/platforms'
+import { getFileUrl } from '@/utils/storage'
 
 const router = useRouter()
 const activeTab = ref('video')
@@ -145,9 +146,7 @@ const overflowMap = ref({})
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 
 function getCoverUrl(path) {
-  if (!path) return ''
-  if (path.startsWith('http')) return path
-  return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`
+  return getFileUrl(path)
 }
 
 function getPlatformLogo(platformKey) {

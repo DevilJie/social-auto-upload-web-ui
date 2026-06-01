@@ -223,12 +223,13 @@ defineExpose({
 
 <style scoped>
 .xiaohongshu-image-publish-panel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 12px;
 }
 
 .xhs-warning {
+  grid-column: 1 / -1;
   display: flex;
   align-items: flex-start;
   gap: 8px;

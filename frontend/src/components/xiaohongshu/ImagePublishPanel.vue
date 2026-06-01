@@ -12,19 +12,19 @@
     </div>
 
     <!-- 1. Title -->
-    <div class="setting-card">
+    <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">标题</div>
       <el-input v-model="form.title" placeholder="请输入标题..." maxlength="100" show-word-limit :disabled="disabled" />
     </div>
 
     <!-- 2. Description -->
-    <div class="setting-card">
+    <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">描述</div>
       <el-input v-model="form.description" type="textarea" :rows="5" placeholder="请输入描述..." maxlength="2000" show-word-limit :disabled="disabled" />
     </div>
 
     <!-- 3. Tags -->
-    <div class="setting-card">
+    <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">标签</div>
       <div class="setting-hint">输入标签内容，按回车确认</div>
       <el-input v-model="tagInput" placeholder="输入标签内容，按回车添加" @keyup.enter="addTag" clearable :disabled="disabled" />

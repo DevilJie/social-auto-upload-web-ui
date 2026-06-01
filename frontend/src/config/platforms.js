@@ -161,14 +161,6 @@ export const PLATFORMS = {
       ] },
       { key: 'tags', label: '标签', type: 'input', placeholder: '如：#标签1 #标签2 或 逗号分隔' },
       { key: 'topic', label: '话题', type: 'select', placeholder: '选择话题' },
-      { key: 'aiContent', label: '声明与权益', type: 'select', placeholder: '选择声明与权益', options: [
-        { label: '该视频使用人工智能合成技术', value: '该视频使用人工智能合成技术' },
-        { label: '视频内含有危险行为，请勿轻易模仿', value: '视频内含有危险行为，请勿轻易模仿' },
-        { label: '该内容仅供娱乐，请勿过分解读', value: '该内容仅供娱乐，请勿过分解读' },
-        { label: '该内容可能引人不适，请谨慎选择观看', value: '该内容可能引人不适，请谨慎选择观看' },
-        { label: '请理性适度消费', value: '请理性适度消费' },
-        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
-      ] },
       { key: 'creationDeclaration', label: '创作声明', type: 'select', placeholder: '选择创作声明', options: [
         { label: '内容无需标注', value: '内容无需标注' },
         { label: '含AI生成内容', value: '含AI生成内容' },
@@ -181,7 +173,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', zone: '', tags: '', topic: '', aiContent: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', zone: '', tags: '', topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BAIJIAHAO: {
     id: 6,

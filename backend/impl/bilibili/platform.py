@@ -246,7 +246,6 @@ class BilibiliPlatform(BasePlatform):
         - ``thumbnail_landscape_path`` (*str*, optional) -- landscape cover
         - ``thumbnail_portrait_path`` (*str*, optional) -- portrait cover
         - ``schedule_time_str`` (*str*, optional)
-        - ``ai_content`` (*str*, optional)
         - ``creation_declaration`` (*str*, optional)
         """
 
@@ -264,6 +263,8 @@ class BilibiliPlatform(BasePlatform):
             thumbnail_landscape = kwargs.get("thumbnail_landscape_path", "")
             thumbnail_portrait = kwargs.get("thumbnail_portrait_path", "")
             schedule_time_str = kwargs.get("schedule_time_str", "")
+            # ai_content 字段已废弃：B 站新版去掉了"更多设置/声明与权益"，
+            # 创作声明直接在主页面设置，保留参数接收以兼容 app.py 调用
             ai_content = kwargs.get("ai_content", "")
             creation_declaration = kwargs.get("creation_declaration", "")
 
@@ -311,7 +312,6 @@ class BilibiliPlatform(BasePlatform):
                         category=category,
                         desc=desc,
                         thumbnail_path=thumbnail_path,
-                        ai_content=ai_content,
                         creation_declaration=creation_declaration,
                     )
 
@@ -332,7 +332,6 @@ class BilibiliPlatform(BasePlatform):
         category=None,
         desc: str = "",
         thumbnail_path: str | None = None,
-        ai_content: str = "",
         creation_declaration: str = "",
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
@@ -387,10 +386,8 @@ class BilibiliPlatform(BasePlatform):
                 # 7. Set cover/thumbnail
                 await self._set_thumbnail(page, thumbnail_path)
 
-                # 8. Set declaration (AI content etc.)
-                await self._set_declaration(page, ai_content)
-
-                # 8.5 Set creation declaration (bcc-select dropdown)
+                # 8. Set creation declaration (bcc-select dropdown)
+                # B 站新版已废弃"更多设置/声明与权益"，保留创作声明即可
                 await self._set_creation_declaration(page, creation_declaration)
 
                 # 9. Set scheduled publish
@@ -982,76 +979,6 @@ class BilibiliPlatform(BasePlatform):
             except Exception:
                 pass
             raise RuntimeError(f"cover setting failed: {exc}") from exc
-
-    @staticmethod
-    async def _set_declaration(page, ai_content: str):
-        """Set AI content declaration via the 'more settings' panel."""
-        if not ai_content:
-            return
-
-        logger.info(f"[bilibili] setting declaration: {ai_content}")
-        try:
-            log_dir = Path(BASE_DIR / "data" / "logs")
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            # Step 1: Click "more settings" to expand
-            more_settings = page.locator('span.label:has-text("更多设置")')
-            if (
-                await more_settings.count() > 0
-                and await more_settings.first.is_visible()
-            ):
-                try:
-                    await more_settings.first.click(timeout=5000)
-                except Exception:
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.5)
-                    await more_settings.first.click(force=True)
-                await asyncio.sleep(2)
-            else:
-                logger.info("[bilibili] 'more settings' button not found")
-                return
-
-            # Step 2: Click declaration selector
-            declaration_selector = page.locator(
-                'p.select-item-cont:has-text('
-                '"请选择符合您视频内容的创作声明")'
-            )
-            if (
-                await declaration_selector.count() > 0
-                and await declaration_selector.first.is_visible()
-            ):
-                await declaration_selector.first.click()
-                await asyncio.sleep(1)
-            else:
-                logger.info("[bilibili] declaration selector not found")
-                return
-
-            # Step 3: Select matching declaration
-            target_text = ai_content.strip()
-            mark_items = page.locator(".mark-item")
-            count = await mark_items.count()
-            clicked = False
-            for i in range(count):
-                item = mark_items.nth(i)
-                item_text = (await item.text_content() or "").strip()
-                if target_text in item_text:
-                    await item.click()
-                    logger.info(
-                        f"[bilibili] selected declaration: {item_text}"
-                    )
-                    clicked = True
-                    break
-
-            if not clicked:
-                logger.info(
-                    f"[bilibili] matching declaration not found: "
-                    f"{target_text}"
-                )
-            await asyncio.sleep(1)
-        except Exception as exc:
-            logger.info(
-                f"[bilibili] declaration setting failed (non-fatal): {exc}"
-            )
 
     @staticmethod
     async def _set_creation_declaration(page, creation_declaration: str):

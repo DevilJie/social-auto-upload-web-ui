@@ -204,6 +204,7 @@ class DouyinPlatform(BasePlatform):
         - ``title`` (*str*) -- video title
         - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
+        - ``activities`` (*list[str]*, optional) -- official activities (appended as #tags to description)
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*int*, optional)
         - ``enableTimer`` (*bool*, optional)
@@ -221,6 +222,7 @@ class DouyinPlatform(BasePlatform):
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", []) or []
+        activities = kwargs.get("activities", []) or []
         account_file = kwargs.get("account_file", [])
         enableTimer = kwargs.get("enableTimer", False)
         videos_per_day = kwargs.get("videos_per_day", 1)
@@ -269,6 +271,7 @@ class DouyinPlatform(BasePlatform):
                     publish_date=publish_datetimes[file_index],
                     account_file=cookie_path,
                     publish_strategy=publish_strategy,
+                    activities=activities,
                     thumbnail_landscape_path=thumbnail_landscape_path or None,
                     thumbnail_portrait_path=thumbnail_portrait_path or None,
                     product_link=product_link,
@@ -290,6 +293,7 @@ class DouyinPlatform(BasePlatform):
         publish_date,
         account_file: str,
         publish_strategy: str,
+        activities: list | None = None,
         thumbnail_landscape_path=None,
         thumbnail_portrait_path=None,
         product_link="",
@@ -338,6 +342,11 @@ class DouyinPlatform(BasePlatform):
                             await asyncio.sleep(0.5)
 
                 await asyncio.sleep(1)
+
+                # Append activities as hashtags to description (与图文发布一致)
+                if activities:
+                    activity_tags = " ".join([f"#{act}" for act in activities])
+                    desc = f"{desc or title} {activity_tags}".strip()
 
                 # Fill title, description, tags
                 await self._fill_title_and_description(
@@ -450,7 +459,7 @@ class DouyinPlatform(BasePlatform):
         await page.keyboard.type(description)
 
         for tag in tags or []:
-            await page.keyboard.type(" #" + tag)
+            await page.keyboard.insert_text(" #" + tag)
             await page.keyboard.press("Space")
 
     # ------------------------------------------------------------------

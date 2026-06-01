@@ -82,8 +82,11 @@ function getMergedConfig(accountId) {
   return merged
 }
 
+let syncing = false
 function applyToForm(source) {
+  syncing = true
   Object.assign(form, source)
+  syncing = false
 }
 
 // ===== Watch accountId =====
@@ -93,6 +96,7 @@ watch(() => props.accountId, (newId) => {
 
 // ===== Watch form =====
 watch(form, (newVal) => {
+  if (syncing) return
   if (!props.accountId) {
     for (const key of Object.keys(newVal)) {
       if (Array.isArray(newVal[key])) {
@@ -122,7 +126,7 @@ watch(form, (newVal) => {
     }
   }
   emit('config-changed')
-}, { deep: true, flush: 'post' })
+}, { deep: true })
 
 // ===== Tag operations =====
 function addTag() {

@@ -627,7 +627,11 @@ class DouyinPlatform(BasePlatform):
         if thumbnail_landscape_path:
             await cover_locator.locator("div[class*='steps'] div").nth(1).click()
             await page.wait_for_timeout(1000)
-            await upload_input.set_input_files(thumbnail_landscape_path)
+            # 切换 tab 后重新定位上传输入框，避免仍指向竖版 tab 的 input
+            landscape_input = cover_locator.locator(
+                "div[class^='semi-upload upload'] >> input.semi-upload-hidden-input"
+            )
+            await landscape_input.set_input_files(thumbnail_landscape_path)
             await page.wait_for_timeout(2000)
             logger.info("Landscape cover uploaded (tab 1)")
 

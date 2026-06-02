@@ -235,6 +235,11 @@ class DouyinPlatform(BasePlatform):
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
         ai_content = kwargs.get("ai_content", "")
+        hotspot = kwargs.get("hotspot", "")
+        tag_type = kwargs.get("tag_type", "")
+        tag_value = kwargs.get("tag_value", "")
+        mini_link = kwargs.get("mini_link", "")
+        mix_id = kwargs.get("mix_id", "")
 
         # Resolve full paths
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]

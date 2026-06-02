@@ -408,12 +408,21 @@ def postVideo():
         # asyncio.run() only works with coroutines — calling it on a
         # sync function that already uses asyncio.run() internally
         # would pass a bool to asyncio.run() and throw.
+        # 提取新传入的参数
+        activities = data.get('activities', [])
+        hotspot = data.get('hotspot', '')
+        tag_type = data.get('tag_type', '')
+        tag_value = data.get('tag_value', '')
+        mini_link = data.get('mini_link', '')
+        mix_id = data.get('mix_id', '')
+
         publish_fn = platform.publish_video
         if asyncio.iscoroutinefunction(publish_fn):
             result = asyncio.run(publish_fn(
                 title=data.get('title'),
                 files=file_list,
                 tags=data.get('tags'),
+                activities=activities,
                 account_file=data.get('accountList', []),
                 category=data.get('category'),
                 enableTimer=data.get('enableTimer'),
@@ -435,12 +444,18 @@ def postVideo():
                 is_draft=data.get('isDraft', False),
                 audience=data.get('audience', 'not_kids'),
                 altered_content=data.get('alteredContent', False),
+                hotspot=hotspot,
+                tag_type=tag_type,
+                tag_value=tag_value,
+                mini_link=mini_link,
+                mix_id=mix_id,
             ))
         else:
             result = publish_fn(
                 title=data.get('title'),
                 files=file_list,
                 tags=data.get('tags'),
+                activities=activities,
                 account_file=data.get('accountList', []),
                 category=data.get('category'),
                 enableTimer=data.get('enableTimer'),
@@ -462,6 +477,11 @@ def postVideo():
                 is_draft=data.get('isDraft', False),
                 audience=data.get('audience', 'not_kids'),
                 altered_content=data.get('alteredContent', False),
+                hotspot=hotspot,
+                tag_type=tag_type,
+                tag_value=tag_value,
+                mini_link=mini_link,
+                mix_id=mix_id,
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

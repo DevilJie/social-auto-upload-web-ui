@@ -408,31 +408,34 @@ class DouyinPlatform(BasePlatform):
                             third_part_element
                         ).locator("input.semi-switch-native-control").click()
 
-                # Schedule if needed
-                if (
-                    publish_strategy == DOUYIN_PUBLISH_STRATEGY_SCHEDULED
-                    and publish_date != 0
-                ):
-                    await self._set_schedule_time(page, publish_date)
+                
+                # Set mix/collection if provided (与图文发布一致)
+                if mix_id:
+                    logger.info("Setting mix/collection: %s", mix_id)
+                    await self._set_image_mix(page, mix_id)
 
                 # Set AI content declaration
                 if ai_content:
                     await self._set_declaration(page, ai_content)
 
-                # Set hotspot if provided (与图文发布一致)
-                if hotspot:
-                    logger.info("Setting hotspot: %s", hotspot)
-                    await self._set_hotspot(page, hotspot)
 
                 # Set tag (位置/小程序/游戏手柄/标记万物) if provided (与图文发布一致)
                 if tag_type and tag_value:
                     logger.info("Setting tag: type=%s, value=%s, mini_link=%s", tag_type, tag_value, mini_link)
                     await self._set_tag(page, tag_type, tag_value, mini_link)
 
-                # Set mix/collection if provided (与图文发布一致)
-                if mix_id:
-                    logger.info("Setting mix/collection: %s", mix_id)
-                    await self._set_image_mix(page, mix_id)
+
+                # Set hotspot if provided (与图文发布一致)
+                if hotspot:
+                    logger.info("Setting hotspot: %s", hotspot)
+                    await self._set_hotspot(page, hotspot)
+
+                # Schedule if needed
+                if (
+                    publish_strategy == DOUYIN_PUBLISH_STRATEGY_SCHEDULED
+                    and publish_date != 0
+                ):
+                    await self._set_schedule_time(page, publish_date)
 
                 # Click publish and wait for redirect
                 while True:
@@ -1200,8 +1203,20 @@ class DouyinPlatform(BasePlatform):
             await asyncio.sleep(1)
 
             # Select tag type
-            type_option = page.get_by_role("option", name=type_text)
-            if await type_option.count() == 0:
+            logger.info("Looking for tag type option: %s", type_text)
+            # 打印下拉中所有可见选项
+            all_opts = page.locator('[role="option"]')
+            opt_count = await all_opts.count()
+            for oi in range(opt_count):
+                try:
+                    t = await all_opts.nth(oi).text_content()
+                    logger.info("  option[%s]: %s", oi, t.strip()[:50] if t else "(empty)")
+                except Exception:
+                    pass
+            try:
+                type_option = page.get_by_role("option", name=type_text)
+                await type_option.wait_for(state="visible", timeout=5000)
+            except Exception:
                 logger.warning("Tag type option not found: %s", type_text)
                 await page.keyboard.press("Escape")
                 return
@@ -1214,13 +1229,22 @@ class DouyinPlatform(BasePlatform):
                 count = await options.count()
                 logger.info("Found %d options", count)
 
-                # Try to find exact match
+                # 先尝试完全匹配
                 for i in range(count):
                     option = options.nth(i)
-                    option_text = await option.text_content()
+                    option_text = (await option.text_content() or '').strip()
+                    if option_text == tag_value:
+                        await option.click()
+                        logger.info("Tag set: %s (exact match)", tag_value)
+                        return True
+
+                # 再尝试包含匹配
+                for i in range(count):
+                    option = options.nth(i)
+                    option_text = (await option.text_content() or '').strip()
                     if tag_value in option_text:
                         await option.click()
-                        logger.info("Tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        logger.info("Tag set: %s (contain match: %s)", tag_value, option_text[:50])
                         return True
 
                 # Fallback: click first option
@@ -1240,7 +1264,7 @@ class DouyinPlatform(BasePlatform):
                 await asyncio.sleep(1)
 
                 # Use keyboard to type directly since input is already focused
-                await page.keyboard.type(tag_value, delay=50)
+                await page.keyboard.insert_text(tag_value)
                 logger.info("Typed location keyword: %s", tag_value)
                 await asyncio.sleep(5)  # 位置查询可能有延迟，等待更长时间
 
@@ -1255,7 +1279,7 @@ class DouyinPlatform(BasePlatform):
 
                 # Use mini_link if provided, otherwise use tag_value
                 link_to_use = mini_link if mini_link else tag_value
-                await page.keyboard.type(link_to_use, delay=50)
+                await page.keyboard.insert_text(tag_value)
                 logger.info("Typed miniapp link: %s", link_to_use)
                 await asyncio.sleep(2)
 
@@ -1269,7 +1293,7 @@ class DouyinPlatform(BasePlatform):
                 await asyncio.sleep(1)
 
                 # Use keyboard to type directly since input is already focused
-                await page.keyboard.type(tag_value, delay=50)
+                await page.keyboard.insert_text(tag_value)
                 logger.info("Typed game tag value: %s", tag_value)
                 await asyncio.sleep(3)
 
@@ -1280,21 +1304,32 @@ class DouyinPlatform(BasePlatform):
 
                 # Click the option that matches the search text
                 clicked = False
+                # 先完全匹配
                 for i in range(count):
                     option = game_options.nth(i)
-                    option_text = await option.text_content()
-                    if tag_value in option_text:
+                    option_text = (await option.text_content() or '').strip()
+                    if option_text == tag_value:
                         await option.click()
-                        logger.info("Game tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        logger.info("Game tag set: %s (exact match)", tag_value)
                         clicked = True
                         break
+                if not clicked:
+                    # 再包含匹配
+                    for i in range(count):
+                        option = game_options.nth(i)
+                        option_text = (await option.text_content() or '').strip()
+                        if tag_value in option_text:
+                            await option.click()
+                            logger.info("Game tag set: %s (contain: %s)", tag_value, option_text[:50])
+                            clicked = True
+                            break
 
             elif tag_type == 'mark':
                 # Mark: input search keyword
                 mark_input = page.get_by_placeholder("请输入或选择标记的物品")
                 await mark_input.click()
                 await asyncio.sleep(1)
-                await page.keyboard.type(tag_value, delay=50)
+                await page.keyboard.insert_text(tag_value)
                 await asyncio.sleep(3)
 
                 # Find matching mark option in dropdown
@@ -1306,33 +1341,61 @@ class DouyinPlatform(BasePlatform):
                 clicked = False
                 for i in range(count):
                     option = mark_options.nth(i)
-                    option_text = await option.text_content()
-                    if tag_value in option_text:
+                    option_text = (await option.text_content() or '').strip()
+                    if option_text == tag_value:
                         await option.click()
-                        logger.info("Mark tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        logger.info("Mark tag set: %s (exact match)", tag_value)
                         clicked = True
                         break
+                if not clicked:
+                    for i in range(count):
+                        option = mark_options.nth(i)
+                        option_text = (await option.text_content() or '').strip()
+                        if tag_value in option_text:
+                            await option.click()
+                            logger.info("Mark tag set: %s (contain: %s)", tag_value, option_text[:50])
+                            clicked = True
+                            break
 
             elif tag_type == 'film':
                 # Film/Media: input search keyword
-                film_input = page.get_by_placeholder("输入IP名称, 如 “少年的你”")
+                film_input = page.get_by_text("输入IP名称, 如 “少年的你”", exact=True)
                 await film_input.click()
                 await asyncio.sleep(1)
-                await page.keyboard.type(tag_value, delay=50)
+                await page.keyboard.insert_text(tag_value)
                 logger.info("Typed film keyword: %s", tag_value)
-                await asyncio.sleep(3)
-                film_options = page.locator('div.semi-popover [class*="option-"]')
+                await asyncio.sleep(1)
+                try:
+                    await page.wait_for_selector('[role="option"]', timeout=8000)
+                except Exception:
+                    logger.warning("Film search options did not appear")
+                film_options = page.locator('[role="option"]')
                 count = await film_options.count()
                 logger.info("Found %d film options", count)
+                for oi in range(count):
+                    try:
+                        ot = await film_options.nth(oi).text_content()
+                        logger.info("  film option[%s]: %s", oi, (ot or '').strip()[:80])
+                    except Exception:
+                        pass
                 clicked = False
                 for i in range(count):
                     option = film_options.nth(i)
-                    option_text = await option.text_content()
-                    if tag_value in option_text:
+                    option_text = (await option.text_content() or '').strip()
+                    if option_text == tag_value:
                         await option.click()
-                        logger.info("Film tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        logger.info("Film tag set: %s (exact match)", tag_value)
                         clicked = True
                         break
+                if not clicked:
+                    for i in range(count):
+                        option = film_options.nth(i)
+                        option_text = (await option.text_content() or '').strip()
+                        if tag_value in option_text:
+                            await option.click()
+                            logger.info("Film tag set: %s (contain: %s)", tag_value, option_text[:50])
+                            clicked = True
+                            break
 
             await asyncio.sleep(1)
         except Exception as e:

@@ -394,6 +394,9 @@ def postVideo():
     if not data:
         return jsonify({"code": 400, "msg": "请求数据不能为空", "data": None}), 400
 
+    logger.info("postVideo data: tag_type=%s, tag_value=%s, hotspot=%s, mix_id=%s",
+                 data.get('tag_type'), data.get('tag_value'), data.get('hotspot'), data.get('mix_id'))
+
     platform = get_platform(data.get('type'))
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400

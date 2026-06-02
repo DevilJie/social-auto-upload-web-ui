@@ -131,6 +131,8 @@ watch(() => props.modelValue, (val) => {
         desc: val.desc || '',
         icon: val.icon || '',
         type: val.type,
+        typeName: val.typeName || '',
+        playCount: val.playCount || 0,
         data: val.data || val
       })
     }
@@ -274,6 +276,7 @@ async function handleSearch() {
             playCount: item.play_cnt || item.playCount || 0,
             data: item
           }))
+          console.log('影视解析结果:', tagList.value)
         }
         break
     }

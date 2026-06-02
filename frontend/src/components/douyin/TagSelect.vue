@@ -51,7 +51,27 @@
           :label="tag.name"
           :value="tag.id"
         >
-          <div class="tag-option">
+          <!-- 影视演绎：显示封面、名称、类型、播放量 -->
+          <div v-if="tag.type === 'film'" class="film-option">
+            <img
+              v-if="tag.icon"
+              :src="tag.icon"
+              class="film-poster"
+              @error="onImageError"
+            />
+            <div v-else class="film-poster-placeholder">
+              <el-icon><component :is="getTagIcon()" /></el-icon>
+            </div>
+            <div class="film-detail">
+              <div class="film-name">{{ tag.name }}</div>
+              <div class="film-extra">
+                <span class="film-type">{{ tag.typeName || '影视' }}</span>
+                <span class="film-play">{{ formatPlayCount(tag.playCount) }}次播放</span>
+              </div>
+            </div>
+          </div>
+          <!-- 其他类型：原有布局 -->
+          <div v-else class="tag-option">
             <img
               v-if="tag.icon"
               :src="tag.icon"
@@ -250,6 +270,8 @@ async function handleSearch() {
             desc: item.abstract || item.desc || '',
             icon: item.poster?.url_list?.[0] || item.cover?.url_list?.[0] || item.icon || '',
             type: 'film',
+            typeName: item.type_name || item.typeName || '',
+            playCount: item.play_cnt || item.playCount || 0,
             data: item
           }))
         }
@@ -294,6 +316,13 @@ function handleChange(val) {
 
 function onImageError(e) {
   e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iMjAiIHk9IjI0IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPiM8L3RleHQ+PC9zdmc+'
+}
+
+function formatPlayCount(n) {
+  if (!n) return '0'
+  if (n >= 100000000) return (n / 100000000).toFixed(1) + '亿'
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+  return String(n)
 }
 </script>
 
@@ -391,5 +420,65 @@ function onImageError(e) {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 4px;
+}
+
+.film-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.film-poster {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #27273b;
+}
+
+.film-poster-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  background: #27273b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.film-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.film-name {
+  font-size: 14px;
+  color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.film-extra {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.film-type {
+  color: #f8fafc;
+  background: rgba(244, 63, 94, 0.15);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.film-play {
+  color: #94a3b8;
 }
 </style>

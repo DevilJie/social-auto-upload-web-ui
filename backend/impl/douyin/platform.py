@@ -419,20 +419,25 @@ class DouyinPlatform(BasePlatform):
                 if ai_content:
                     await self._set_declaration(page, ai_content)
 
-                # Set hotspot if provided (与图文发布一致)
+                # Set hotspot if provided (视频发布页用 keyboard 输入后匹配下拉框)
                 if hotspot:
                     logger.info("Setting hotspot: %s", hotspot)
-                    await self._set_hotspot(page, hotspot)
+                    try:
+                        await self._set_hotspot(page, hotspot)
+                    except Exception as e:
+                        logger.warning("Failed to set hotspot (video page): %s", e)
 
-                # Set tag (位置/小程序/游戏手柄/标记万物) if provided (与图文发布一致)
+                # Set tag (视频发布页不存在图文编辑器的标签功能，跳过)
                 if tag_type and tag_value:
-                    logger.info("Setting tag: type=%s, value=%s, mini_link=%s", tag_type, tag_value, mini_link)
-                    await self._set_tag(page, tag_type, tag_value, mini_link)
+                    logger.info("Tag type=%s value=%s skipped (video page does not support image-style tags)", tag_type, tag_value)
 
-                # Set mix/collection if provided (与图文发布一致)
+                # Set mix/collection if provided (视频发布页)
                 if mix_id:
                     logger.info("Setting mix/collection: %s", mix_id)
-                    await self._set_image_mix(page, mix_id)
+                    try:
+                        await self._set_image_mix(page, mix_id)
+                    except Exception as e:
+                        logger.warning("Failed to set mix (video page): %s", e)
 
                 # Click publish and wait for redirect
                 while True:
@@ -1014,10 +1019,17 @@ class DouyinPlatform(BasePlatform):
     async def _set_image_mix(page, mix_id: str):
         """Set mix/collection for image note."""
         try:
-            # Click mix dropdown
-            mix_dropdown = page.locator(
-                'div.semi-select:has-text("不选择合集")'
-            ).first
+            # Click mix dropdown（视频页面可能用不同的文字）
+            mix_labels = ["不选择合集", "选择合集", "添加合集"]
+            mix_dropdown = None
+            for label in mix_labels:
+                d = page.locator(f'div.semi-select:has-text("{label}")').first
+                if await d.count():
+                    mix_dropdown = d
+                    break
+            if mix_dropdown is None:
+                logger.warning("Mix dropdown not found for: %s", mix_id)
+                return
             await mix_dropdown.click()
             await asyncio.sleep(2)
 
@@ -1120,6 +1132,10 @@ class DouyinPlatform(BasePlatform):
             # Find matching hotspot option in dropdown
             hotspot_options = page.locator('div[role="option"]:not([aria-disabled="true"])')
             count = await hotspot_options.count()
+            # 视频页面可能使用不同的下拉组件，尝试更通用的选择器
+            if count == 0:
+                hotspot_options = page.locator('[role="option"]:not([aria-disabled="true"])')
+                count = await hotspot_options.count()
             logger.info("Found %d hotspot options", count)
 
             # Click the option that matches the search text

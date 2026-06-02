@@ -55,6 +55,12 @@ async def create_browser(
     if "ALL_PROXY" in os.environ and "socks" in os.environ["ALL_PROXY"]:
         _socks_All = os.environ.pop("ALL_PROXY")
 
+    # 未显式传入 proxy 时，从环境变量读取 HTTP 代理（国内网络访问抖音需要）
+    if proxy is None:
+        http_proxy = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+        if http_proxy:
+            proxy = {"server": http_proxy}
+
     from cloakbrowser import launch_async
     try:
         return await launch_async(headless=headless, proxy=proxy, args=extra_args)

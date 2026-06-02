@@ -193,8 +193,8 @@
             </div>
           </div>
 
-          <!-- 视频格式 + 标签 同一行 -->
-          <div class="settings-grid">
+          <!-- 视频格式 + 标签 各占50% -->
+          <div class="settings-grid" style="grid-template-columns: 1fr 1fr;">
             <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">视频格式</div>
               <div class="radio-row">
@@ -213,7 +213,7 @@
                   />
                   <span
                     :class="['radio-text', { on: form.videoFormat === opt.value, muted: opt.disabled }]"
-                    :style="form.videoFormat === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    :style="form.videoFormat === opt.value ? { borderColor: currentPlatformConfig.color, background: currentPlatformConfig.color, color: '#fff' } : {}"
                   >{{ opt.label }}</span>
                 </label>
               </div>
@@ -751,7 +751,7 @@ function handleDouyinHotspotChange(hotspot) {
 function handleDouyinTagSelect(tag) {
   if (tag) {
     form.selectedTag = tag
-    const m = { poi: 'location', miniapp: 'miniapp', game: 'gamepad', mark: 'mark' }
+    const m = { poi: 'location', miniapp: 'miniapp', game: 'gamepad', mark: 'mark', film: 'film' }
     form.tagType = m[tag.type] || ''
     form.tagValue = tag.name || tag.id || ''
     ElMessage.success(`标签已选择: ${tag.name}`)
@@ -2119,9 +2119,8 @@ function formatSize(bytes) {
       transition: $transition-base;
 
       &.on {
-        border-color: $brand-start;
-        color: $brand-start;
-        background: rgba(139, 92, 246, 0.06);
+        font-weight: 600;
+        box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3);
       }
     }
 

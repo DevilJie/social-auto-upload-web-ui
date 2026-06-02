@@ -283,6 +283,11 @@ class DouyinPlatform(BasePlatform):
                     product_title=product_title,
                     desc=desc,
                     ai_content=ai_content,
+                    hotspot=hotspot,
+                    tag_type=tag_type,
+                    tag_value=tag_value,
+                    mini_link=mini_link,
+                    mix_id=mix_id,
                 )
         return True
 
@@ -305,6 +310,11 @@ class DouyinPlatform(BasePlatform):
         product_title="",
         desc="",
         ai_content="",
+        hotspot="",
+        tag_type="",
+        tag_value="",
+        mini_link="",
+        mix_id="",
     ):
         """Upload a single video to one Douyin account."""
         browser = await self.create_browser(headless=False)
@@ -408,6 +418,21 @@ class DouyinPlatform(BasePlatform):
                 # Set AI content declaration
                 if ai_content:
                     await self._set_declaration(page, ai_content)
+
+                # Set hotspot if provided (与图文发布一致)
+                if hotspot:
+                    logger.info("Setting hotspot: %s", hotspot)
+                    await self._set_hotspot(page, hotspot)
+
+                # Set tag (位置/小程序/游戏手柄/标记万物) if provided (与图文发布一致)
+                if tag_type and tag_value:
+                    logger.info("Setting tag: type=%s, value=%s, mini_link=%s", tag_type, tag_value, mini_link)
+                    await self._set_tag(page, tag_type, tag_value, mini_link)
+
+                # Set mix/collection if provided (与图文发布一致)
+                if mix_id:
+                    logger.info("Setting mix/collection: %s", mix_id)
+                    await self._set_image_mix(page, mix_id)
 
                 # Click publish and wait for redirect
                 while True:

@@ -131,8 +131,8 @@ watch(() => props.modelValue, (val) => {
         desc: val.desc || '',
         icon: val.icon || '',
         type: val.type,
-        typeName: val.typeName || '',
-        playCount: val.playCount || 0,
+        typeName: val.typeName || val.data?.type_name || '',
+        playCount: val.playCount || val.data?.play_cnt || 0,
         data: val.data || val
       })
     }

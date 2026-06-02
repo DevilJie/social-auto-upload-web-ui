@@ -90,9 +90,24 @@ def resolve_material_path(path_or_stored_path):
 
     - 输入：本地存储下为相对路径（如 materials/2026/06/01/uuid.jpg）
             或已是绝对路径
-    - 输出：本地绝对路径（若 storage 能解析）；否则原样返回
+    - 输出：本地绝对路径（若 storage 能解析）；否则从 S3 下载到
+            临时目录后返回临时路径
     """
+    import tempfile
+
     if not path_or_stored_path:
         return path_or_stored_path
-    local = get_storage().get_local_path(path_or_stored_path)
-    return local if local else path_or_stored_path
+    storage = get_storage()
+    local = storage.get_local_path(path_or_stored_path)
+    if local:
+        return local
+    # S3 等远程存储：下载到临时目录
+    ext = Path(path_or_stored_path).suffix
+    try:
+        data = storage.get(path_or_stored_path)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp.write(data)
+        tmp.close()
+        return tmp.name
+    except Exception:
+        return path_or_stored_path

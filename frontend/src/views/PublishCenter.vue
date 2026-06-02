@@ -193,79 +193,84 @@
             </div>
           </div>
 
-          <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a', marginBottom: '12px' }">
-            <div class="setting-label" :style="{ color: currentPlatformConfig.color }">视频格式</div>
-            <div class="radio-row">
-              <label
-                v-for="opt in videoFormatOptions"
-                :key="opt.value"
-                :class="['radio-item', 'cursor-pointer', { disabled: opt.disabled }]"
-              >
-                <input
-                  type="radio"
-                  :name="(selectedAccountId || selectedPlatform) + '-videoFormat'"
-                  :value="opt.value"
-                  v-model="form.videoFormat"
-                  :disabled="opt.disabled"
-                  class="cursor-pointer"
-                />
-                <span
-                  :class="['radio-text', { on: form.videoFormat === opt.value, muted: opt.disabled }]"
-                  :style="form.videoFormat === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
-                >{{ opt.label }}</span>
-              </label>
-            </div>
-            <div v-if="!commonConfig.videoLandscape && !commonConfig.videoPortrait" class="setting-desc" style="font-size: 12px;">
-              请先上传视频
-            </div>
-          </div>
-
-          <!-- 通用标签输入 -->
-          <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-            <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
-            <div class="setting-hint">输入标签内容，按回车确认</div>
-            <el-input
-              v-model="tagInput"
-              placeholder="输入标签内容，按回车添加"
-              @keyup.enter="addTag"
-              clearable
-            />
-            <div v-if="form.tags && form.tags.length > 0" class="tags-list">
-              <el-tag
-                v-for="(tag, index) in form.tags"
-                :key="index"
-                closable
-                @close="removeTag(index)"
-                size="small"
-                :disable-transitions="false"
-              >#{{ tag }}</el-tag>
-            </div>
-          </div>
-
-          <!-- 抖音专属配置 -->
-          <template v-if="selectedPlatform === 'douyin'">
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
-              <DouyinActivitySelect v-model="form.activityId" @change="handleDouyinActivityChange" />
-            </div>
-
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
-              <DouyinHotspotSelect v-model="form.hotspotId" :data="form.hotspotData" @change="handleDouyinHotspotChange" />
-            </div>
-
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
-              <DouyinTagSelect :account-id="selectedAccountId" v-model="form.selectedTag" @change="handleDouyinTagSelect" />
-            </div>
-
-            <div v-if="selectedAccountId" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
-              <DouyinMixSelect :account-id="selectedAccountId" v-model="form.mixId" :data="form.mixData" @change="handleDouyinMixChange" />
-            </div>
-          </template>
-
+          <!-- 视频格式 + 标签 同一行 -->
           <div class="settings-grid">
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">视频格式</div>
+              <div class="radio-row">
+                <label
+                  v-for="opt in videoFormatOptions"
+                  :key="opt.value"
+                  :class="['radio-item', 'cursor-pointer', { disabled: opt.disabled }]"
+                >
+                  <input
+                    type="radio"
+                    :name="(selectedAccountId || selectedPlatform) + '-videoFormat'"
+                    :value="opt.value"
+                    v-model="form.videoFormat"
+                    :disabled="opt.disabled"
+                    class="cursor-pointer"
+                  />
+                  <span
+                    :class="['radio-text', { on: form.videoFormat === opt.value, muted: opt.disabled }]"
+                    :style="form.videoFormat === opt.value ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                  >{{ opt.label }}</span>
+                </label>
+              </div>
+              <div v-if="!commonConfig.videoLandscape && !commonConfig.videoPortrait" class="setting-desc" style="font-size: 12px;">
+                请先上传视频
+              </div>
+            </div>
+
+            <!-- 通用标签输入 -->
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
+              <div class="setting-hint">输入标签内容，按回车确认</div>
+              <el-input
+                v-model="tagInput"
+                placeholder="输入标签内容，按回车添加"
+                @keyup.enter="addTag"
+                clearable
+              />
+              <div v-if="form.tags && form.tags.length > 0" class="tags-list">
+                <el-tag
+                  v-for="(tag, index) in form.tags"
+                  :key="index"
+                  closable
+                  @close="removeTag(index)"
+                  size="small"
+                  :disable-transitions="false"
+                >#{{ tag }}</el-tag>
+              </div>
+            </div>
+          </div>
+
+          <!-- 平台特有配置（抖音专属卡片 + settingsFields 合并到同一网格） -->
+          <div class="settings-grid">
+            <!-- 抖音专属卡片 -->
+            <template v-if="selectedPlatform === 'douyin'">
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">官方活动</div>
+                <DouyinActivitySelect :account-id="selectedAccountId" v-model="form.activityId" @change="handleDouyinActivityChange" />
+              </div>
+
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联热点</div>
+                <DouyinHotspotSelect v-model="form.hotspotId" :data="form.hotspotData" @change="handleDouyinHotspotChange" />
+              </div>
+
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加标签</div>
+                <DouyinTagSelect :account-id="selectedAccountId" v-model="form.selectedTag" @change="handleDouyinTagSelect" />
+              </div>
+
+              <div v-if="selectedAccountId" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">添加合集</div>
+                <DouyinMixSelect :account-id="selectedAccountId" v-model="form.mixId" :data="form.mixData" @change="handleDouyinMixChange" />
+              </div>
+            </template>
+
+            <!-- settingsFields（排除已在通用字段渲染的） -->
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
@@ -486,6 +491,7 @@ import { useAppStore } from '@/stores/app'
 import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
 import { http } from '@/utils/request'
+import { accountApi } from '@/api/account'
 import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platforms'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
@@ -1156,6 +1162,10 @@ async function restoreDraft(draftId) {
       selectedPlatform.value = dd.selectedPlatform
     }
 
+    if (dd.selectedAccountId) {
+      selectedAccountId.value = dd.selectedAccountId
+    }
+
     if (dd.videoModeTab) {
       videoModeTab.value = dd.videoModeTab
     }
@@ -1175,7 +1185,15 @@ async function restoreDraft(draftId) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 加载账号列表
+  try {
+    const res = await accountApi.getAccounts()
+    accountStore.setAccounts(res.data)
+  } catch (e) {
+    console.error('加载账号列表失败:', e)
+  }
+
   const draftId = route.query.draft
   if (draftId) {
     restoreDraft(Number(draftId))
@@ -2034,8 +2052,9 @@ function formatSize(bytes) {
 // ========== Settings Grid ==========
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 12px;
+  margin-bottom: 12px;
 }
 
 .setting-card {

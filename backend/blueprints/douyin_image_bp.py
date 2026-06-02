@@ -608,7 +608,39 @@ def search_mark_spu():
         else:
             logger.error(f"[标记万物搜索] 请求失败: {result.get('error')}")
             return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
-
     except Exception as e:
         logger.error(f"搜索标记万物失败: {e}", exc_info=True)
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@douyin_image_bp.route('/search-medium', methods=['GET'])
+def search_medium():
+    """搜索影视演绎"""
+    account_id = request.args.get('account_id')
+    keyword = request.args.get('keyword', '')
+    count = request.args.get('count', '12')
+    offset = request.args.get('offset', '0')
+
+    logger.info(f"[影视演绎搜索] 收到请求: account_id={account_id}, keyword={keyword}")
+
+    if not keyword:
+        return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            return jsonify({"code": 404, "msg": "没有可用的抖音账号"}), 404
+
+        url = f"https://creator.douyin.com/web/api/medium/search/?count={count}&keyword={quote(keyword)}&offset={offset}&cookie_enabled=true&screen_width=1920&screen_height=1080&browser_language=zh-CN&browser_platform=Win32&browser_name=Mozilla&browser_version=5.0+%28Windows+NT+10.0%3B+Win64%3B+x64%29+AppleWebKit%2F537.36+%28KHTML%2C+like+Gecko%29+Chrome%2F146.0.0.0+Safari%2F537.36&browser_online=true&timezone_name=Asia%2FShanghai&aid=1128&support_h265=0"
+        logger.info(f"[影视演绎搜索] 请求URL: {url}")
+        result = run_async(_fetch_with_browser(cookie_file, url))
+        logger.info(f"[影视演绎搜索] 返回结果: success={result.get('success')}")
+        if result.get("success"):
+            return jsonify({"code": 200, "data": result["data"]})
+        else:
+            logger.error(f"[影视演绎搜索] 请求失败: {result.get('error')}")
+            return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
+
+    except Exception as e:
+        logger.error(f"[影视演绎搜索] 异常: {e}")
         return jsonify({"code": 500, "msg": str(e)}), 500

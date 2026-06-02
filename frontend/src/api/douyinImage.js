@@ -40,5 +40,10 @@ export const douyinImageApi = {
   // 搜索标记万物商品
   searchMarkSpu(accountId, keyword, pageSize = 10) {
     return http.get(`/api/douyin-image/search-mark-spu?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&page_size=${pageSize}`)
+  },
+
+  // 搜索影视演绎
+  searchMedium(accountId, keyword, count = 12, offset = 0) {
+    return http.get(`/api/douyin-image/search-medium?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}&count=${count}&offset=${offset}`)
   }
 }

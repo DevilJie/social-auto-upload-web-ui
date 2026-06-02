@@ -47,8 +47,22 @@ async def create_browser(
     if headless is None:
         headless = LOGIN_HEADLESS if login_mode else LOCAL_CHROME_HEADLESS
 
+    # CloakBrowser 不支持 socks 代理协议，临时清除 env 中的 socks 配置
+    _socks_all = None
+    _socks_All = None
+    if "all_proxy" in os.environ and "socks" in os.environ["all_proxy"]:
+        _socks_all = os.environ.pop("all_proxy")
+    if "ALL_PROXY" in os.environ and "socks" in os.environ["ALL_PROXY"]:
+        _socks_All = os.environ.pop("ALL_PROXY")
+
     from cloakbrowser import launch_async
-    return await launch_async(headless=headless, proxy=proxy, args=extra_args)
+    try:
+        return await launch_async(headless=headless, proxy=proxy, args=extra_args)
+    finally:
+        if _socks_all:
+            os.environ["all_proxy"] = _socks_all
+        if _socks_All:
+            os.environ["ALL_PROXY"] = _socks_All
 
 
 async def create_context(

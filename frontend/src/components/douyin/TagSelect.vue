@@ -12,6 +12,7 @@
         <el-option label="小程序" value="miniapp" />
         <el-option label="游戏手柄" value="game" />
         <el-option label="标记万物" value="mark" />
+        <el-option label="影视演艺" value="film" />
       </el-select>
 
       <!-- 搜索和选择区域 -->
@@ -132,7 +133,8 @@ function getPlaceholder() {
     poi: '选择位置',
     miniapp: '选择小程序',
     game: '选择游戏',
-    mark: '选择商品'
+    mark: '选择商品',
+    film: '选择影视作品'
   }
   return placeholders[selectedType.value] || '选择标签'
 }
@@ -142,7 +144,8 @@ function getSearchPlaceholder() {
     poi: '输入地点名称搜索',
     miniapp: '粘贴抖音小程序链接',
     game: '输入游戏名称搜索',
-    mark: '输入商品名称搜索'
+    mark: '输入商品名称搜索',
+    film: '输入影视名称搜索'
   }
   return placeholders[selectedType.value] || '输入关键词后按回车搜索'
 }
@@ -152,7 +155,8 @@ function getTagIcon() {
     poi: Location,
     miniapp: Connection,
     game: Menu,
-    mark: Goods
+    mark: Goods,
+    film: Goods
   }
   return icons[selectedType.value] || Location
 }
@@ -228,6 +232,25 @@ async function handleSearch() {
             icon: spu.cover,
             type: 'mark',
             data: spu
+          }))
+        }
+        break
+      case 'film':
+        resp = await douyinImageApi.searchMedium(props.accountId || '', keyword)
+        console.log('影视演绎搜索结果:', resp)
+        if (resp.code === 200) {
+          const raw = resp.data
+          const mediumList = Array.isArray(raw?.search_list) ? raw.search_list
+            : Array.isArray(raw?.data) ? raw.data
+            : []
+          console.log('影视演绎解析结果:', mediumList)
+          tagList.value = (mediumList || []).map(item => ({
+            id: item.medium_id || item.id,
+            name: item.medium_name || item.name,
+            desc: item.abstract || item.desc || '',
+            icon: item.poster?.url_list?.[0] || item.cover?.url_list?.[0] || item.icon || '',
+            type: 'film',
+            data: item
           }))
         }
         break

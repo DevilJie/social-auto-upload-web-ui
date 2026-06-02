@@ -852,9 +852,7 @@ class DouyinPlatform(BasePlatform):
 
                 # 逐字输入标题
                 logger.info("Filling title: %s", title[:20])
-                title_input = page.locator(
-                    'div[class^="container-sGoJ9f"] input[type="text"]'
-                ).first
+                title_input = page.get_by_placeholder("添加作品标题")
                 await title_input.wait_for(state="visible", timeout=10000)
                 await title_input.click()
                 await title_input.fill('')
@@ -1121,7 +1119,7 @@ class DouyinPlatform(BasePlatform):
             await asyncio.sleep(1)
 
             # Type hotspot keyword
-            await page.keyboard.type(hotspot)
+            await page.keyboard.insert_text(hotspot)
             await asyncio.sleep(3)
 
             # Find matching hotspot option in dropdown
@@ -1181,6 +1179,7 @@ class DouyinPlatform(BasePlatform):
                 'miniapp': '小程序',
                 'gamepad': '游戏手柄',
                 'mark': '标记万物',
+                'film': '影视演艺',
             }
             type_text = type_map.get(tag_type, '位置')
 
@@ -1234,37 +1233,52 @@ class DouyinPlatform(BasePlatform):
             # Based on tag type, handle differently
             if tag_type == 'location':
                 # Location: click to activate, then input search keyword
-                # 改用 placeholder 匹配更稳定，exact=True 可能因 Douyin 版本不同而失效
-                location_input = page.get_by_placeholder("输入相关位置")
-                await location_input.click()
+                location_select = page.get_by_text("输入相关位置，让更多人看到你的作品", exact=True)
+                if await location_select.count() == 0:
+                    location_select = page.get_by_text("输入地理位置", exact=True)
+                await location_select.click()
                 await asyncio.sleep(1)
+
+                # Use keyboard to type directly since input is already focused
                 await page.keyboard.type(tag_value, delay=50)
                 logger.info("Typed location keyword: %s", tag_value)
-                await asyncio.sleep(5)
+                await asyncio.sleep(5)  # 位置查询可能有延迟，等待更长时间
+
+                # Select matching result
                 await find_and_click_option(page, tag_value)
 
             elif tag_type == 'miniapp':
                 # Mini app: click to activate, then paste link
-                miniapp_input = page.get_by_placeholder("粘贴抖音小程序链接")
-                await miniapp_input.click()
+                miniapp_select = page.get_by_text("粘贴抖音小程序链接", exact=True)
+                await miniapp_select.click()
                 await asyncio.sleep(1)
+
+                # Use mini_link if provided, otherwise use tag_value
                 link_to_use = mini_link if mini_link else tag_value
                 await page.keyboard.type(link_to_use, delay=50)
                 logger.info("Typed miniapp link: %s", link_to_use)
                 await asyncio.sleep(2)
+
+                # Select matching result
                 await find_and_click_option(page, tag_value, 'div[role="option"]:not([aria-disabled="true"])')
 
             elif tag_type == 'gamepad':
                 # Game: click the semi-select component by placeholder text
-                game_input = page.get_by_placeholder("添加作品同款游戏")
-                await game_input.click()
+                game_select = page.get_by_text("添加作品同款游戏", exact=True)
+                await game_select.click()
                 await asyncio.sleep(1)
+
+                # Use keyboard to type directly since input is already focused
                 await page.keyboard.type(tag_value, delay=50)
                 logger.info("Typed game tag value: %s", tag_value)
                 await asyncio.sleep(3)
+
+                # Find matching game option in dropdown
                 game_options = page.locator('div.semi-popover [class*="anchor-game-option"]')
                 count = await game_options.count()
                 logger.info("Found %d game options", count)
+
+                # Click the option that matches the search text
                 clicked = False
                 for i in range(count):
                     option = game_options.nth(i)
@@ -1274,19 +1288,16 @@ class DouyinPlatform(BasePlatform):
                         logger.info("Game tag set: %s (matched: %s)", tag_value, option_text[:50])
                         clicked = True
                         break
-                if not clicked:
-                    if count > 0:
-                        await game_options.first.click()
-                        logger.info("Game tag set: %s (first option)", tag_value)
-                    else:
-                        logger.warning("Game option not found for: %s", tag_value)
 
             elif tag_type == 'mark':
                 # Mark: input search keyword
                 mark_input = page.get_by_placeholder("请输入或选择标记的物品")
                 await mark_input.click()
-                await page.keyboard.type(tag_value)
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
+                await page.keyboard.type(tag_value, delay=50)
+                await asyncio.sleep(3)
+
+                # Find matching mark option in dropdown
                 mark_options = page.locator('div.semi-popover [class*="option-"]')
                 count = await mark_options.count()
                 logger.info("Found %d mark options", count)
@@ -1302,13 +1313,26 @@ class DouyinPlatform(BasePlatform):
                         clicked = True
                         break
 
-                if not clicked:
-                    # Fallback: click first option if no exact match
-                    if count > 0:
-                        await mark_options.first.click()
-                        logger.info("Mark tag set: %s (first option)", tag_value)
-                    else:
-                        logger.warning("Mark option not found for: %s", tag_value)
+            elif tag_type == 'film':
+                # Film/Media: input search keyword
+                film_input = page.get_by_placeholder("输入IP名称, 如 “少年的你”")
+                await film_input.click()
+                await asyncio.sleep(1)
+                await page.keyboard.type(tag_value, delay=50)
+                logger.info("Typed film keyword: %s", tag_value)
+                await asyncio.sleep(3)
+                film_options = page.locator('div.semi-popover [class*="option-"]')
+                count = await film_options.count()
+                logger.info("Found %d film options", count)
+                clicked = False
+                for i in range(count):
+                    option = film_options.nth(i)
+                    option_text = await option.text_content()
+                    if tag_value in option_text:
+                        await option.click()
+                        logger.info("Film tag set: %s (matched: %s)", tag_value, option_text[:50])
+                        clicked = True
+                        break
 
             await asyncio.sleep(1)
         except Exception as e:
@@ -1320,6 +1344,8 @@ class DouyinPlatform(BasePlatform):
         try:
             # Click location input
             location_input = page.get_by_placeholder("输入相关位置，让更多人看到你的作品")
+            if await location_input.count() == 0:
+                location_input = page.get_by_placeholder("输入地理位置")
             await location_input.click()
             await asyncio.sleep(1)
 

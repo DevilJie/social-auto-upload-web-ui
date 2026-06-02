@@ -1186,10 +1186,10 @@ class DouyinPlatform(BasePlatform):
 
             # 快速检测 tag 组件是否存在（视频发布页可能没有此功能）
             tag_dropdown = page.locator(
-                'div.select-GDaqAd'
+                'div.semi-select'
             ).first
             if await tag_dropdown.count() == 0:
-                logger.warning("Tag selector not found on this page, skipping")
+                logger.warning("Tag selector (semi-select) not found, skipping")
                 return
             await tag_dropdown.click()
             await asyncio.sleep(1)

@@ -611,52 +611,48 @@ class DouyinPlatform(BasePlatform):
         cover_locator = page.locator(cover_locator_str)
         await page.wait_for_selector(cover_locator_str)
 
-        # 获取所有 tab 元素，通过 label 文本识别横版/竖版
+        # 读取 tab 文本识别横版/竖版各自在第几个 tab
         tab_locator = cover_locator.locator("div[class*='steps'] div")
         tab_count = await tab_locator.count()
-        portrait_tab_index = None
-        landscape_tab_index = None
+        portrait_tab_idx = None
+        landscape_tab_idx = None
         for i in range(tab_count):
             try:
                 text = await tab_locator.nth(i).inner_text()
-                text_lower = text.lower()
-                if "竖" in text or "竖版" in text:
-                    portrait_tab_index = i
-                if "横" in text or "横版" in text:
-                    landscape_tab_index = i
+                if "竖" in text:
+                    portrait_tab_idx = i
+                if "横" in text:
+                    landscape_tab_idx = i
             except Exception:
                 continue
+        logger.info("Cover tab indices - portrait: %s, landscape: %s", portrait_tab_idx, landscape_tab_idx)
 
-        logger.info("Cover tabs - portrait: %s, landscape: %s", portrait_tab_index, landscape_tab_index)
-
-        # 上传竖版封面：切换到竖版 tab → 取该 tab 下的 upload input
-        if thumbnail_portrait_path and portrait_tab_index is not None:
-            await cover_locator.locator("div[class*='steps'] div").nth(portrait_tab_index).click()
-            await page.wait_for_timeout(1000)
-            portrait_input = cover_locator.locator(
+        # 通用函数：切换到指定 tab → 取当前可见的 upload input → 上传
+        async def _upload_to_tab(tab_index, file_path):
+            await cover_locator.locator("div[class*='steps'] div").nth(tab_index).click()
+            await page.wait_for_timeout(1500)
+            # 每次切 tab 后重新定位，当前 tab 只有一个可见的 upload input
+            inp = cover_locator.locator(
                 "div[class^='semi-upload upload'] >> input.semi-upload-hidden-input"
-            ).nth(portrait_tab_index)
-            await portrait_input.set_input_files(thumbnail_portrait_path)
+            ).first
+            await inp.set_input_files(file_path)
             await page.wait_for_timeout(2000)
-            logger.info("Portrait cover uploaded (tab %s)", portrait_tab_index)
+
+        if thumbnail_portrait_path and portrait_tab_idx is not None:
+            await _upload_to_tab(portrait_tab_idx, thumbnail_portrait_path)
+            logger.info("Portrait cover uploaded (tab %s)", portrait_tab_idx)
         elif thumbnail_portrait_path:
-            # 没找到竖版 tab，直接上传第一个
+            # 没找到竖版 tab，尝试默认第一个
             await page.wait_for_timeout(1000)
             await cover_locator.locator(
                 "div[class^='semi-upload upload'] >> input.semi-upload-hidden-input"
             ).first.set_input_files(thumbnail_portrait_path)
             await page.wait_for_timeout(2000)
+            logger.info("Portrait cover uploaded (default)")
 
-        # 上传横版封面：切换到横版 tab → 取该 tab 下的 upload input
-        if thumbnail_landscape_path and landscape_tab_index is not None:
-            await cover_locator.locator("div[class*='steps'] div").nth(landscape_tab_index).click()
-            await page.wait_for_timeout(1000)
-            landscape_input = cover_locator.locator(
-                "div[class^='semi-upload upload'] >> input.semi-upload-hidden-input"
-            ).nth(landscape_tab_index)
-            await landscape_input.set_input_files(thumbnail_landscape_path)
-            await page.wait_for_timeout(2000)
-            logger.info("Landscape cover uploaded (tab %s)", landscape_tab_index)
+        if thumbnail_landscape_path and landscape_tab_idx is not None:
+            await _upload_to_tab(landscape_tab_idx, thumbnail_landscape_path)
+            logger.info("Landscape cover uploaded (tab %s)", landscape_tab_idx)
 
         await cover_locator.locator('button:visible:has-text("完成")').click()
         logger.info("Cover selection completed")

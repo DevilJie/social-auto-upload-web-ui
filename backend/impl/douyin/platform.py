@@ -1184,12 +1184,18 @@ class DouyinPlatform(BasePlatform):
             }
             type_text = type_map.get(tag_type, '位置')
 
-            # 快速检测 tag 组件是否存在（视频发布页可能没有此功能）
-            tag_dropdown = page.locator(
-                'div.semi-select'
-            ).first
-            if await tag_dropdown.count() == 0:
-                logger.warning("Tag selector (semi-select) not found, skipping")
+            # 遍历所有 .semi-select，排除合集那个，找到标签类型选择器
+            all_selects = page.locator('div.semi-select')
+            select_count = await all_selects.count()
+            tag_dropdown = None
+            for i in range(select_count):
+                sel = all_selects.nth(i)
+                text = await sel.text_content()
+                if "合集" not in text:
+                    tag_dropdown = sel
+                    break
+            if tag_dropdown is None:
+                logger.warning("Tag type selector not found, skipping")
                 return
             await tag_dropdown.click()
             await asyncio.sleep(1)

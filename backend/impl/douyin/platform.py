@@ -1127,9 +1127,13 @@ class DouyinPlatform(BasePlatform):
             # Find matching hotspot option in dropdown
             hotspot_options = page.locator('div[role="option"]:not([aria-disabled="true"])')
             count = await hotspot_options.count()
-            # 视频页面可能使用不同的下拉组件，尝试更通用的选择器
+            # 视频页面可能使用不同的下拉组件，尝试更多选择器
             if count == 0:
                 hotspot_options = page.locator('[role="option"]:not([aria-disabled="true"])')
+                count = await hotspot_options.count()
+            if count == 0:
+                # 尝试找任意可见的搜索结果项
+                hotspot_options = page.locator('[class*="option"]:not([aria-disabled="true"])')
                 count = await hotspot_options.count()
             logger.info("Found %d hotspot options", count)
 
@@ -1150,8 +1154,9 @@ class DouyinPlatform(BasePlatform):
                     await hotspot_options.first.click()
                     logger.info("Hotspot selected: %s (first option)", hotspot)
                 else:
-                    logger.warning("Hotspot not found: %s", hotspot)
-                    await page.keyboard.press("Escape")
+                    logger.warning("Hotspot not found: %s, trying Enter", hotspot)
+                    await page.keyboard.press("Enter")
+                    await asyncio.sleep(1)
 
             await asyncio.sleep(1)
         except Exception as e:
@@ -1179,15 +1184,22 @@ class DouyinPlatform(BasePlatform):
             }
             type_text = type_map.get(tag_type, '位置')
 
-            # Click tag type dropdown
+            # 快速检测 tag 组件是否存在（视频发布页可能没有此功能）
             tag_dropdown = page.locator(
                 'div.select-GDaqAd'
             ).first
+            if await tag_dropdown.count() == 0:
+                logger.warning("Tag selector not found on this page, skipping")
+                return
             await tag_dropdown.click()
             await asyncio.sleep(1)
 
             # Select tag type
             type_option = page.get_by_role("option", name=type_text)
+            if await type_option.count() == 0:
+                logger.warning("Tag type option not found: %s", type_text)
+                await page.keyboard.press("Escape")
+                return
             await type_option.click()
             await asyncio.sleep(1)
 

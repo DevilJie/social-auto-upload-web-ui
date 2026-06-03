@@ -708,6 +708,68 @@ class KuaishouPlatform(BasePlatform):
             logger.info(f"[kuaishou] image cover failed (non-fatal): {exc}")
 
     # ------------------------------------------------------------------
+    # Helper: set image music (image note)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_image_music(page, music_id: str, music_title: str = ""):
+        """点击「添加音乐」→ 抽屉内搜索 → 按 musicId/music_title 匹配 → 点「添加」。"""
+        logger.info("[kuaishou] setting image music: id=%s, title=%s", music_id, music_title)
+        try:
+            # ?tabType=2 页面里 label 是非可点击的标题，实际触发抽屉的是带 +icon 的按钮
+            music_btn = page.locator(
+                "._idle_17rov_25 ._button_3a3lq_1, div._button_3a3lq_1:has-text('添加音乐')"
+            ).first
+            await music_btn.wait_for(state="visible", timeout=10000)
+            await music_btn.click()
+            await asyncio.sleep(2)
+
+            drawer = page.locator('div.ant-drawer-content-wrapper:visible').first
+            await drawer.wait_for(state="visible", timeout=10000)
+            await asyncio.sleep(1)
+
+            search_input = drawer.locator(
+                "input._search-input_19mmt_16, input[placeholder='搜索音乐']"
+            ).first
+            await search_input.click()
+            await page.keyboard.press("Control+KeyA")
+            await page.keyboard.press("Delete")
+            await page.keyboard.type(music_title or music_id)
+            await asyncio.sleep(3)
+
+            cards = drawer.locator("div._item_19mmt_90")
+            count = await cards.count()
+            target_card = None
+            for i in range(count):
+                card = cards.nth(i)
+                title_el = card.locator("div._info-title_19mmt_139")
+                if not await title_el.count():
+                    continue
+                t = (await title_el.text_content() or "").strip()
+                if music_title and t == music_title:
+                    target_card = card
+                    break
+            if target_card is None and count > 0:
+                target_card = cards.first
+                logger.warning("[kuaishou] music title not exact match, using first card")
+
+            if target_card:
+                add_btn = target_card.locator(
+                    "div._button_3a3lq_1:has-text('添加'), button:has-text('添加')"
+                ).first
+                await add_btn.click(force=True)
+                await asyncio.sleep(2)
+                logger.info("[kuaishou] music added")
+            else:
+                logger.warning("[kuaishou] no music card found")
+
+            close_btn = page.locator("div.ant-drawer-close").first
+            if await close_btn.count():
+                await close_btn.click(force=True)
+        except Exception as exc:
+            logger.info(f"[kuaishou] image music failed (non-fatal): {exc}")
+
+    # ------------------------------------------------------------------
     # Helper: set author declaration (ant-select dropdown)
     # ------------------------------------------------------------------
 

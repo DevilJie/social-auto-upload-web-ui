@@ -41,10 +41,10 @@ class ChannelLoggerAdapter(LoggerAdapter):
 
 
 def _get_log_level() -> int:
-    """Read log level from settings.json, default DEBUG."""
+    """Read log level from SQLite settings, default DEBUG."""
     try:
-        with open(BASE_DIR / "settings.json", "r", encoding="utf-8") as f:
-            settings = json.load(f)
+        from impl.settings import read_settings
+        settings = read_settings()
         return getattr(logging, settings.get("logLevel", "DEBUG").upper(), logging.DEBUG)
     except Exception:
         return logging.DEBUG

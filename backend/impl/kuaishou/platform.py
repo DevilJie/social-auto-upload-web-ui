@@ -319,17 +319,11 @@ class KuaishouPlatform(BasePlatform):
                 await file_chooser.set_files(file_paths)
                 await asyncio.sleep(2)
 
-                # 3. 等详情页
-                logger.info("Waiting for redirect to detail page...")
-                start = asyncio.get_event_loop().time()
-                while (asyncio.get_event_loop().time() - start) < 120:
-                    if "publish/video" not in page.url:
-                        logger.info("Redirected to: %s", page.url)
-                        break
-                    await asyncio.sleep(1)
-                else:
-                    logger.warning("Redirect timeout")
-                await asyncio.sleep(3)
+                # 3. 等编辑页加载（URL 不会变，等描述输入框出现即可）
+                logger.info("Waiting for edit page to load...")
+                await page.locator("#work-description-edit").wait_for(state="visible", timeout=30000)
+                logger.info("Edit page loaded, URL: %s", page.url)
+                await asyncio.sleep(1)
 
                 # 4. 关闭引导弹层
                 await self._close_guide_overlay(page)
@@ -685,8 +679,8 @@ class KuaishouPlatform(BasePlatform):
             logger.info(f"[kuaishou] cover image uploaded, waiting for processing...")
             await asyncio.sleep(3)
 
-            # 6. Click "确认" button
-            confirm_btn = modal.locator("button:has-text('确认')").first
+            # 6. Click "确认" or "完成" button
+            confirm_btn = modal.locator("button:has-text('确认'), button:has-text('完成')").first
             logger.info(f"[kuaishou] clicking confirm button...")
             await confirm_btn.wait_for(state="visible", timeout=10000)
             await confirm_btn.click()
@@ -730,7 +724,7 @@ class KuaishouPlatform(BasePlatform):
             await file_input.set_input_files(cover_path)
             await asyncio.sleep(3)
 
-            confirm_btn = modal.locator("button:has-text('确认')").first
+            confirm_btn = modal.locator("button:has-text('确认'), button:has-text('完成')").first
             await confirm_btn.wait_for(state="visible", timeout=10000)
             await confirm_btn.click()
             await asyncio.sleep(2)
@@ -752,47 +746,42 @@ class KuaishouPlatform(BasePlatform):
         """点击「添加音乐」→ 抽屉内搜索 → 按 musicId/music_title 匹配 → 点「添加」。"""
         logger.info("[kuaishou] setting image music: id=%s, title=%s", music_id, music_title)
         try:
-            # ?tabType=2 页面里 label 是非可点击的标题，实际触发抽屉的是带 +icon 的按钮
-            music_btn = page.locator(
-                "._idle_17rov_25 ._button_3a3lq_1, div._button_3a3lq_1:has-text('添加音乐')"
-            ).first
-            await music_btn.wait_for(state="visible", timeout=10000)
-            await music_btn.click()
+            # 点击「添加音乐」按钮（和音乐搜索组件保持一致：找 div:text-is 的父级）
+            text_div = page.locator("div:text-is('添加音乐')").first
+            await text_div.wait_for(state="visible", timeout=10000)
+            await text_div.locator("xpath=..").click()
             await asyncio.sleep(2)
 
             drawer = page.locator('div.ant-drawer-content-wrapper:visible').first
             await drawer.wait_for(state="visible", timeout=10000)
             await asyncio.sleep(1)
 
-            search_input = drawer.locator(
-                "input._search-input_19mmt_16, input[placeholder='搜索音乐']"
-            ).first
+            search_input = drawer.locator("input[placeholder='搜索音乐']").first
             await search_input.click()
             await page.keyboard.press("Control+KeyA")
             await page.keyboard.press("Delete")
             await page.keyboard.type(music_title or music_id)
-            await asyncio.sleep(3)
+            await asyncio.sleep(4)
 
-            cards = drawer.locator("div._item_19mmt_90")
-            count = await cards.count()
+            # 匹配音乐卡片：在抽屉里找包含目标标题的卡片，点其「添加」按钮
             target_card = None
-            for i in range(count):
-                card = cards.nth(i)
-                title_el = card.locator("div._info-title_19mmt_139")
-                if not await title_el.count():
-                    continue
-                t = (await title_el.text_content() or "").strip()
-                if music_title and t == music_title:
-                    target_card = card
-                    break
-            if target_card is None and count > 0:
-                target_card = cards.first
-                logger.warning("[kuaishou] music title not exact match, using first card")
+            if music_title:
+                # 精确匹配标题
+                title_div = drawer.locator(f"div:text-is('{music_title}')").first
+                if await title_div.count():
+                    target_card = title_div.locator("xpath=ancestor::div[contains(@class,'item') or contains(@class,'card')][1]")
+                    if not await target_card.count():
+                        target_card = title_div.locator("xpath=..")
 
-            if target_card:
-                add_btn = target_card.locator(
-                    "div._button_3a3lq_1:has-text('添加'), button:has-text('添加')"
-                ).first
+            if target_card is None or not await target_card.count():
+                # fallback：取第一个结果卡片
+                all_cards = drawer.locator("div[class*='item'], div[class*='card']")
+                if await all_cards.count():
+                    target_card = all_cards.first
+                    logger.warning("[kuaishou] music title not exact match, using first card")
+
+            if target_card and await target_card.count():
+                add_btn = target_card.locator("div:has-text('添加'), button:has-text('添加')").last
                 await add_btn.click(force=True)
                 await asyncio.sleep(2)
                 logger.info("[kuaishou] music added")

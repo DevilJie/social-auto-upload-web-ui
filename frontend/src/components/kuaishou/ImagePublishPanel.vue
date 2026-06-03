@@ -108,7 +108,7 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
             cover_path: commonData.coverImage?.stored_path || '',
             music_id: merged.selectedMusicId || '',
             music_title: merged.musicTitle || '',
-            dry_run: false,
+            dry_run: true,  // 测试期固定 true；正式发布时改 false
           }],
         })
         emit('publish-result', { accountName, status: 'success', message: '发布成功' })

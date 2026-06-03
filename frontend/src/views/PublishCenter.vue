@@ -573,7 +573,7 @@ const landscapeCoverFrames = computed(() =>
 const platformConfigs = reactive({
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
-  kuaishou: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '', tags: [] },
   baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '', tags: [] },
@@ -1385,8 +1385,6 @@ async function publishAll() {
         mini_link: platformSettings.selectedTag?.type === 'miniapp' ? (platformSettings.selectedTag._searchKeyword || '') : '',
         mix_id: platformSettings.mixId || '',
         // Other platform fields
-        productLink: platformSettings.productLink || '',
-        productTitle: platformSettings.productTitle || '',
         isDraft: platformSettings.isDraft || false,
         aiContent: platformSettings.aiContent || '',
         creationDeclaration: Array.isArray(platformSettings.creationDeclaration)

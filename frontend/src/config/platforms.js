@@ -101,14 +101,12 @@ export const PLATFORMS = {
     cssClass: 'kuaishou',
     creatorUrl: 'https://k.kuaishou.com/',
     settingsFields: [
-      { key: 'productTitle', label: '商品名称', type: 'input', placeholder: '请输入商品名称' },
-      { key: 'productLink', label: '商品链接', type: 'input', placeholder: '请输入商品链接' },
       { key: 'aiContent', label: '作者声明', type: 'select', placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', productTitle: '', productLink: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BILIBILI: {
     id: 5,

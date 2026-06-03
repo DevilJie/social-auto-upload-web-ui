@@ -25,7 +25,7 @@
 
     <div class="setting-card">
       <div class="setting-label">官方活动</div>
-      <DouyinActivitySelect v-model="form.activityId" @change="handleActivityChange" />
+      <DouyinActivitySelect :account-id="accountId" v-model="form.activityId" @change="handleActivityChange" />
     </div>
 
     <div class="setting-card">

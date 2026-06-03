@@ -449,8 +449,16 @@ async def _publish_single_image(
 
             # Navigate to image publish page
             logger.info(f"[xhs] navigating to image publish page")
-            await page.goto(_XHS_PUBLISH_IMAGE_URL)
-            await page.wait_for_url(_XHS_PUBLISH_IMAGE_URL)
+            await page.goto(_XHS_PUBLISH_IMAGE_URL, wait_until="networkidle")
+            await asyncio.sleep(3)  # 等待页面完全加载
+
+            # 等待上传区域出现
+            logger.info("[xhs] waiting for upload area to load")
+            try:
+                await page.wait_for_selector('.upload-wrapper, .upload-input, input[type="file"]', timeout=15000)
+                logger.info("[xhs] upload area loaded")
+            except Exception as e:
+                logger.warning(f"[xhs] upload area not found, trying to continue: {e}")
 
             # Upload images
             file_paths = [str(f) for f in files]
@@ -874,9 +882,19 @@ async def _upload_images(page, files: list[str]) -> bool:
     try:
         logger.info(f"[xhs] uploading {len(files)} images")
 
+        # 等待页面加载完成
+        await asyncio.sleep(2)
+
         # 小红书图文发布页面的图片上传 input
         # DOM 结构: input.upload-input[type="file"][accept=".jpg,.jpeg,.png,.webp"]
         file_input = page.locator('input.upload-input[type="file"]')
+
+        # 等待 input 出现
+        try:
+            await file_input.wait_for(state="attached", timeout=10000)
+            logger.info("[xhs] found upload input")
+        except Exception:
+            logger.info("[xhs] upload input not found, trying other selectors")
 
         # 如果找不到，尝试其他选择器
         if await file_input.count() == 0:
@@ -886,40 +904,56 @@ async def _upload_images(page, files: list[str]) -> bool:
             file_input = page.locator('input[type="file"][multiple]')
 
         if await file_input.count() == 0:
+            file_input = page.locator('input[type="file"]')
+
+        if await file_input.count() > 0:
+            # 使用找到的 input 元素上传文件
+            logger.info(f"[xhs] uploading via file input")
+            await file_input.first.set_input_files(files)
+            logger.info(f"[xhs] uploaded {len(files)} images via file input")
+        else:
             # 使用 expect_file_chooser 模式作为备选
             logger.info("[xhs] trying file chooser approach")
-            upload_btn = page.locator('button.upload-button:has-text("上传图片")')
+            upload_btn = page.locator('button:has-text("上传图片")')
 
             if await upload_btn.count() == 0:
                 upload_btn = page.locator('.upload-button').first
 
+            if await upload_btn.count() == 0:
+                upload_btn = page.locator('button.bg-red').first
+
             if await upload_btn.count() > 0:
-                async with page.expect_file_chooser() as fc_info:
+                logger.info("[xhs] clicking upload button")
+                async with page.expect_file_chooser(timeout=10000) as fc_info:
                     await upload_btn.click()
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(files)
                 logger.info(f"[xhs] uploaded {len(files)} images via file chooser")
             else:
-                logger.error("[xhs] could not find upload button or file input")
-                return False
-        else:
-            # 使用找到的 input 元素上传文件
-            await file_input.first.set_input_files(files)
-            logger.info(f"[xhs] uploaded {len(files)} images via file input")
+                # 最后尝试直接设置所有 file input
+                all_inputs = await page.query_selector_all('input[type="file"]')
+                logger.info(f"[xhs] found {len(all_inputs)} file inputs")
+                if all_inputs:
+                    await all_inputs[0].set_input_files(files)
+                    logger.info(f"[xhs] uploaded {len(files)} images via first file input")
+                else:
+                    logger.error("[xhs] could not find any upload mechanism")
+                    return False
 
         # Wait for images to finish uploading (check image count)
         expected_count = len(files)
         timeout_per_image = 30
-        max_wait = max(60, min(expected_count * timeout_per_image, 300))
-        uploaded = []
+        max_wait = max(120, min(expected_count * timeout_per_image, 600))
+        logger.info(f"[xhs] waiting for {expected_count} images to upload (max {max_wait}s)")
+
         for i in range(max_wait):
             # 检查已上传的图片数量
             # 小红书的图片预览区域
-            uploaded = await page.query_selector_all('.upload-wrapper img, .image-preview img, .preview-item img')
+            uploaded = await page.query_selector_all('.upload-wrapper img, .image-item img, .preview img, [class*="image"] img')
             if len(uploaded) >= expected_count:
                 logger.info(f"[xhs] all {expected_count} images uploaded")
                 return True
-            if i % 5 == 0:
+            if i % 10 == 0:
                 logger.info(f"[xhs] uploading images: {len(uploaded)}/{expected_count}")
             await asyncio.sleep(1)
 

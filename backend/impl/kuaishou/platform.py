@@ -291,8 +291,68 @@ class KuaishouPlatform(BasePlatform):
         author_declaration="", music_id="", music_title="",
         enable_timer=False, schedule_time_str="", dry_run=True,
     ):
-        """Upload image note to one Kuaishou account. Implemented in Task 4+."""
-        raise NotImplementedError("_upload_image_note: pending Task 4+")
+        """Upload image note to one Kuaishou account."""
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(browser, storage_state=account_file)
+            try:
+                page = await context.new_page()
+
+                # 1. 打开图文 tab
+                logger.info("Navigating to Kuaishou image upload page")
+                await page.goto(
+                    "https://cp.kuaishou.com/article/publish/video?tabType=2",
+                    wait_until="domcontentloaded", timeout=60000,
+                )
+                await page.wait_for_url(
+                    "**/article/publish/video?tabType=2**", timeout=60000,
+                )
+                await asyncio.sleep(2)
+
+                # 2. 上传图片（file chooser 多选）
+                logger.info("Uploading %d images", len(file_paths))
+                upload_btn = page.locator("button[class^='_upload-btn']:visible").first
+                await upload_btn.wait_for(state="visible", timeout=10000)
+                async with page.expect_file_chooser() as fc_info:
+                    await upload_btn.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(file_paths)
+                await asyncio.sleep(2)
+
+                # 3. 等详情页
+                logger.info("Waiting for redirect to detail page...")
+                start = asyncio.get_event_loop().time()
+                while (asyncio.get_event_loop().time() - start) < 120:
+                    if "publish/video" not in page.url:
+                        logger.info("Redirected to: %s", page.url)
+                        break
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("Redirect timeout")
+                await asyncio.sleep(3)
+
+                # 4. 关闭引导弹层
+                await self._close_guide_overlay(page)
+
+                # 5. 填描述（标题拼首行 + 描述 + 标签）
+                full_desc = f"{title}\n\n{desc}" if title else desc
+                logger.info("Filling description: %s", full_desc[:50])
+                desc_editor = page.locator("#work-description-edit").first
+                await desc_editor.wait_for(state="visible", timeout=15000)
+                await desc_editor.click()
+                await page.keyboard.press("Control+KeyA")
+                await page.keyboard.press("Delete")
+                await page.keyboard.type(full_desc[:500])
+                for tag in (tags or [])[:3]:
+                    await page.keyboard.type(f" #{tag}")
+                    await page.keyboard.press("Space")
+                await asyncio.sleep(0.5)
+
+                logger.info("Description filled. cover_path=%s, music_id=%s", cover_path, music_id)
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
 
     # ------------------------------------------------------------------
     # Publish video

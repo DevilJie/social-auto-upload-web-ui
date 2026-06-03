@@ -667,6 +667,47 @@ class KuaishouPlatform(BasePlatform):
             logger.info(f"[kuaishou] thumbnail failed (non-fatal): {exc}")
 
     # ------------------------------------------------------------------
+    # Helper: set image cover (image note)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_image_cover(page, cover_path: str):
+        """点击「编辑封面」按钮 → 上传封面图 → 确认。"""
+        logger.info("[kuaishou] setting image cover: %s", cover_path)
+        try:
+            edit_btn = page.get_by_text("编辑封面", exact=True)
+            await edit_btn.wait_for(state="visible", timeout=10000)
+            await edit_btn.click()
+            await asyncio.sleep(2)
+
+            modal = page.locator('div[role="document"].ant-modal:visible')
+            await modal.wait_for(state="visible", timeout=30000)
+            await asyncio.sleep(1)
+
+            upload_tab = modal.locator("div[class*='header-title-item']").nth(1)
+            await upload_tab.wait_for(state="visible", timeout=10000)
+            await upload_tab.click()
+            await asyncio.sleep(1)
+
+            file_input = modal.locator("input[type='file']")
+            await file_input.wait_for(state="attached", timeout=30000)
+            await file_input.set_input_files(cover_path)
+            await asyncio.sleep(3)
+
+            confirm_btn = modal.locator("button:has-text('确认')").first
+            await confirm_btn.wait_for(state="visible", timeout=10000)
+            await confirm_btn.click()
+            await asyncio.sleep(2)
+
+            try:
+                await modal.wait_for(state="hidden", timeout=30000)
+            except Exception:
+                pass
+            logger.info("[kuaishou] image cover set successfully")
+        except Exception as exc:
+            logger.info(f"[kuaishou] image cover failed (non-fatal): {exc}")
+
+    # ------------------------------------------------------------------
     # Helper: set author declaration (ant-select dropdown)
     # ------------------------------------------------------------------
 

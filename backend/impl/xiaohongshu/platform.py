@@ -302,7 +302,7 @@ class XiaohongshuPlatform(BasePlatform):
     # publish_image()
     # ------------------------------------------------------------------
 
-    def publish_image(self, **kwargs) -> bool:
+    async def publish_image(self, **kwargs) -> bool:
         """
         小红书图文发布
 
@@ -323,7 +323,7 @@ class XiaohongshuPlatform(BasePlatform):
         title = kwargs.get('title', '')
         files = kwargs.get('files', [])
         tags = kwargs.get('tags', [])[:10]  # 最多10个标签
-        account_file = kwargs.get('account_file', [])
+        account_files = kwargs.get('account_file', [])
         desc = kwargs.get('desc', '')[:1000]  # 最多1000字
         enableTimer = kwargs.get('enableTimer', False)
         schedule_time_str = kwargs.get('schedule_time_str', '')
@@ -331,35 +331,54 @@ class XiaohongshuPlatform(BasePlatform):
         dry_run = kwargs.get('dry_run', True)
 
         if not files:
-            logger.error("没有图片文件")
+            logger.error("[xhs] 没有图片文件")
             return False
 
-        if not account_file:
-            logger.error("没有账号文件")
+        if not account_files:
+            logger.error("[xhs] 没有账号文件")
             return False
 
         # 截断标题
         title = title[:20]
 
+        # Resolve cookie file paths (same as publish_video)
+        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files]
+
+        # Parse schedule times
+        publish_datetimes = parse_schedule_time(
+            schedule_time_str, len(files), enableTimer,
+            kwargs.get('videos_per_day', 1), kwargs.get('daily_times'), kwargs.get('start_days', 0),
+        )
+        if not enableTimer or not schedule_time_str:
+            publish_datetimes = 0 if not enableTimer else publish_datetimes
+
         success_count = 0
-        for account in account_file:
+        total = len(account_paths)
+        for index, cookie_path in enumerate(account_paths):
+            pub_date = (
+                publish_datetimes
+                if not isinstance(publish_datetimes, list)
+                else publish_datetimes[index]
+            )
             try:
-                result = asyncio.run(self._publish_single_image(
+                result = await _publish_single_image(
                     title=title,
                     files=files,
                     tags=tags,
-                    account_file=account,
+                    account_file=cookie_path,
                     desc=desc,
                     enableTimer=enableTimer,
                     schedule_time_str=schedule_time_str,
+                    publish_date=pub_date,
                     ai_content=ai_content,
-                    dry_run=dry_run
-                ))
+                    dry_run=dry_run,
+                )
                 if result:
                     success_count += 1
             except Exception as e:
-                logger.error(f"账号 {account} 发布失败: {e}")
+                logger.error(f"[xhs] 账号 {cookie_path} 发布失败: {e}")
 
+        logger.info(f"[xhs] 图文发布完成: {success_count}/{total} 成功")
         return success_count > 0
 
 
@@ -403,6 +422,23 @@ async def _publish_single_video(
             await context.close()
     finally:
         await browser.close()
+
+
+async def _publish_single_image(
+    title: str,
+    files: list,
+    tags: list,
+    account_file: str,
+    desc: str = "",
+    enableTimer: bool = False,
+    schedule_time_str: str = "",
+    publish_date=None,
+    ai_content: str = "",
+    dry_run: bool = True,
+) -> bool:
+    """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
+    # TODO: implement XHS image publish automation
+    raise NotImplementedError("XHS _publish_single_image not yet implemented")
 
 
 # ======================================================================

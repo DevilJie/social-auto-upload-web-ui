@@ -872,57 +872,28 @@ async def _upload_images(page, files: list[str]) -> bool:
         return False
 
     try:
-        # 小红书图文发布页面有多个隐藏的 input[type=file]
-        # 需要找到正确的 input 来上传图片
-        # 参考抖音的实现：使用 expect_file_chooser 模式
         logger.info(f"[xhs] uploading {len(files)} images")
 
-        # 方法1: 尝试找到隐藏的 input[type=file] 元素
-        # 小红书的图片上传区域可能有多个 input，需要找到正确的那个
-        file_input_selectors = [
-            'input[type="file"][accept*="image"]',
-            'input[type="file"][accept*="image/*"]',
-            'input[type="file"]',
-        ]
+        # 小红书图文发布页面的图片上传 input
+        # DOM 结构: input.upload-input[type="file"][accept=".jpg,.jpeg,.png,.webp"]
+        file_input = page.locator('input.upload-input[type="file"]')
 
-        file_input = None
-        for selector in file_input_selectors:
-            inputs = await page.query_selector_all(selector)
-            for inp in inputs:
-                # 检查 input 是否在图片上传区域
-                is_visible = await inp.is_visible()
-                accept = await inp.get_attribute("accept") or ""
-                # 找到第一个接受图片的 input
-                if "image" in accept or not accept:
-                    file_input = inp
-                    logger.info(f"[xhs] found file input with selector: {selector}")
-                    break
-            if file_input:
-                break
+        # 如果找不到，尝试其他选择器
+        if await file_input.count() == 0:
+            file_input = page.locator('input[type="file"][accept*=".jpg"]')
 
-        if not file_input:
-            # 方法2: 使用 expect_file_chooser 模式（参考快手实现）
+        if await file_input.count() == 0:
+            file_input = page.locator('input[type="file"][multiple]')
+
+        if await file_input.count() == 0:
+            # 使用 expect_file_chooser 模式作为备选
             logger.info("[xhs] trying file chooser approach")
-            # 找到上传按钮
-            upload_btn_selectors = [
-                'div[class*="upload"]',
-                'div[class*="add"]',
-                'button[class*="upload"]',
-                'div.upload-trigger',
-            ]
+            upload_btn = page.locator('button.upload-button:has-text("上传图片")')
 
-            upload_btn = None
-            for selector in upload_btn_selectors:
-                btns = await page.query_selector_all(selector)
-                for btn in btns:
-                    if await btn.is_visible():
-                        upload_btn = btn
-                        logger.info(f"[xhs] found upload button with selector: {selector}")
-                        break
-                if upload_btn:
-                    break
+            if await upload_btn.count() == 0:
+                upload_btn = page.locator('.upload-button').first
 
-            if upload_btn:
+            if await upload_btn.count() > 0:
                 async with page.expect_file_chooser() as fc_info:
                     await upload_btn.click()
                 file_chooser = await fc_info.value
@@ -933,7 +904,7 @@ async def _upload_images(page, files: list[str]) -> bool:
                 return False
         else:
             # 使用找到的 input 元素上传文件
-            await file_input.set_input_files(files)
+            await file_input.first.set_input_files(files)
             logger.info(f"[xhs] uploaded {len(files)} images via file input")
 
         # Wait for images to finish uploading (check image count)
@@ -943,18 +914,8 @@ async def _upload_images(page, files: list[str]) -> bool:
         uploaded = []
         for i in range(max_wait):
             # 检查已上传的图片数量
-            uploaded_selectors = [
-                'div[class*="upload"] img',
-                'div[class*="image-item"] img',
-                'div[class*="preview"] img',
-                'img[class*="upload"]',
-            ]
-            for selector in uploaded_selectors:
-                uploaded = await page.query_selector_all(selector)
-                if len(uploaded) >= expected_count:
-                    logger.info(f"[xhs] all {expected_count} images uploaded")
-                    return True
-
+            # 小红书的图片预览区域
+            uploaded = await page.query_selector_all('.upload-wrapper img, .image-preview img, .preview-item img')
             if len(uploaded) >= expected_count:
                 logger.info(f"[xhs] all {expected_count} images uploaded")
                 return True

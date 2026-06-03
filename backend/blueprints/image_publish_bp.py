@@ -151,6 +151,9 @@ def publish_images():
                 schedule_time_str=config.get('scheduleTime', ''),
                 ai_content=config.get('aiContent', ''),
                 activities=config.get('activities', []),
+                author_declaration=config.get('aiContent', ''),
+                music_id=config.get('music_id', ''),
+                music_title=config.get('music_title', ''),
                 dry_run=dry_run,
             ))
         else:
@@ -171,6 +174,9 @@ def publish_images():
                 schedule_time_str=config.get('scheduleTime', ''),
                 ai_content=config.get('aiContent', ''),
                 activities=config.get('activities', []),
+                author_declaration=config.get('aiContent', ''),
+                music_id=config.get('music_id', ''),
+                music_title=config.get('music_title', ''),
                 dry_run=dry_run,
             )
 
@@ -520,6 +526,9 @@ def execute_publish():
                 schedule_time_str=data.get('schedule_time_str', ''),
                 ai_content=data.get('ai_content', ''),
                 activities=data.get('activities', []),
+                author_declaration=data.get('author_declaration', ''),
+                music_id=data.get('music_id', ''),
+                music_title=data.get('music_title', ''),
                 dry_run=data.get('dry_run', True),
             ))
         else:
@@ -538,6 +547,9 @@ def execute_publish():
                 schedule_time_str=data.get('schedule_time_str', ''),
                 ai_content=data.get('ai_content', ''),
                 activities=data.get('activities', []),
+                author_declaration=data.get('author_declaration', ''),
+                music_id=data.get('music_id', ''),
+                music_title=data.get('music_title', ''),
                 dry_run=data.get('dry_run', True),
             )
 

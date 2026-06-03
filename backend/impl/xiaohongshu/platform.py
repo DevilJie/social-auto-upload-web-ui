@@ -298,6 +298,70 @@ class XiaohongshuPlatform(BasePlatform):
                 )
         return True
 
+    # ------------------------------------------------------------------
+    # publish_image()
+    # ------------------------------------------------------------------
+
+    def publish_image(self, **kwargs) -> bool:
+        """
+        小红书图文发布
+
+        参数：
+        - title (str): 标题，最多20字
+        - files (list[str]): 图片文件路径列表
+        - tags (list[str]): 标签列表，最多10个
+        - account_file (list[str]): Cookie文件名
+        - desc (str): 描述，最多1000字
+        - enableTimer (bool): 是否启用定时发布
+        - schedule_time_str (str): 定时发布时间
+        - ai_content (str): 内容类型声明
+        - dry_run (bool): 是否模拟发布，默认True
+
+        返回：
+        - bool: 发布是否成功
+        """
+        title = kwargs.get('title', '')
+        files = kwargs.get('files', [])
+        tags = kwargs.get('tags', [])[:10]  # 最多10个标签
+        account_file = kwargs.get('account_file', [])
+        desc = kwargs.get('desc', '')[:1000]  # 最多1000字
+        enableTimer = kwargs.get('enableTimer', False)
+        schedule_time_str = kwargs.get('schedule_time_str', '')
+        ai_content = kwargs.get('ai_content', '')
+        dry_run = kwargs.get('dry_run', True)
+
+        if not files:
+            logger.error("没有图片文件")
+            return False
+
+        if not account_file:
+            logger.error("没有账号文件")
+            return False
+
+        # 截断标题
+        title = title[:20]
+
+        success_count = 0
+        for account in account_file:
+            try:
+                result = asyncio.run(self._publish_single_image(
+                    title=title,
+                    files=files,
+                    tags=tags,
+                    account_file=account,
+                    desc=desc,
+                    enableTimer=enableTimer,
+                    schedule_time_str=schedule_time_str,
+                    ai_content=ai_content,
+                    dry_run=dry_run
+                ))
+                if result:
+                    success_count += 1
+            except Exception as e:
+                logger.error(f"账号 {account} 发布失败: {e}")
+
+        return success_count > 0
+
 
 # ======================================================================
 # Internal publish helper

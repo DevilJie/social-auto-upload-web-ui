@@ -35,7 +35,7 @@ export function registerSettingsTools(server: McpServer, client: BackendClient):
     'settings_update',
     '更新系统设置',
     {
-      settings: z.record(z.any()).describe('要更新的设置键值对'),
+      settings: z.record(z.string(), z.any()).describe('要更新的设置键值对'),
     },
     async ({ settings }) => {
       try {

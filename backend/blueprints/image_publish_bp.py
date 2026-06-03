@@ -127,7 +127,8 @@ def publish_images():
         logger.info(f"发布参数: dry_run={dry_run}, cover_path={config.get('cover_path')}, "
                     f"music_name={config.get('music_name')}, hotspot={config.get('hotspot')}, "
                     f"hotspot_tags={config.get('hotspot_tags')}, "
-                    f"aiContent={config.get('aiContent')}, tags={config.get('tags')}, "
+                    f"aiContent={config.get('aiContent')}, isOriginal={config.get('isOriginal')}, "
+                    f"tags={config.get('tags')}, "
                     f"mix_id={config.get('mix_id')}, tag_type={config.get('tag_type')}, "
                     f"tag_value={config.get('tag_value')}, mini_link={config.get('mini_link')}")
 
@@ -150,6 +151,7 @@ def publish_images():
                 enableTimer=bool(config.get('scheduleTime')),
                 schedule_time_str=config.get('scheduleTime', ''),
                 ai_content=config.get('aiContent', ''),
+                is_original=config.get('isOriginal', False),
                 activities=config.get('activities', []),
                 author_declaration=config.get('aiContent', ''),
                 music_id=config.get('music_id', ''),
@@ -173,6 +175,7 @@ def publish_images():
                 enableTimer=bool(config.get('scheduleTime')),
                 schedule_time_str=config.get('scheduleTime', ''),
                 ai_content=config.get('aiContent', ''),
+                is_original=config.get('isOriginal', False),
                 activities=config.get('activities', []),
                 author_declaration=config.get('aiContent', ''),
                 music_id=config.get('music_id', ''),

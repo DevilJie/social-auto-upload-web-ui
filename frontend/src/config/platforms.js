@@ -42,7 +42,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', enableTimer: false },
   },
   CHANNELS: {
     id: 2,

@@ -51,18 +51,19 @@
       <div class="setting-label">内容类型声明</div>
       <el-select v-model="form.aiContent" placeholder="请选择" :disabled="disabled" style="width: 100%;">
         <el-option label="无" value="" />
-        <el-option label="AI生成" value="AI生成" />
-        <el-option label="个人观点" value="个人观点" />
-        <el-option label="转载" value="转载" />
-        <el-option label="营销推广" value="营销推广" />
-        <el-option label="虚构演绎" value="虚构演绎" />
+        <el-option
+          v-for="opt in aiContentOptions"
+          :key="opt.value"
+          :label="opt.label"
+          :value="opt.value"
+        />
       </el-select>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
@@ -78,6 +79,9 @@ const props = defineProps({
 const emit = defineEmits(['config-changed', 'publish-result'])
 
 const accountStore = useAccountStore()
+
+const aiContentField = PLATFORMS.XIAOHONGSHU.settingsFields.find(f => f.key === 'aiContent')
+const aiContentOptions = computed(() => aiContentField?.options || [])
 
 const XHS_DEFAULTS = { ...PLATFORMS.XIAOHONGSHU.defaultSettings, tags: [], enableTimer: false, isOriginal: false }
 
@@ -111,6 +115,7 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
     validateFn: (accountId, merged) => {
       const errors = []
       if (!merged.title || !merged.title.trim()) errors.push('标题不能为空')
+      if (merged.enableTimer && !merged.scheduleTime) errors.push('请选择定时发布时间')
       return { valid: errors.length === 0, errors }
     },
   },

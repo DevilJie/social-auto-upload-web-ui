@@ -328,6 +328,7 @@ class XiaohongshuPlatform(BasePlatform):
         enableTimer = kwargs.get('enableTimer', False)
         schedule_time_str = kwargs.get('schedule_time_str', '')
         ai_content = kwargs.get('ai_content', '')
+        is_original = kwargs.get('is_original', False)
         dry_run = kwargs.get('dry_run', True)
 
         if not files:
@@ -371,6 +372,7 @@ class XiaohongshuPlatform(BasePlatform):
                     schedule_time_str=schedule_time_str,
                     publish_date=pub_date,
                     ai_content=ai_content,
+                    is_original=is_original,
                     dry_run=dry_run,
                 )
                 if result:
@@ -434,6 +436,7 @@ async def _publish_single_image(
     schedule_time_str: str = "",
     publish_date=None,
     ai_content: str = "",
+    is_original: bool = False,
     dry_run: bool = True,
 ) -> bool:
     """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
@@ -465,7 +468,8 @@ async def _publish_single_image(
             await _fill_tags(page, tags)
 
             # Set original declaration (原创声明)
-            await _set_original_declaration(page)
+            if is_original:
+                await _set_original_declaration(page)
 
             # Set content declaration (内容类型声明)
             if ai_content:

@@ -27,6 +27,37 @@
         <el-tag v-for="(tag, index) in form.tags" :key="index" closable @close="removeTag(index)" size="small" :disable-transitions="false">#{{ tag }}</el-tag>
       </div>
     </div>
+
+    <div class="setting-card" style="grid-column: 1 / -1">
+      <div class="setting-label">定时发布</div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <el-switch v-model="form.enableTimer" :disabled="disabled" />
+        <el-date-picker
+          v-if="form.enableTimer"
+          v-model="form.scheduleTime"
+          type="datetime"
+          placeholder="选择发布时间"
+          :disabled="disabled"
+        />
+      </div>
+    </div>
+
+    <div class="setting-card" style="grid-column: 1 / -1">
+      <div class="setting-label">原创声明</div>
+      <el-switch v-model="form.isOriginal" :disabled="disabled" />
+    </div>
+
+    <div class="setting-card" style="grid-column: 1 / -1">
+      <div class="setting-label">内容类型声明</div>
+      <el-select v-model="form.aiContent" placeholder="请选择" :disabled="disabled" style="width: 100%;">
+        <el-option label="无" value="" />
+        <el-option label="AI生成" value="AI生成" />
+        <el-option label="个人观点" value="个人观点" />
+        <el-option label="转载" value="转载" />
+        <el-option label="营销推广" value="营销推广" />
+        <el-option label="虚构演绎" value="虚构演绎" />
+      </el-select>
+    </div>
   </div>
 </template>
 
@@ -48,7 +79,7 @@ const emit = defineEmits(['config-changed', 'publish-result'])
 
 const accountStore = useAccountStore()
 
-const XHS_DEFAULTS = { ...PLATFORMS.XIAOHONGSHU.defaultSettings, tags: [] }
+const XHS_DEFAULTS = { ...PLATFORMS.XIAOHONGSHU.defaultSettings, tags: [], enableTimer: false, isOriginal: false }
 
 const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
   XHS_DEFAULTS,
@@ -66,8 +97,8 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
           account_configs: [{
             account_id: accountId, platform: account.platform, filePath: account.filePath,
             title: merged.title, description: merged.description || '',
-            tags: merged.tags || [], scheduleTime: merged.scheduleTime || '',
-            aiContent: merged.aiContent || '',
+            tags: merged.tags || [], scheduleTime: merged.enableTimer ? merged.scheduleTime : '',
+            aiContent: merged.aiContent || '', isOriginal: merged.isOriginal || false,
             cover_path: commonData.coverImage?.stored_path || '',
             dry_run: false,
           }],

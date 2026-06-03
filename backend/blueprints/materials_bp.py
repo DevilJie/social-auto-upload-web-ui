@@ -103,59 +103,78 @@ def _async_extract_thumb(material_id: str, source_path: str):
 @materials_bp.route("/upload", methods=["POST"])
 def upload():
     """统一文件上传"""
-    from storage import get_storage
+    try:
+        from storage import get_storage
 
-    file = request.files.get("file")
-    if not file or not file.filename:
-        return jsonify({"code": 400, "msg": "未找到文件"})
+        file = request.files.get("file")
+        if not file or not file.filename:
+            return jsonify({"code": 400, "msg": "未找到文件"})
 
-    file_id = str(uuid.uuid4())
-    ext = os.path.splitext(file.filename)[1].lower()
-    now = datetime.now()
-    relative_path = f"materials/{now.strftime('%Y/%m/%d')}/{file_id}{ext}"
+        print(f"[materials] 开始上传: {file.filename}")
 
-    storage = get_storage()
-    file_data = file.read()
-    storage.save(file_data, relative_path)
+        file_id = str(uuid.uuid4())
+        ext = os.path.splitext(file.filename)[1].lower()
+        now = datetime.now()
+        relative_path = f"materials/{now.strftime('%Y/%m/%d')}/{file_id}{ext}"
 
-    mime_type = file.content_type or "application/octet-stream"
-    file_type = _guess_file_type(mime_type, file.filename)
-    file_size = len(file_data)
+        print(f"[materials] 获取存储实例...")
+        storage = get_storage()
+        print(f"[materials] 存储类型: {storage.type}")
 
-    conn = _get_db()
-    conn.execute(
-        """INSERT INTO materials
-           (id, original_filename, stored_path, file_type, mime_type, file_size, storage_type)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (file_id, file.filename, relative_path, file_type, mime_type, file_size, storage.type),
-    )
-    conn.commit()
-    conn.close()
+        print(f"[materials] 读取文件数据...")
+        file_data = file.read()
+        print(f"[materials] 文件大小: {len(file_data)} bytes")
 
-    # 视频素材异步抽帧作为缩略图
-    if file_type == "video":
-        threading.Thread(
-            target=_async_extract_thumb,
-            args=(file_id, relative_path),
-            daemon=True,
-        ).start()
+        print(f"[materials] 保存文件到存储...")
+        storage.save(file_data, relative_path)
+        print(f"[materials] 文件保存成功")
 
-    url = storage.get_url(relative_path)
+        mime_type = file.content_type or "application/octet-stream"
+        file_type = _guess_file_type(mime_type, file.filename)
+        file_size = len(file_data)
 
-    return jsonify({
-        "code": 200,
-        "msg": "上传成功",
-        "data": {
-            "id": file_id,
-            "original_filename": file.filename,
-            "stored_path": relative_path,
-            "file_type": file_type,
-            "mime_type": mime_type,
-            "file_size": file_size,
-            "url": url,
-            "thumbnail_path": None,
-        },
-    })
+        print(f"[materials] 写入数据库...")
+        conn = _get_db()
+        conn.execute(
+            """INSERT INTO materials
+               (id, original_filename, stored_path, file_type, mime_type, file_size, storage_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (file_id, file.filename, relative_path, file_type, mime_type, file_size, storage.type),
+        )
+        conn.commit()
+        conn.close()
+        print(f"[materials] 数据库写入成功")
+
+        # 视频素材异步抽帧作为缩略图
+        if file_type == "video":
+            threading.Thread(
+                target=_async_extract_thumb,
+                args=(file_id, relative_path),
+                daemon=True,
+            ).start()
+
+        url = storage.get_url(relative_path)
+        print(f"[materials] 上传完成: {file_id}")
+
+        return jsonify({
+            "code": 200,
+            "msg": "上传成功",
+            "data": {
+                "id": file_id,
+                "original_filename": file.filename,
+                "stored_path": relative_path,
+                "file_type": file_type,
+                "mime_type": mime_type,
+                "file_size": file_size,
+                "url": url,
+                "thumbnail_path": None,
+            },
+        })
+    except Exception as e:
+        import traceback
+        print(f"[materials] upload error: {e}")
+        traceback.print_exc()
+        return jsonify({"code": 500, "msg": str(e)}), 500
 
 
 @materials_bp.route("/list", methods=["GET"])

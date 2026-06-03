@@ -170,7 +170,29 @@ if "!VENV_OK!"=="0" (
     echo !CURRENT_HASH!> "%HASH_FILE%"
     echo   √ 后端环境就绪
 ) else (
-    echo   √ 依赖无变更，跳过
+    :: venv 存在，检查依赖是否有变更
+    set "SAVED_HASH="
+    if exist "%HASH_FILE%" (
+        for /f "tokens=*" %%i in ('type "%HASH_FILE%"') do set "SAVED_HASH=%%i"
+    ) else (
+        set "SAVED_HASH=none"
+    )
+    if "!CURRENT_HASH!"=="!SAVED_HASH!" (
+        echo   √ 依赖无变更，跳过
+    ) else (
+        echo     检测到变更，更新后端依赖，请稍候...
+        echo.
+        "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir
+        if !errorlevel! neq 0 (
+            echo.
+            echo   X Python 依赖更新失败
+            pause
+            exit /b 1
+        )
+        echo.
+        echo !CURRENT_HASH!> "%HASH_FILE%"
+        echo   √ 后端依赖更新完成
+    )
 )
 
 :: 检查 CloakBrowser 二进制文件

@@ -22,6 +22,34 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("backend")
 
+
+def _ensure_materials_table():
+    """服务启动时确保 materials 表存在"""
+    DB_PATH = BASE_DIR / "db" / "database.db"
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS materials (
+            id TEXT PRIMARY KEY,
+            original_filename TEXT NOT NULL,
+            stored_path TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            mime_type TEXT,
+            file_size INTEGER DEFAULT 0,
+            storage_type TEXT NOT NULL DEFAULT 'local',
+            width INTEGER DEFAULT 0,
+            height INTEGER DEFAULT 0,
+            duration REAL DEFAULT 0,
+            thumbnail_path TEXT DEFAULT '',
+            upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("[Startup] materials 表已就绪")
+
+
+_ensure_materials_table()
+
 logger.info(f"[Startup] Python {sys.version} starting...")
 logger.info(f"[Startup] Script: {__file__}")
 logger.info(f"[Startup] SAU_PORT={os.environ.get('SAU_PORT')}, SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")

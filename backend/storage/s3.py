@@ -9,6 +9,7 @@ class S3Storage(StorageBackend):
 
     def __init__(self, endpoint, access_key, secret_key, bucket, region="", base_dir=None):
         import boto3
+        from boto3.s3.transfer import TransferConfig
         from botocore.config import Config
         self.client = boto3.client(
             "s3",
@@ -16,16 +17,31 @@ class S3Storage(StorageBackend):
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
-            config=Config(proxies={"http": None, "https": None}),
+            config=Config(
+                proxies={"http": None, "https": None},
+                connect_timeout=10,
+                read_timeout=60,
+                retries={"max_attempts": 3, "mode": "standard"},
+            ),
         )
         self.bucket = bucket
         self.base_dir = Path(base_dir) if base_dir else None
+        # 分片上传配置：超过 8MB 自动使用分片上传
+        self._transfer_config = TransferConfig(
+            multipart_threshold=8 * 1024 * 1024,
+            multipart_chunksize=8 * 1024 * 1024,
+            max_concurrency=2,
+        )
 
     def save(self, file_data: bytes, relative_path: str) -> str:
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=relative_path,
-            Body=file_data,
+        import boto3.s3.transfer as transfer
+        from io import BytesIO
+        # 使用分片上传，更可靠
+        self.client.upload_fileobj(
+            BytesIO(file_data),
+            self.bucket,
+            relative_path,
+            Config=self._transfer_config,
         )
         return relative_path
 

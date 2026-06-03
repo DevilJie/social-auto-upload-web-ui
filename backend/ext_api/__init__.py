@@ -394,27 +394,6 @@ def get_stats():
 
 # ========== 系统设置 ==========
 
-def _read_json_settings():
-    """读取 settings.json（storage / proxyUrl 的持久化文件）"""
-    settings_file = BASE_DIR / "settings.json"
-    if settings_file.exists():
-        with open(settings_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
-
-
-def _write_json_settings(data):
-    """写入 settings.json"""
-    settings_file = BASE_DIR / "settings.json"
-    settings_file.parent.mkdir(parents=True, exist_ok=True)
-    current = {}
-    if settings_file.exists():
-        with open(settings_file, 'r', encoding='utf-8') as f:
-            current = json.load(f)
-    current.update(data)
-    with open(settings_file, 'w', encoding='utf-8') as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
-
 
 @ext_api.route('/settings', methods=['GET'])
 def get_settings():
@@ -450,10 +429,16 @@ def get_settings():
                 except (ValueError, TypeError):
                     pass
 
-        # storage / proxyUrl 从 settings.json 读取（get_storage / get_proxy_url 依赖此文件）
-        json_settings = _read_json_settings()
-        defaults['storage'] = json_settings.get('storage', {'type': 'local', 's3': {}})
-        defaults['proxyUrl'] = json_settings.get('proxyUrl', '')
+        # storage / proxyUrl 从 SQLite 读取（JSON 类型字段需要解析）
+        if 'storage' in defaults:
+            try:
+                defaults['storage'] = json.loads(defaults['storage'])
+            except (json.JSONDecodeError, TypeError):
+                defaults['storage'] = {'type': 'local', 's3': {}}
+        else:
+            defaults['storage'] = {'type': 'local', 's3': {}}
+        if 'proxyUrl' not in defaults:
+            defaults['proxyUrl'] = ''
 
         return jsonify({"code": 200, "data": defaults})
     except Exception as e:
@@ -468,28 +453,27 @@ def update_settings():
         return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
 
     try:
-        # storage / proxyUrl 写入 settings.json（get_storage / get_proxy_url 依赖此文件）
-        json_keys = {'storage', 'proxyUrl'}
-        json_data = {}
-        for key in json_keys:
-            if key in data:
-                json_data[key] = data.pop(key)
-        if json_data:
-            _write_json_settings(json_data)
-            if 'storage' in json_data:
-                from storage import reset_storage
-                reset_storage()
+        need_reset_storage = 'storage' in data
 
-        # 其余设置写入 SQLite
+        # 所有设置统一写入 SQLite（包括 storage / proxyUrl）
         conn = _db_conn()
         for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False)
+            else:
+                value = str(value)
             conn.execute(
                 """INSERT OR REPLACE INTO settings (key, value, updated_at)
                    VALUES (?, ?, ?)""",
-                (key, str(value), datetime.now().isoformat())
+                (key, value, datetime.now().isoformat())
             )
         conn.commit()
         conn.close()
+
+        if need_reset_storage:
+            from storage import reset_storage
+            reset_storage()
+
         return jsonify({"code": 200, "msg": "设置已更新"})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500

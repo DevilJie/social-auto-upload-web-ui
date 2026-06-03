@@ -437,8 +437,80 @@ async def _publish_single_image(
     dry_run: bool = True,
 ) -> bool:
     """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
-    # TODO: implement XHS image publish automation
-    raise NotImplementedError("XHS _publish_single_image not yet implemented")
+    browser = await _create_browser_async(headless=False)
+    try:
+        context = await _create_context_async(browser, storage_state=account_file)
+        await context.grant_permissions(["geolocation"])
+        try:
+            page = await context.new_page()
+
+            # Navigate to image publish page
+            logger.info(f"[xhs] navigating to image publish page")
+            await page.goto(_XHS_PUBLISH_IMAGE_URL)
+            await page.wait_for_url(_XHS_PUBLISH_IMAGE_URL)
+
+            # Upload images
+            file_paths = [str(f) for f in files]
+            if not await _upload_images(page, file_paths):
+                logger.error("[xhs] image upload failed")
+                return False
+
+            # Wait for page readiness
+            await asyncio.sleep(2)
+
+            # Fill title, description, tags
+            logger.info(f"[xhs] filling title, desc and tags")
+            await _fill_title(page, title)
+            await _fill_desc(page, desc)
+            await _fill_tags(page, tags)
+
+            # Set original declaration (原创声明)
+            await _set_original_declaration(page)
+
+            # Set content declaration (内容类型声明)
+            if ai_content:
+                await _set_content_declaration(page, ai_content)
+
+            # Set schedule time
+            is_scheduled = enableTimer and publish_date and publish_date != 0
+            if is_scheduled:
+                await _set_schedule_time(page, publish_date)
+
+            # Wait for publish button to hydrate
+            await _wait_for_page_ready(page)
+
+            if not dry_run:
+                # Click publish
+                btn_text = "定时发布" if is_scheduled else "发布"
+                await _click_publish_button(page, btn_text)
+
+                # Wait for page navigation after click
+                current_url = page.url
+                await asyncio.sleep(3)
+                new_url = page.url
+                logger.info(f"[xhs] url changed: {current_url} -> {new_url}")
+
+                if "success" in new_url.lower() or "publish/publish" not in new_url:
+                    logger.info(f"[xhs] image published successfully: {title}")
+                else:
+                    logger.error(f"[xhs] page did not navigate to success: {new_url}")
+            else:
+                logger.info(f"[xhs] image publish dry-run complete: {title}")
+
+            # Save cookies
+            await context.storage_state(path=account_file)
+            logger.info("[xhs] cookie updated")
+            return True
+        except Exception as e:
+            logger.error(f"[xhs] image publish error: {e}")
+            return False
+        finally:
+            await context.close()
+    except Exception as e:
+        logger.error(f"[xhs] image publish browser error: {e}")
+        return False
+    finally:
+        await browser.close()
 
 
 # ======================================================================

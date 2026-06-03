@@ -741,8 +741,13 @@ async def _fill_tags(page, tags: list) -> None:
         await desc_el.click()
 
     for tag in tags:
+        # 输入 # 标签
         await page.keyboard.type("#" + tag, delay=30)
-        await page.keyboard.press("Space")   
+        # 等待一下让输入完成
+        await asyncio.sleep(0.5)
+        # 按空格触发标签识别
+        await page.keyboard.press("Space")
+        # 等待标签被识别
         await asyncio.sleep(1)
 
 
@@ -862,19 +867,74 @@ async def _upload_images(page, files: list[str]) -> bool:
     bool
         True if all images were uploaded successfully, False otherwise.
     """
+    if not files:
+        logger.warning("[xhs] no images to upload")
+        return False
+
     try:
-        # Wait for the image upload file input to appear
-        upload_input = await page.wait_for_selector(
+        # 小红书图文发布页面有多个隐藏的 input[type=file]
+        # 需要找到正确的 input 来上传图片
+        # 参考抖音的实现：使用 expect_file_chooser 模式
+        logger.info(f"[xhs] uploading {len(files)} images")
+
+        # 方法1: 尝试找到隐藏的 input[type=file] 元素
+        # 小红书的图片上传区域可能有多个 input，需要找到正确的那个
+        file_input_selectors = [
             'input[type="file"][accept*="image"]',
-            timeout=10000,
-        )
+            'input[type="file"][accept*="image/*"]',
+            'input[type="file"]',
+        ]
 
-        if not files:
-            logger.warning("[xhs] no images to upload")
-            return False
+        file_input = None
+        for selector in file_input_selectors:
+            inputs = await page.query_selector_all(selector)
+            for inp in inputs:
+                # 检查 input 是否在图片上传区域
+                is_visible = await inp.is_visible()
+                accept = await inp.get_attribute("accept") or ""
+                # 找到第一个接受图片的 input
+                if "image" in accept or not accept:
+                    file_input = inp
+                    logger.info(f"[xhs] found file input with selector: {selector}")
+                    break
+            if file_input:
+                break
 
-        # Upload all images at once
-        await upload_input.set_input_files(files)
+        if not file_input:
+            # 方法2: 使用 expect_file_chooser 模式（参考快手实现）
+            logger.info("[xhs] trying file chooser approach")
+            # 找到上传按钮
+            upload_btn_selectors = [
+                'div[class*="upload"]',
+                'div[class*="add"]',
+                'button[class*="upload"]',
+                'div.upload-trigger',
+            ]
+
+            upload_btn = None
+            for selector in upload_btn_selectors:
+                btns = await page.query_selector_all(selector)
+                for btn in btns:
+                    if await btn.is_visible():
+                        upload_btn = btn
+                        logger.info(f"[xhs] found upload button with selector: {selector}")
+                        break
+                if upload_btn:
+                    break
+
+            if upload_btn:
+                async with page.expect_file_chooser() as fc_info:
+                    await upload_btn.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(files)
+                logger.info(f"[xhs] uploaded {len(files)} images via file chooser")
+            else:
+                logger.error("[xhs] could not find upload button or file input")
+                return False
+        else:
+            # 使用找到的 input 元素上传文件
+            await file_input.set_input_files(files)
+            logger.info(f"[xhs] uploaded {len(files)} images via file input")
 
         # Wait for images to finish uploading (check image count)
         expected_count = len(files)
@@ -882,7 +942,19 @@ async def _upload_images(page, files: list[str]) -> bool:
         max_wait = max(60, min(expected_count * timeout_per_image, 300))
         uploaded = []
         for i in range(max_wait):
-            uploaded = await page.query_selector_all('div[class*="upload"] img')
+            # 检查已上传的图片数量
+            uploaded_selectors = [
+                'div[class*="upload"] img',
+                'div[class*="image-item"] img',
+                'div[class*="preview"] img',
+                'img[class*="upload"]',
+            ]
+            for selector in uploaded_selectors:
+                uploaded = await page.query_selector_all(selector)
+                if len(uploaded) >= expected_count:
+                    logger.info(f"[xhs] all {expected_count} images uploaded")
+                    return True
+
             if len(uploaded) >= expected_count:
                 logger.info(f"[xhs] all {expected_count} images uploaded")
                 return True

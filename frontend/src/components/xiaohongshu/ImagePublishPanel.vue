@@ -28,36 +28,38 @@
       </div>
     </div>
 
-    <div class="setting-card" style="grid-column: 1 / -1">
-      <div class="setting-label">定时发布</div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <el-switch v-model="form.enableTimer" :disabled="disabled" />
-        <el-date-picker
-          v-if="form.enableTimer"
-          v-model="form.scheduleTime"
-          type="datetime"
-          placeholder="选择发布时间"
-          :disabled="disabled"
-        />
+    <div class="settings-row">
+      <div class="setting-card">
+        <div class="setting-label">原创声明</div>
+        <el-switch v-model="form.isOriginal" :disabled="disabled" />
       </div>
-    </div>
 
-    <div class="setting-card" style="grid-column: 1 / -1">
-      <div class="setting-label">原创声明</div>
-      <el-switch v-model="form.isOriginal" :disabled="disabled" />
-    </div>
+      <div class="setting-card">
+        <div class="setting-label">内容类型声明</div>
+        <el-select v-model="form.aiContent" placeholder="请选择" :disabled="disabled" style="width: 100%;">
+          <el-option label="无" value="" />
+          <el-option
+            v-for="opt in aiContentOptions"
+            :key="opt.value"
+            :label="opt.label"
+            :value="opt.value"
+          />
+        </el-select>
+      </div>
 
-    <div class="setting-card" style="grid-column: 1 / -1">
-      <div class="setting-label">内容类型声明</div>
-      <el-select v-model="form.aiContent" placeholder="请选择" :disabled="disabled" style="width: 100%;">
-        <el-option label="无" value="" />
-        <el-option
-          v-for="opt in aiContentOptions"
-          :key="opt.value"
-          :label="opt.label"
-          :value="opt.value"
-        />
-      </el-select>
+      <div class="setting-card">
+        <div class="setting-label">定时发布</div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <el-switch v-model="form.enableTimer" :disabled="disabled" />
+          <el-date-picker
+            v-if="form.enableTimer"
+            v-model="form.scheduleTime"
+            type="datetime"
+            placeholder="选择发布时间"
+            :disabled="disabled"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -142,6 +144,17 @@ defineExpose(publicApi)
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 12px;
+}
+
+.settings-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.settings-row .setting-card {
+  min-width: 0;
 }
 
 .xhs-warning {

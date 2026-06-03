@@ -225,7 +225,7 @@
             <!-- 通用标签输入 -->
             <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
-              <div class="setting-hint">输入标签内容，按回车确认</div>
+              <div class="setting-hint">{{ selectedPlatform === 'douyin' ? '官方活动 + 标签最多 5 个，按回车确认' : '输入标签内容，按回车确认' }}</div>
               <el-input
                 v-model="tagInput"
                 placeholder="输入标签内容，按回车添加"
@@ -717,6 +717,14 @@ function addTag() {
   if (form.tags.includes(tag)) {
     ElMessage.warning('标签已存在')
     return
+  }
+  if (selectedPlatform.value === 'douyin') {
+    const ac = form.activityId?.length || 0
+    const tc = form.tags?.length || 0
+    if (ac + tc >= 5) {
+      ElMessage.warning('官方活动 + 标签最多 5 个')
+      return
+    }
   }
   form.tags.push(tag)
   tagInput.value = ''
@@ -1292,6 +1300,16 @@ async function publishAll() {
   if (accountsWithoutVideoFormat.length > 0) {
     ElMessage.error(`以下账号未选择视频格式：${accountsWithoutVideoFormat.join('、')}`)
     return
+  }
+
+  // 校验抖音平台官方活动 + 标签数量
+  if (selectedPlatform.value === 'douyin') {
+    const ac = form.activityId?.length || 0
+    const tc = form.tags?.length || 0
+    if (ac + tc > 5) {
+      ElMessage.error(`官方活动(${ac}) + 标签(${tc}) 超过 5 个`)
+      return
+    }
   }
 
   publishing.value = true

@@ -85,7 +85,12 @@ def search_music():
 
 
 async def _search_music_via_browser(cookie_file: str, keyword: str, count: str = "20") -> dict:
-    """用 CloakBrowser 打开图文发布页 → 上传测试图 → 等详情页 → 打开音乐抽屉 → 输入关键词 → 拦截 music-search API 响应。"""
+    """用 CloakBrowser 打开图文发布页 → 上传测试图 → 等详情页 → 打开音乐抽屉 → 输入关键词 → 拦截 music-search API 响应。
+
+    Note: ``count`` is accepted for API symmetry with douyin_image_bp.music-search
+    but currently ignored — the intercepted URL is what Kuaishou's frontend
+    uses, and we don't control its page size.
+    """
     cookie_path = _get_cookie_path(cookie_file)
 
     # 测试图 fallback
@@ -129,7 +134,8 @@ async def _search_music_via_browser(cookie_file: str, keyword: str, count: str =
             logger.info("上传测试图...")
             # ?tabType=2 同时渲染视频/图片两个 tab 的上传按钮（隐藏 + 可见），
             # 用 :visible 过滤掉隐藏的「上传视频」按钮，只取可见的「上传图片」。
-            upload_btn = page.locator("button[class^='_upload-btn']:visible").first
+            # 后置选择器用 class*='upload-btn' 兜底：_upload-btn 的 hash 变化时仍能命中
+            upload_btn = page.locator("button[class^='_upload-btn']:visible, button[class*='upload-btn']:visible").first
             await upload_btn.wait_for(state="visible", timeout=10000)
             async with page.expect_file_chooser() as fc_info:
                 await upload_btn.click()
@@ -148,8 +154,9 @@ async def _search_music_via_browser(cookie_file: str, keyword: str, count: str =
             # 4. 点击「添加音乐」按钮
             # 页面里有两个含「添加音乐」文本的元素：<label> 是标题（无 click handler），
             # 真正的可点击元素是带 +icon 的 div._button_3a3lq_1。点 label 不会打开抽屉。
+            # 后置选择器按文本「添加音乐」兜底：_idle_ 类的 hash 变化时仍能命中
             logger.info("点击「添加音乐」按钮...")
-            add_btn = page.locator("._idle_17rov_25 ._button_3a3lq_1").first
+            add_btn = page.locator("._idle_17rov_25 ._button_3a3lq_1, div._button_3a3lq_1:has-text('添加音乐')").first
             await add_btn.wait_for(state="visible", timeout=10000)
             await add_btn.click()
             await asyncio.sleep(2)

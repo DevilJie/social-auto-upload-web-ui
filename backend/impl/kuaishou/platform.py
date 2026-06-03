@@ -349,6 +349,42 @@ class KuaishouPlatform(BasePlatform):
                 await asyncio.sleep(0.5)
 
                 logger.info("Description filled. cover_path=%s, music_id=%s", cover_path, music_id)
+
+                # 6. 设置封面
+                if cover_path:
+                    await self._set_image_cover(page, cover_path)
+
+                # 7. 设置音乐
+                if music_id:
+                    await self._set_image_music(page, music_id, music_title)
+
+                # 8. 作者声明
+                if author_declaration:
+                    await self._set_author_declaration(page, author_declaration)
+
+                # 9. 定时发布
+                if enable_timer and schedule_time_str:
+                    publish_date = parse_schedule_time(
+                        schedule_time_str, 1, enable_timer, 1, None, 0
+                    )[0]
+                    if publish_date != 0:
+                        await self._set_schedule_time(page, publish_date)
+
+                logger.info("Form filling completed. dry_run=%s", dry_run)
+
+                if not dry_run:
+                    publish_btn = page.get_by_text("发布", exact=True)
+                    await publish_btn.first.click()
+                    await page.wait_for_url(
+                        "**/article/manage/video?status=2&from=publish**",
+                        timeout=60000,
+                    )
+                    logger.info("Published successfully")
+                    await context.storage_state(path=account_file)
+                else:
+                    logger.info("========================================")
+                    logger.info("点击发布！发布成功！（dry_run）")
+                    logger.info("========================================")
             finally:
                 await context.close()
         finally:

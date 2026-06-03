@@ -562,12 +562,8 @@ async def _fill_tags(page, tags: list) -> None:
 
     for tag in tags:
         await page.keyboard.type("#" + tag, delay=30)
-        await page.locator("#creator-editor-topic-container").wait_for(
-            state="visible", timeout=3000
-        )
-        first_item = page.locator("#creator-editor-topic-container .item").first
-        await first_item.wait_for(state="visible", timeout=2000)
-        await first_item.click()
+        await page.keyboard.press("Space")   
+        await asyncio.sleep(1)
 
 
 async def _set_thumbnail(page, thumbnail_path: str) -> None:

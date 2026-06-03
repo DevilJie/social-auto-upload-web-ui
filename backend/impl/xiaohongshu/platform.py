@@ -494,6 +494,7 @@ async def _publish_single_image(
                     logger.info(f"[xhs] image published successfully: {title}")
                 else:
                     logger.error(f"[xhs] page did not navigate to success: {new_url}")
+                    return False
             else:
                 logger.info(f"[xhs] image publish dry-run complete: {title}")
 

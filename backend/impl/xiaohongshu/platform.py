@@ -34,6 +34,9 @@ _XHS_CREATOR_URL = "https://creator.xiaohongshu.com/"
 _XHS_PUBLISH_VIDEO_URL = (
     "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
 )
+_XHS_PUBLISH_IMAGE_URL = (
+    "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
+)
 _XHS_LOGIN_BOX_SELECTOR = "div[class*='login-box']"
 _XHS_LOGIN_SWITCH_SELECTOR = "img.css-wemwzq"
 _PUBLISH_STRATEGY_IMMEDIATE = "immediate"

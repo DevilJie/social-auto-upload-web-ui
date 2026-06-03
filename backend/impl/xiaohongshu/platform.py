@@ -692,15 +692,25 @@ async def _upload_images(page, files: list[str]) -> bool:
             timeout=10000,
         )
 
+        if not files:
+            logger.warning("[xhs] no images to upload")
+            return False
+
         # Upload all images at once
         await upload_input.set_input_files(files)
 
         # Wait for images to finish uploading (check image count)
         expected_count = len(files)
-        for _ in range(30):  # wait up to ~30 seconds
+        timeout_per_image = 30
+        max_wait = max(60, min(expected_count * timeout_per_image, 300))
+        uploaded = []
+        for i in range(max_wait):
             uploaded = await page.query_selector_all('div[class*="upload"] img')
             if len(uploaded) >= expected_count:
+                logger.info(f"[xhs] all {expected_count} images uploaded")
                 return True
+            if i % 5 == 0:
+                logger.info(f"[xhs] uploading images: {len(uploaded)}/{expected_count}")
             await asyncio.sleep(1)
 
         logger.warning(

@@ -222,6 +222,79 @@ class KuaishouPlatform(BasePlatform):
         thread.start()
 
     # ------------------------------------------------------------------
+    # Publish image — image note upload pipeline
+    # ------------------------------------------------------------------
+
+    async def publish_image(self, **kwargs) -> bool:
+        """Publish an image note to Kuaishou via CloakBrowser.
+
+        Accepted keyword arguments:
+
+        - ``title`` (*str*) -- note title (will be prepended to description)
+        - ``files`` (*list[str]*) -- image absolute file paths
+        - ``tags`` (*list[str]*) -- hashtags
+        - ``account_file`` (*list[str]*) -- cookie file names
+        - ``desc`` (*str*, optional) -- description
+        - ``cover_path`` (*str*, optional) -- cover image absolute path
+        - ``author_declaration`` (*str*, optional) -- 作者声明 option text
+        - ``music_id`` (*str*, optional) -- 音乐 ID
+        - ``music_title`` (*str*, optional) -- 音乐标题（用于搜索匹配）
+        - ``enableTimer`` (*bool*, optional)
+        - ``schedule_time_str`` (*str*, optional)
+        - ``activities`` (*list[str]*, optional) -- official activities
+        - ``dry_run`` (*bool*, optional) -- skip publish click (default True)
+        """
+        title = kwargs.get("title", "")
+        files = kwargs.get("files", []) or []
+        tags = kwargs.get("tags", []) or []
+        account_file = kwargs.get("account_file", []) or []
+        desc = kwargs.get("desc", "")
+        cover_path = kwargs.get("cover_path", "")
+        author_declaration = kwargs.get("author_declaration", "")
+        music_id = kwargs.get("music_id", "")
+        music_title = kwargs.get("music_title", "")
+        enable_timer = kwargs.get("enableTimer", False)
+        schedule_time_str = kwargs.get("schedule_time_str", "")
+        activities = kwargs.get("activities", []) or []
+        dry_run = kwargs.get("dry_run", True)
+
+        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
+        file_paths = [str(f) for f in files]
+
+        if cover_path and not Path(cover_path).is_file():
+            logger.warning("Cover file not found: %s", cover_path)
+            cover_path = ""
+
+        if activities:
+            activity_tags = " ".join([f"#{act}" for act in activities])
+            desc = f"{desc} {activity_tags}".strip()
+
+        for cookie_path in account_paths:
+            await self._upload_image_note(
+                title=title,
+                file_paths=file_paths,
+                tags=tags,
+                account_file=cookie_path,
+                desc=desc,
+                cover_path=cover_path,
+                author_declaration=author_declaration,
+                music_id=music_id,
+                music_title=music_title,
+                enable_timer=enable_timer,
+                schedule_time_str=schedule_time_str,
+                dry_run=dry_run,
+            )
+        return True
+
+    async def _upload_image_note(
+        self, *, title, file_paths, tags, account_file, desc="", cover_path="",
+        author_declaration="", music_id="", music_title="",
+        enable_timer=False, schedule_time_str="", dry_run=True,
+    ):
+        """Upload image note to one Kuaishou account. Implemented in Task 4+."""
+        raise NotImplementedError("_upload_image_note: pending Task 4+")
+
+    # ------------------------------------------------------------------
     # Publish video
     # ------------------------------------------------------------------
 

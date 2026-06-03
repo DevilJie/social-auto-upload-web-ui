@@ -670,6 +670,49 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
         logger.info(f"[xhs] cover upload failed: {e}")
 
 
+async def _upload_images(page, files: list[str]) -> bool:
+    """Upload images to the image-text publish page.
+
+    Parameters
+    ----------
+    page : playwright.async_api.Page
+        The Playwright page object.
+    files : list[str]
+        List of image file paths to upload.
+
+    Returns
+    -------
+    bool
+        True if all images were uploaded successfully, False otherwise.
+    """
+    try:
+        # Wait for the image upload file input to appear
+        upload_input = await page.wait_for_selector(
+            'input[type="file"][accept*="image"]',
+            timeout=10000,
+        )
+
+        # Upload all images at once
+        await upload_input.set_input_files(files)
+
+        # Wait for images to finish uploading (check image count)
+        expected_count = len(files)
+        for _ in range(30):  # wait up to ~30 seconds
+            uploaded = await page.query_selector_all('div[class*="upload"] img')
+            if len(uploaded) >= expected_count:
+                return True
+            await asyncio.sleep(1)
+
+        logger.warning(
+            f"[xhs] image upload timeout, uploaded {len(uploaded)}/{expected_count}"
+        )
+        return len(uploaded) > 0
+
+    except Exception as e:
+        logger.error(f"[xhs] image upload failed: {e}")
+        return False
+
+
 async def _set_schedule_time(page, publish_date) -> None:
     """Enable timed publishing and set the target date/time."""
     logger.info(f"[xhs] setting schedule time: {publish_date}")

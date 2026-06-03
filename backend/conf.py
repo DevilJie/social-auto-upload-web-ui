@@ -40,5 +40,5 @@ DEBUG_MODE = True
 
 def _load_proxy_url():
     """从 SQLite settings 表读取代理配置，仅 TikTok/YouTube 使用"""
-    from backend.impl.settings import get_proxy_url
+    from impl.settings import get_proxy_url
     return get_proxy_url()

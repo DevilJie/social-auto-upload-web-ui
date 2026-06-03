@@ -22,16 +22,42 @@
         <el-tag v-for="(tag, index) in form.tags" :key="index" closable @close="removeTag(index)" size="small" :disable-transitions="false">#{{ tag }}</el-tag>
       </div>
     </div>
+
+    <div class="setting-card">
+      <div class="setting-label">作者声明</div>
+      <el-select v-model="form.aiContent" placeholder="请选择作者声明" clearable style="width: 100%" :disabled="disabled">
+        <el-option v-for="opt in declarationOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+      </el-select>
+    </div>
+
+    <div class="setting-card">
+      <div class="setting-label">定时发布</div>
+      <el-date-picker
+        v-model="form.scheduleTime"
+        type="datetime"
+        placeholder="选择日期时间"
+        format="YYYY-MM-DD HH:mm:ss"
+        value-format="YYYY-MM-DD HH:mm:ss"
+        style="width: 100%"
+        :disabled="disabled"
+      />
+    </div>
+
+    <div class="setting-card">
+      <div class="setting-label">选择音乐</div>
+      <KuaishouMusicSelect :account-id="accountId" v-model="form.selectedMusicId" :data="form.selectedMusicData" @change="handleMusicChange" />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { PLATFORMS } from '@/config/platforms'
 import { useChannelForm } from '@/composables/useChannelForm'
+import KuaishouMusicSelect from './MusicSelect.vue'
 
 const props = defineProps({
   accountId: { type: [Number, Object], default: null },
@@ -43,6 +69,23 @@ const emit = defineEmits(['config-changed', 'publish-result'])
 const accountStore = useAccountStore()
 
 const KS_DEFAULTS = { ...PLATFORMS.KUAISHOU.defaultSettings, tags: [] }
+
+const declarationOptions = computed(() => {
+  const field = PLATFORMS.KUAISHOU.settingsFields.find(f => f.key === 'aiContent')
+  return field?.options || []
+})
+
+function handleMusicChange(music) {
+  if (music) {
+    form.selectedMusicId = music.musicId
+    form.selectedMusicData = music
+    form.musicTitle = music.title
+  } else {
+    form.selectedMusicId = ''
+    form.selectedMusicData = null
+    form.musicTitle = ''
+  }
+}
 
 const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
   KS_DEFAULTS,
@@ -63,6 +106,8 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
             tags: merged.tags || [], scheduleTime: merged.scheduleTime || '',
             aiContent: merged.aiContent || '',
             cover_path: commonData.coverImage?.stored_path || '',
+            music_id: merged.selectedMusicId || '',
+            music_title: merged.musicTitle || '',
             dry_run: false,
           }],
         })

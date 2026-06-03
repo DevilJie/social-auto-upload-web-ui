@@ -66,6 +66,10 @@ from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
 
+from blueprints.kuaishou_image_bp import kuaishou_image_bp  # noqa: E402
+app.register_blueprint(kuaishou_image_bp)
+logger.info("[Startup] kuaishou_image_bp registered OK")
+
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 logger.info(f"[Startup] Frontend dir: {FRONTEND_DIR} (exists={FRONTEND_DIR.exists()})")
 

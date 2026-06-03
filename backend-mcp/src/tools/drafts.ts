@@ -70,7 +70,7 @@ export function registerDraftTools(server: McpServer, client: BackendClient): vo
     '创建新草稿',
     {
       type: z.enum(['video', 'image']).describe('草稿类型'),
-      draft_data: z.record(z.any()).describe('草稿数据JSON'),
+      draft_data: z.record(z.string(), z.any()).describe('草稿数据JSON'),
     },
     async ({ type, draft_data }) => {
       try {

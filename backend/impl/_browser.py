@@ -55,11 +55,8 @@ async def create_browser(
     if "ALL_PROXY" in os.environ and "socks" in os.environ["ALL_PROXY"]:
         _socks_All = os.environ.pop("ALL_PROXY")
 
-    # 未显式传入 proxy 时，从环境变量读取 HTTP 代理（国内网络访问抖音需要）
-    if proxy is None:
-        http_proxy = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
-        if http_proxy:
-            proxy = {"server": http_proxy}
+    # 代理仅由各平台自行决定（TikTok/YouTube 从 settings.json 读取），
+    # 国内平台不传 proxy，直接连接，不做环境变量 fallback
 
     from cloakbrowser import launch_async
     try:

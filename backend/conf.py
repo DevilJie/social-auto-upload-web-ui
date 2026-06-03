@@ -39,5 +39,6 @@ DEBUG_MODE = True
 
 
 def _load_proxy_url():
-    """代理配置（占位，返回 None 表示不使用代理）"""
-    return None
+    """从 settings.json 读取代理配置，仅 TikTok/YouTube 使用"""
+    from backend.impl.settings import get_proxy_url
+    return get_proxy_url()

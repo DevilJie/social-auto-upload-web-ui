@@ -455,38 +455,54 @@ class BaijiahaoPlatform(BasePlatform):
         """Fill the description field (Lexical editor) with title and tags.
 
         Baijiahao publish page has a "作品描述" field (Lexical editor) rather
-        than a separate title input.
+        than a separate title input. Tags are typed as #话题 via keyboard
+        to trigger the topic search dropdown, then the first suggestion is
+        selected.
         """
-        desc_text = (desc or title or "").strip()
-        # 把标签以 #XXX 格式追加到描述末尾
-        if tags:
-            tag_str = " ".join(f"#{t}" for t in tags)
-            desc_text = f"{desc_text} {tag_str}".strip()
-        if not desc_text:
-            logger.warning("无描述内容，跳过填充")
-            return
-        desc_text = desc_text[:2000]
+        desc_text = (desc or title or "").strip()[:2000]
 
         # Lexical contenteditable editor
         lexical_editor = page.locator('[data-lexical-editor="true"]')
+        editor = None
         if await lexical_editor.count():
             editor = lexical_editor.first
-            await editor.click()
-            await asyncio.sleep(0.3)
-            await page.keyboard.press("Control+a")
-            await asyncio.sleep(0.1)
+        else:
+            # Fallback: placeholder
+            title_container = page.get_by_placeholder("添加标题获得更多推荐")
+            if await title_container.count():
+                full_text = desc_text
+                if tags:
+                    full_text += " " + " ".join(f"#{t}" for t in tags)
+                await title_container.fill(full_text[:2000])
+                logger.info("已通过 placeholder 填充描述: %s", full_text[:2000])
+                return
+            logger.warning("未找到描述输入框，跳过填充")
+            return
+
+        # 1. 输入描述文本
+        await editor.click()
+        await asyncio.sleep(0.3)
+        await page.keyboard.press("Control+a")
+        await asyncio.sleep(0.1)
+        if desc_text:
             await page.keyboard.type(desc_text, delay=50)
             logger.info("已填充作品描述: %s", desc_text)
-            return
 
-        # Fallback: placeholder
-        title_container = page.get_by_placeholder("添加标题获得更多推荐")
-        if await title_container.count():
-            await title_container.fill(desc_text)
-            logger.info("已通过 placeholder 填充描述: %s", desc_text)
-            return
+        # 2. 逐个输入 #话题 并从下拉列表选择第一个
+        for tag in (tags or []):
+            await page.keyboard.type(f" #{tag}", delay=50)
+            await asyncio.sleep(1)
 
-        logger.warning("未找到描述输入框，跳过填充")
+            # 等待话题搜索下拉出现
+            topic_list = page.locator("div[class*='topicListInner']")
+            try:
+                await topic_list.wait_for(state="visible", timeout=3000)
+                first_item = topic_list.locator("div[class*='topicItem']").first
+                await first_item.click()
+                logger.info("已选择话题: #%s", tag)
+                await asyncio.sleep(0.5)
+            except Exception:
+                logger.info("话题 #%s 未出现下拉建议，跳过选择", tag)
 
     # ------------------------------------------------------------------
     # Helper: publish (immediate or scheduled)

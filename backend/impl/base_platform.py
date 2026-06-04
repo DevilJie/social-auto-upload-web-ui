@@ -31,15 +31,11 @@ class BasePlatform(ABC):
         self,
         headless: bool | None = None,
         login_mode: bool = False,
-        proxy: dict | None = None,
-        extra_args: list | None = None,
     ):
         """Create a stealth Chromium browser via CloakBrowser."""
         return await _create_browser(
             headless=headless,
             login_mode=login_mode,
-            proxy=proxy,
-            extra_args=extra_args,
         )
 
     async def create_context(
@@ -47,29 +43,23 @@ class BasePlatform(ABC):
         browser,
         storage_state: str | None = None,
         user_agent: str | None = None,
-        viewport: dict | None = None,
     ):
         """Create a browser context (optionally with stored auth state)."""
         return await _create_context(
             browser,
             storage_state=storage_state,
             user_agent=user_agent,
-            viewport=viewport,
         )
 
     async def create_persistent_context(
         self,
         user_data_dir: str,
         headless: bool = False,
-        proxy: dict | None = None,
-        extra_args: list | None = None,
     ):
         """Create a persistent browser context with a local user data dir."""
         return await _create_persistent_context(
             user_data_dir=user_data_dir,
             headless=headless,
-            proxy=proxy,
-            extra_args=extra_args,
         )
 
     # ------------------------------------------------------------------

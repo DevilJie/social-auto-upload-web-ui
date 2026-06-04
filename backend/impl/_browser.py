@@ -1,6 +1,9 @@
-"""CloakBrowser stealth browser factory.
+"""CloakBrowser stealth browser factory — unified entry point.
 
-All browser creation goes through this module.
+所有打开浏览器的入口都集中在这里。调用方不要直接调 browser.new_context
+或 cloakbrowser.launch_*，避免东一套西一套。
+
+viewport 在本模块内硬编码为全局常量 DEFAULT_VIEWPORT，调用方无需关心。
 """
 
 import os
@@ -10,23 +13,14 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("browser")
 
-# 初始窗口大小（用户可自由缩放，no_viewport=True 让页面跟随）
-INITIAL_WINDOW_SIZE = "1920,1080"
+# 全局统一的 viewport。所有 create_context* 入口都使用此值。
+DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
 
 
 def _download_binary():
-    """Download CloakBrowser stealth binary, bypassing system SOCKS proxy."""
-    saved = {}
-    for var in ("all_proxy", "http_proxy", "https_proxy",
-                "ALL_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "no_proxy"):
-        if var in os.environ:
-            saved[var] = os.environ.pop(var)
-
+    """Download CloakBrowser stealth binary."""
     from cloakbrowser import ensure_binary
-    try:
-        ensure_binary()
-    finally:
-        os.environ.update(saved)
+    ensure_binary()
 
 
 def init():
@@ -38,35 +32,20 @@ def init():
         logger.warning("CloakBrowser unavailable (%s)", e)
 
 
+# ──────────── 异步入口 ────────────
+
 async def create_browser(
     headless: bool | None = None,
     login_mode: bool = False,
-    proxy: dict | None = None,
-    extra_args: list | None = None,
 ):
-    """Create a stealth Chromium browser via CloakBrowser."""
+    """异步入口：创建 stealth Chromium 浏览器。
+
+    不接 proxy / extra_args —— 历史代理配置已废弃。
+    """
     if headless is None:
         headless = LOGIN_HEADLESS if login_mode else LOCAL_CHROME_HEADLESS
-
-    # CloakBrowser 不支持 socks 代理协议，临时清除 env 中的 socks 配置
-    _socks_all = None
-    _socks_All = None
-    if "all_proxy" in os.environ and "socks" in os.environ["all_proxy"]:
-        _socks_all = os.environ.pop("all_proxy")
-    if "ALL_PROXY" in os.environ and "socks" in os.environ["ALL_PROXY"]:
-        _socks_All = os.environ.pop("ALL_PROXY")
-
-    # 代理仅由各平台自行决定（TikTok/YouTube 从 settings.json 读取），
-    # 国内平台不传 proxy，直接连接，不做环境变量 fallback
-
     from cloakbrowser import launch_async
-    try:
-        return await launch_async(headless=headless, proxy=proxy, args=extra_args)
-    finally:
-        if _socks_all:
-            os.environ["all_proxy"] = _socks_all
-        if _socks_All:
-            os.environ["ALL_PROXY"] = _socks_All
+    return await launch_async(headless=headless)
 
 
 async def create_context(
@@ -74,47 +53,46 @@ async def create_context(
     storage_state: str | None = None,
     user_agent: str | None = None,
 ):
-    """Create a browser context with resizable window.
-
-    no_viewport=True 让页面内容跟随窗口大小变化（不像 Playwright
-    默认 viewport 写死）。用户拖动/最大化浏览器时页面会 reflow
-    适配新尺寸。
-    """
+    """异步入口：创建 browser context（使用全局 DEFAULT_VIEWPORT）。"""
     return await browser.new_context(
         storage_state=storage_state,
         user_agent=user_agent,
-        no_viewport=True,
+        viewport=DEFAULT_VIEWPORT,
     )
 
 
 async def create_persistent_context(
     user_data_dir: str,
     headless: bool = False,
-    proxy: dict | None = None,
-    extra_args: list | None = None,
 ):
-    """Create a persistent browser context with a local user data dir.
-
-    no_viewport=True 让窗口内容跟随大小变化；--window-size 给个
-    合理初始尺寸（用户可自由缩放）。
-    """
+    """异步入口：登录扫码用持久化 context（使用全局 DEFAULT_VIEWPORT）。"""
     from cloakbrowser import launch_persistent_context_async
-    args = list(extra_args or [])
-    if not any(a.startswith("--window-size=") for a in args):
-        args.append(f"--window-size={INITIAL_WINDOW_SIZE}")
     return await launch_persistent_context_async(
         user_data_dir,
         headless=headless,
-        proxy=proxy,
-        args=args,
-        no_viewport=True,
+        viewport=DEFAULT_VIEWPORT,
     )
 
 
-def create_browser_sync(
-    headless: bool = False,
-    extra_args: list | None = None,
-):
-    """Synchronous browser launch (for ``open_creator_center``)."""
+# ──────────── 同步入口 ────────────
+
+def create_browser_sync(headless: bool = False):
+    """同步入口：创建 stealth Chromium 浏览器。"""
     from cloakbrowser import launch
-    return launch(headless=headless, args=extra_args)
+    return launch(headless=headless)
+
+
+def create_context_sync(
+    browser,
+    storage_state: str | None = None,
+    user_agent: str | None = None,
+):
+    """同步入口：创建 browser context（使用全局 DEFAULT_VIEWPORT）。
+
+    平台层不要直接调 browser.new_context()，统一走这个入口。
+    """
+    return browser.new_context(
+        storage_state=storage_state,
+        user_agent=user_agent,
+        viewport=DEFAULT_VIEWPORT,
+    )

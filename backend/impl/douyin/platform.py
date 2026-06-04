@@ -15,7 +15,7 @@ from util._logger import get_channel_logger
 
 from conf import BASE_DIR
 
-from .._browser import create_browser_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_user_profile
 from ..base_platform import BasePlatform
 
@@ -176,7 +176,7 @@ class DouyinPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path, no_viewport=True)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:

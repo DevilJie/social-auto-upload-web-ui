@@ -13,9 +13,14 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
     },
     async ({ type, account_id }) => {
       try {
-        const params: Record<string, string> = { type: String(type), id: '' };
+        // 生成唯一的登录会话ID
+        const loginId = `login_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const params: Record<string, string> = {
+          type: String(type),
+          id: loginId
+        };
         if (account_id) {
-          params.id = account_id;
+          params.account_id = account_id;
         }
 
         const response = await client.get('/login', params);

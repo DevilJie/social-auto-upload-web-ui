@@ -248,8 +248,8 @@ const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
 
 const contentStats = computed(() => {
   const materials = appStore.materials
-  const videos = materials.filter(m => videoExtensions.some(ext => m.filename.toLowerCase().endsWith(ext))).length
-  const images = materials.filter(m => imageExtensions.some(ext => m.filename.toLowerCase().endsWith(ext))).length
+  const videos = materials.filter(m => m.filename && videoExtensions.some(ext => m.filename.toLowerCase().endsWith(ext))).length
+  const images = materials.filter(m => m.filename && imageExtensions.some(ext => m.filename.toLowerCase().endsWith(ext))).length
   return {
     total: materials.length,
     videos,

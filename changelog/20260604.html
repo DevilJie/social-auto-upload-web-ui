@@ -410,6 +410,56 @@
       font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em;
     }
 
+    /* ---------- Code block ---------- */
+    .code-block {
+      margin-top: 32px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .code-block-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .code-block-head .title {
+      display: flex; align-items: center; gap: 10px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      color: var(--text-mute); letter-spacing: 0.08em;
+    }
+    .code-block-head .dots { display: flex; gap: 6px; }
+    .code-block-head .dots span {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .code-block-body {
+      padding: 20px 22px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; line-height: 1.7;
+      color: var(--text);
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .code-block-body .key { color: #F59E0B; }
+    .code-block-body .str { color: #34D399; }
+    .code-block-body .punc { color: var(--text-dim); }
+    .code-block-body .path { color: #22D3EE; }
+    .code-block-foot {
+      padding: 12px 18px;
+      border-top: 1px solid var(--line);
+      background: rgba(245, 158, 11, 0.04);
+      font-size: 12.5px; color: var(--text-mute);
+      display: flex; align-items: flex-start; gap: 10px;
+    }
+    .code-block-foot svg { flex: 0 0 16px; margin-top: 2px; color: var(--amber); }
+    .code-block-foot code {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      color: var(--amber); padding: 1px 6px; border-radius: 4px;
+      background: rgba(245, 158, 11, 0.08);
+    }
+
     /* ---------- End slide ---------- */
     .end {
       align-items: center; text-align: center;
@@ -785,6 +835,43 @@
     <div class="pull-out">
       <p>底层基建：Token 认证模块 · HTTP 客户端 · 配置管理 · 错误码翻译层 · 统一 Flask 响应格式 · 调试日志体系 · 行为测试覆盖。</p>
       <span class="cite">MCP transport 默认 SSE（stdio 不可作为后台 daemon）· login 接口超时延长至 5 分钟</span>
+    </div>
+
+    <div class="code-block">
+      <div class="code-block-head">
+        <div class="title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+          </svg>
+          MCP Client Config · 客户端接入配置
+        </div>
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+      <div class="code-block-body">{
+  <span class="key">"mcpServers"</span><span class="punc">: {</span>
+    <span class="key">"social-auto-upload"</span><span class="punc">: {</span>
+      <span class="key">"command"</span><span class="punc">:</span> <span class="str">"node"</span><span class="punc">,</span>
+      <span class="key">"args"</span><span class="punc">: [</span>
+        <span class="path">"&lt;YOUR_PROJECT_DIR&gt;/backend-mcp/dist/index.js"</span>
+      <span class="punc">],</span>
+      <span class="key">"env"</span><span class="punc">: {</span>
+        <span class="key">"TRANSPORT_MODE"</span><span class="punc">:</span> <span class="str">"stdio"</span><span class="punc">,</span>
+        <span class="key">"BACKEND_URL"</span><span class="punc">:</span>    <span class="str">"http://localhost:5409"</span><span class="punc">,</span>
+        <span class="key">"DB_PATH"</span><span class="punc">:</span>        <span class="path">"&lt;YOUR_PROJECT_DIR&gt;/data/db/database.db"</span>
+      <span class="punc">}</span>
+    <span class="punc">}</span>
+  <span class="punc">}</span>
+}</div>
+      <div class="code-block-foot">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <div>
+          <b style="color: var(--text);">请将 <code>&lt;YOUR_PROJECT_DIR&gt;</code> 替换为你的实际项目目录</b>。例如：Linux/macOS 可写 <code>/home/user/social-auto-upload-web-ui</code>，Windows 可写 <code>C:\\work\\social-auto-upload-web-ui</code>（注意 JSON 中的反斜杠转义）。
+        </div>
+      </div>
     </div>
 
     <div class="slide-foot">03 · MCP SERVICE</div>

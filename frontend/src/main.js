@@ -8,6 +8,9 @@ import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import './styles/index.scss'
+import { APP_FULL_NAME } from './config/app'
+
+document.title = APP_FULL_NAME
 
 const app = createApp(App)
 

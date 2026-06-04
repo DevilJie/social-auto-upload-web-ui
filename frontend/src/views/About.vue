@@ -2,8 +2,8 @@
   <div class="about">
     <el-card class="about-card">
       <div class="about-header">
-        <h1>自媒体自动化运营系统</h1>
-        <p class="version">social-auto-upload</p>
+        <h1>{{ APP_NAME }}</h1>
+        <p class="version">{{ APP_NAME_EN }} · v{{ APP_VERSION }}</p>
       </div>
 
       <el-divider />
@@ -53,7 +53,7 @@
 </template>
 
 <script setup>
-// 关于页面组件
+import { APP_NAME, APP_NAME_EN, APP_VERSION } from '@/config/app'
 </script>
 
 <style lang="scss" scoped>

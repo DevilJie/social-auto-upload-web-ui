@@ -1,4 +1,6 @@
-# AI Social Auto Upload / AI 社交媒体自动上传
+# 千帆云递 · QianFan Sync
+
+> 原名：social-auto-upload / AI 社交媒体自动上传
 
 [English](#english) | [中文](#中文)
 

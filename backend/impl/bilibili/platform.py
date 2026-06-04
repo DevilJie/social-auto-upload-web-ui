@@ -335,7 +335,7 @@ class BilibiliPlatform(BasePlatform):
         creation_declaration: str = "",
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
-        log_dir = Path(BASE_DIR / "data" / "logs")
+        log_dir = Path(BASE_DIR / "logs")
         log_dir.mkdir(parents=True, exist_ok=True)
 
         browser = await self.create_browser(headless=False)
@@ -688,7 +688,7 @@ class BilibiliPlatform(BasePlatform):
             return
 
         try:
-            log_dir = Path(BASE_DIR / "data" / "logs")
+            log_dir = Path(BASE_DIR / "logs")
             log_dir.mkdir(parents=True, exist_ok=True)
 
             # Click select-controller to open dropdown
@@ -741,7 +741,7 @@ class BilibiliPlatform(BasePlatform):
 
         logger.info(f"[bilibili] adding {len(tags)} tags")
 
-        log_dir = Path(BASE_DIR / "data" / "logs")
+        log_dir = Path(BASE_DIR / "logs")
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # Try multiple selectors for the tag input
@@ -839,7 +839,7 @@ class BilibiliPlatform(BasePlatform):
             logger.info(f"[bilibili] cover file not found: {thumbnail_path}")
             return
 
-        log_dir = Path(BASE_DIR / "data" / "logs")
+        log_dir = Path(BASE_DIR / "logs")
         logger.info("[bilibili] setting cover")
 
         try:

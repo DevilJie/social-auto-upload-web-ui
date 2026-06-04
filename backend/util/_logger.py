@@ -1,7 +1,7 @@
 """
 Backend logging utility.
 
-All logs go to data/logs/{yyyy-MM-dd}/{channel}.log
+All logs go to {BASE_DIR}/logs/{yyyy-MM-dd}/{channel}.log
 """
 import json
 import logging
@@ -53,7 +53,7 @@ def _get_log_level() -> int:
 def init_logger():
     """Initialize per-channel loggers (not root logger)."""
     log_level = _get_log_level()
-    today_dir = BASE_DIR / "data" / "logs" / date.today().strftime("%Y-%m-%d")
+    today_dir = BASE_DIR / "logs" / date.today().strftime("%Y-%m-%d")
     today_dir.mkdir(parents=True, exist_ok=True)
 
     formatter = ChannelFormatter(LOG_FORMAT, DATE_FORMAT)

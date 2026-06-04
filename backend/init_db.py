@@ -13,7 +13,10 @@ DB_PATH = DB_DIR / "database.db"
 
 
 def init_database():
-    DB_DIR.mkdir(parents=True, exist_ok=True)
+    # 确保 data/ 下的所有必要子目录存在
+    for subdir in ["db", "logs", "cookies", "cookiesFile", "uploads", "thumbnails"]:
+        (BASE_DIR / subdir).mkdir(parents=True, exist_ok=True)
+
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
 

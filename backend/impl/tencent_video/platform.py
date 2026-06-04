@@ -300,16 +300,23 @@ class TencentVideoPlatform(BasePlatform):
                 await page.goto(_PUBLISH_URL)
                 await page.wait_for_load_state("networkidle")
 
-                # Step 1: Upload video file via input[type=file]
+                # Step 1: Upload video file
+                # 腾讯视频使用拖拽/点击上传区域，没有 input[type=file]，
+                # 需要通过 file_chooser 对话框上传
                 logger.info("Uploading video file: %s (exists=%s)", file_path, os.path.exists(file_path))
-                file_input = page.locator('input[type="file"]').first
-                input_count = await page.locator('input[type="file"]').count()
-                logger.info("Found %d file input(s) on page", input_count)
-                if input_count == 0:
-                    logger.error("No file input found, cannot upload video")
-                    raise Exception("未找到视频上传入口")
-                await file_input.set_input_files(file_path)
-                logger.info("Video file set, waiting for upload to complete...")
+
+                # 等待上传区域就绪
+                upload_area = page.locator('[dt-mpid="video_upload"]')
+                if await upload_area.count() == 0:
+                    upload_area = page.locator('text=拖拽视频到此也可上传')
+                await upload_area.first.wait_for(state="visible", timeout=10000)
+
+                # 点击上传区域触发文件选择对话框，然后设置文件
+                async with page.expect_file_chooser(timeout=10000) as fc_info:
+                    await upload_area.first.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(file_path)
+                logger.info("Video file set via file chooser, waiting for upload...")
 
                 # Step 2: Wait for the publish form to appear after upload
                 # The form title "视频1" signals upload is done

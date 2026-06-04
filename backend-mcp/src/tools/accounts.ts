@@ -25,14 +25,21 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
 
         console.log('[MCP] Calling login with params:', params);
 
-        // 调用Flask后端的login接口（返回SSE流）
-        const response = await client.getStream('/login', params);
+        // Flask 的 sse_stream 是死循环，必须在收到终态消息后主动断流
+        const terminal = await client.getSSE<any>('/login', params, (msg) => {
+          if (msg && typeof msg === 'object' && (msg.status === '200' || msg.status === '500')) {
+            console.log('[MCP] Login SSE terminal status received:', msg.status);
+            return msg;
+          }
+          return undefined;
+        });
 
         return {
           content: [{
             type: 'text' as const,
-            text: response
-          }]
+            text: JSON.stringify(terminal, null, 2)
+          }],
+          isError: terminal?.status !== '200'
         };
       } catch (error: any) {
         return {

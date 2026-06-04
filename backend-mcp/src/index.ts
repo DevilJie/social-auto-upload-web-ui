@@ -1,8 +1,9 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { loadConfig } from './config.js';
 import { createMcpServer } from './server.js';
+import { AuthManager } from './auth.js';
 
 async function main() {
   const config = loadConfig();
@@ -11,9 +12,13 @@ async function main() {
     dbPath: config.dbPath,
   });
 
+  const auth = new AuthManager(config.dbPath);
+  await auth.init();
+
   console.log(`[MCP] Starting in ${config.transportMode} mode...`);
   console.log(`[MCP] Backend URL: ${config.backendUrl}`);
   console.log(`[MCP] DB Path: ${config.dbPath}`);
+  console.log(`[MCP] Auth enabled: ${auth.isAuthEnabled()}`);
 
   if (config.transportMode === 'stdio' || config.transportMode === 'both') {
     const stdioTransport = new StdioServerTransport();
@@ -27,7 +32,20 @@ async function main() {
     // 存储活跃的SSE传输实例
     const transports: Map<string, SSEServerTransport> = new Map();
 
-    app.get('/sse', async (req, res) => {
+    // SSE 端点鉴权：未配置 token 时放行；配置了则要求 Bearer header 或 ?token= query
+    const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+      if (!auth.isAuthEnabled()) return next();
+      const header = req.headers.authorization;
+      const bearer = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+      const token = bearer ?? (req.query.token as string | undefined);
+      if (!auth.validateToken(token ?? '')) {
+        res.status(401).json({ error: 'Invalid or missing MCP API token' });
+        return;
+      }
+      next();
+    };
+
+    app.get('/sse', requireAuth, async (req, res) => {
       const sseTransport = new SSEServerTransport('/messages', res);
       transports.set(sseTransport.sessionId, sseTransport);
 
@@ -39,7 +57,7 @@ async function main() {
       await sseTransport.start();
     });
 
-    app.post('/messages', async (req, res) => {
+    app.post('/messages', requireAuth, async (req, res) => {
       const sessionId = req.query.sessionId as string;
       const transport = transports.get(sessionId);
       if (transport) {

@@ -238,7 +238,6 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
         activities: z.array(z.any()).optional().describe('活动列表'),
         music_id: z.string().optional().describe('音乐ID'),
         music_title: z.string().optional().describe('音乐标题'),
-        dry_run: z.boolean().optional().describe('是否试运行'),
       })).describe('账号配置列表'),
     },
     async (params) => {
@@ -263,10 +262,11 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
           resolvedCoverPath = mat.stored_path;
         }
 
-        // 将 cover_path 注入每个 account_config
+        // 将 cover_path 注入每个 account_config，默认 dry_run=false 真实发布
         const account_configs = rest.account_configs.map((cfg: any) => ({
           ...cfg,
           cover_path: resolvedCoverPath || cfg.cover_path || '',
+          dry_run: false,
         }));
 
         const response = await client.post('/api/image-publish/publish', {

@@ -10,7 +10,8 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("browser")
 
-DEFAULT_VIEWPORT = {"width": 1920, "height": 1080}
+# 初始窗口大小（用户可自由缩放，no_viewport=True 让页面跟随）
+INITIAL_WINDOW_SIZE = "1920,1080"
 
 
 def _download_binary():
@@ -72,15 +73,17 @@ async def create_context(
     browser,
     storage_state: str | None = None,
     user_agent: str | None = None,
-    viewport: dict | None = None,
 ):
-    """Create a browser context with optional auth state."""
-    if viewport is None:
-        viewport = DEFAULT_VIEWPORT
+    """Create a browser context with resizable window.
+
+    no_viewport=True 让页面内容跟随窗口大小变化（不像 Playwright
+    默认 viewport 写死）。用户拖动/最大化浏览器时页面会 reflow
+    适配新尺寸。
+    """
     return await browser.new_context(
         storage_state=storage_state,
         user_agent=user_agent,
-        viewport=viewport,
+        no_viewport=True,
     )
 
 
@@ -90,14 +93,21 @@ async def create_persistent_context(
     proxy: dict | None = None,
     extra_args: list | None = None,
 ):
-    """Create a persistent browser context with a local user data dir."""
+    """Create a persistent browser context with a local user data dir.
+
+    no_viewport=True 让窗口内容跟随大小变化；--window-size 给个
+    合理初始尺寸（用户可自由缩放）。
+    """
     from cloakbrowser import launch_persistent_context_async
+    args = list(extra_args or [])
+    if not any(a.startswith("--window-size=") for a in args):
+        args.append(f"--window-size={INITIAL_WINDOW_SIZE}")
     return await launch_persistent_context_async(
         user_data_dir,
         headless=headless,
         proxy=proxy,
-        args=extra_args,
-        viewport=DEFAULT_VIEWPORT,
+        args=args,
+        no_viewport=True,
     )
 
 
@@ -108,8 +118,3 @@ def create_browser_sync(
     """Synchronous browser launch (for ``open_creator_center``)."""
     from cloakbrowser import launch
     return launch(headless=headless, args=extra_args)
-
-
-def get_default_viewport():
-    """公开接口：获取默认 viewport，供外部 new_context 调用。"""
-    return DEFAULT_VIEWPORT

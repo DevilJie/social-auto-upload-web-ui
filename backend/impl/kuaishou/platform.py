@@ -15,7 +15,7 @@ from conf import BASE_DIR
 from util._logger import get_channel_logger
 logger = get_channel_logger("kuaishou")
 
-from .._browser import get_default_viewport,  create_browser_sync
+from .._browser import create_browser_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_user_profile
 from ..base_platform import BasePlatform
 
@@ -205,7 +205,7 @@ class KuaishouPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path, viewport=get_default_viewport())
+                context = browser.new_context(storage_state=cookie_path, no_viewport=True)
                 page = context.new_page()
                 page.goto(url)
                 try:

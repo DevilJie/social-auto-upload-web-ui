@@ -53,7 +53,7 @@ class BaijiahaoPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto(
                     "https://baijiahao.baidu.com/builder/theme/bjh/login",
-                    timeout=45000,
+                    wait_until="domcontentloaded",
                 )
                 logger.info("百家号登录页面已打开，请完成扫码登录...")
 

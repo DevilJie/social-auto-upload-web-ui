@@ -406,8 +406,15 @@ def login():
     def _cleanup():
         active_queues.pop(id_str, None)
 
+    def _run_login():
+        try:
+            asyncio.run(platform.login(id_str, status_queue, account_id=account_id))
+        except asyncio.CancelledError:
+            logger.info(f"[login] 用户关闭了浏览器，{platform.platform_name} 登录取消")
+            status_queue.put(json.dumps({"status": "error", "msg": "用户关闭了浏览器"}))
+
     thread = threading.Thread(
-        target=lambda: asyncio.run(platform.login(id_str, status_queue, account_id=account_id)),
+        target=_run_login,
         daemon=True
     )
     thread.start()

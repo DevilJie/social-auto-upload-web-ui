@@ -140,14 +140,14 @@
         :header-cell-style="{ background: 'transparent', borderBottom: `1px solid ${$options.borderColor}` }"
         class="materials-table"
       >
-        <el-table-column prop="filename" label="文件名" min-width="260">
+        <el-table-column prop="original_filename" label="文件名" min-width="260">
           <template #default="scope">
-            <span class="filename-cell">{{ scope.row.filename }}</span>
+            <span class="filename-cell">{{ scope.row.original_filename }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="filesize" label="大小" width="120">
+        <el-table-column prop="file_size" label="大小" width="120">
           <template #default="scope">
-            <span class="size-cell">{{ scope.row.filesize }} MB</span>
+            <span class="size-cell">{{ (scope.row.file_size / 1024 / 1024).toFixed(2) }} MB</span>
           </template>
         </el-table-column>
         <el-table-column label="类型" width="100">
@@ -155,12 +155,12 @@
             <span
               class="type-tag"
               :class="{
-                'type-video': getFileType(scope.row.filename) === '视频',
-                'type-image': getFileType(scope.row.filename) === '图片',
-                'type-other': getFileType(scope.row.filename) === '其他'
+                'type-video': getFileType(scope.row.original_filename) === '视频',
+                'type-image': getFileType(scope.row.original_filename) === '图片',
+                'type-other': getFileType(scope.row.original_filename) === '其他'
               }"
             >
-              {{ getFileType(scope.row.filename) }}
+              {{ getFileType(scope.row.original_filename) }}
             </span>
           </template>
         </el-table-column>
@@ -248,8 +248,8 @@ const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
 
 const contentStats = computed(() => {
   const materials = appStore.materials
-  const videos = materials.filter(m => m.filename && videoExtensions.some(ext => m.filename.toLowerCase().endsWith(ext))).length
-  const images = materials.filter(m => m.filename && imageExtensions.some(ext => m.filename.toLowerCase().endsWith(ext))).length
+  const videos = materials.filter(m => m.original_filename && videoExtensions.some(ext => m.original_filename.toLowerCase().endsWith(ext))).length
+  const images = materials.filter(m => m.original_filename && imageExtensions.some(ext => m.original_filename.toLowerCase().endsWith(ext))).length
   return {
     total: materials.length,
     videos,
@@ -267,6 +267,7 @@ const recentMaterials = computed(() => {
 
 // 获取文件类型
 const getFileType = (filename) => {
+  if (!filename) return '其他'
   if (videoExtensions.some(ext => filename.toLowerCase().endsWith(ext))) return '视频'
   if (imageExtensions.some(ext => filename.toLowerCase().endsWith(ext))) return '图片'
   return '其他'

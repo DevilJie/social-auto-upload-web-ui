@@ -23,6 +23,8 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
           params.account_id = account_id;
         }
 
+        console.log('[MCP] Calling login with params:', params);
+
         // 调用Flask后端的login接口（返回SSE流）
         const response = await client.getStream('/login', params);
 

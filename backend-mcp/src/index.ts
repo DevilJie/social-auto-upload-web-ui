@@ -12,6 +12,8 @@ async function main() {
   });
 
   console.log(`[MCP] Starting in ${config.transportMode} mode...`);
+  console.log(`[MCP] Backend URL: ${config.backendUrl}`);
+  console.log(`[MCP] DB Path: ${config.dbPath}`);
 
   if (config.transportMode === 'stdio' || config.transportMode === 'both') {
     const stdioTransport = new StdioServerTransport();

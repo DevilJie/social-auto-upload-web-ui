@@ -21,14 +21,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+MCP_DIR="$PROJECT_ROOT/backend-mcp"
 
 # --- 日志文件 ---
 BACKEND_LOG="$PROJECT_ROOT/backend.log"
 FRONTEND_LOG="$PROJECT_ROOT/frontend.log"
+MCP_LOG="$PROJECT_ROOT/mcp.log"
 
-# --- 后端/前端进程 PID ---
+# --- 后端/前端/MCP 进程 PID ---
 BACKEND_PID=""
 FRONTEND_PID=""
+MCP_PID=""
+
+# --- MCP transport mode（默认 stdio 避免 both 模式的 SSE bug）---
+TRANSPORT_MODE="${MCP_TRANSPORT_MODE:-stdio}"
 
 # --- 清理函数 ---
 cleanup() {
@@ -36,6 +42,10 @@ cleanup() {
     echo "正在停止服务..."
     if [[ -n "${TAIL_PID:-}" ]] && kill -0 "$TAIL_PID" 2>/dev/null; then
         kill "$TAIL_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$MCP_PID" ]] && kill -0 "$MCP_PID" 2>/dev/null; then
+        kill "$MCP_PID" 2>/dev/null || true
+        echo "  MCP 已停止 (PID: $MCP_PID)"
     fi
     if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
         kill "$FRONTEND_PID" 2>/dev/null || true
@@ -200,6 +210,9 @@ print_ok "端口 5409 空闲"
 kill_port 5173
 print_ok "端口 5173 空闲"
 
+kill_port 5410
+print_ok "端口 5410 空闲"
+
 # ============================================================
 # Step 3: 准备后端环境 (venv)
 # ============================================================
@@ -307,7 +320,7 @@ fi
 # ============================================================
 # Step 4: 准备前端环境 (npm)
 # ============================================================
-print_step "4" "准备前端环境"
+print_step "4" "准备前端 + MCP 环境"
 
 HASH_FILE="$PROJECT_ROOT/.frontend_deps_hash"
 CURRENT_HASH=$(get_dir_hash "frontend")
@@ -323,6 +336,26 @@ elif check_hash_changed "$HASH_FILE" "$CURRENT_HASH"; then
 else
     print_ok "依赖无变更，跳过"
 fi
+
+# --- MCP: install deps + build ---
+HASH_FILE="$PROJECT_ROOT/.mcp_deps_hash"
+MCP_CURRENT_HASH=$(get_dir_hash "backend-mcp")
+
+if [[ ! -d "$MCP_DIR/node_modules" ]]; then
+    run_with_spinner "安装 MCP 依赖（首次安装，请稍候）" bash -c "cd '$MCP_DIR' && npm install --prefer-offline 2>&1 | tail -1"
+    echo "$MCP_CURRENT_HASH" > "$HASH_FILE"
+    print_ok "MCP 依赖就绪"
+elif check_hash_changed "$HASH_FILE" "$MCP_CURRENT_HASH"; then
+    run_with_spinner "检测到变更，更新 MCP 依赖" bash -c "cd '$MCP_DIR' && npm install --prefer-offline 2>&1 | tail -1"
+    echo "$MCP_CURRENT_HASH" > "$HASH_FILE"
+    print_ok "依赖更新完成"
+else
+    print_ok "依赖无变更，跳过"
+fi
+
+# 始终重新编译 MCP（保证 dist/ 与 src/ 同步）
+run_with_spinner "编译 MCP (tsc)" bash -c "cd '$MCP_DIR' && npm run build 2>&1 | tail -5"
+print_ok "MCP 编译完成"
 
 # ============================================================
 # Step 5: 启动服务
@@ -347,6 +380,12 @@ cd "$FRONTEND_DIR"
 nohup npm run dev > "$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 print_ok "前端已启动 (PID: $FRONTEND_PID)"
+
+cd "$MCP_DIR"
+export TRANSPORT_MODE
+nohup npm start > "$MCP_LOG" 2>&1 &
+MCP_PID=$!
+print_ok "MCP 已启动 (PID: $MCP_PID, transport: $TRANSPORT_MODE)"
 
 cd "$PROJECT_ROOT"
 
@@ -400,10 +439,45 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# 等待 MCP（stdio 模式只要进程存活就 OK；sse/both 等端口 5410 监听）
+echo -n "  等待 MCP 就绪"
+for i in $(seq 1 15); do
+    if ! kill -0 "$MCP_PID" 2>/dev/null; then
+        echo ""
+        print_fail "MCP 启动失败，请查看日志: $MCP_LOG"
+        tail -20 "$MCP_LOG" 2>/dev/null || true
+        exit 1
+    fi
+    if [[ "$TRANSPORT_MODE" == "sse" || "$TRANSPORT_MODE" == "both" ]]; then
+        if lsof -ti :5410 >/dev/null 2>&1; then
+            echo ""
+            print_ok "MCP 就绪 (SSE 端口 5410)"
+            break
+        fi
+    else
+        # stdio 模式进程存活即就绪
+        echo ""
+        print_ok "MCP 就绪 (stdio)"
+        break
+    fi
+    if [[ $i -eq 15 ]]; then
+        echo ""
+        print_warn "MCP 启动检查超时（15 秒），但进程仍在运行"
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+
 echo ""
 echo "============================================"
 echo -e "  ${GREEN}前端界面: http://localhost:5173${NC}"
 echo -e "  ${GREEN}后端 API: http://localhost:${BACKEND_PORT}${NC}"
+if [[ "$TRANSPORT_MODE" == "sse" || "$TRANSPORT_MODE" == "both" ]]; then
+    echo -e "  ${GREEN}MCP  SSE:  http://localhost:5410/sse${NC}"
+else
+    echo -e "  ${GREEN}MCP  stdio: 启动中 (transport=$TRANSPORT_MODE)${NC}"
+fi
 echo "============================================"
 echo ""
 echo "按 Ctrl+C 停止所有服务"

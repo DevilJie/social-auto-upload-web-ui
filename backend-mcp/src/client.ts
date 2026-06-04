@@ -39,10 +39,25 @@ export class BackendClient {
   async getStream(path: string, params?: Record<string, string>): Promise<string> {
     const response = await this.http.get(path, {
       params,
-      responseType: 'text',
+      responseType: 'stream',
       timeout: 120000, // 登录可能需要较长时间
     });
-    return response.data;
+
+    return new Promise((resolve, reject) => {
+      const chunks: string[] = [];
+
+      response.data.on('data', (chunk: Buffer) => {
+        chunks.push(chunk.toString());
+      });
+
+      response.data.on('end', () => {
+        resolve(chunks.join(''));
+      });
+
+      response.data.on('error', (err: Error) => {
+        reject(err);
+      });
+    });
   }
 
   async post<T>(path: string, data?: any): Promise<ApiResponse<T>> {

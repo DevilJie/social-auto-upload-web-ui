@@ -8,12 +8,14 @@ Publish URL: https://mp.v.qq.com/publishVideo/video
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from queue import Queue
 
 from conf import BASE_DIR
 
 from util._logger import get_channel_logger
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
@@ -176,20 +178,26 @@ class TencentVideoPlatform(BasePlatform):
 
     async def open_creator_center(self, cookie_file: str) -> None:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        browser = await self.create_browser(login_mode=True)
-        try:
-            context = await self.create_context(browser, storage_state=cookie_path)
-            page = await context.new_page()
-            await page.goto(_HOME_URL)
+        url = _HOME_URL
+
+        def _launch():
+            browser = create_browser_sync(headless=False)
             try:
-                await page.wait_for_event("close", timeout=0)
-            except Exception:
-                pass
-        finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
+                context = create_context_sync(browser, storage_state=cookie_path)
+                page = context.new_page()
+                page.goto(url)
+                try:
+                    page.wait_for_event("close", timeout=0)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_launch, daemon=True)
+        thread.start()
 
     # ------------------------------------------------------------------
     # publish_video — full Tencent Video upload pipeline

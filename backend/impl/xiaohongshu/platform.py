@@ -1,10 +1,4 @@
-"""
-Xiaohongshu platform implementation.
-
-Pure CloakBrowser implementation -- all browser operations use
-``_browser.py`` (CloakBrowser stealth layer) directly for every
-login, cookie-check, profile-sync and publish action.
-"""
+"""Xiaohongshu platform implementation — CloakBrowser."""
 
 import asyncio
 import os
@@ -15,9 +9,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._browser import create_browser as _create_browser_async
 from .._browser import create_browser_sync, create_context_sync
-from .._browser import create_context as _create_context_async
 from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 
 from util._logger import get_channel_logger
@@ -70,10 +62,10 @@ class XiaohongshuPlatform(BasePlatform):
             if page.url != original_url:
                 url_changed_event.set()
 
-        browser = await _create_browser_async(login_mode=True, extra_args=["--lang en-GB"])
+        browser = await self.create_browser(login_mode=True)
         success = False
         try:
-            context = await _create_context_async(browser)
+            context = await self.create_context(browser)
             try:
                 page = await context.new_page()
                 await page.goto(_XHS_CREATOR_URL)
@@ -131,9 +123,9 @@ class XiaohongshuPlatform(BasePlatform):
         if not os.path.exists(cookie_path):
             return False
 
-        browser = await _create_browser_async(headless=True)
+        browser = await self.create_browser(headless=True)
         try:
-            context = await _create_context_async(browser, storage_state=cookie_path)
+            context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
                 await page.goto(_XHS_CREATOR_URL, timeout=30000)
@@ -163,9 +155,9 @@ class XiaohongshuPlatform(BasePlatform):
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = _XHS_CREATOR_URL
 
-        browser = await _create_browser_async(headless=True)
+        browser = await self.create_browser(headless=True)
         try:
-            context = await _create_context_async(browser, storage_state=cookie_path)
+            context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
                 await page.goto(url, wait_until="networkidle", timeout=30000)
@@ -404,9 +396,9 @@ async def _publish_single_video(
 ):
     """Upload and publish one video to Xiaohongshu using CloakBrowser."""
 
-    browser = await _create_browser_async(headless=False)
+    browser = await self.create_browser(headless=False)
     try:
-        context = await _create_context_async(browser, storage_state=account_file)
+        context = await self.create_context(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()
@@ -443,9 +435,9 @@ async def _publish_single_image(
     dry_run: bool = True,
 ) -> bool:
     """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
-    browser = await _create_browser_async(headless=False)
+    browser = await self.create_browser(headless=False)
     try:
-        context = await _create_context_async(browser, storage_state=account_file)
+        context = await self.create_context(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from queue import Queue
 
-from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, _load_proxy_url
+from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
@@ -276,7 +276,7 @@ class TiktokPlatform(BasePlatform):
         """Upload one video to one TikTok account using CloakBrowser.
         """
         browser = await self.create_browser(
-            headless=LOCAL_CHROME_HEADLESS,
+            headless=False,
         )
         locator_base = None
 

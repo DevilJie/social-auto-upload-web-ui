@@ -67,7 +67,6 @@ class YoutubePlatform(BasePlatform):
             context = await self.create_persistent_context(
                 user_data_dir=user_data_dir,
                 headless=False,
-                proxy=self._get_proxy(),
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
@@ -182,7 +181,7 @@ class YoutubePlatform(BasePlatform):
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = None
         try:
-            browser = await self.create_browser(headless=True, proxy=self._get_proxy())
+            browser = await self.create_browser(headless=True)
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             await page.goto(YOUTUBE_STUDIO_URL, timeout=20000)
@@ -215,7 +214,7 @@ class YoutubePlatform(BasePlatform):
         browser = None
         try:
             browser = await self.create_browser(
-                headless=True, proxy=self._get_proxy(),
+                headless=True,
             )
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
@@ -369,7 +368,7 @@ class YoutubePlatform(BasePlatform):
         browser = None
         try:
             browser = await self.create_browser(
-                headless=False, proxy=self._get_proxy(),
+                headless=False,
             )
             context = await self.create_context(browser, storage_state=account_file)
             page = await context.new_page()

@@ -50,49 +50,43 @@ class DouyinPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await self.create_browser(login_mode=True)
+        context = await self.create_context(browser)
         try:
-            context = await self.create_context(browser)
-            try:
-                page = await context.new_page()
-                await page.goto("https://creator.douyin.com/")
-                original_url = page.url
+            page = await context.new_page()
+            await page.goto("https://creator.douyin.com/")
+            original_url = page.url
 
-                # Extract QR code image
-                img_locator = page.get_by_role("img", name="二维码")
-                src = await img_locator.get_attribute("src")
-                logger.info("QR image src: %s", src)
-                status_queue.put(src)
+            # Extract QR code image
+            img_locator = page.get_by_role("img", name="二维码")
+            src = await img_locator.get_attribute("src")
+            logger.info("QR image src: %s", src)
+            status_queue.put(src)
 
-                # Monitor URL change via framenavigated
-                page.on(
-                    "framenavigated",
-                    lambda frame: asyncio.create_task(_on_url_change())
-                    if frame == page.main_frame
-                    else None,
-                )
+            # Monitor URL change via framenavigated
+            page.on(
+                "framenavigated",
+                lambda frame: asyncio.create_task(_on_url_change())
+                if frame == page.main_frame
+                else None,
+            )
 
-                try:
-                    await asyncio.wait_for(url_changed_event.wait(), timeout=200)
-                    logger.info("Page navigation detected — login successful")
-                except asyncio.TimeoutError:
-                    logger.warning("Login monitoring timed out (200 s)")
-                    status_queue.put("500")
-                    return
+            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+            await url_changed_event.wait()
+            logger.info("Page navigation detected — login successful")
 
-                # Scrape profile & save via shared utility
-                await save_login_result(
-                    context,
-                    page,
-                    platform_id=self.platform_id,
-                    platform_name=self.platform_name,
-                    status_queue=status_queue,
-                    scrape_fn=scrape_user_profile,
-                    account_id=account_id,
-                )
-            finally:
-                await context.close()
+            # Scrape profile & save via shared utility
+            await save_login_result(
+                context,
+                page,
+                platform_id=self.platform_id,
+                platform_name=self.platform_name,
+                status_queue=status_queue,
+                scrape_fn=scrape_user_profile,
+                account_id=account_id,
+            )
         finally:
-            await browser.close()
+            # 释放 context 资源（不关浏览器，用户自己关）
+            await context.close()
 
     # ------------------------------------------------------------------
     # check_cookie — verify stored cookie is still valid

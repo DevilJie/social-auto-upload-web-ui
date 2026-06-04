@@ -95,13 +95,9 @@ class XiaohongshuPlatform(BasePlatform):
                 ),
             )
 
-            try:
-                await asyncio.wait_for(url_changed_event.wait(), timeout=200)
-                logger.info("[xhs] login page navigation detected")
-            except asyncio.TimeoutError:
-                logger.info("[xhs] login timeout")
-                status_queue.put("500")
-                return
+            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+            await url_changed_event.wait()
+            logger.info("[xhs] login page navigation detected")
 
             # Login succeeded -- scrape profile, save cookie, write DB
             await save_login_result(
@@ -112,8 +108,8 @@ class XiaohongshuPlatform(BasePlatform):
                 account_id=account_id,
             )
         finally:
+            # 释放 context 资源（不关浏览器，用户自己关）
             await context.close()
-            await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie()

@@ -155,12 +155,12 @@
             <span
               class="type-tag"
               :class="{
-                'type-video': getFileType(scope.row.original_filename) === '视频',
-                'type-image': getFileType(scope.row.original_filename) === '图片',
-                'type-other': getFileType(scope.row.original_filename) === '其他'
+                'type-video': getFileType(scope.row.file_type) === '视频',
+                'type-image': getFileType(scope.row.file_type) === '图片',
+                'type-other': getFileType(scope.row.file_type) === '其他'
               }"
             >
-              {{ getFileType(scope.row.original_filename) }}
+              {{ getFileType(scope.row.file_type) }}
             </span>
           </template>
         </el-table-column>
@@ -242,14 +242,11 @@ const platformStats = computed(() => {
   return { total, ...counts }
 })
 
-// 素材统计数据 - 从真实数据计算
-const videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv']
-const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-
+// 素材统计数据 - 从 file_type 字段直接统计
 const contentStats = computed(() => {
   const materials = appStore.materials
-  const videos = materials.filter(m => m.original_filename && videoExtensions.some(ext => m.original_filename.toLowerCase().endsWith(ext))).length
-  const images = materials.filter(m => m.original_filename && imageExtensions.some(ext => m.original_filename.toLowerCase().endsWith(ext))).length
+  const videos = materials.filter(m => m.file_type === 'video').length
+  const images = materials.filter(m => m.file_type === 'image').length
   return {
     total: materials.length,
     videos,
@@ -266,12 +263,8 @@ const recentMaterials = computed(() => {
 })
 
 // 获取文件类型
-const getFileType = (filename) => {
-  if (!filename) return '其他'
-  if (videoExtensions.some(ext => filename.toLowerCase().endsWith(ext))) return '视频'
-  if (imageExtensions.some(ext => filename.toLowerCase().endsWith(ext))) return '图片'
-  return '其他'
-}
+const FILE_TYPE_MAP = { video: '视频', image: '图片' }
+const getFileType = (fileType) => FILE_TYPE_MAP[fileType] || '其他'
 
 // 获取文件类型标签颜色
 const getFileTypeTag = (filename) => {

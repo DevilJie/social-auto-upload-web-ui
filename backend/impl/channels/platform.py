@@ -393,6 +393,17 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
                 continue
             await cover_entry.wait_for(state="visible", timeout=3000)
             await cover_entry.click()
+
+            # 视频上传中时，点击编辑会弹出提示"文件上传中，请等待完成后再编辑"
+            # 循环等待直到点击后不再出现该提示
+            popover = page.locator('div.weui-desktop-popover__desc:has-text("文件上传中")')
+            for attempt in range(60):
+                if not await popover.count():
+                    break
+                logger.info(f"[channels] 封面编辑等待视频上传完成... ({attempt + 1}s)")
+                await page.wait_for_timeout(1000)
+                await cover_entry.click()
+
             await page.wait_for_timeout(500)
             logger.info(f"[channels] cover entry clicked: {selector} ({ctype})")
             entry_clicked = True

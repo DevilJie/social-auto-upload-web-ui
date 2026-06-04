@@ -137,4 +137,48 @@ export function registerMaterialTools(server: McpServer, client: BackendClient):
       }
     }
   );
+
+  // 获取素材下载 URL
+  server.tool(
+    'material_download',
+    '获取素材的可访问 URL（指向后端 /api/materials/file/<path>）。AI 客户端无持久化文件系统，本工具返回 URL 而非二进制。',
+    {
+      id: z.string().describe('素材 ID'),
+    },
+    async ({ id }) => {
+      try {
+        const response = await client.get('/api/materials/list', {
+          type: 'all',
+          page: '1',
+          page_size: '100',
+        });
+        const items = response?.data?.items ?? [];
+        const item = items.find((m: any) => m.id === id);
+        if (!item) {
+          return formatErrorResult({
+            code: ErrorCodes.MATERIAL_NOT_FOUND,
+            error: 'MATERIAL_NOT_FOUND',
+            message: `素材 ${id} 不存在或不在前 100 条之内`,
+            suggestion: '调 material_list 翻页查找，或用 keyword 过滤',
+            retryable: false,
+          });
+        }
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              id: item.id,
+              filename: item.original_filename,
+              mime_type: item.mime_type,
+              file_size: item.file_size,
+              url: item.url,
+              thumbnail_url: item.thumbnail_url,
+            }, null, 2),
+          }],
+        };
+      } catch (error: any) {
+        return formatErrorResult(translateError(null, error));
+      }
+    }
+  );
 }

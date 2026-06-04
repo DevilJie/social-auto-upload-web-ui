@@ -59,11 +59,21 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
           });
         }
 
+        // 并发拉取需要的素材/账号数据
+        const needsVideoList = !!material_id && !fileList?.length;
+        const needsAccountList = !!account_id && !accountList?.length;
+        const needsImageList = !!thumbnail_material_id && !thumbnail;
+
+        const [videoListResp, accountListResp, imageListResp] = await Promise.all([
+          needsVideoList ? client.get('/api/materials/list', { type: 'video', page: '1', page_size: '100' }) : Promise.resolve(null),
+          needsAccountList ? client.get('/getAccounts') : Promise.resolve(null),
+          needsImageList ? client.get('/api/materials/list', { type: 'image', page: '1', page_size: '100' }) : Promise.resolve(null),
+        ]);
+
         // material_id → fileList
         let resolvedFileList = fileList;
-        if (material_id && !fileList?.length) {
-          const list = await client.get('/api/materials/list', { type: 'video', page: '1', page_size: '100' });
-          const items = list?.data?.items ?? [];
+        if (needsVideoList) {
+          const items = videoListResp?.data?.items ?? [];
           const mat = items.find((m: any) => m.id === material_id);
           if (!mat) {
             return formatErrorResult({
@@ -81,9 +91,8 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
         // /getAccounts 返回的是位置数组 [id, type, filePath, userName, status, avatar]，
         // 需要先转换为字典
         let resolvedAccountList = accountList;
-        if (account_id && !accountList?.length) {
-          const accounts = await client.get('/getAccounts');
-          const rawAccs: any[] = accounts?.data ?? [];
+        if (needsAccountList) {
+          const rawAccs: any[] = accountListResp?.data ?? [];
           // 兼容位置数组和字典两种返回
           const accs = rawAccs.map((row: any) => Array.isArray(row)
             ? { id: row[0], type: row[1], filePath: row[2], userName: row[3], status: row[4], avatar: row[5] }
@@ -104,9 +113,8 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
 
         // thumbnail_material_id → thumbnail
         let resolvedThumbnail = thumbnail;
-        if (thumbnail_material_id && !thumbnail) {
-          const list = await client.get('/api/materials/list', { type: 'image', page: '1', page_size: '100' });
-          const items = list?.data?.items ?? [];
+        if (needsImageList && imageListResp) {
+          const items = imageListResp?.data?.items ?? [];
           const mat = items.find((m: any) => m.id === thumbnail_material_id);
           if (mat) {
             resolvedThumbnail = mat.stored_path;

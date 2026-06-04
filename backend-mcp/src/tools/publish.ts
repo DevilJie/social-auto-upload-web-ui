@@ -78,10 +78,17 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
         }
 
         // account_id → accountList
+        // /getAccounts 返回的是位置数组 [id, type, filePath, userName, status, avatar]，
+        // 需要先转换为字典
         let resolvedAccountList = accountList;
         if (account_id && !accountList?.length) {
           const accounts = await client.get('/getAccounts');
-          const accs = accounts?.data ?? [];
+          const rawAccs: any[] = accounts?.data ?? [];
+          // 兼容位置数组和字典两种返回
+          const accs = rawAccs.map((row: any) => Array.isArray(row)
+            ? { id: row[0], type: row[1], filePath: row[2], userName: row[3], status: row[4], avatar: row[5] }
+            : row
+          );
           const acc = accs.find((a: any) => String(a.id) === String(account_id));
           if (!acc) {
             return formatErrorResult({
@@ -92,8 +99,7 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
               retryable: false,
             });
           }
-          // cookie 路径在账号数据里的字段名需根据实际 user_info 表确认
-          resolvedAccountList = [acc.cookie_path ?? acc.cookiePath ?? acc.file_path];
+          resolvedAccountList = [acc.filePath ?? acc.cookie_path ?? acc.cookiePath];
         }
 
         // thumbnail_material_id → thumbnail

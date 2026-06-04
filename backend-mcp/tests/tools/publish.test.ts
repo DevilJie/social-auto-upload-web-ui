@@ -15,6 +15,39 @@ describe('publish tools', () => {
     expect(tools).toHaveLength(2);
   });
 
+  it('video_publish 接受 account_id，从位置数组里查 cookie 路径', async () => {
+    // /getAccounts 返回的是位置数组 [id, type, filePath, userName, status, avatar]
+    const mockClient = {
+      get: vi.fn().mockResolvedValue({
+        data: [
+          [1, 1, '/path/to/xhs.json', '账号1', 1, 'avatar1'],
+          [7, 2, '/path/to/channels.json', '账号7', 1, 'avatar7'],
+        ],
+      }),
+      post: vi.fn().mockResolvedValue({ code: 200, data: { task_id: 'task-1' } }),
+    } as any;
+    const tools: any[] = [];
+    const mockServer = {
+      tool: (name: string, description: string, schema: any, handler: Function) => {
+        tools.push({ name, description, schema, handler });
+      }
+    };
+    registerPublishTools(mockServer as any, mockClient);
+    const videoPublish = tools.find(t => t.name === 'video_publish')!;
+
+    const result = await videoPublish.handler({
+      type: 2,
+      title: 'test',
+      fileList: ['/local/video.mp4'],
+      account_id: 7,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.post).toHaveBeenCalledWith('/postVideo', expect.objectContaining({
+      accountList: ['/path/to/channels.json'],  // ← 从位置数组里拿到的 filePath
+    }));
+  });
+
   it('video_publish 接受 material_id，内部查素材转 fileList', async () => {
     const stored_path = 'materials/2026/06/04/abc.mp4';
     const mockClient = {

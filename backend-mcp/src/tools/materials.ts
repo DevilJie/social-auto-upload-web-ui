@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { BackendClient } from '../client.js';
 import { z } from 'zod';
+import { formatErrorResult, translateError, ErrorCodes } from '../errors.js';
 
 export function registerMaterialTools(server: McpServer, client: BackendClient): void {
   // 上传素材
@@ -95,6 +96,44 @@ export function registerMaterialTools(server: McpServer, client: BackendClient):
           }],
           isError: true
         };
+      }
+    }
+  );
+
+  // 获取素材详情
+  server.tool(
+    'material_get_info',
+    '获取素材的详细信息，包括公开 URL、缩略图、文件大小等',
+    {
+      id: z.string().describe('素材 ID（UUID）'),
+    },
+    async ({ id }) => {
+      try {
+        // 后端没有"按 id 查单个"接口，只能 list 全量后过滤（page_size=100 够用）
+        const response = await client.get('/api/materials/list', {
+          type: 'all',
+          page: '1',
+          page_size: '100',
+        });
+        const items = response?.data?.items ?? [];
+        const item = items.find((m: any) => m.id === id);
+        if (!item) {
+          return formatErrorResult({
+            code: ErrorCodes.MATERIAL_NOT_FOUND,
+            error: 'MATERIAL_NOT_FOUND',
+            message: `素材 ${id} 不存在`,
+            suggestion: '调 material_list 查可用素材 ID',
+            retryable: false,
+          });
+        }
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(item, null, 2),
+          }],
+        };
+      } catch (error: any) {
+        return formatErrorResult(translateError(null, error));
       }
     }
   );

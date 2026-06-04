@@ -3,7 +3,7 @@ import { registerMaterialTools } from '../../src/tools/materials';
 import { BackendClient } from '../../src/client';
 
 describe('material tools', () => {
-  it('应该注册4个素材相关工具', () => {
+  it('应该注册5个素材相关工具', () => {
     const mockClient = {} as BackendClient;
     const tools: any[] = [];
     const mockServer = {
@@ -12,12 +12,13 @@ describe('material tools', () => {
       }
     };
     registerMaterialTools(mockServer as any, mockClient);
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(5);
     expect(tools.map(t => t.name)).toEqual([
       'material_upload',
       'material_list',
       'material_delete',
       'material_get_info',
+      'material_download',
     ]);
   });
 

@@ -8,6 +8,7 @@ Publish URL: https://mp.v.qq.com/publishVideo/video
 
 import asyncio
 import json
+import os
 import threading
 from pathlib import Path
 from queue import Queue
@@ -300,8 +301,13 @@ class TencentVideoPlatform(BasePlatform):
                 await page.wait_for_load_state("networkidle")
 
                 # Step 1: Upload video file via input[type=file]
-                logger.info("Uploading video file: %s", file_path)
+                logger.info("Uploading video file: %s (exists=%s)", file_path, os.path.exists(file_path))
                 file_input = page.locator('input[type="file"]').first
+                input_count = await page.locator('input[type="file"]').count()
+                logger.info("Found %d file input(s) on page", input_count)
+                if input_count == 0:
+                    logger.error("No file input found, cannot upload video")
+                    raise Exception("未找到视频上传入口")
                 await file_input.set_input_files(file_path)
                 logger.info("Video file set, waiting for upload to complete...")
 

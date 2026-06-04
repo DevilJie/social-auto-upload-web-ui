@@ -359,8 +359,12 @@ class IqiyiPlatform(BasePlatform):
                 # Step 3: Fill title
                 await self._fill_title(page, title or desc)
 
-                # Step 4: Fill description
-                await self._fill_description(page, desc)
+                # Step 4: Fill description (tags 以 #XXX 格式追加)
+                full_desc = desc or ""
+                if tags:
+                    tag_str = " ".join(f"#{t}" for t in tags)
+                    full_desc = f"{full_desc} {tag_str}".strip()
+                await self._fill_description(page, full_desc)
 
                 # Step 5: Click cash activity if enabled
                 if enable_cash_activity:

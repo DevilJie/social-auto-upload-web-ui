@@ -71,45 +71,52 @@ class XiaohongshuPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await _create_browser_async(login_mode=True, extra_args=["--lang en-GB"])
-        context = await _create_context_async(browser)
+        success = False
         try:
-            page = await context.new_page()
-            await page.goto(_XHS_CREATOR_URL)
+            context = await _create_context_async(browser)
+            try:
+                page = await context.new_page()
+                await page.goto(_XHS_CREATOR_URL)
 
-            # Switch to QR-code login mode
-            await page.locator(_XHS_LOGIN_SWITCH_SELECTOR).click()
+                # Switch to QR-code login mode
+                await page.locator(_XHS_LOGIN_SWITCH_SELECTOR).click()
 
-            # QR is the 3rd image on the page
-            img_locator = page.get_by_role("img").nth(2)
-            src = await img_locator.get_attribute("src")
-            original_url = page.url
-            logger.info(f"[xhs] QR code src: {src}")
-            status_queue.put(src)
+                # QR is the 3rd image on the page
+                img_locator = page.get_by_role("img").nth(2)
+                src = await img_locator.get_attribute("src")
+                original_url = page.url
+                logger.info(f"[xhs] QR code src: {src}")
+                status_queue.put(src)
 
-            page.on(
-                "framenavigated",
-                lambda frame: (
-                    asyncio.create_task(_on_url_change())
-                    if frame == page.main_frame
-                    else None
-                ),
-            )
+                page.on(
+                    "framenavigated",
+                    lambda frame: (
+                        asyncio.create_task(_on_url_change())
+                        if frame == page.main_frame
+                        else None
+                    ),
+                )
 
-            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
-            await url_changed_event.wait()
-            logger.info("[xhs] login page navigation detected")
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await url_changed_event.wait()
+                logger.info("[xhs] login page navigation detected")
 
-            # Login succeeded -- scrape profile, save cookie, write DB
-            await save_login_result(
-                context, page,
-                platform_id=self.platform_id,
-                platform_name=self.platform_name,
-                status_queue=status_queue,
-                account_id=account_id,
-            )
+                # Login succeeded -- scrape profile, save cookie, write DB
+                await save_login_result(
+                    context, page,
+                    platform_id=self.platform_id,
+                    platform_name=self.platform_name,
+                    status_queue=status_queue,
+                    account_id=account_id,
+                )
+                success = True
+            finally:
+                # 释放 context 资源
+                await context.close()
         finally:
-            # 释放 context 资源（不关浏览器，用户自己关）
-            await context.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie()

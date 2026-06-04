@@ -85,34 +85,41 @@ class TencentVideoPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await self.create_browser(login_mode=True)
-        context = await self.create_context(browser)
+        success = False
         try:
-            page = await context.new_page()
-            await page.goto(_LOGIN_URL)
+            context = await self.create_context(browser)
+            try:
+                page = await context.new_page()
+                await page.goto(_LOGIN_URL)
 
-            page.on(
-                "framenavigated",
-                lambda frame: asyncio.create_task(_on_url_change())
-                if frame == page.main_frame
-                else None,
-            )
+                page.on(
+                    "framenavigated",
+                    lambda frame: asyncio.create_task(_on_url_change())
+                    if frame == page.main_frame
+                    else None,
+                )
 
-            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
-            await url_changed_event.wait()
-            logger.info("Homepage detected — login successful")
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await url_changed_event.wait()
+                logger.info("Homepage detected — login successful")
 
-            await save_login_result(
-                context,
-                page,
-                platform_id=self.platform_id,
-                platform_name=self.platform_name,
-                status_queue=status_queue,
-                scrape_fn=_scrape_tencent_video_profile,
-                account_id=account_id,
-            )
+                await save_login_result(
+                    context,
+                    page,
+                    platform_id=self.platform_id,
+                    platform_name=self.platform_name,
+                    status_queue=status_queue,
+                    scrape_fn=_scrape_tencent_video_profile,
+                    account_id=account_id,
+                )
+                success = True
+            finally:
+                # 释放 context 资源
+                await context.close()
         finally:
-            # 释放 context 资源（不关浏览器）
-            await context.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie — verify stored cookie is still valid

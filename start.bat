@@ -11,10 +11,19 @@ set "PROJECT_ROOT=%~dp0"
 set "PROJECT_ROOT=%PROJECT_ROOT:~0,-1%"
 set "BACKEND_DIR=%PROJECT_ROOT%\backend"
 set "FRONTEND_DIR=%PROJECT_ROOT%\frontend"
+set "MCP_DIR=%PROJECT_ROOT%\backend-mcp"
 
 :: --- 日志文件 ---
 set "BACKEND_LOG=%PROJECT_ROOT%\backend.log"
 set "FRONTEND_LOG=%PROJECT_ROOT%\frontend.log"
+set "MCP_LOG=%PROJECT_ROOT%\mcp.log"
+
+:: --- MCP transport mode（默认 stdio 避免 both 模式的 SSE bug）---
+if defined MCP_TRANSPORT_MODE (
+    set "TRANSPORT_MODE=%MCP_TRANSPORT_MODE%"
+) else (
+    set "TRANSPORT_MODE=stdio"
+)
 
 :: ============================================================
 :: Step 1: 检查运行时环境
@@ -106,6 +115,11 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING 2^
     taskkill /F /PID %%a >nul 2>&1
 )
 echo   √ 端口 5173 空闲
+
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5410 ^| findstr LISTENING 2^>nul') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+echo   √ 端口 5410 空闲
 
 :: ============================================================
 :: Step 3: 准备后端环境
@@ -260,10 +274,10 @@ if "!CHROME_FOUND!"=="0" (
 )
 
 :: ============================================================
-:: Step 4: 准备前端环境
+:: Step 4: 准备前端 + MCP 环境
 :: ============================================================
 echo.
-echo [4/6] 准备前端环境...
+echo [4/6] 准备前端 + MCP 环境...
 
 set "HASH_FILE=%PROJECT_ROOT%\.frontend_deps_hash"
 
@@ -300,6 +314,51 @@ if not exist "%FRONTEND_DIR%\node_modules" (
     )
 )
 
+:: --- MCP: install deps + build ---
+set "HASH_FILE=%PROJECT_ROOT%\.mcp_deps_hash"
+set "CURRENT_HASH="
+for /f "tokens=*" %%i in ('git -C "%PROJECT_ROOT%" log -1 --format^=%%H -- backend-mcp 2^>nul') do set "CURRENT_HASH=%%i"
+if "!CURRENT_HASH!"=="" set "CURRENT_HASH=no-git"
+
+if not exist "%MCP_DIR%\node_modules" (
+    echo     安装 MCP 依赖，请稍候...
+    echo.
+    cd /d "%MCP_DIR%"
+    call npm install --prefer-offline
+    echo.
+    echo !CURRENT_HASH!> "%HASH_FILE%"
+    echo   √ MCP 依赖就绪
+) else (
+    set "SAVED_HASH="
+    if exist "%HASH_FILE%" (
+        for /f "tokens=*" %%i in ('type "%HASH_FILE%"') do set "SAVED_HASH=%%i"
+    ) else (
+        set "SAVED_HASH=none"
+    )
+    if "!CURRENT_HASH!"=="!SAVED_HASH!" (
+        echo   √ 依赖无变更，跳过
+    ) else (
+        echo     检测到变更，更新 MCP 依赖，请稍候...
+        echo.
+        cd /d "%MCP_DIR%"
+        call npm install --prefer-offline
+        echo.
+        echo !CURRENT_HASH!> "%HASH_FILE%"
+        echo   √ 依赖更新完成
+    )
+)
+
+:: 始终重新编译 MCP（保证 dist/ 与 src/ 同步）
+echo     编译 MCP (tsc)...
+cd /d "%MCP_DIR%"
+call npm run build
+if !errorlevel! neq 0 (
+    echo   X MCP 编译失败
+    pause
+    exit /b 1
+)
+echo   √ MCP 编译完成
+
 :: ============================================================
 :: Step 5: 启动服务
 :: ============================================================
@@ -328,9 +387,26 @@ timeout /t 2 /nobreak >nul
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5173 ^| findstr LISTENING 2^>nul') do set "FRONTEND_PID=%%a"
 echo   √ 前端已启动 (PID: !FRONTEND_PID!)
 
+:: 启动 MCP
+cd /d "%MCP_DIR%"
+set "TRANSPORT_MODE=%TRANSPORT_MODE%"
+start "SAU-MCP" /B cmd /c "set TRANSPORT_MODE=%TRANSPORT_MODE%&& npm start > "%MCP_LOG%" 2>&1"
+
+:: 等待 MCP 进程启动
+timeout /t 2 /nobreak >nul
+:: 尝试从端口 5410 获取 PID（仅 sse/both 模式有效）
+set "MCP_PID="
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :5410 ^| findstr LISTENING 2^>nul') do set "MCP_PID=%%a"
+if defined MCP_PID (
+    echo   √ MCP 已启动 (PID: !MCP_PID!, transport: %TRANSPORT_MODE%)
+) else (
+    echo   √ MCP 已启动 (transport: %TRANSPORT_MODE%, stdio 模式)
+)
+
 :: 保存 PID 到文件，用于停止服务
 echo !BACKEND_PID!> "%PROJECT_ROOT%\.backend.pid"
 echo !FRONTEND_PID!> "%PROJECT_ROOT%\.frontend.pid"
+if defined MCP_PID echo !MCP_PID!> "%PROJECT_ROOT%\.mcp.pid"
 
 cd /d "%PROJECT_ROOT%"
 
@@ -374,16 +450,35 @@ if !COUNT! GTR 60 (
     echo   X 前端启动超时（60秒），但服务可能仍在运行
     echo   请手动访问 http://localhost:5173 检查
     echo.
-    goto show_info
+    goto wait_mcp
 )
 :: 检查端口 5173 是否被占用（前端已启动）
 netstat -an | findstr ":5173" | findstr "LISTENING" >nul 2>&1
 if !errorlevel! equ 0 (
     echo   √ 前端就绪
-    goto show_info
+    goto wait_mcp
 )
 timeout /t 1 /nobreak >nul
 goto wait_frontend
+
+:: 等待 MCP（通过日志里的 "[MCP] Server ready" 判断；最长 15 秒）
+:wait_mcp
+set /a "MCP_COUNT=0"
+:wait_mcp_loop
+set /a "MCP_COUNT+=1"
+if !MCP_COUNT! GTR 15 (
+    echo   ! MCP 启动检查超时（15秒），请查看日志: %MCP_LOG%
+    goto show_info
+)
+if exist "%MCP_LOG%" (
+    findstr /C:"Server ready" "%MCP_LOG%" >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo   √ MCP 就绪 (transport: %TRANSPORT_MODE%)
+        goto show_info
+    )
+)
+timeout /t 1 /nobreak >nul
+goto wait_mcp_loop
 
 :show_info
 :: 显示访问入口
@@ -391,13 +486,26 @@ echo.
 echo ============================================
 echo   前端界面: http://localhost:5173
 echo   后端 API: http://localhost:!BACKEND_PORT!
+if /i "%TRANSPORT_MODE%"=="sse" (
+    echo   MCP  SSE:   http://localhost:5410/sse
+) else if /i "%TRANSPORT_MODE%"=="both" (
+    echo   MCP  SSE:   http://localhost:5410/sse
+) else (
+    echo   MCP  stdio: 启动中 ^(transport=%TRANSPORT_MODE%^)
+)
 echo ============================================
 echo.
 echo   查看后端日志: type %BACKEND_LOG%
 echo   查看前端日志: type %FRONTEND_LOG%
+echo   查看 MCP 日志:  type %MCP_LOG%
 echo.
 echo   停止服务:
 echo     taskkill /F /PID !BACKEND_PID!
 echo     taskkill /F /PID !FRONTEND_PID!
+if defined MCP_PID (
+    echo     taskkill /F /PID !MCP_PID!
+) else (
+    echo     taskkill /FI "WINDOWTITLE eq SAU-MCP*" /T /F
+)
 echo.
 endlocal

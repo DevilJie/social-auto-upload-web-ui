@@ -44,7 +44,10 @@ backend/bin/
 # 启动脚本临时文件
 .backend_deps_hash
 .frontend_deps_hash
+.mcp_deps_hash
 .backend.pid
 .frontend.pid
+.mcp.pid
 backend.log
 frontend.log
+mcp.log

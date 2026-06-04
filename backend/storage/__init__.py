@@ -5,6 +5,10 @@ def _read_storage_config() -> tuple[str, dict]:
     """从 SQLite settings 表读取存储配置"""
     from impl.settings import get_storage_config
     cfg = get_storage_config()
+    # 防御：早期版本用 str(dict) 写过脏数据（fe1b068 之前），现在不会
+    # 产生，但万一以后某处又写出非 dict，兜底用 local 默认避免 500。
+    if not isinstance(cfg, dict):
+        return "local", {}
     return cfg.get("type", "local"), cfg.get("s3", {})
 
 

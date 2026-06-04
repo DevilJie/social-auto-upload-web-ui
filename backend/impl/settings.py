@@ -50,4 +50,8 @@ def get_proxy_url() -> str | None:
 
 
 def get_storage_config() -> dict:
-    return read_settings().get("storage", {"type": "local", "s3": {}})
+    """读取存储配置。总是返回 dict（损坏值兜底为默认 local）。"""
+    cfg = read_settings().get("storage")
+    if not isinstance(cfg, dict):
+        return {"type": "local", "s3": {}}
+    return cfg

@@ -458,10 +458,14 @@ class BaijiahaoPlatform(BasePlatform):
         than a separate title input.
         """
         desc_text = (desc or title or "").strip()
+        # 把标签以 #XXX 格式追加到描述末尾
+        if tags:
+            tag_str = " ".join(f"#{t}" for t in tags)
+            desc_text = f"{desc_text} {tag_str}".strip()
         if not desc_text:
             logger.warning("无描述内容，跳过填充")
             return
-        desc_text = desc_text[:50]
+        desc_text = desc_text[:2000]
 
         # Lexical contenteditable editor
         lexical_editor = page.locator('[data-lexical-editor="true"]')

@@ -1,13 +1,6 @@
-"""
-Xiaohongshu platform implementation.
-
-Pure CloakBrowser implementation -- all browser operations use
-``_browser.py`` (CloakBrowser stealth layer) directly for every
-login, cookie-check, profile-sync and publish action.
-"""
+"""Xiaohongshu platform implementation — CloakBrowser."""
 
 import asyncio
-import os
 import os
 import threading
 import time
@@ -16,9 +9,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._browser import create_browser as _create_browser_async
-from .._browser import create_browser_sync
-from .._browser import create_context as _create_context_async
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 
 from util._logger import get_channel_logger
@@ -34,6 +25,9 @@ _XHS_LOGIN_URL = "https://creator.xiaohongshu.com/login"
 _XHS_CREATOR_URL = "https://creator.xiaohongshu.com/"
 _XHS_PUBLISH_VIDEO_URL = (
     "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
+)
+_XHS_PUBLISH_IMAGE_URL = (
+    "https://creator.xiaohongshu.com/publish/publish?from=menu&target=image"
 )
 _XHS_LOGIN_BOX_SELECTOR = "div[class*='login-box']"
 _XHS_LOGIN_SWITCH_SELECTOR = "img.css-wemwzq"
@@ -68,50 +62,53 @@ class XiaohongshuPlatform(BasePlatform):
             if page.url != original_url:
                 url_changed_event.set()
 
-        browser = await _create_browser_async(login_mode=True, extra_args=["--lang en-GB"])
-        context = await _create_context_async(browser)
+        browser = await self.create_browser(login_mode=True)
+        success = False
         try:
-            page = await context.new_page()
-            await page.goto(_XHS_CREATOR_URL)
-
-            # Switch to QR-code login mode
-            await page.locator(_XHS_LOGIN_SWITCH_SELECTOR).click()
-
-            # QR is the 3rd image on the page
-            img_locator = page.get_by_role("img").nth(2)
-            src = await img_locator.get_attribute("src")
-            original_url = page.url
-            logger.info(f"[xhs] QR code src: {src}")
-            status_queue.put(src)
-
-            page.on(
-                "framenavigated",
-                lambda frame: (
-                    asyncio.create_task(_on_url_change())
-                    if frame == page.main_frame
-                    else None
-                ),
-            )
-
+            context = await self.create_context(browser)
             try:
-                await asyncio.wait_for(url_changed_event.wait(), timeout=200)
-                logger.info("[xhs] login page navigation detected")
-            except asyncio.TimeoutError:
-                logger.info("[xhs] login timeout")
-                status_queue.put("500")
-                return
+                page = await context.new_page()
+                await page.goto(_XHS_CREATOR_URL)
 
-            # Login succeeded -- scrape profile, save cookie, write DB
-            await save_login_result(
-                context, page,
-                platform_id=self.platform_id,
-                platform_name=self.platform_name,
-                status_queue=status_queue,
-                account_id=account_id,
-            )
+                # Switch to QR-code login mode
+                await page.locator(_XHS_LOGIN_SWITCH_SELECTOR).click()
+
+                # QR is the 3rd image on the page
+                img_locator = page.get_by_role("img").nth(2)
+                src = await img_locator.get_attribute("src")
+                original_url = page.url
+                logger.info(f"[xhs] QR code src: {src}")
+                status_queue.put(src)
+
+                page.on(
+                    "framenavigated",
+                    lambda frame: (
+                        asyncio.create_task(_on_url_change())
+                        if frame == page.main_frame
+                        else None
+                    ),
+                )
+
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await url_changed_event.wait()
+                logger.info("[xhs] login page navigation detected")
+
+                # Login succeeded -- scrape profile, save cookie, write DB
+                await save_login_result(
+                    context, page,
+                    platform_id=self.platform_id,
+                    platform_name=self.platform_name,
+                    status_queue=status_queue,
+                    account_id=account_id,
+                )
+                success = True
+            finally:
+                # 释放 context 资源
+                await context.close()
         finally:
-            await context.close()
-            await browser.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie()
@@ -126,9 +123,9 @@ class XiaohongshuPlatform(BasePlatform):
         if not os.path.exists(cookie_path):
             return False
 
-        browser = await _create_browser_async(headless=True)
+        browser = await self.create_browser(headless=True)
         try:
-            context = await _create_context_async(browser, storage_state=cookie_path)
+            context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
                 await page.goto(_XHS_CREATOR_URL, timeout=30000)
@@ -158,9 +155,9 @@ class XiaohongshuPlatform(BasePlatform):
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = _XHS_CREATOR_URL
 
-        browser = await _create_browser_async(headless=True)
+        browser = await self.create_browser(headless=True)
         try:
-            context = await _create_context_async(browser, storage_state=cookie_path)
+            context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
                 await page.goto(url, wait_until="networkidle", timeout=30000)
@@ -186,7 +183,7 @@ class XiaohongshuPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:
@@ -212,7 +209,7 @@ class XiaohongshuPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional) -- enable scheduled publishing
@@ -241,13 +238,15 @@ class XiaohongshuPlatform(BasePlatform):
 
         # Resolve file paths
         account_paths = [Path(BASE_DIR / "cookiesFile" / f) for f in account_files]
-        file_paths = [Path(BASE_DIR / "videoFile" / f) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [Path(f) for f in files]
 
         # XHS is a portrait-first platform: prefer portrait cover,
         # then landscape, then generic thumbnail.
         effective_cover = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
         if effective_cover:
-            effective_cover = str(Path(BASE_DIR / "videoFile" / effective_cover))
+            # 已是绝对路径
+            effective_cover = str(effective_cover)
 
         # Parse schedule times
         publish_datetimes = parse_schedule_time(
@@ -294,6 +293,91 @@ class XiaohongshuPlatform(BasePlatform):
                 )
         return True
 
+    # ------------------------------------------------------------------
+    # publish_image()
+    # ------------------------------------------------------------------
+
+    async def publish_image(self, **kwargs) -> bool:
+        """
+        小红书图文发布
+
+        参数：
+        - title (str): 标题，最多20字
+        - files (list[str]): 图片文件路径列表
+        - tags (list[str]): 标签列表，最多10个
+        - account_file (list[str]): Cookie文件名
+        - desc (str): 描述，最多1000字
+        - enableTimer (bool): 是否启用定时发布
+        - schedule_time_str (str): 定时发布时间
+        - ai_content (str): 内容类型声明
+        - dry_run (bool): 是否模拟发布，默认True
+
+        返回：
+        - bool: 发布是否成功
+        """
+        title = kwargs.get('title', '')
+        files = kwargs.get('files', [])
+        tags = kwargs.get('tags', [])[:10]  # 最多10个标签
+        account_files = kwargs.get('account_file', [])
+        desc = kwargs.get('desc', '')[:1000]  # 最多1000字
+        enableTimer = kwargs.get('enableTimer', False)
+        schedule_time_str = kwargs.get('schedule_time_str', '')
+        ai_content = kwargs.get('ai_content', '')
+        is_original = kwargs.get('is_original', False)
+        dry_run = kwargs.get('dry_run', True)
+
+        if not files:
+            logger.error("[xhs] 没有图片文件")
+            return False
+
+        if not account_files:
+            logger.error("[xhs] 没有账号文件")
+            return False
+
+        # 截断标题
+        title = title[:20]
+
+        # Resolve cookie file paths (same as publish_video)
+        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files]
+
+        # Parse schedule times
+        publish_datetimes = parse_schedule_time(
+            schedule_time_str, len(files), enableTimer,
+            kwargs.get('videos_per_day', 1), kwargs.get('daily_times'), kwargs.get('start_days', 0),
+        )
+        if not enableTimer or not schedule_time_str:
+            publish_datetimes = 0 if not enableTimer else publish_datetimes
+
+        success_count = 0
+        total = len(account_paths)
+        for index, cookie_path in enumerate(account_paths):
+            pub_date = (
+                publish_datetimes
+                if not isinstance(publish_datetimes, list)
+                else publish_datetimes[index]
+            )
+            try:
+                result = await _publish_single_image(
+                    title=title,
+                    files=files,
+                    tags=tags,
+                    account_file=cookie_path,
+                    desc=desc,
+                    enableTimer=enableTimer,
+                    schedule_time_str=schedule_time_str,
+                    publish_date=pub_date,
+                    ai_content=ai_content,
+                    is_original=is_original,
+                    dry_run=dry_run,
+                )
+                if result:
+                    success_count += 1
+            except Exception as e:
+                logger.error(f"[xhs] 账号 {cookie_path} 发布失败: {e}")
+
+        logger.info(f"[xhs] 图文发布完成: {success_count}/{total} 成功")
+        return success_count > 0
+
 
 # ======================================================================
 # Internal publish helper
@@ -312,9 +396,9 @@ async def _publish_single_video(
 ):
     """Upload and publish one video to Xiaohongshu using CloakBrowser."""
 
-    browser = await _create_browser_async(headless=False)
+    browser = await self.create_browser(headless=False)
     try:
-        context = await _create_context_async(browser, storage_state=account_file)
+        context = await self.create_context(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()
@@ -333,6 +417,106 @@ async def _publish_single_video(
             logger.info("[xhs] cookie updated")
         finally:
             await context.close()
+    finally:
+        await browser.close()
+
+
+async def _publish_single_image(
+    title: str,
+    files: list,
+    tags: list,
+    account_file: str,
+    desc: str = "",
+    enableTimer: bool = False,
+    schedule_time_str: str = "",
+    publish_date=None,
+    ai_content: str = "",
+    is_original: bool = False,
+    dry_run: bool = True,
+) -> bool:
+    """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
+    browser = await self.create_browser(headless=False)
+    try:
+        context = await self.create_context(browser, storage_state=account_file)
+        await context.grant_permissions(["geolocation"])
+        try:
+            page = await context.new_page()
+
+            # Navigate to image publish page
+            logger.info(f"[xhs] navigating to image publish page")
+            await page.goto(_XHS_PUBLISH_IMAGE_URL, wait_until="networkidle")
+            await asyncio.sleep(3)  # 等待页面完全加载
+
+            # 等待上传区域出现
+            logger.info("[xhs] waiting for upload area to load")
+            try:
+                await page.wait_for_selector('.upload-wrapper, .upload-input, input[type="file"]', timeout=15000)
+                logger.info("[xhs] upload area loaded")
+            except Exception as e:
+                logger.warning(f"[xhs] upload area not found, trying to continue: {e}")
+
+            # Upload images
+            file_paths = [str(f) for f in files]
+            if not await _upload_images(page, file_paths):
+                logger.error("[xhs] image upload failed")
+                return False
+
+            # Wait for page readiness
+            await asyncio.sleep(2)
+
+            # Fill title, description, tags
+            logger.info(f"[xhs] filling title, desc and tags")
+            await _fill_title(page, title)
+            await _fill_desc(page, desc)
+            await _fill_tags(page, tags)
+
+            # Set original declaration (原创声明)
+            if is_original:
+                await _set_original_declaration(page)
+
+            # Set content declaration (内容类型声明)
+            if ai_content:
+                await _set_content_declaration(page, ai_content)
+
+            # Set schedule time
+            is_scheduled = enableTimer and publish_date and publish_date != 0
+            if is_scheduled:
+                await _set_schedule_time(page, publish_date)
+
+            # Wait for publish button to hydrate
+            await _wait_for_page_ready(page)
+
+            if not dry_run:
+                # Click publish
+                btn_text = "定时发布" if is_scheduled else "发布"
+                await _click_publish_button(page, btn_text)
+
+                # Wait for page navigation after click
+                current_url = page.url
+                await asyncio.sleep(3)
+                new_url = page.url
+                logger.info(f"[xhs] url changed: {current_url} -> {new_url}")
+
+                if "success" in new_url.lower() or "publish/publish" not in new_url:
+                    logger.info(f"[xhs] image published successfully: {title}")
+                else:
+                    logger.error(f"[xhs] page did not navigate to success: {new_url}")
+                    return False
+            else:
+                logger.info(f"[xhs] image publish dry-run complete: {title}")
+
+            # Save cookies
+            await context.storage_state(path=account_file)
+            logger.info("[xhs] cookie updated")
+            return True
+        except Exception as e:
+            logger.error(f"[xhs] image publish error: {e}")
+            return False
+        finally:
+            await context.close()
+    except Exception as e:
+        logger.error(f"[xhs] image publish browser error: {e}")
+        return False
     finally:
         await browser.close()
 
@@ -560,13 +744,14 @@ async def _fill_tags(page, tags: list) -> None:
         await desc_el.click()
 
     for tag in tags:
+        # 输入 # 标签
         await page.keyboard.type("#" + tag, delay=30)
-        await page.locator("#creator-editor-topic-container").wait_for(
-            state="visible", timeout=3000
-        )
-        first_item = page.locator("#creator-editor-topic-container .item").first
-        await first_item.wait_for(state="visible", timeout=2000)
-        await first_item.click()
+        # 等待一下让输入完成
+        await asyncio.sleep(0.5)
+        # 按空格触发标签识别
+        await page.keyboard.press("Space")
+        # 等待标签被识别
+        await asyncio.sleep(1)
 
 
 async def _set_thumbnail(page, thumbnail_path: str) -> None:
@@ -668,6 +853,113 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
             logger.info("[xhs] confirm button not found, skipping cover")
     except Exception as e:
         logger.info(f"[xhs] cover upload failed: {e}")
+
+
+async def _upload_images(page, files: list[str]) -> bool:
+    """Upload images to the image-text publish page.
+
+    Parameters
+    ----------
+    page : playwright.async_api.Page
+        The Playwright page object.
+    files : list[str]
+        List of image file paths to upload.
+
+    Returns
+    -------
+    bool
+        True if all images were uploaded successfully, False otherwise.
+    """
+    if not files:
+        logger.warning("[xhs] no images to upload")
+        return False
+
+    try:
+        logger.info(f"[xhs] uploading {len(files)} images")
+
+        # 等待页面加载完成
+        await asyncio.sleep(2)
+
+        # 小红书图文发布页面的图片上传 input
+        # DOM 结构: input.upload-input[type="file"][accept=".jpg,.jpeg,.png,.webp"]
+        file_input = page.locator('input.upload-input[type="file"]')
+
+        # 等待 input 出现
+        try:
+            await file_input.wait_for(state="attached", timeout=10000)
+            logger.info("[xhs] found upload input")
+        except Exception:
+            logger.info("[xhs] upload input not found, trying other selectors")
+
+        # 如果找不到，尝试其他选择器
+        if await file_input.count() == 0:
+            file_input = page.locator('input[type="file"][accept*=".jpg"]')
+
+        if await file_input.count() == 0:
+            file_input = page.locator('input[type="file"][multiple]')
+
+        if await file_input.count() == 0:
+            file_input = page.locator('input[type="file"]')
+
+        if await file_input.count() > 0:
+            # 使用找到的 input 元素上传文件
+            logger.info(f"[xhs] uploading via file input")
+            await file_input.first.set_input_files(files)
+            logger.info(f"[xhs] uploaded {len(files)} images via file input")
+        else:
+            # 使用 expect_file_chooser 模式作为备选
+            logger.info("[xhs] trying file chooser approach")
+            upload_btn = page.locator('button:has-text("上传图片")')
+
+            if await upload_btn.count() == 0:
+                upload_btn = page.locator('.upload-button').first
+
+            if await upload_btn.count() == 0:
+                upload_btn = page.locator('button.bg-red').first
+
+            if await upload_btn.count() > 0:
+                logger.info("[xhs] clicking upload button")
+                async with page.expect_file_chooser(timeout=10000) as fc_info:
+                    await upload_btn.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(files)
+                logger.info(f"[xhs] uploaded {len(files)} images via file chooser")
+            else:
+                # 最后尝试直接设置所有 file input
+                all_inputs = await page.query_selector_all('input[type="file"]')
+                logger.info(f"[xhs] found {len(all_inputs)} file inputs")
+                if all_inputs:
+                    await all_inputs[0].set_input_files(files)
+                    logger.info(f"[xhs] uploaded {len(files)} images via first file input")
+                else:
+                    logger.error("[xhs] could not find any upload mechanism")
+                    return False
+
+        # Wait for images to finish uploading (check image count)
+        expected_count = len(files)
+        timeout_per_image = 30
+        max_wait = max(120, min(expected_count * timeout_per_image, 600))
+        logger.info(f"[xhs] waiting for {expected_count} images to upload (max {max_wait}s)")
+
+        for i in range(max_wait):
+            # 检查已上传的图片数量
+            # 小红书的图片预览区域
+            uploaded = await page.query_selector_all('.upload-wrapper img, .image-item img, .preview img, [class*="image"] img')
+            if len(uploaded) >= expected_count:
+                logger.info(f"[xhs] all {expected_count} images uploaded")
+                return True
+            if i % 10 == 0:
+                logger.info(f"[xhs] uploading images: {len(uploaded)}/{expected_count}")
+            await asyncio.sleep(1)
+
+        logger.warning(
+            f"[xhs] image upload timeout, uploaded {len(uploaded)}/{expected_count}"
+        )
+        return len(uploaded) > 0
+
+    except Exception as e:
+        logger.error(f"[xhs] image upload failed: {e}")
+        return False
 
 
 async def _set_schedule_time(page, publish_date) -> None:

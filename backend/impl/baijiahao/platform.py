@@ -17,7 +17,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._browser import create_browser_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     parse_schedule_time,
     save_login_result,
@@ -46,25 +46,20 @@ class BaijiahaoPlatform(BasePlatform):
         result via the shared utility.
         """
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
             try:
                 page = await context.new_page()
                 await page.goto(
                     "https://baijiahao.baidu.com/builder/theme/bjh/login",
-                    timeout=45000,
+                    wait_until="domcontentloaded",
                 )
                 logger.info("百家号登录页面已打开，请完成扫码登录...")
 
-                # Wait for redirect after successful login
-                try:
-                    await page.wait_for_url(
-                        "**/builder/rc/home**", timeout=120000
-                    )
-                    logger.info("检测到登录成功，正在保存 cookie...")
-                except Exception:
-                    logger.warning("未检测到登录完成，将在 120 秒后保存当前状态")
-                    await asyncio.sleep(120)
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await page.wait_for_url("**/builder/rc/home**")
+                logger.info("检测到登录成功，正在保存 cookie...")
 
                 # Scrape profile & save via shared utility
                 await save_login_result(
@@ -76,10 +71,14 @@ class BaijiahaoPlatform(BasePlatform):
                     scrape_fn=scrape_baijiahao_profile,
                     account_id=account_id,
                 )
+                success = True
             finally:
+                # 释放 context 资源
                 await context.close()
         finally:
-            await browser.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie -- verify stored cookie is still valid
@@ -157,7 +156,7 @@ class BaijiahaoPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:
@@ -183,7 +182,7 @@ class BaijiahaoPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -227,17 +226,14 @@ class BaijiahaoPlatform(BasePlatform):
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file
         ]
-        file_paths = [
-            str(Path(BASE_DIR / "videoFile" / f)) for f in files
-        ]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
         if thumbnail_landscape_path:
-            thumbnail_landscape_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
-            )
+            # 已是绝对路径
+            thumbnail_landscape_path = str(thumbnail_landscape_path)
         if thumbnail_portrait_path:
-            thumbnail_portrait_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_portrait_path)
-            )
+            # 已是绝对路径
+            thumbnail_portrait_path = str(thumbnail_portrait_path)
 
         # Determine schedule times
         publish_datetimes = parse_schedule_time(
@@ -459,34 +455,54 @@ class BaijiahaoPlatform(BasePlatform):
         """Fill the description field (Lexical editor) with title and tags.
 
         Baijiahao publish page has a "作品描述" field (Lexical editor) rather
-        than a separate title input.
+        than a separate title input. Tags are typed as #话题 via keyboard
+        to trigger the topic search dropdown, then the first suggestion is
+        selected.
         """
-        desc_text = (desc or title or "").strip()
-        if not desc_text:
-            logger.warning("无描述内容，跳过填充")
-            return
-        desc_text = desc_text[:50]
+        desc_text = (desc or title or "").strip()[:2000]
 
         # Lexical contenteditable editor
         lexical_editor = page.locator('[data-lexical-editor="true"]')
+        editor = None
         if await lexical_editor.count():
             editor = lexical_editor.first
-            await editor.click()
-            await asyncio.sleep(0.3)
-            await page.keyboard.press("Control+a")
-            await asyncio.sleep(0.1)
+        else:
+            # Fallback: placeholder
+            title_container = page.get_by_placeholder("添加标题获得更多推荐")
+            if await title_container.count():
+                full_text = desc_text
+                if tags:
+                    full_text += " " + " ".join(f"#{t}" for t in tags)
+                await title_container.fill(full_text[:2000])
+                logger.info("已通过 placeholder 填充描述: %s", full_text[:2000])
+                return
+            logger.warning("未找到描述输入框，跳过填充")
+            return
+
+        # 1. 输入描述文本
+        await editor.click()
+        await asyncio.sleep(0.3)
+        await page.keyboard.press("Control+a")
+        await asyncio.sleep(0.1)
+        if desc_text:
             await page.keyboard.type(desc_text, delay=50)
             logger.info("已填充作品描述: %s", desc_text)
-            return
 
-        # Fallback: placeholder
-        title_container = page.get_by_placeholder("添加标题获得更多推荐")
-        if await title_container.count():
-            await title_container.fill(desc_text)
-            logger.info("已通过 placeholder 填充描述: %s", desc_text)
-            return
+        # 2. 逐个输入 #话题 并从下拉列表选择第一个
+        for tag in (tags or []):
+            await page.keyboard.type(f" #{tag}", delay=50)
+            await asyncio.sleep(1)
 
-        logger.warning("未找到描述输入框，跳过填充")
+            # 等待话题搜索下拉出现
+            topic_list = page.locator("div[class*='topicListInner']")
+            try:
+                await topic_list.wait_for(state="visible", timeout=3000)
+                first_item = topic_list.locator("div[class*='topicItem']").first
+                await first_item.click()
+                logger.info("已选择话题: #%s", tag)
+                await asyncio.sleep(0.5)
+            except Exception:
+                logger.info("话题 #%s 未出现下拉建议，跳过选择", tag)
 
     # ------------------------------------------------------------------
     # Helper: publish (immediate or scheduled)

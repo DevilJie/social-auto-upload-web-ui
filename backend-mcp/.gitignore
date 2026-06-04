@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.js
+*.js.map
+*.d.ts
+!src/**/*.ts

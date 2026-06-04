@@ -38,6 +38,7 @@ def _ensure_tables(conn):
         conn.execute("""
         CREATE TABLE IF NOT EXISTS drafts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT DEFAULT 'video',
             title TEXT DEFAULT '',
             cover_path TEXT DEFAULT '',
             draft_data TEXT DEFAULT '{}',
@@ -48,6 +49,11 @@ def _ensure_tables(conn):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        # 迁移：为旧表添加 type 列
+        try:
+            conn.execute('ALTER TABLE drafts ADD COLUMN type TEXT DEFAULT "video"')
+        except sqlite3.OperationalError:
+            pass  # 列已存在
         conn.commit()
     except Exception:
         pass
@@ -388,6 +394,7 @@ def get_stats():
 
 # ========== 系统设置 ==========
 
+
 @ext_api.route('/settings', methods=['GET'])
 def get_settings():
     """获取系统设置"""
@@ -421,6 +428,18 @@ def get_settings():
                     defaults[key] = int(defaults[key])
                 except (ValueError, TypeError):
                     pass
+
+        # storage / proxyUrl 从 SQLite 读取（JSON 类型字段需要解析）
+        if 'storage' in defaults:
+            try:
+                defaults['storage'] = json.loads(defaults['storage'])
+            except (json.JSONDecodeError, TypeError):
+                defaults['storage'] = {'type': 'local', 's3': {}}
+        else:
+            defaults['storage'] = {'type': 'local', 's3': {}}
+        if 'proxyUrl' not in defaults:
+            defaults['proxyUrl'] = ''
+
         return jsonify({"code": 200, "data": defaults})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
@@ -434,15 +453,27 @@ def update_settings():
         return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
 
     try:
+        need_reset_storage = 'storage' in data
+
+        # 所有设置统一写入 SQLite（包括 storage / proxyUrl）
         conn = _db_conn()
         for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False)
+            else:
+                value = str(value)
             conn.execute(
                 """INSERT OR REPLACE INTO settings (key, value, updated_at)
                    VALUES (?, ?, ?)""",
-                (key, str(value), datetime.now().isoformat())
+                (key, value, datetime.now().isoformat())
             )
         conn.commit()
         conn.close()
+
+        if need_reset_storage:
+            from storage import reset_storage
+            reset_storage()
+
         return jsonify({"code": 200, "msg": "设置已更新"})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
@@ -450,14 +481,52 @@ def update_settings():
 
 # ========== 草稿箱 ==========
 
+_PLATFORM_ID_MAP = {
+    1: ('xiaohongshu', '小红书'),
+    2: ('shipinhao', '视频号'),
+    3: ('douyin', '抖音'),
+    4: ('kuaishou', '快手'),
+    5: ('bilibili', 'B站'),
+    6: ('baijiahao', '百家号'),
+}
+
+
+def _extract_image_channels_from_draft(conn, draft_data):
+    """从图文草稿的 draft_data 中提取渠道摘要（兜底）"""
+    account_ids = draft_data.get('publishAccountIds', [])
+    if not account_ids:
+        return []
+    try:
+        placeholders = ','.join(['?'] * len(account_ids))
+        rows = conn.execute(
+            f"SELECT type FROM user_info WHERE id IN ({placeholders})", account_ids
+        ).fetchall()
+        counts = {}
+        for row in rows:
+            key, name = _PLATFORM_ID_MAP.get(row['type'], (str(row['type']), f'平台{row["type"]}'))
+            if key not in counts:
+                counts[key] = {'name': name, 'count': 0}
+            counts[key]['count'] += 1
+        return [{"platform": k, "name": v['name'], "count": v['count']} for k, v in counts.items()]
+    except Exception:
+        return []
+
+
 @ext_api.route('/drafts', methods=['GET'])
 def get_drafts():
-    """获取草稿列表"""
+    """获取草稿列表（支持 type 过滤：video/image）"""
+    draft_type = request.args.get('type')
     try:
         conn = _db_conn()
-        rows = conn.execute(
-            "SELECT id, title, cover_path, channels_summary, video_duration, video_file_size, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
-        ).fetchall()
+        if draft_type:
+            rows = conn.execute(
+                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, draft_data, created_at, updated_at FROM drafts WHERE type = ? ORDER BY updated_at DESC",
+                (draft_type,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, type, title, cover_path, channels_summary, video_duration, video_file_size, draft_data, created_at, updated_at FROM drafts ORDER BY updated_at DESC"
+            ).fetchall()
         drafts = []
         for row in rows:
             d = dict(row)
@@ -465,6 +534,16 @@ def get_drafts():
                 d['channels_summary'] = json.loads(d.get('channels_summary', '[]'))
             except json.JSONDecodeError:
                 d['channels_summary'] = []
+
+            # 图文草稿：兜底修复 channels_summary
+            if d.get('type') == 'image' and d.get('draft_data') and not d['channels_summary']:
+                try:
+                    dd = json.loads(d['draft_data'])
+                    d['channels_summary'] = _extract_image_channels_from_draft(conn, dd)
+                except (json.JSONDecodeError, KeyError):
+                    pass
+            d.pop('draft_data', None)  # 不在列表接口返回完整 draft_data
+
             d['created_at'] = _to_beijing_time(d.get('created_at'))
             d['updated_at'] = _to_beijing_time(d.get('updated_at'))
             drafts.append(d)
@@ -482,6 +561,7 @@ def create_draft():
         return jsonify({"code": 400, "msg": "草稿数据不能为空"}), 400
 
     draft_data = data['draft_data']
+    draft_type = data.get('type', 'video')  # 默认视频类型
     title = _extract_draft_title(draft_data)
     cover_path = _extract_draft_cover(draft_data)
     channels_summary = _extract_channels_summary(draft_data)
@@ -491,9 +571,9 @@ def create_draft():
     try:
         conn = _db_conn()
         cursor = conn.execute(
-            """INSERT INTO drafts (title, cover_path, draft_data, channels_summary, video_duration, video_file_size)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (title, cover_path, json.dumps(draft_data, ensure_ascii=False),
+            """INSERT INTO drafts (type, title, cover_path, draft_data, channels_summary, video_duration, video_file_size)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (draft_type, title, cover_path, json.dumps(draft_data, ensure_ascii=False),
              json.dumps(channels_summary, ensure_ascii=False),
              video_duration, video_file_size)
         )

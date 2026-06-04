@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 
 from flask import Blueprint, request, jsonify, send_file
 from pathlib import Path
@@ -14,24 +15,78 @@ from services.ffmpeg_service import (
 
 frames_bp = Blueprint('frames', __name__)
 
+# S3 视频下载缓存目录
+_s3_cache_dir = BASE_DIR / "s3_video_cache"
+
 
 def _resolve_video_path(video_path):
-    full_path = os.path.join(str(BASE_DIR), 'videoFile', video_path)
-    if os.path.isfile(full_path):
-        return full_path
+    """兼容旧格式：直接传文件路径的情况"""
+    from storage import resolve_material_path
+    local = resolve_material_path(video_path)
+    if local:
+        return local
     if os.path.isfile(video_path):
         return video_path
     return None
 
 
+def _resolve_material_video(material_id):
+    """通过素材 ID 查 materials 表，获取本地文件绝对路径。
+    若素材存储在 S3，则下载到本地缓存目录再返回路径。
+    若素材存储在本地，直接用 LocalStorage 解析路径（不受当前存储配置影响）。
+    """
+    import sqlite3
+    db_path = BASE_DIR / "db" / "database.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT stored_path, storage_type FROM materials WHERE id = ?",
+        (material_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+
+    stored_path = row["stored_path"]
+    storage_type = row["storage_type"] or "local"
+
+    if storage_type == "s3":
+        return _download_s3_to_cache(material_id, stored_path)
+
+    # 本地存储：直接用 LocalStorage 解析（避免 get_storage() 返回 S3 导致找不到文件）
+    from storage.local import LocalStorage
+    local_path = LocalStorage(BASE_DIR).get_local_path(stored_path)
+    return local_path
+
+
+def _download_s3_to_cache(material_id, stored_path):
+    """将 S3 上的视频下载到本地缓存目录，返回本地绝对路径。"""
+    _s3_cache_dir.mkdir(parents=True, exist_ok=True)
+    ext = os.path.splitext(stored_path)[1] or ".mp4"
+    cache_path = _s3_cache_dir / f"{material_id}{ext}"
+
+    if cache_path.exists():
+        return str(cache_path)
+
+    from storage import get_storage_by_type
+    storage = get_storage_by_type("s3")
+    file_data = storage.get(stored_path)
+    cache_path.write_bytes(file_data)
+    return str(cache_path)
+
+
 @frames_bp.post('/api/extract-frames')
 def extract_frames():
     data = request.get_json(force=True)
-    video_path = data.get('video_path', '')
-    if not video_path:
-        return jsonify({"code": 400, "msg": "video_path is required"}), 400
-
-    full_path = _resolve_video_path(video_path)
+    # 优先使用素材 ID
+    material_id = data.get('material_id', '')
+    if material_id:
+        full_path = _resolve_material_video(material_id)
+    else:
+        video_path = data.get('video_path', '')
+        if not video_path:
+            return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
+        full_path = _resolve_video_path(video_path)
     if not full_path:
         return jsonify({"code": 404, "msg": "Video file not found"}), 404
 
@@ -56,13 +111,18 @@ def extract_frames():
 
 @frames_bp.get('/api/frames-status')
 def frames_status():
+    material_id = request.args.get('material_id', '')
     video_path = request.args.get('video_path', '')
-    if not video_path:
-        return jsonify({"code": 400, "msg": "video_path is required"}), 400
 
-    full_path = _resolve_video_path(video_path)
+    if material_id:
+        full_path = _resolve_material_video(material_id)
+    elif video_path:
+        full_path = _resolve_video_path(video_path)
+    else:
+        return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
+
     if not full_path:
-        return jsonify({"code": 400, "msg": "video_path not found"}), 400
+        return jsonify({"code": 400, "msg": "file not found"}), 400
 
     status = get_extraction_status(full_path)
     return jsonify({"code": 200, "data": status})
@@ -70,13 +130,18 @@ def frames_status():
 
 @frames_bp.get('/api/frames')
 def get_frames():
+    material_id = request.args.get('material_id', '')
     video_path = request.args.get('video_path', '')
-    if not video_path:
-        return jsonify({"code": 400, "msg": "video_path is required"}), 400
 
-    full_path = _resolve_video_path(video_path)
+    if material_id:
+        full_path = _resolve_material_video(material_id)
+    elif video_path:
+        full_path = _resolve_video_path(video_path)
+    else:
+        return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
+
     if not full_path:
-        return jsonify({"code": 400, "msg": "video_path not found"}), 400
+        return jsonify({"code": 400, "msg": "file not found"}), 400
 
     result = get_frame_list(BASE_DIR, full_path)
     status = get_extraction_status(full_path)
@@ -86,18 +151,23 @@ def get_frames():
 
 @frames_bp.get('/api/frame-image')
 def get_frame_image():
+    material_id = request.args.get('material_id', '')
     video_path = request.args.get('video_path', '')
     seconds = request.args.get('seconds', '0')
     thumbnail = request.args.get('thumbnail', '0') == '1'
 
-    if not video_path:
-        return jsonify({"code": 400, "msg": "video_path is required"}), 400
+    if material_id:
+        full_path = _resolve_material_video(material_id)
+    elif video_path:
+        full_path = _resolve_video_path(video_path)
+    else:
+        return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
+
     try:
         seconds = int(seconds)
     except ValueError:
         return jsonify({"code": 400, "msg": "seconds must be integer"}), 400
 
-    full_path = _resolve_video_path(video_path)
     if not full_path:
         return jsonify({"code": 404, "msg": "Video file not found"}), 404
 

@@ -84,6 +84,7 @@ def init_database():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS drafts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT DEFAULT 'video',
         title TEXT DEFAULT '',
         cover_path TEXT DEFAULT '',
         draft_data TEXT DEFAULT '{}',
@@ -92,6 +93,78 @@ def init_database():
         video_file_size INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 图文发布任务表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS image_publish_tasks (
+        id TEXT PRIMARY KEY,
+        image_ids TEXT NOT NULL,
+        account_configs TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        scheduled_at TEXT,
+        published_at TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 图文发布日志表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS image_publish_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        account_id INTEGER NOT NULL,
+        platform TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        published_at TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (task_id) REFERENCES image_publish_tasks(id)
+    )
+    """)
+
+    # 图文草稿表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS image_drafts (
+        id TEXT PRIMARY KEY,
+        image_ids TEXT NOT NULL,
+        account_configs TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 图片上传记录表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS image_records (
+        id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        stored_filename TEXT NOT NULL,
+        filesize REAL DEFAULT 0,
+        width INTEGER DEFAULT 0,
+        height INTEGER DEFAULT 0,
+        upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 素材库表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS materials (
+        id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        stored_path TEXT NOT NULL,
+        file_type TEXT NOT NULL,
+        mime_type TEXT,
+        file_size INTEGER DEFAULT 0,
+        storage_type TEXT NOT NULL DEFAULT 'local',
+        width INTEGER DEFAULT 0,
+        height INTEGER DEFAULT 0,
+        duration REAL DEFAULT 0,
+        thumbnail_path TEXT DEFAULT '',
+        upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
@@ -116,6 +189,20 @@ def migrate_database():
     try:
         cursor.execute('ALTER TABLE publish_tasks ADD COLUMN thumbnail_path TEXT DEFAULT ""')
         logger.info("已添加 thumbnail_path 列")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+
+    # image_drafts 添加 draft_data 列（支持完整状态存储）
+    try:
+        cursor.execute('ALTER TABLE image_drafts ADD COLUMN draft_data TEXT DEFAULT "{}"')
+        logger.info("已添加 image_drafts.draft_data 列")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+
+    # materials 添加 thumbnail_path 列
+    try:
+        cursor.execute('ALTER TABLE materials ADD COLUMN thumbnail_path TEXT DEFAULT ""')
+        logger.info("已添加 materials.thumbnail_path 列")
     except sqlite3.OperationalError:
         pass  # 列已存在
 

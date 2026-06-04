@@ -42,7 +42,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', enableTimer: false },
   },
   CHANNELS: {
     id: 2,
@@ -76,8 +76,6 @@ export const PLATFORMS = {
     cssClass: 'douyin',
     creatorUrl: 'https://creator.douyin.com/',
     settingsFields: [
-      { key: 'productTitle', label: '商品名称', type: 'input', placeholder: '请输入商品名称' },
-      { key: 'productLink', label: '商品链接', type: 'input', placeholder: '请输入商品链接' },
       { key: 'aiContent', label: '自主声明', type: 'select', placeholder: '请选择自主声明', options: [
         { label: '内容由AI生成', value: '内容由AI生成' },
         { label: '内容为个人观点或见解', value: '内容为个人观点或见解' },
@@ -88,11 +86,8 @@ export const PLATFORMS = {
       ] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
-      { key: 'visibility', label: '谁可以看', type: 'radio', options: [{ label: '公开', value: 'public' }, { label: '私密', value: 'private' }] },
-      { key: 'allowDownload', label: '允许下载', type: 'switch' },
-      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', productTitle: '', productLink: '', aiContent: '', isOriginal: false, scheduleTime: '', visibility: 'public', allowDownload: true, videoFormat: '' },
+    defaultSettings: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   KUAISHOU: {
     id: 4,
@@ -106,14 +101,12 @@ export const PLATFORMS = {
     cssClass: 'kuaishou',
     creatorUrl: 'https://k.kuaishou.com/',
     settingsFields: [
-      { key: 'productTitle', label: '商品名称', type: 'input', placeholder: '请输入商品名称' },
-      { key: 'productLink', label: '商品链接', type: 'input', placeholder: '请输入商品链接' },
       { key: 'aiContent', label: '作者声明', type: 'select', placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', productTitle: '', productLink: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BILIBILI: {
     id: 5,
@@ -159,16 +152,7 @@ export const PLATFORMS = {
         { label: '生活兴趣', value: '生活兴趣' },
         { label: '生活经验', value: '生活经验' },
       ] },
-      { key: 'tags', label: '标签', type: 'input', placeholder: '如：#标签1 #标签2 或 逗号分隔' },
       { key: 'topic', label: '话题', type: 'select', placeholder: '选择话题' },
-      { key: 'aiContent', label: '声明与权益', type: 'select', placeholder: '选择声明与权益', options: [
-        { label: '该视频使用人工智能合成技术', value: '该视频使用人工智能合成技术' },
-        { label: '视频内含有危险行为，请勿轻易模仿', value: '视频内含有危险行为，请勿轻易模仿' },
-        { label: '该内容仅供娱乐，请勿过分解读', value: '该内容仅供娱乐，请勿过分解读' },
-        { label: '该内容可能引人不适，请谨慎选择观看', value: '该内容可能引人不适，请谨慎选择观看' },
-        { label: '请理性适度消费', value: '请理性适度消费' },
-        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
-      ] },
       { key: 'creationDeclaration', label: '创作声明', type: 'select', placeholder: '选择创作声明', options: [
         { label: '内容无需标注', value: '内容无需标注' },
         { label: '含AI生成内容', value: '含AI生成内容' },
@@ -181,7 +165,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', zone: '', tags: '', topic: '', aiContent: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', zone: '', topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BAIJIAHAO: {
     id: 6,

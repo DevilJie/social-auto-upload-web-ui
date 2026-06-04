@@ -3,10 +3,14 @@ import App from './App.vue'
 import router from './router'
 import pinia from './stores'
 import ElementPlus from 'element-plus'
+import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import './styles/index.scss'
+import { APP_FULL_NAME } from './config/app'
+
+document.title = APP_FULL_NAME
 
 const app = createApp(App)
 
@@ -17,5 +21,5 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 
 app.use(router)
 app.use(pinia)
-app.use(ElementPlus)
+app.use(ElementPlus, { locale: zhCn })
 app.mount('#app')

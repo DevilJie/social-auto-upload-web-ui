@@ -2,71 +2,127 @@
   <div class="draft-box">
     <div class="draft-header">
       <h2>草稿箱</h2>
-      <span class="draft-count">{{ drafts.length }} 个草稿</span>
+      <el-tabs v-model="activeTab" class="draft-tabs">
+        <el-tab-pane label="视频草稿" name="video">
+          <span class="draft-count">{{ videoDrafts.length }} 个草稿</span>
+        </el-tab-pane>
+        <el-tab-pane label="图文草稿" name="image">
+          <span class="draft-count">{{ imageDrafts.length }} 个草稿</span>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
-    <!-- Empty state -->
-    <div v-if="!loading && drafts.length === 0" class="empty-state">
-      <el-empty description="还没有保存的草稿">
-        <el-button type="primary" @click="router.push('/publish-center')">去发布视频</el-button>
-      </el-empty>
-    </div>
+    <!-- Video Drafts -->
+    <template v-if="activeTab === 'video'">
+      <div v-if="!loading && videoDrafts.length === 0" class="empty-state">
+        <el-empty description="还没有保存的视频草稿">
+          <el-button type="primary" @click="router.push('/publish-center')">去发布视频</el-button>
+        </el-empty>
+      </div>
 
-    <!-- Card grid -->
-    <div v-else class="draft-grid">
-      <div v-for="draft in drafts" :key="draft.id" class="draft-card">
-        <!-- Cover thumbnail -->
-        <div class="card-cover">
-          <img
-            v-if="draft.cover_path"
-            :src="getCoverUrl(draft.cover_path)"
-            alt="封面"
-          />
-          <div v-else class="cover-placeholder">
-            <el-icon :size="32"><Picture /></el-icon>
+      <div v-else class="draft-grid">
+        <div v-for="draft in videoDrafts" :key="draft.id" class="draft-card">
+          <div class="card-cover">
+            <img
+              v-if="draft.cover_path"
+              :src="getCoverUrl(draft.cover_path)"
+              alt="封面"
+            />
+            <div v-else class="cover-placeholder">
+              <el-icon :size="32"><Picture /></el-icon>
+            </div>
+            <span v-if="draft.video_duration" class="duration-badge">
+              {{ formatDuration(draft.video_duration) }}
+            </span>
           </div>
-          <!-- Duration badge -->
-          <span v-if="draft.video_duration" class="duration-badge">
-            {{ formatDuration(draft.video_duration) }}
-          </span>
-        </div>
 
-        <!-- Card body -->
-        <div class="card-body">
-          <div class="card-title">{{ draft.title || '无标题' }}</div>
+          <div class="card-body">
+            <div class="card-title">{{ draft.title || '无标题' }}</div>
 
-          <!-- Channels summary (single line with marquee) -->
-          <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
-            <div class="channels-track" :class="{ 'channels-marquee': isOverflow(draft.id) }" :ref="el => setChannelRef(draft.id, el)">
-              <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
-                <img
-                  v-if="getPlatformLogo(ch.platform)"
-                  :src="getPlatformLogo(ch.platform)"
-                  class="channel-icon"
-                />
-                {{ ch.name }} × {{ ch.count }}
-              </span>
+            <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
+              <div class="channels-track" :class="{ 'channels-marquee': isOverflow(draft.id) }" :ref="el => setChannelRef(draft.id, el)">
+                <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
+                  <img
+                    v-if="getPlatformLogo(ch.platform)"
+                    :src="getPlatformLogo(ch.platform)"
+                    class="channel-icon"
+                  />
+                  {{ ch.name }} × {{ ch.count }}
+                </span>
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <span v-if="draft.video_file_size">{{ formatFileSize(draft.video_file_size) }}</span>
+              <span>{{ formatTime(draft.updated_at) }}</span>
             </div>
           </div>
 
-          <!-- Meta info -->
-          <div class="card-meta">
-            <span v-if="draft.video_file_size">{{ formatFileSize(draft.video_file_size) }}</span>
-            <span>{{ formatTime(draft.updated_at) }}</span>
+          <div class="card-actions">
+            <button class="action-btn action-edit" @click="editVideoDraft(draft.id)">
+              <el-icon><Edit /></el-icon> 编辑
+            </button>
+            <button class="action-btn action-delete" @click="confirmDelete(draft.id, 'video')">
+              <el-icon><Delete /></el-icon> 删除
+            </button>
           </div>
         </div>
+      </div>
+    </template>
 
-        <!-- Card actions - full width at bottom -->
-        <div class="card-actions">
-          <button class="action-btn action-edit" @click="editDraft(draft.id)">
-            <el-icon><Edit /></el-icon> 编辑
-          </button>
-          <button class="action-btn action-delete" @click="confirmDelete(draft.id)">
-            <el-icon><Delete /></el-icon> 删除
-          </button>
+    <!-- Image Drafts -->
+    <template v-if="activeTab === 'image'">
+      <div v-if="!loading && imageDrafts.length === 0" class="empty-state">
+        <el-empty description="还没有保存的图文草稿">
+          <el-button type="primary" @click="router.push('/image-publish')">去发布图文</el-button>
+        </el-empty>
+      </div>
+
+      <div v-else class="draft-grid">
+        <div v-for="draft in imageDrafts" :key="draft.id" class="draft-card">
+          <div class="card-cover">
+            <img
+              v-if="draft.cover_path"
+              :src="getCoverUrl(draft.cover_path)"
+              alt="封面"
+            />
+            <div v-else class="cover-placeholder">
+              <el-icon :size="32"><Picture /></el-icon>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="card-title">{{ getImageDraftTitle(draft) || '无标题' }}</div>
+
+            <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
+              <div class="channels-track">
+                <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
+                  <img
+                    v-if="getPlatformLogo(ch.platform)"
+                    :src="getPlatformLogo(ch.platform)"
+                    class="channel-icon"
+                  />
+                  {{ ch.name }} × {{ ch.count }}
+                </span>
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <span>{{ formatTime(draft.updated_at) }}</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="action-btn action-edit" @click="editImageDraft(draft.id)">
+              <el-icon><Edit /></el-icon> 编辑
+            </button>
+            <button class="action-btn action-delete" @click="confirmDelete(draft.id, 'image')">
+              <el-icon><Delete /></el-icon> 删除
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -77,9 +133,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Picture, Edit, Delete } from '@element-plus/icons-vue'
 import { draftApi } from '@/api/draft'
 import { getPlatformByKey } from '@/config/platforms'
+import { getFileUrl } from '@/utils/storage'
 
 const router = useRouter()
-const drafts = ref([])
+const activeTab = ref('video')
+const videoDrafts = ref([])
+const imageDrafts = ref([])
 const loading = ref(true)
 const channelRefs = {}
 const overflowMap = ref({})
@@ -87,14 +146,30 @@ const overflowMap = ref({})
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
 
 function getCoverUrl(path) {
-  if (!path) return ''
-  if (path.startsWith('http')) return path
-  return `${apiBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`
+  return getFileUrl(path)
 }
 
 function getPlatformLogo(platformKey) {
   const p = getPlatformByKey(platformKey)
   return p?.logo || null
+}
+
+function getImageDraftTitle(draft) {
+  // 优先使用 title 字段（后端已提取）
+  if (draft.title && draft.title !== '无标题') {
+    return draft.title
+  }
+  // 从 draft_data 中提取
+  if (draft.draft_data) {
+    const pc = draft.draft_data.platformConfigs || {}
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+      const title = pc[key]?.title
+      if (title && title.trim()) {
+        return title.trim()
+      }
+    }
+  }
+  return ''
 }
 
 function formatDuration(seconds) {
@@ -126,8 +201,12 @@ function formatTime(isoString) {
   return date.toLocaleDateString('zh-CN')
 }
 
-function editDraft(id) {
+function editVideoDraft(id) {
   router.push(`/publish-center?draft=${id}`)
+}
+
+function editImageDraft(id) {
+  router.push(`/image-publish?draft=${id}`)
 }
 
 function setChannelRef(draftId, el) {
@@ -143,26 +222,32 @@ function isOverflow(draftId) {
   return overflowMap.value[draftId]
 }
 
-async function confirmDelete(id) {
+async function confirmDelete(id, type) {
+  const typeName = type === 'video' ? '视频' : '图文'
   try {
-    await ElMessageBox.confirm('确定删除这个草稿吗？', '删除确认', {
+    await ElMessageBox.confirm(`确定删除这个${typeName}草稿吗？`, '删除确认', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
     })
     await draftApi.deleteDraft(id)
     ElMessage.success('草稿已删除')
-    await loadDrafts()
+    await loadAllDrafts()
   } catch {
     // cancelled or error
   }
 }
 
-async function loadDrafts() {
+async function loadAllDrafts() {
   loading.value = true
   try {
-    const resp = await draftApi.getDrafts()
-    drafts.value = resp.data || []
+    // 统一从 /api/v2/drafts 获取，根据 type 分类
+    const [videoResp, imageResp] = await Promise.all([
+      draftApi.getDrafts('video'),
+      draftApi.getDrafts('image')
+    ])
+    videoDrafts.value = videoResp.data || []
+    imageDrafts.value = imageResp.data || []
   } catch (e) {
     console.error('Failed to load drafts:', e)
   } finally {
@@ -170,7 +255,7 @@ async function loadDrafts() {
   }
 }
 
-onMounted(loadDrafts)
+onMounted(loadAllDrafts)
 </script>
 
 <style lang="scss" scoped>
@@ -182,22 +267,38 @@ onMounted(loadDrafts)
 }
 
 .draft-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin-bottom: 24px;
 
   h2 {
-    margin: 0;
+    margin: 0 0 16px 0;
     font-size: 20px;
     font-weight: 600;
     color: $text-primary;
   }
+}
 
-  .draft-count {
-    font-size: 13px;
-    color: $text-muted;
+.draft-tabs {
+  :deep(.el-tabs__header) {
+    margin: 0;
   }
+
+  :deep(.el-tabs__item) {
+    color: $text-muted;
+
+    &.is-active {
+      color: $brand-start;
+    }
+  }
+
+  :deep(.el-tabs__active-bar) {
+    background: $gradient-brand;
+  }
+}
+
+.draft-count {
+  font-size: 13px;
+  color: $text-muted;
+  margin-left: 12px;
 }
 
 .empty-state {

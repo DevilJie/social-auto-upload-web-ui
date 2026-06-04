@@ -38,35 +38,19 @@
           <VideoTimeline :frames="frames" :duration="videoDuration" :extracting="extracting" v-model="selectedSecond" @update:modelValue="onTimelineSelect" />
         </div>
 
-        <!-- Upload button -->
+        <!-- Upload + Material Library buttons -->
         <div class="editor-actions">
-          <el-button size="small" @click="triggerLocalUpload">
-            <el-icon><Upload /></el-icon> 上传图片
-          </el-button>
+          <button class="action-btn action-upload" @click="triggerLocalUpload">
+            <el-icon :size="18"><Upload /></el-icon>
+            <span>上传图片</span>
+          </button>
+          <button class="action-btn action-material" @click="materialSelectRef?.open()">
+            <el-icon :size="18"><PictureFilled /></el-icon>
+            <span>素材库</span>
+          </button>
         </div>
         <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
-      </div>
-
-      <!-- Material library sidebar -->
-      <div class="editor-sidebar">
-        <div class="sidebar-header">
-          <span class="sidebar-title">素材库</span>
-          <span class="sidebar-count">{{ imageMaterials.length }}</span>
-        </div>
-        <div class="sidebar-scroll">
-          <div class="sidebar-grid" v-if="imageMaterials.length > 0">
-            <div v-for="mat in imageMaterials" :key="mat.id" class="sidebar-thumb" @click="onMaterialClick(mat)">
-              <img :src="getMaterialUrl(mat)" :alt="mat.filename" />
-              <div class="thumb-overlay">
-                <el-icon :size="12"><Check /></el-icon>
-              </div>
-            </div>
-          </div>
-          <div v-else class="sidebar-empty">
-            <el-icon :size="20"><Picture /></el-icon>
-            <span>暂无图片素材</span>
-          </div>
-        </div>
+        <MaterialSelectDialog ref="materialSelectRef" filter-type="image" @select="onMaterialSelect" />
       </div>
     </div>
 
@@ -84,18 +68,18 @@
 <script setup>
 import { ref, reactive, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Upload, Picture, Check } from '@element-plus/icons-vue'
-import { http } from '@/utils/request'
-import { materialApi } from '@/api/material'
+import { Upload, Picture, PictureFilled, Check } from '@element-plus/icons-vue'
+import { materialsApi } from '@/api/materials'
+import { getFileUrl } from '@/utils/storage'
 import { frameApi } from '@/api/frame'
 import VideoTimeline from './VideoTimeline.vue'
+import MaterialSelectDialog from './MaterialSelectDialog.vue'
 
 const props = defineProps({
   videoLandscape: { type: Object, default: null },
   videoPortrait: { type: Object, default: null },
   coverLandscape: { type: Object, default: null },
   coverPortrait: { type: Object, default: null },
-  materials: { type: Array, default: () => [] },
   portraitRatio: { type: String, default: '9:16' },
   landscapeRatio: { type: String, default: '16:9' },
 })
@@ -114,6 +98,7 @@ let pollingTimer = null
 const cropCanvasRef = ref(null)
 const canvasWrapRef = ref(null)
 const fileInputRef = ref(null)
+const materialSelectRef = ref(null)
 const cropImage = ref(null)
 const currentImageSrc = ref('')
 const cropDisplayScale = ref(1)
@@ -123,11 +108,6 @@ const cropDragState = ref(null)
 const tabState = reactive({
   landscape: { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } },
   portrait: { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } },
-})
-
-const imageMaterials = computed(() => {
-  const imgExts = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-  return props.materials.filter(m => imgExts.some(ext => m.filename.toLowerCase().endsWith(ext)))
 })
 
 const currentRatioLabel = computed(() => activeTab.value === 'portrait' ? props.portraitRatio : props.landscapeRatio)
@@ -144,10 +124,6 @@ const cropSelectionStyle = computed(() => ({
   height: cropRect.h * cropDisplayScale.value + 'px',
 }))
 
-function getMaterialUrl(mat) {
-  return materialApi.getMaterialPreviewUrl(mat.file_path.split('/').pop())
-}
-
 function open(tab = 'landscape') {
   activeTab.value = tab
   visible.value = true
@@ -155,25 +131,25 @@ function open(tab = 'landscape') {
   loadTabState()
 }
 
-function currentVideoPath() {
+function currentVideoMaterialId() {
   if (activeTab.value === 'landscape') {
-    return props.videoLandscape?.path || props.videoPortrait?.path || ''
+    return props.videoLandscape?.id || props.videoPortrait?.id || ''
   }
-  return props.videoPortrait?.path || props.videoLandscape?.path || ''
+  return props.videoPortrait?.id || props.videoLandscape?.id || ''
 }
 
 async function loadFrames() {
-  const videoPath = currentVideoPath()
-  if (!videoPath) return
+  const materialId = currentVideoMaterialId()
+  if (!materialId) return
   stopPolling()
   try {
     extracting.value = true
-    const resp = await frameApi.extractFrames(videoPath)
+    const resp = await frameApi.extractFrames(materialId)
     if (resp.data) {
       frames.value = resp.data.frames || []
       videoDuration.value = resp.data.duration || 0
       if (resp.data.status === 'processing') {
-        startPolling(videoPath)
+        startPolling(materialId)
       } else {
         extracting.value = false
       }
@@ -183,10 +159,10 @@ async function loadFrames() {
   }
 }
 
-function startPolling(videoPath) {
+function startPolling(materialId) {
   pollingTimer = setInterval(async () => {
     try {
-      const resp = await frameApi.getFrames(videoPath)
+      const resp = await frameApi.getFrames(materialId)
       if (resp.data) {
         frames.value = resp.data.frames || []
         videoDuration.value = resp.data.duration || 0
@@ -219,9 +195,9 @@ function loadTabState() {
     if (cover?.url) {
       let src = cover.url
       if (cover._fromFrame !== undefined) {
-        const videoPath = currentVideoPath()
-        if (videoPath) {
-          src = frameApi.getFrameImageUrl(videoPath, cover._fromFrame, false)
+        const materialId = currentVideoMaterialId()
+        if (materialId) {
+          src = frameApi.getFrameImageUrl(materialId, cover._fromFrame, false)
         }
       }
       currentImageSrc.value = src
@@ -282,14 +258,14 @@ function initCropCanvas(img) {
 }
 
 function onTimelineSelect(seconds) {
-  const videoPath = currentVideoPath()
-  const url = frameApi.getFrameImageUrl(videoPath, seconds, false)
+  const materialId = currentVideoMaterialId()
+  const url = frameApi.getFrameImageUrl(materialId, seconds, false)
   currentImageSrc.value = url
   loadImageToCanvas(url)
 }
 
-function onMaterialClick(mat) {
-  const url = getMaterialUrl(mat)
+function onMaterialSelect(material) {
+  const url = material.url || getFileUrl(material.stored_path)
   currentImageSrc.value = url
   loadImageToCanvas(url)
 }
@@ -404,11 +380,10 @@ async function confirmCrop() {
   const formData = new FormData()
   formData.append('file', blob, `cover_${activeTab.value}_${Date.now()}.jpg`)
   try {
-    const resp = await http.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    const resp = await materialsApi.upload(formData)
     if (resp.code === 200) {
-      const filePath = resp.data.filepath || resp.data
-      const filename = filePath.split('/').pop()
-      const coverData = { name: `cover_${activeTab.value}.jpg`, url: materialApi.getMaterialPreviewUrl(filename), path: filePath, size: blob.size, type: 'image/jpeg' }
+      const d = resp.data
+      const coverData = { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
       if (activeTab.value === 'portrait') emit('update:coverPortrait', coverData)
       else emit('update:coverLandscape', coverData)
       ElMessage.success('封面设置成功')
@@ -586,111 +561,48 @@ defineExpose({ open })
 
 .editor-actions {
   display: flex;
-  gap: 8px;
-
-  :deep(.el-button) {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: $border;
-    color: $text-secondary;
-
-    &:hover {
-      border-color: $border-active;
-      color: $brand-start;
-      background: rgba($brand-start, 0.06);
-    }
-  }
+  gap: 12px;
 }
 
-// ===== Sidebar =====
-.editor-sidebar {
-  width: 160px;
-  flex-shrink: 0;
-  border-left: 1px solid $border;
-  margin-left: 20px;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-header {
-  display: flex;
+.action-btn {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  .sidebar-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: $text-secondary;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .sidebar-count {
-    font-size: 10px;
-    color: $text-muted;
-    background: rgba(255, 255, 255, 0.06);
-    padding: 1px 6px;
-    border-radius: 8px;
-  }
-}
-
-.sidebar-scroll {
-  flex: 1;
-  overflow-y: auto;
-  max-height: 420px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
-  &::-webkit-scrollbar { width: 3px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
-}
-
-.sidebar-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.sidebar-thumb {
-  aspect-ratio: 1;
-  border-radius: 6px;
-  overflow: hidden;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 1px solid $border;
+  background: rgba(255, 255, 255, 0.04);
+  color: $text-secondary;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  border: 2px solid transparent;
-  transition: $transition-fast;
-  position: relative;
-
-  img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-  .thumb-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba($brand-start, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
+  transition: all 0.2s ease;
 
   &:hover {
-    border-color: rgba($brand-start, 0.5);
-    .thumb-overlay { opacity: 1; }
+    border-color: $border-active;
+    color: $text-primary;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .el-icon {
+    font-size: 18px;
   }
 }
 
-.sidebar-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  color: $text-muted;
-  font-size: 12px;
-  padding: 30px 0;
-  text-align: center;
+.action-upload {
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.4);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
-  .el-icon { opacity: 0.25; }
+.action-material {
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.4);
+    background: rgba($brand-start, 0.08);
+  }
 }
 
 // ===== Footer =====

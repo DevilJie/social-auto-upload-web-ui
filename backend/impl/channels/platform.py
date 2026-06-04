@@ -18,7 +18,7 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("channels")
 
-from .._browser import create_browser_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_tencent_profile
 from ..base_platform import BasePlatform
 
@@ -350,39 +350,64 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
             await asyncio.sleep(2)
 
 
-async def _set_thumbnail(page, thumbnail_path: str | None) -> None:
+async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_path: str | None = None, thumbnail_portrait_path: str | None = None) -> None:
     """Set the video cover/thumbnail (5-step flow).
 
     Steps:
-    1. Click the cover entry in the upload form.
-    2. Wait for the cover-edit dialog.
-    3. Upload the cover image file.
-    4. Handle the crop dialog if it appears.
-    5. Confirm the cover selection.
+    1. Check for cover preview area, then determine which cover type is visible.
+    2. Click the cover entry (vertical 3:4 or horizontal 4:3).
+    3. Wait for the cover-edit dialog.
+    4. Upload the cover image file.
+    5. Handle the crop dialog if it appears.
+    6. Confirm the cover selection.
     """
-    if not thumbnail_path:
+    if not thumbnail_path and not thumbnail_landscape_path and not thumbnail_portrait_path:
         return
 
     logger.info("[channels] setting cover image")
 
-    # Step 1: click cover entry
+    # Step 1: check if cover preview area exists, then find visible cover type
+    cover_preview = page.locator('div:has(> .label):has-text("封面预览")').first
+    has_cover_preview = False
+    try:
+        if await cover_preview.count():
+            await cover_preview.wait_for(state="visible", timeout=5000)
+            has_cover_preview = True
+            logger.info("[channels] found cover preview area")
+    except Exception:
+        logger.info("[channels] no cover preview area found, trying direct cover detection")
+
+    # Step 2: click cover entry - try vertical first, then horizontal
     cover_entry_selectors = [
-        'div.vertical-cover-wrap:has-text("个人主页卡片"):has-text("3:4")',
-        'div.vertical-cover-wrap:has-text("3:4")',
-        'div.vertical-cover-wrap:has-text("个人主页卡片")',
-        "div.vertical-cover-wrap",
+        # Vertical cover (个人主页卡片, 3:4)
+        ('div.vertical-cover-wrap', 'vertical'),
+        # Horizontal cover (分享卡片, 4:3)
+        ('div.horizon-cover-wrap', 'horizontal'),
     ]
     entry_clicked = False
-    for selector in cover_entry_selectors:
+    cover_type = None
+    for selector, ctype in cover_entry_selectors:
         cover_entry = page.locator(selector).first
         try:
             if not await cover_entry.count():
                 continue
             await cover_entry.wait_for(state="visible", timeout=3000)
             await cover_entry.click()
+
+            # 视频上传中时，点击编辑会弹出提示"文件上传中，请等待完成后再编辑"
+            # 循环等待直到点击后不再出现该提示
+            popover = page.locator('div.weui-desktop-popover__desc:has-text("文件上传中")')
+            for attempt in range(60):
+                if not await popover.count():
+                    break
+                logger.info(f"[channels] 封面编辑等待视频上传完成... ({attempt + 1}s)")
+                await page.wait_for_timeout(1000)
+                await cover_entry.click()
+
             await page.wait_for_timeout(500)
-            logger.info(f"[channels] cover entry clicked: {selector}")
+            logger.info(f"[channels] cover entry clicked: {selector} ({ctype})")
             entry_clicked = True
+            cover_type = ctype
             break
         except Exception:
             continue
@@ -391,7 +416,17 @@ async def _set_thumbnail(page, thumbnail_path: str | None) -> None:
         logger.info("[channels] WARNING: no cover entry found, skipping cover")
         return
 
-    # Step 2: wait for cover dialog
+    # Determine which thumbnail to use based on cover type
+    effective_thumbnail = thumbnail_path
+    if cover_type == 'horizontal' and thumbnail_landscape_path:
+        effective_thumbnail = thumbnail_landscape_path
+    elif cover_type == 'vertical' and thumbnail_portrait_path:
+        effective_thumbnail = thumbnail_portrait_path
+    if not effective_thumbnail:
+        logger.info(f"[channels] no thumbnail for {cover_type} cover, skipping")
+        return
+
+    # Step 3: wait for cover dialog
     await page.wait_for_timeout(1500)
     cover_dialog_selectors = [
         ("div.weui-desktop-dialog", "编辑个人主页卡片"),
@@ -423,7 +458,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None) -> None:
         logger.info("[channels] WARNING: cover dialog not found, skipping cover")
         return
 
-    # Step 3: upload cover file
+    # Step 4: upload cover file
     file_input_selectors = [
         '.single-cover-uploader-wrap input[type="file"]',
         'input[type="file"][accept*="image"]',
@@ -453,11 +488,11 @@ async def _set_thumbnail(page, thumbnail_path: str | None) -> None:
             return
 
     await file_input.wait_for(state="attached", timeout=10000)
-    logger.info(f"[channels] uploading cover: {thumbnail_path}")
-    await file_input.set_input_files(thumbnail_path)
+    logger.info(f"[channels] uploading cover ({cover_type}): {effective_thumbnail}")
+    await file_input.set_input_files(effective_thumbnail)
     await page.wait_for_timeout(2000)
 
-    # Step 4: handle crop dialog
+    # Step 5: handle crop dialog
     crop_dialog = page.locator("div.weui-desktop-dialog").filter(
         has_text="裁剪封面图"
     ).first
@@ -482,7 +517,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None) -> None:
         except Exception as exc:
             logger.info(f"[channels] WARNING: crop confirm error: {exc}")
 
-    # Step 5: confirm cover dialog
+    # Step 6: confirm cover dialog
     confirmed = False
     for selector in (
         'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确认")',
@@ -594,6 +629,7 @@ class ChannelsPlatform(BasePlatform):
         post-login flow via ``save_login_result``.
         """
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
             page = await context.new_page()
@@ -608,11 +644,10 @@ class ChannelsPlatform(BasePlatform):
             }))
             logger.info("[channels] QR code ready, waiting for scan")
 
-            # Poll for login completion
+            # Poll for login completion（无限等，浏览器由用户自己关）
             poll_interval = 3
-            max_checks = 100
             scanned_logged = False
-            for _ in range(max_checks):
+            while True:
                 if await _is_login_completed(page):
                     logger.info(f"[channels] login successful, redirected to: {page.url}")
                     await asyncio.sleep(2)
@@ -625,6 +660,7 @@ class ChannelsPlatform(BasePlatform):
                         scrape_fn=scrape_tencent_profile,
                         account_id=account_id,
                     )
+                    success = True
                     return
 
                 if not scanned_logged and await _is_qrcode_scanned(page):
@@ -645,12 +681,6 @@ class ChannelsPlatform(BasePlatform):
                         pass
 
                 await asyncio.sleep(poll_interval)
-
-            # Timeout
-            status_queue.put(json.dumps({
-                "status": "failed",
-                "message": "视频号扫码登录超时",
-            }))
         except Exception as exc:
             logger.info(f"[channels] login error: {exc}")
             status_queue.put(json.dumps({
@@ -659,13 +689,16 @@ class ChannelsPlatform(BasePlatform):
             }))
         finally:
             try:
+                # 释放 context 资源
                 await context.close()
             except Exception:
                 pass
-            try:
-                await browser.close()
-            except Exception:
-                pass
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # check_cookie — open upload URL, look for login markers
@@ -783,7 +816,7 @@ class ChannelsPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:
@@ -809,7 +842,7 @@ class ChannelsPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*str*, optional) -- original declaration category
@@ -819,6 +852,8 @@ class ChannelsPlatform(BasePlatform):
         - ``start_days`` (*int*, optional)
         - ``is_draft`` (*bool*, optional)
         - ``thumbnail_path`` (*str*, optional) -- cover image
+        - ``thumbnail_landscape_path`` (*str*, optional) -- landscape cover (4:3)
+        - ``thumbnail_portrait_path`` (*str*, optional) -- portrait cover (3:4)
         - ``desc`` (*str*, optional)
         - ``schedule_time_str`` (*str*, optional)
         """
@@ -833,16 +868,24 @@ class ChannelsPlatform(BasePlatform):
         start_days = kwargs.get("start_days", 0)
         is_draft = kwargs.get("is_draft", False)
         thumbnail_path = kwargs.get("thumbnail_path")
+        thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path")
+        thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path")
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
 
         # Resolve file paths
-        resolved_files = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        resolved_files = [str(f) for f in files]
         resolved_accounts = [
             str(Path(BASE_DIR / "cookiesFile" / a)) for a in account_files
         ]
         if thumbnail_path:
-            thumbnail_path = str(Path(BASE_DIR / "videoFile" / thumbnail_path))
+            # thumbnail_path 已是绝对路径
+            thumbnail_path = str(thumbnail_path)
+        if thumbnail_landscape_path:
+            thumbnail_landscape_path = str(thumbnail_landscape_path)
+        if thumbnail_portrait_path:
+            thumbnail_portrait_path = str(thumbnail_portrait_path)
 
         publish_datetimes = parse_schedule_time(
             schedule_time_str,
@@ -892,7 +935,7 @@ class ChannelsPlatform(BasePlatform):
                         await _wait_for_upload_complete(page, file_path)
 
                         # Set cover image
-                        await _set_thumbnail(page, thumbnail_path)
+                        await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
 
                         # Set schedule if needed
                         if enable_timer and publish_date != 0:

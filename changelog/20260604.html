@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>更新日志 20260604 · 千帆云递 · QianFan Sync</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-0: #0B0F1A;
+      --bg-1: #111726;
+      --bg-2: #1A2236;
+      --line: rgba(255, 255, 255, 0.08);
+      --line-strong: rgba(255, 255, 255, 0.18);
+      --text: #E8ECF4;
+      --text-mute: #8A93A6;
+      --text-dim: #5C6577;
+
+      --ink: #D6D3C8;
+      --ink-2: #A8A29E;
+      --amber: #F59E0B;
+      --amber-2: #D97706;
+      --indigo: #6366F1;
+      --emerald: #10B981;
+      --rose: #F43F5E;
+      --cyan: #06B6D4;
+      --violet: #8B5CF6;
+      --pink: #EC4899;
+
+      --grad-amber: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+      --grad-indigo: linear-gradient(135deg, #818CF8 0%, #6366F1 100%);
+      --grad-emerald: linear-gradient(135deg, #34D399 0%, #10B981 100%);
+      --grad-rose: linear-gradient(135deg, #FB7185 0%, #F43F5E 100%);
+      --grad-cyan: linear-gradient(135deg, #22D3EE 0%, #06B6D4 100%);
+      --grad-violet: linear-gradient(135deg, #A78BFA 0%, #8B5CF6 100%);
+      --grad-pink: linear-gradient(135deg, #F472B6 0%, #EC4899 100%);
+    }
+
+    html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-0);
+      color: var(--text);
+      line-height: 1.55;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      background-image:
+        radial-gradient(at 8% 0%, rgba(245, 158, 11, 0.08) 0px, transparent 50%),
+        radial-gradient(at 92% 100%, rgba(99, 102, 241, 0.08) 0px, transparent 50%);
+    }
+
+    /* ---------- Top Bar ---------- */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 18px 32px;
+      display: flex; justify-content: space-between; align-items: center;
+      backdrop-filter: blur(20px);
+      background: rgba(11, 15, 26, 0.55);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 14px; letter-spacing: 0.04em; }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--grad-amber);
+      display: grid; place-items: center; color: #111;
+    }
+    .brand-tag { color: var(--text-mute); font-weight: 400; }
+    .topbar-meta { display: flex; align-items: center; gap: 18px; font-size: 12px; color: var(--text-mute); }
+    .topbar-meta b { color: var(--text); font-weight: 600; }
+
+    /* ---------- Side dots ---------- */
+    .sidenav {
+      position: fixed; right: 28px; top: 50%; transform: translateY(-50%); z-index: 90;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .sidenav-item {
+      display: flex; align-items: center; gap: 10px; cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .sidenav-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      transition: all 0.3s ease;
+    }
+    .sidenav-label {
+      font-size: 11px; color: var(--text-dim); opacity: 0;
+      transform: translateX(6px);
+      transition: all 0.3s ease;
+      white-space: nowrap; font-weight: 500; letter-spacing: 0.04em;
+    }
+    .sidenav-item:hover .sidenav-dot { background: rgba(255, 255, 255, 0.5); transform: scale(1.3); }
+    .sidenav-item:hover .sidenav-label { opacity: 1; transform: translateX(0); color: var(--text); }
+    .sidenav-item.active .sidenav-dot { background: var(--amber); transform: scale(1.5); box-shadow: 0 0 12px rgba(245, 158, 11, 0.6); }
+    .sidenav-item.active .sidenav-label { opacity: 1; color: var(--amber); }
+
+    /* ---------- Slide base ---------- */
+    .slide {
+      min-height: 100vh;
+      padding: 110px 8vw 80px;
+      scroll-snap-align: start;
+      display: flex; flex-direction: column; justify-content: center;
+      position: relative;
+    }
+    .slide-num {
+      position: absolute; top: 90px; right: 8vw;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--text-dim);
+      letter-spacing: 0.15em;
+    }
+    .slide-num b { color: var(--amber); font-weight: 600; }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--amber); margin-bottom: 18px;
+    }
+    .eyebrow::before { content: ''; width: 28px; height: 1px; background: var(--amber); }
+
+    h1.title {
+      font-size: clamp(40px, 5.5vw, 76px);
+      line-height: 1.05; font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 18px;
+    }
+    h2.title {
+      font-size: clamp(32px, 4vw, 56px);
+      line-height: 1.1; font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    .title em {
+      font-style: normal;
+      background: var(--grad-amber);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .lede {
+      font-size: clamp(15px, 1.4vw, 18px);
+      color: var(--text-mute);
+      max-width: 720px;
+    }
+
+    /* ---------- Slide 1: Cover ---------- */
+    .cover { align-items: flex-start; }
+    .cover-stamp {
+      display: flex; align-items: center; gap: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; color: var(--text-mute);
+      padding: 6px 14px; border: 1px solid var(--line-strong);
+      border-radius: 999px; margin-bottom: 24px;
+    }
+    .cover-stamp .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--emerald); box-shadow: 0 0 10px var(--emerald); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
+
+    .cover-meta {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px; margin-top: 56px; max-width: 920px; width: 100%;
+    }
+    .meta-card {
+      padding: 22px 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      transition: all 0.3s ease;
+    }
+    .meta-card:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+    .meta-card .icon { width: 32px; height: 32px; margin-bottom: 14px; }
+    .meta-card .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 32px; font-weight: 700; color: var(--text); letter-spacing: -0.02em;
+    }
+    .meta-card .label { font-size: 13px; color: var(--text-mute); margin-top: 2px; }
+
+    .scroll-hint {
+      position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      font-size: 11px; color: var(--text-dim); letter-spacing: 0.2em; text-transform: uppercase;
+    }
+    .scroll-hint .line {
+      width: 1px; height: 36px; background: linear-gradient(180deg, var(--amber) 0%, transparent 100%);
+      animation: scrollLine 1.6s ease-in-out infinite;
+    }
+    @keyframes scrollLine { 0% { transform: scaleY(0); transform-origin: top } 50% { transform: scaleY(1); transform-origin: top } 100% { transform: scaleY(0); transform-origin: bottom } }
+
+    /* ---------- Section 2: Highlights ---------- */
+    .highlight-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 16px; margin-top: 40px;
+    }
+    .h-card {
+      padding: 24px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      position: relative; overflow: hidden;
+      transition: all 0.35s ease;
+    }
+    .h-card::before {
+      content: ''; position: absolute; inset: 0;
+      background: var(--card-grad, var(--grad-amber));
+      opacity: 0; transition: opacity 0.4s ease;
+      pointer-events: none;
+    }
+    .h-card:hover { transform: translateY(-3px); border-color: var(--line-strong); }
+    .h-card:hover::before { opacity: 0.06; }
+    .h-card .icon-wrap {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: grid; place-items: center;
+      background: var(--card-grad, var(--grad-amber));
+      margin-bottom: 16px;
+    }
+    .h-card h3 { font-size: 17px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.01em; }
+    .h-card p { font-size: 13.5px; color: var(--text-mute); line-height: 1.55; }
+    .h-card .tag {
+      display: inline-block; font-size: 11px; font-family: 'JetBrains Mono', monospace;
+      color: var(--amber); margin-top: 14px; letter-spacing: 0.05em;
+    }
+
+    /* ---------- Generic two-col layouts ---------- */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; margin-top: 40px; }
+    .split.reverse > :first-child { order: 2; }
+
+    .feature-list { list-style: none; display: flex; flex-direction: column; gap: 16px; }
+    .feature-list li {
+      display: flex; gap: 14px; align-items: flex-start;
+      padding: 14px 16px; border-radius: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--line);
+      transition: all 0.25s ease;
+    }
+    .feature-list li:hover { background: rgba(255, 255, 255, 0.04); border-color: var(--line-strong); }
+    .feature-list .ico {
+      flex: 0 0 28px; width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center;
+    }
+    .feature-list .body { flex: 1; }
+    .feature-list .body h4 { font-size: 14.5px; font-weight: 600; margin-bottom: 2px; }
+    .feature-list .body p { font-size: 12.5px; color: var(--text-mute); line-height: 1.5; }
+
+    /* ---------- Diagram / Architecture ---------- */
+    .diagram {
+      padding: 28px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+    }
+    .diagram .layer {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 12px 14px; border-radius: 10px;
+      background: rgba(255,255,255,0.02);
+      margin-bottom: 8px;
+      transition: all 0.25s ease;
+    }
+    .diagram .layer:hover { background: rgba(255,255,255,0.05); }
+    .diagram .layer .pill {
+      display: inline-block; padding: 3px 9px; border-radius: 6px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    }
+    .diagram .layer .arrow { color: var(--text-dim); }
+    .diagram .layer-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .diagram .layer-row .pill { background: var(--bg-2); color: var(--text); }
+
+    /* ---------- Stats / metrics row ---------- */
+    .stats-row {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .stat {
+      padding: 18px 20px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .stat .v {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+    }
+    .stat .l { font-size: 12.5px; color: var(--text-mute); margin-top: 2px; }
+
+    /* ---------- Platform grid ---------- */
+    .platform-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .plat-card {
+      padding: 22px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    .plat-card:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+    .plat-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .plat-logo {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: grid; place-items: center;
+      background: var(--bg-2);
+      flex: 0 0 36px;
+    }
+    .plat-name { font-size: 15px; font-weight: 600; }
+    .plat-sub { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+    .plat-items { display: flex; flex-direction: column; gap: 8px; }
+    .plat-items li {
+      list-style: none; display: flex; align-items: flex-start; gap: 8px;
+      font-size: 12.5px; color: var(--text-mute); line-height: 1.5;
+    }
+    .plat-items li svg { flex: 0 0 14px; margin-top: 4px; color: var(--emerald); }
+    .plat-items { padding: 0; }
+
+    /* ---------- Timeline / commit strip ---------- */
+    .commit-strip {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      gap: 8px; margin-top: 36px;
+    }
+    .commit-cell {
+      padding: 14px 12px; border-radius: 10px;
+      background: var(--bg-1); border: 1px solid var(--line);
+      transition: all 0.25s ease;
+    }
+    .commit-cell:hover { border-color: var(--line-strong); }
+    .commit-cell .n { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; }
+    .commit-cell .t { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+    .commit-cell .pct {
+      height: 3px; border-radius: 2px; margin-top: 10px;
+      background: var(--cell-color, var(--amber));
+    }
+
+    /* ---------- Modules grid (MCP) ---------- */
+    .modules-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 14px; margin-top: 36px;
+    }
+    .mod-card {
+      padding: 18px 18px 20px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    .mod-card:hover { border-color: var(--line-strong); transform: translateY(-2px); }
+    .mod-card .top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .mod-card .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px; padding: 2px 7px; border-radius: 4px;
+      background: rgba(245, 158, 11, 0.15); color: var(--amber);
+      letter-spacing: 0.04em;
+    }
+    .mod-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .mod-card .desc { font-size: 12px; color: var(--text-mute); line-height: 1.5; margin-bottom: 10px; }
+    .mod-card .tools {
+      display: flex; gap: 6px; flex-wrap: wrap;
+      font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+    }
+    .mod-card .tools span {
+      padding: 2px 6px; border-radius: 4px;
+      background: rgba(255,255,255,0.04); color: var(--text-mute);
+    }
+
+    /* ---------- Workflow / process steps ---------- */
+    .workflow {
+      display: grid; grid-template-columns: repeat(5, 1fr);
+      gap: 0; margin-top: 40px; position: relative;
+    }
+    .wf-step {
+      padding: 0 14px; position: relative;
+    }
+    .wf-step:not(:last-child)::after {
+      content: ''; position: absolute; right: 0; top: 18px; width: 14px; height: 1px;
+      background: var(--line-strong);
+    }
+    .wf-step .num {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: grid; place-items: center;
+      background: var(--bg-1); border: 1px solid var(--line-strong);
+      font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600;
+      color: var(--amber); margin-bottom: 12px;
+    }
+    .wf-step h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .wf-step p { font-size: 12px; color: var(--text-mute); line-height: 1.5; }
+
+    /* ---------- Quote / pull-out ---------- */
+    .pull-out {
+      margin-top: 32px; padding: 24px 28px;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.06) 0%, rgba(99, 102, 241, 0.04) 100%);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--amber);
+      border-radius: 4px 14px 14px 4px;
+    }
+    .pull-out p { font-size: 15px; color: var(--text); line-height: 1.6; max-width: 720px; }
+    .pull-out .cite { display: block; font-size: 12px; color: var(--text-dim); margin-top: 10px; font-family: 'JetBrains Mono', monospace; }
+
+    /* ---------- Footer of each slide ---------- */
+    .slide-foot {
+      position: absolute; bottom: 24px; left: 8vw;
+      font-size: 11px; color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em;
+    }
+
+    /* ---------- End slide ---------- */
+    .end {
+      align-items: center; text-align: center;
+    }
+    .end .big {
+      font-size: clamp(56px, 9vw, 140px);
+      font-weight: 800; letter-spacing: -0.04em;
+      background: var(--grad-amber);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1; margin-bottom: 24px;
+    }
+    .end p { max-width: 540px; color: var(--text-mute); font-size: 15px; }
+
+    .end-actions { display: flex; gap: 16px; margin-top: 40px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 22px; border-radius: 10px;
+      font-size: 14px; font-weight: 500; cursor: pointer;
+      transition: all 0.25s ease;
+      border: 1px solid var(--line-strong);
+      color: var(--text);
+      background: transparent;
+    }
+    .btn:hover { background: rgba(255,255,255,0.05); transform: translateY(-1px); }
+    .btn.primary { background: var(--grad-amber); color: #111; border: none; }
+    .btn.primary:hover { box-shadow: 0 8px 24px -8px rgba(245, 158, 11, 0.5); }
+
+    @media (max-width: 980px) {
+      .split { grid-template-columns: 1fr; gap: 32px; }
+      .split.reverse > :first-child { order: 0; }
+      .highlight-grid, .platform-grid { grid-template-columns: repeat(2, 1fr); }
+      .modules-grid { grid-template-columns: repeat(2, 1fr); }
+      .stats-row, .commit-strip { grid-template-columns: repeat(2, 1fr); }
+      .workflow { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+      .wf-step:not(:last-child)::after { display: none; }
+      .cover-meta { grid-template-columns: repeat(2, 1fr); }
+      .sidenav { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+      </span>
+      千帆云递 · QianFan Sync
+      <span class="brand-tag">/ Changelog</span>
+    </div>
+    <div class="topbar-meta">
+      <span>分支 <b>feature/20260527-1</b></span>
+      <span>基线 <b>ui2</b></span>
+      <span style="color: var(--amber);">· 2026.06.04</span>
+    </div>
+  </header>
+
+  <!-- ===== SIDE NAV ===== -->
+  <nav class="sidenav" id="sidenav"></nav>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 1: COVER                                      -->
+  <!-- =================================================== -->
+  <section class="slide cover" data-label="封面" data-short="01">
+    <div class="slide-num"><b>01</b> / 12</div>
+    <div class="cover-stamp">
+      <span class="dot"></span>
+      <span>v0.6.0 · RELEASE NOTES</span>
+    </div>
+    <h1 class="title">
+      一份迭代，<br />
+      一份<em>持续打磨</em>的承诺
+    </h1>
+    <p class="lede">
+      本次版本基于 feature/20260527-1 分支，相较 ui2 基线累计 579 次提交，覆盖 MCP 服务化、CloakBrowser 引擎统一、素材库统一存储、三平台图文发布、视频发布组件化重构、平台专项优化等多项关键能力。
+    </p>
+
+    <div class="cover-meta">
+      <div class="meta-card">
+        <div class="icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="6" r="2.5" />
+            <circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" />
+            <line x1="6" y1="8.5" x2="6" y2="15.5" /><line x1="8.5" y1="6" x2="15.5" y2="6" />
+            <line x1="18" y1="8.5" x2="18" y2="15.5" /><line x1="8.5" y1="18" x2="15.5" y2="18" />
+          </svg>
+        </div>
+        <div class="num">579</div>
+        <div class="label">累计提交数</div>
+      </div>
+      <div class="meta-card">
+        <div class="icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7h18M3 12h18M3 17h18" />
+            <circle cx="6" cy="7" r="1" fill="#10B981" stroke="none" />
+            <circle cx="12" cy="12" r="1" fill="#10B981" stroke="none" />
+            <circle cx="18" cy="17" r="1" fill="#10B981" stroke="none" />
+          </svg>
+        </div>
+        <div class="num">10</div>
+        <div class="label">支持平台</div>
+      </div>
+      <div class="meta-card">
+        <div class="icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="14" rx="2" />
+            <path d="M3 9h18" /><circle cx="6" cy="6.5" r="0.6" fill="#06B6D4" stroke="none" />
+            <circle cx="8" cy="6.5" r="0.6" fill="#06B6D4" stroke="none" />
+            <path d="M8 21h8M12 18v3" />
+          </svg>
+        </div>
+        <div class="num">22+</div>
+        <div class="label">MCP 工具</div>
+      </div>
+      <div class="meta-card">
+        <div class="icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <div class="num">3</div>
+        <div class="label">图文平台</div>
+      </div>
+    </div>
+
+    <div class="scroll-hint">
+      <span>SCROLL</span>
+      <div class="line"></div>
+    </div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 2: HIGHLIGHTS                                  -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="核心亮点" data-short="02">
+    <div class="slide-num"><b>02</b> / 12</div>
+    <div class="eyebrow">SECTION 02 · HIGHLIGHTS</div>
+    <h2 class="title">七大核心亮点</h2>
+    <p class="lede">从工具能力、引擎内核到素材体系，本期迭代让多平台发布工具向着「更稳、更智能、更易集成」的方向稳步前进。</p>
+
+    <div class="highlight-grid">
+      <div class="h-card" style="--card-grad: var(--grad-amber);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-9-9c2.4 0 4.6 1 6.3 2.6" />
+            <polyline points="21 3 21 9 15 9" />
+          </svg>
+        </div>
+        <h3>MCP 服务化</h3>
+        <p>22+ 工具覆盖账号、草稿、素材、发布、任务、系统设置全流程，可被 AI Agent 直接调度。</p>
+        <span class="tag">MCP · SSE · TOKEN</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-indigo);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+          </svg>
+        </div>
+        <h3>CloakBrowser 统一</h3>
+        <p>全平台浏览器调用收敛到统一入口；窗口可缩放、登录流程去超时，关闭浏览器即时失败。</p>
+        <span class="tag">BROWSER · STEALTH</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-emerald);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="5.5" rx="8" ry="2.5" />
+            <path d="M4 5.5v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" />
+            <path d="M4 11.5v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" />
+          </svg>
+        </div>
+        <h3>统一素材库存储</h3>
+        <p>抽象层 + LocalStorage + S3Storage 工厂模式落地；卡片视图、抽帧预览、视频内嵌播放齐备。</p>
+        <span class="tag">STORAGE · S3</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-rose);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+            <line x1="10" y1="6.5" x2="14" y2="6.5" /><line x1="6.5" y1="10" x2="6.5" y2="14" />
+          </svg>
+        </div>
+        <h3>三平台图文发布</h3>
+        <p>抖音、小红书、快手图文发布主流程全部落地：原创声明、定时发布、音乐、合集、热点一应俱全。</p>
+        <span class="tag">DOUYIN · XHS · KUAISHOU</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-cyan);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" />
+          </svg>
+        </div>
+        <h3>视频发布组件化重构</h3>
+        <p>渠道组件化 + useChannelForm 复用，消除重复代码；活动、热点、标签、合集抽象为数组传递。</p>
+        <span class="tag">COMPOSABLE · CHANNEL</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-violet);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+        </div>
+        <h3>草稿系统升级</h3>
+        <p>草稿箱页面 + 服务端存储 + 恢复兼容旧格式；添加/移除账号自动保存草稿。</p>
+        <span class="tag">DRAFT · RESTORE</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-pink);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+          </svg>
+        </div>
+        <h3>启动脚本与依赖</h3>
+        <p>start.bat / start.sh 全中文化、实时日志、PID 精准停服；CloakBrowser 启动前预初始化。</p>
+        <span class="tag">SCRIPT · CLI</span>
+      </div>
+    </div>
+
+    <div class="slide-foot">02 · HIGHLIGHTS</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 3: MCP SERVICE                                 -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="MCP 服务" data-short="03">
+    <div class="slide-num"><b>03</b> / 12</div>
+    <div class="eyebrow">SECTION 03 · MCP</div>
+    <h2 class="title">MCP 服务：从工具走向生态</h2>
+    <p class="lede">将「千帆云递」的全部能力暴露为 Model Context Protocol 工具，让任何 AI Agent 都能直接调度多平台发布、账号、素材、任务全链路。</p>
+
+    <div class="stats-row">
+      <div class="stat">
+        <div class="v" style="color: var(--amber);">22+</div>
+        <div class="l">MCP 工具</div>
+      </div>
+      <div class="stat">
+        <div class="v" style="color: var(--indigo);">6</div>
+        <div class="l">工具模块</div>
+      </div>
+      <div class="stat">
+        <div class="v" style="color: var(--emerald);">SSE</div>
+        <div class="l">流式任务通道</div>
+      </div>
+      <div class="stat">
+        <div class="v" style="color: var(--cyan);">Token</div>
+        <div class="l">认证鉴权</div>
+      </div>
+    </div>
+
+    <div class="modules-grid">
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+          </svg>
+          <span class="badge">accounts</span>
+        </div>
+        <h4>账号管理</h4>
+        <p class="desc">获取账号列表 / 单个账号 / 添加 / 删除 / 更新，账号级个性化配置同步。</p>
+        <div class="tools">
+          <span>get_accounts</span><span>get_account</span><span>account_add</span><span>account_update</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <span class="badge">drafts</span>
+        </div>
+        <h4>草稿箱</h4>
+        <p class="desc">草稿增删改查与更新接口，兼容旧格式迁移（topics → tags）。</p>
+        <div class="tools">
+          <span>draft_list</span><span>draft_get</span><span>draft_create</span><span>draft_update</span><span>draft_delete</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" />
+          </svg>
+          <span class="badge">materials</span>
+        </div>
+        <h4>素材管理</h4>
+        <p class="desc">列表 / 信息查询 / 下载三大动作，100 条上限透明告知。</p>
+        <div class="tools">
+          <span>material_list</span><span>material_get_info</span><span>material_download</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" />
+          </svg>
+          <span class="badge">publish</span>
+        </div>
+        <h4>发布能力</h4>
+        <p class="desc">视频发布接受 material_id / account_id / thumbnail_material_id，三个 lookup 并发执行。</p>
+        <div class="tools">
+          <span>video_publish</span><span>publish_extra</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 11 12 14 22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          <span class="badge">tasks</span>
+        </div>
+        <h4>任务管理</h4>
+        <p class="desc">队列、详情、SSE 流式状态，新增 5 个任务管理工具含 task_stream。</p>
+        <div class="tools">
+          <span>queue_status</span><span>task_get_status</span><span>task_stream</span><span>task_list</span><span>task_cancel</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3v18h18" /><path d="M7 14l4-4 4 4 5-5" />
+          </svg>
+          <span class="badge">history</span>
+        </div>
+        <h4>历史与统计</h4>
+        <p class="desc">发布历史、发布统计、队列状态一站式查询。</p>
+        <div class="tools">
+          <span>publish_history</span><span>publish_stats</span><span>queue_status</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span class="badge">settings</span>
+        </div>
+        <h4>系统设置</h4>
+        <p class="desc">引擎模式、存储配置、自动填充标题、文件存储后端切换。</p>
+        <div class="tools">
+          <span>settings_get</span><span>settings_update</span>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="top">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" /><line x1="9" y1="15" x2="15" y2="15" />
+          </svg>
+          <span class="badge">changelog</span>
+        </div>
+        <h4>更新日志</h4>
+        <p class="desc">对外暴露 changelog_list，供 Agent 查询版本历史。</p>
+        <div class="tools">
+          <span>changelog_list</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pull-out">
+      <p>底层基建：Token 认证模块 · HTTP 客户端 · 配置管理 · 错误码翻译层 · 统一 Flask 响应格式 · 调试日志体系 · 行为测试覆盖。</p>
+      <span class="cite">MCP transport 默认 SSE（stdio 不可作为后台 daemon）· login 接口超时延长至 5 分钟</span>
+    </div>
+
+    <div class="slide-foot">03 · MCP SERVICE</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 4: BROWSER ENGINE                              -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="浏览器引擎" data-short="04">
+    <div class="slide-num"><b>04</b> / 12</div>
+    <div class="eyebrow">SECTION 04 · BROWSER</div>
+    <h2 class="title">CloakBrowser 统一引擎</h2>
+    <p class="lede">所有平台的浏览器调用收敛到 CloakBrowser 工厂一处；从入口、配置到登录流程完成系统性治理。</p>
+
+    <div class="split">
+      <div>
+        <ul class="feature-list">
+          <li>
+            <div class="ico" style="background: var(--grad-amber);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <div class="body">
+              <h4>统一 cloakbrowser 入口</h4>
+              <p>消除全平台四处不一致的浏览器调用，全部走 CloakBrowser 工厂。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-indigo);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <div class="body">
+              <h4>窗口可缩放</h4>
+              <p>no_viewport=True，浏览器窗口自适应大小；视口统一 1920×1080。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-emerald);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <div class="body">
+              <h4>登录流程去超时</h4>
+              <p>扫码登录不再中途关浏览器；登录成功才自动关，失败/异常留着。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-rose);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <div class="body">
+              <h4>关闭浏览器即时失败</h4>
+              <p>用户关闭登录浏览器时立即判定登录失败，状态可被前端准确感知。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-cyan);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <div class="body">
+              <h4>代理仅对 TikTok / YouTube</h4>
+              <p>国内平台直连，仅海外平台走代理；同步清掉所有代理硬编码配置。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-violet);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <div class="body">
+              <h4>清理无用的旧代码</h4>
+              <p>删除所有浏览器相关的冗余实现，删除 vendor 与 Playwright/patchright 降级策略。</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="diagram">
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px; letter-spacing:0.1em;">// ARCHITECTURE</div>
+        <div class="layer">
+          <div class="layer-row">
+            <span class="pill" style="background: var(--grad-amber); color:#111;">Platform</span>
+            <span class="pill" style="background: rgba(99,102,241,0.15); color: var(--indigo);">Douyin</span>
+            <span class="pill" style="background: rgba(244,63,94,0.15); color: var(--rose);">Xiaohongshu</span>
+            <span class="pill" style="background: rgba(16,185,129,0.15); color: var(--emerald);">Kuaishou</span>
+            <span class="pill" style="background: rgba(6,182,212,0.15); color: var(--cyan);">Bilibili</span>
+            <span class="pill" style="background: rgba(139,92,246,0.15); color: var(--violet);">Tencent</span>
+            <span class="pill" style="background: rgba(245,158,11,0.15); color: var(--amber);">...</span>
+          </div>
+        </div>
+        <div class="layer">
+          <span class="arrow">↓ 统一调用</span>
+        </div>
+        <div class="layer">
+          <div class="layer-row">
+            <span class="pill" style="background: rgba(255,255,255,0.06); color: var(--text);">cloakbrowser.py</span>
+            <span class="arrow">→</span>
+            <span class="pill" style="background: rgba(255,255,255,0.06); color: var(--text);">_browser.py</span>
+          </div>
+        </div>
+        <div class="layer">
+          <span class="arrow">↓ 工厂模式</span>
+        </div>
+        <div class="layer">
+          <div class="layer-row">
+            <span class="pill" style="background: rgba(245,158,11,0.18); color: var(--amber);">CloakBrowser</span>
+            <span class="pill" style="background: rgba(255,255,255,0.04); color: var(--text-mute);">stealth chromium</span>
+          </div>
+        </div>
+        <div class="layer">
+          <span class="arrow">↓ 启动时</span>
+        </div>
+        <div class="layer">
+          <div class="layer-row">
+            <span class="pill" style="background: rgba(6,182,212,0.15); color: var(--cyan);">预初始化二进制</span>
+            <span class="pill" style="background: rgba(16,185,129,0.15); color: var(--emerald);">Tauri 打包</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="slide-foot">04 · BROWSER ENGINE</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 5: STORAGE                                     -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="素材存储" data-short="05">
+    <div class="slide-num"><b>05</b> / 12</div>
+    <div class="eyebrow">SECTION 05 · STORAGE</div>
+    <h2 class="title">素材库统一存储</h2>
+    <p class="lede">从抽象层、LocalStorage、S3Storage 到路由、UI、抽帧，全面落地一套可切换的素材后端。</p>
+
+    <div class="workflow">
+      <div class="wf-step">
+        <div class="num">01</div>
+        <h4>抽象层</h4>
+        <p>BaseStorage + LocalStorage + S3Storage + 工厂函数统一接口。</p>
+      </div>
+      <div class="wf-step">
+        <div class="num">02</div>
+        <h4>数据库</h4>
+        <p>新增 materials 表与统一素材路由 Blueprint；旧路由替换。</p>
+      </div>
+      <div class="wf-step">
+        <div class="num">03</div>
+        <h4>前端</h4>
+        <p>统一素材 API + URL 工具；删除旧 material.js，清理 store。</p>
+      </div>
+      <div class="wf-step">
+        <div class="num">04</div>
+        <h4>UI</h4>
+        <p>素材管理卡片视图、MaterialSelectDialog、视频内嵌预览、抽帧集成。</p>
+      </div>
+      <div class="wf-step">
+        <div class="num">05</div>
+        <h4>配置</h4>
+        <p>设置页新增文件存储配置区，运行时无缝切换 Local ↔ S3。</p>
+      </div>
+    </div>
+
+    <div class="stats-row" style="margin-top: 48px;">
+      <div class="stat">
+        <div class="v" style="color: var(--amber);">2</div>
+        <div class="l">后端实现 · Local / S3</div>
+      </div>
+      <div class="stat">
+        <div class="v" style="color: var(--indigo);">1</div>
+        <div class="l">统一抽象接口</div>
+      </div>
+      <div class="stat">
+        <div class="v" style="color: var(--emerald);">∞</div>
+        <div class="l">扩展存储后端能力</div>
+      </div>
+      <div class="stat">
+        <div class="v" style="color: var(--cyan);">1</div>
+        <div class="l">连接测试接口</div>
+      </div>
+    </div>
+
+    <div class="pull-out">
+      <p>S3Storage 内置本地路径回退，兼容旧素材库迁移过渡期；前端素材库选择器支持视频内嵌预览 + 抽帧弹窗，与编辑封面流程深度打通。</p>
+      <span class="cite">素材库重构：抽帧接口改用 material_id · CoverEditorDialog 改用 file_type 过滤图片素材 · 设置页 S3 连接测试</span>
+    </div>
+
+    <div class="slide-foot">05 · STORAGE</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 6: IMAGE PUBLISH                               -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="图文发布" data-short="06">
+    <div class="slide-num"><b>06</b> / 12</div>
+    <div class="eyebrow">SECTION 06 · IMAGE PUBLISH</div>
+    <h2 class="title">三平台图文发布</h2>
+    <p class="lede">抖音、小红书、快手三家图文发布主流程全面打通：原创声明、定时发布、音乐/封面、合集/热点、能力完整。</p>
+
+    <div class="platform-grid">
+      <div class="plat-card">
+        <div class="plat-head">
+          <div class="plat-logo" style="background: linear-gradient(135deg, #1f1f1f 0%, #2a2a2a 100%);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FE2C55" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" />
+            </svg>
+          </div>
+          <div>
+            <div class="plat-name">抖音图文</div>
+            <div class="plat-sub">platform_id · 3</div>
+          </div>
+        </div>
+        <ul class="plat-items">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> _upload_images 图片上传 + 进度日志 + 空列表防护</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> ImagePublishPanel 定时发布 / 原创声明 / AI 声明 / 内容类型</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> 音乐搜索改用浏览器拦截网络请求 + agw-auth 缓存</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> page.goto 改用 domcontentloaded + 60s 超时</li>
+        </ul>
+      </div>
+
+      <div class="plat-card">
+        <div class="plat-head">
+          <div class="plat-logo" style="background: linear-gradient(135deg, #FF2442 0%, #E0204A 100%);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" /><path d="M8 12h8M12 8v8" />
+            </svg>
+          </div>
+          <div>
+            <div class="plat-name">小红书图文</div>
+            <div class="plat-sub">platform_id · 1</div>
+          </div>
+        </div>
+        <ul class="plat-items">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> ImagePublishPanel 定时发布 / 原创声明 / 内容类型声明</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> _upload_images 多选择器 + 等待时间增加</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> 修复 isOriginal / aiContent / 定时四项验证</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> 渠道配置布局每行最多 4 个表单自适应</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> 反检测风险警告 + cookie 检测改为创作者首页</li>
+        </ul>
+      </div>
+
+      <div class="plat-card">
+        <div class="plat-head">
+          <div class="plat-logo" style="background: linear-gradient(135deg, #FF4906 0%, #FF6B2C 100%);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+          </div>
+          <div>
+            <div class="plat-name">快手图文</div>
+            <div class="plat-sub">platform_id · 4</div>
+          </div>
+        </div>
+        <ul class="plat-items">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> KuaishouImagePublishPanel 作者声明 / 定时 / 音乐</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> KuaishouMusicSelect 搜索控件 + 浏览器拦截</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> _set_image_cover / _set_image_music 静态方法</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> image_publish_bp 透传 author_declaration / music_id / music_title</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg> 音乐 / 封面上传 / 字段清理</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pull-out">
+      <p>图文发布系统统一：草稿封面兼容旧格式迁移 → cover_path 字段统一 → 草稿列表接口返回 image_ids / image_urls → 添加 / 移除账号时自动保存草稿。</p>
+      <span class="cite">添加跑马灯预览 · 放大预览对话框 · Element Plus 全局中文语言包 · 深色主题下拉框配色</span>
+    </div>
+
+    <div class="slide-foot">06 · IMAGE PUBLISH</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 7: VIDEO PUBLISH REFACTOR                      -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="视频发布" data-short="07">
+    <div class="slide-num"><b>07</b> / 12</div>
+    <div class="eyebrow">SECTION 07 · VIDEO</div>
+    <h2 class="title">视频发布统一化重构</h2>
+    <p class="lede">抽离共享组件、渠道组件化、字段统一为数组；消除图文 / 视频发布页面之间的重复代码。</p>
+
+    <div class="split reverse">
+      <div>
+        <ul class="feature-list">
+          <li>
+            <div class="ico" style="background: var(--grad-amber);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body">
+              <h4>useChannelForm composable</h4>
+              <p>提取共享逻辑，消除各渠道组件中的重复代码。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-indigo);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body">
+              <h4>activities + tags 数组传递</h4>
+              <p>视频发布所有平台添加通用标签输入；活动 / 热点 / 标签 / 合集复用图文子组件。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-emerald);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body">
+              <h4>抖音视频发布复用图文子组件</h4>
+              <p>tags 输入改用 insert_text；视频发布支持 activities 参数。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-rose);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body">
+              <h4>横版 / 竖版封面</h4>
+              <p>动态识别抖音封面弹窗的横版 / 竖版 tab 索引；仅发送与视频格式匹配的封面。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-cyan);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body">
+              <h4>B站移除冗余 settingsFields</h4>
+              <p>移除「声明与权益」功能，只保留创作声明；下拉选择改用内联 style 判定。</p>
+            </div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-violet);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body">
+              <h4>草稿数据所有权</h4>
+              <p>ImagePublish 脚本重构：数据所有权移入渠道组件；accountOverrides 深合并避免旧字段丢失。</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="diagram">
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:10px; letter-spacing:0.1em;">// VIDEO PUBLISH FLOW</div>
+        <div class="layer"><div class="layer-row">
+          <span class="pill" style="background: var(--grad-amber); color:#111;">Video</span>
+          <span class="pill" style="background: rgba(255,255,255,0.06); color: var(--text);">landscape</span>
+          <span class="pill" style="background: rgba(255,255,255,0.06); color: var(--text);">portrait</span>
+        </div></div>
+        <div class="layer"><span class="arrow">↓</span></div>
+        <div class="layer"><div class="layer-row">
+          <span class="pill" style="background: rgba(99,102,241,0.18); color: var(--indigo);">ChannelPanel</span>
+          <span class="pill" style="background: rgba(244,63,94,0.18); color: var(--rose);">DouyinVideo</span>
+          <span class="pill" style="background: rgba(16,185,129,0.18); color: var(--emerald);">KuaishouVideo</span>
+          <span class="pill" style="background: rgba(139,92,246,0.18); color: var(--violet);">XHSVideo</span>
+        </div></div>
+        <div class="layer"><span class="arrow">↓ 共享能力</span></div>
+        <div class="layer"><div class="layer-row">
+          <span class="pill" style="background: rgba(255,255,255,0.04); color: var(--text-mute);">ActivitySelect</span>
+          <span class="pill" style="background: rgba(255,255,255,0.04); color: var(--text-mute);">TagSelect</span>
+          <span class="pill" style="background: rgba(255,255,255,0.04); color: var(--text-mute);">MixSelect</span>
+          <span class="pill" style="background: rgba(255,255,255,0.04); color: var(--text-mute);">HotspotSelect</span>
+        </div></div>
+        <div class="layer"><span class="arrow">↓ 复用图文子组件</span></div>
+        <div class="layer"><div class="layer-row">
+          <span class="pill" style="background: rgba(6,182,212,0.15); color: var(--cyan);">useChannelForm</span>
+        </div></div>
+        <div class="layer"><span class="arrow">↓ 落盘</span></div>
+        <div class="layer"><div class="layer-row">
+          <span class="pill" style="background: rgba(245,158,11,0.15); color: var(--amber);">drafts table</span>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="slide-foot">07 · VIDEO REFACTOR</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 8: PLATFORM FIXES                              -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="平台专项" data-short="08">
+    <div class="slide-num"><b>08</b> / 12</div>
+    <div class="eyebrow">SECTION 08 · PLATFORMS</div>
+    <h2 class="title">10 个平台的细节打磨</h2>
+    <p class="lede">逐平台修复选择器、超时、字段同步、跳转判定等长期存在的体验问题。</p>
+
+    <div class="commit-strip">
+      <div class="commit-cell" style="--cell-color: #F43F5E;">
+        <div class="n" style="color: var(--rose);">抖音</div>
+        <div class="t">封横竖版 tab · 关联热点 / 合集 · 音乐搜索 · 活动 + 标签数量校验</div>
+        <div class="pct" style="width: 92%;"></div>
+      </div>
+      <div class="commit-cell" style="--cell-color: #EF4444;">
+        <div class="n" style="color: #EF4444;">小红书</div>
+        <div class="t">图文 6 项缺陷 · 图片多选择器 · 渠道布局 4 列 · 反检测警告</div>
+        <div class="pct" style="width: 88%;"></div>
+      </div>
+      <div class="commit-cell" style="--cell-color: #FF6B2C;">
+        <div class="n" style="color: #FF6B2C;">快手</div>
+        <div class="t">音乐搜索 · 视频有头模式 · 封面上传 · 字段清理</div>
+        <div class="pct" style="width: 72%;"></div>
+      </div>
+      <div class="commit-cell" style="--cell-color: #06B6D4;">
+        <div class="n" style="color: var(--cyan);">视频号</div>
+        <div class="t">封面上传完善 · 等待视频传输完成 · channels cookie 检查</div>
+        <div class="pct" style="width: 64%;"></div>
+      </div>
+      <div class="commit-cell" style="--cell-color: #8B5CF6;">
+        <div class="n" style="color: var(--violet);">百家号</div>
+        <div class="t">话题逐字输入 + 下拉建议 · 标签 #XXX 追加 · domcontentloaded</div>
+        <div class="pct" style="width: 58%;"></div>
+      </div>
+      <div class="commit-cell" style="--cell-color: #6366F1;">
+        <div class="n" style="color: var(--indigo);">B站</div>
+        <div class="t">创作声明下拉 · 新版封面按钮 · hot-tag 阻塞等待</div>
+        <div class="pct" style="width: 54%;"></div>
+      </div>
+      <div class="commit-cell" style="--cell-color: #10B981;">
+        <div class="n" style="color: var(--emerald);">爱奇艺</div>
+        <div class="t">封面上传逻辑 · 发布成功判定 · 完整发布链路</div>
+        <div class="pct" style="width: 48%;"></div>
+      </div>
+    </div>
+
+    <div class="highlight-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 36px;">
+      <div class="h-card" style="--card-grad: var(--grad-rose);">
+        <h3>百家号话题 + 标签</h3>
+        <p>通过 keyboard.type 逐个输入并选择下拉建议；视频标签以 #XXX 格式追加到描述中，登录改用 domcontentloaded。</p>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-cyan);">
+        <h3>视频号封面上传</h3>
+        <p>等待视频传输完成后再编辑封面；channels 路径 cookie 检测逻辑优化，避免误判失效。</p>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-violet);">
+        <h3>抖音图文/视频</h3>
+        <p>page.goto 改用 domcontentloaded + 60s 超时；横版/竖版封面动态 tab 识别；仅发送匹配视频格式的封面。</p>
+      </div>
+    </div>
+
+    <div class="slide-foot">08 · PLATFORMS</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 9: DRAFT & ACCOUNT                             -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="草稿与账号" data-short="09">
+    <div class="slide-num"><b>09</b> / 12</div>
+    <div class="eyebrow">SECTION 09 · DRAFT & ACCOUNT</div>
+    <h2 class="title">草稿系统与账号管理升级</h2>
+    <p class="lede">草稿箱页面 + 服务端存储 + 恢复兼容旧格式；账号管理更稳定、登录体验更可控。</p>
+
+    <div class="split">
+      <div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--amber); margin-bottom: 12px; letter-spacing: 0.1em;">// DRAFT SYSTEM</div>
+        <ul class="feature-list">
+          <li>
+            <div class="ico" style="background: var(--grad-amber);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>草稿箱增删改查 API</h4><p>草稿箱数据库表 + 前端 API 模块 + 路由。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-indigo);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>服务端草稿存储</h4><p>发布中心草稿改为服务端存储，支持恢复。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-emerald);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>旧格式兼容迁移</h4><p>topics → tags、字符串 → 数组；影视演艺 playCount / typeName 字段兜底。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-rose);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>自动保存草稿</h4><p>添加 / 移除账号时触发自动保存；图文 + 视频双形态。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-cyan);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>图文 / 视频统一封面字段</h4><p>cover_path 字段统一；image_ids / image_urls 列表返回。</p></div>
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--cyan); margin-bottom: 12px; letter-spacing: 0.1em;">// ACCOUNT & LOGIN</div>
+        <ul class="feature-list">
+          <li>
+            <div class="ico" style="background: var(--grad-amber);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>登录弹窗移除二维码</h4><p>改为纯状态提示（多端兼容更友好）。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-indigo);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>账号失效智能提示</h4><p>失效时显示登录按钮，重新登录绑定已有账号。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-emerald);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>账号异常保护</h4><p>异常时禁用同步和创作中心按钮；重新登录后提示「登录成功」。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-rose);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>删除按钮放大</h4><p>账号删除按钮放大并始终可见，避免误操作。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-cyan);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>账号级个性化配置</h4><p>横版/竖版视频选择 + videoFormat；素材库选中逻辑同步适配。</p></div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="slide-foot">09 · DRAFT & ACCOUNT</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 10: SCRIPTS & INFRA                            -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="脚本与基建" data-short="10">
+    <div class="slide-num"><b>10</b> / 12</div>
+    <div class="eyebrow">SECTION 10 · SCRIPT & INFRA</div>
+    <h2 class="title">启动脚本与基建</h2>
+    <p class="lede">让 Windows / Linux / macOS 用户都能 30 秒内跑起整套工具：依赖检查、实时日志、PID 精准停服。</p>
+
+    <div class="highlight-grid" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="h-card" style="--card-grad: var(--grad-amber);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17l6-6-4-4M12 19h8" />
+          </svg>
+        </div>
+        <h3>start.bat · Windows</h3>
+        <p>全中文化界面 · pip/npm 安装进度动画 · ffmpeg / ffprobe / CloakBrowser 依赖检查 · PID 精准停服 · 实时日志窗口 · 新增 stop.bat。</p>
+        <span class="tag">WINDOWS · CMD</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-indigo);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+          </svg>
+        </div>
+        <h3>start.sh · Linux/macOS</h3>
+        <p>跨平台启动脚本 · 健康检查端点修复 · 边界问题处理 · venv 自动创建与依赖验证。</p>
+        <span class="tag">POSIX · BASH</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-emerald);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7h18l-2 13H5L3 7z" />
+            <path d="M8 7V5a4 4 0 0 1 8 0v2" />
+          </svg>
+        </div>
+        <h3>依赖预初始化</h3>
+        <p>CloakBrowser 启动时预初始化二进制 · 进度条显示 · 路径修复 · Tauri 安装包内嵌。</p>
+        <span class="tag">CLOAKBROWSER · TAURI</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-rose);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 7h-3V5a3 3 0 0 0-6 0v2H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+            <line x1="12" y1="11" x2="12" y2="17" />
+          </svg>
+        </div>
+        <h3>端口与代理</h3>
+        <p>端口 TIME_WAIT 修复 · 后端 5409 强绑定 · 启动前清除系统代理避免下载失败。</p>
+        <span class="tag">PORT · PROXY</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-cyan);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+        </div>
+        <h3>日志系统</h3>
+        <p>per-channel logger 模式 · 增加日志清理 · 日志格式含代码位置 · 9 平台重构使用渠道 logger。</p>
+        <span class="tag">LOGGING</span>
+      </div>
+      <div class="h-card" style="--card-grad: var(--grad-violet);">
+        <div class="icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+        </div>
+        <h3>设置系统迁移</h3>
+        <p>系统设置统一迁移到 SQLite settings 表 · 修复迁移后启动错误 · 引擎模式 / 存储后端运行时切换。</p>
+        <span class="tag">SETTINGS · SQLITE</span>
+      </div>
+    </div>
+
+    <div class="slide-foot">10 · SCRIPT & INFRA</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 11: UI & DESIGN                                -->
+  <!-- =================================================== -->
+  <section class="slide" data-label="UI 设计" data-short="11">
+    <div class="slide-num"><b>11</b> / 12</div>
+    <div class="eyebrow">SECTION 11 · UI</div>
+    <h2 class="title">UI 与设计语言</h2>
+    <p class="lede">从下拉框样式、网格布局、封面编辑器到 Dashboard 字段对齐，每一个像素都为「不被察觉」地服务。</p>
+
+    <div class="split">
+      <div>
+        <ul class="feature-list">
+          <li>
+            <div class="ico" style="background: var(--grad-amber);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>深色主题贯穿</h4><p>下拉框、封面编辑器、Crop UI、Dialog 全部走深色玻璃拟态语言。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-indigo);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>封面编辑器重做</h4><p>CoverEditorDialog 重构：时间线 + 抽帧 + 素材侧栏 + 裁剪 + 缩放。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-emerald);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>渠道配置布局</h4><p>每行最多 4 个表单自适应；标题 / 描述 / 标签三栏全宽显示。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-rose);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>横版 / 竖版双卡片</h4><p>视频上传区改为双卡片布局；账号级个性化设置中自动选择 videoFormat。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-cyan);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>Dashboard 字段对齐</h4><p>素材类型直接用 file_type 字段；统计兼容 filename 为 undefined；新素材库接口对接。</p></div>
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <ul class="feature-list">
+          <li>
+            <div class="ico" style="background: var(--grad-violet);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>手机预览面板</h4><p>发布中心重构：图片完全铺满容器；切换按钮悬浮两边；切换按钮默认显示。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-pink);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>添加账号弹窗</h4><p>高度固定 + 两侧超出可滚动；侧边栏账号列表支持垂直滚动；删除无用搜索框。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-amber);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>Element Plus 中文语言包</h4><p>全局配置中文语言包；下拉框选项高度 / 内边距优化。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-indigo);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>放大渠道 Logo</h4><p>渠道列表和弹窗平台列表的 logo 与文字尺寸放大；去掉 logo 背景色。</p></div>
+          </li>
+          <li>
+            <div class="ico" style="background: var(--grad-emerald);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></div>
+            <div class="body"><h4>500 错误友好化</h4><p>去掉 Python 堆栈，只显示用户可读信息。</p></div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="slide-foot">11 · UI & DESIGN</div>
+  </section>
+
+  <!-- =================================================== -->
+  <!-- SLIDE 12: END                                        -->
+  <!-- =================================================== -->
+  <section class="slide end" data-label="致谢" data-short="12">
+    <div class="slide-num"><b>12</b> / 12</div>
+    <div class="eyebrow">SECTION 12 · THANK YOU</div>
+    <div class="big">THANKS</div>
+    <h2 class="title">与社区一起，把工具做得更稳</h2>
+    <p>
+      579 次提交凝聚着对每个细节的耐心打磨。下一阶段我们将继续围绕 MCP 能力扩展、平台覆盖深化、UI 体验升级三条主线迭代。
+    </p>
+
+    <div class="end-actions">
+      <button class="btn primary" onclick="window.scrollTo({top:0, behavior:'smooth'});">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
+        回到顶部
+      </button>
+      <a class="btn" href="../README.md">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+        查看 README
+      </a>
+    </div>
+
+    <div style="margin-top: 56px; font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em;">
+      千帆云递 · QIANFAN SYNC · v0.6.0 · 2026.06.04
+    </div>
+
+    <div class="scroll-hint" style="bottom: 16px;">
+      <span>END</span>
+      <div class="line" style="background: linear-gradient(180deg, transparent 0%, var(--amber) 100%);"></div>
+    </div>
+  </section>
+
+  <script>
+    // ===== Side nav generation =====
+    (function buildSideNav() {
+      const nav = document.getElementById('sidenav');
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      slides.forEach((slide, idx) => {
+        const label = slide.dataset.label || ('0' + (idx + 1));
+        const short = slide.dataset.short || ('0' + (idx + 1));
+        const item = document.createElement('div');
+        item.className = 'sidenav-item';
+        item.dataset.target = idx;
+        item.innerHTML = `<span class="sidenav-dot"></span><span class="sidenav-label">${short} · ${label}</span>`;
+        item.addEventListener('click', () => {
+          slide.scrollIntoView({ behavior: 'smooth' });
+        });
+        nav.appendChild(item);
+      });
+
+      const items = nav.querySelectorAll('.sidenav-item');
+      const io = new IntersectionObserver(
+        entries => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+              const idx = slides.indexOf(entry.target);
+              items.forEach(it => it.classList.remove('active'));
+              if (items[idx]) items[idx].classList.add('active');
+            }
+          });
+        },
+        { threshold: [0.5] }
+      );
+      slides.forEach(s => io.observe(s));
+      if (items[0]) items[0].classList.add('active');
+    })();
+
+    // ===== Topbar scrolled state =====
+    (function topbarScroll() {
+      const tb = document.querySelector('.topbar');
+      window.addEventListener('scroll', () => {
+        if (window.scrollY > 60) tb.classList.add('scrolled');
+        else tb.classList.remove('scrolled');
+      }, { passive: true });
+    })();
+
+    // ===== Keyboard navigation =====
+    document.addEventListener('keydown', e => {
+      const slides = document.querySelectorAll('.slide');
+      const currentIdx = Array.from(slides).findIndex(s => {
+        const rect = s.getBoundingClientRect();
+        return rect.top >= -window.innerHeight / 2 && rect.top <= window.innerHeight / 2;
+      });
+      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault();
+        const next = slides[Math.min(currentIdx + 1, slides.length - 1)];
+        if (next) next.scrollIntoView({ behavior: 'smooth' });
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        const prev = slides[Math.max(currentIdx - 1, 0)];
+        if (prev) prev.scrollIntoView({ behavior: 'smooth' });
+      } else if (e.key === 'Home') {
+        slides[0].scrollIntoView({ behavior: 'smooth' });
+      } else if (e.key === 'End') {
+        slides[slides.length - 1].scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  </script>
+</body>
+</html>

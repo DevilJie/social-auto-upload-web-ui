@@ -6,12 +6,14 @@ Publish URL: https://creator.iqiyi.com/publish/video/wemedia
 """
 
 import asyncio
+import threading
 from pathlib import Path
 from queue import Queue
 
 from conf import BASE_DIR
 
 from util._logger import get_channel_logger
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
@@ -196,20 +198,26 @@ class IqiyiPlatform(BasePlatform):
 
     async def open_creator_center(self, cookie_file: str) -> None:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        browser = await self.create_browser(login_mode=True)
-        try:
-            context = await self.create_context(browser, storage_state=cookie_path)
-            page = await context.new_page()
-            await page.goto(_LOGIN_URL)
+        url = _LOGIN_URL
+
+        def _launch():
+            browser = create_browser_sync(headless=False)
             try:
-                await page.wait_for_event("close", timeout=0)
-            except Exception:
-                pass
-        finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
+                context = create_context_sync(browser, storage_state=cookie_path)
+                page = context.new_page()
+                page.goto(url)
+                try:
+                    page.wait_for_event("close", timeout=0)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_launch, daemon=True)
+        thread.start()
 
     # ------------------------------------------------------------------
     # publish_video — full iQiyi upload pipeline
@@ -221,7 +229,7 @@ class IqiyiPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -255,25 +263,25 @@ class IqiyiPlatform(BasePlatform):
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file
         ]
-        file_paths = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
 
         cover_path = ""
         for p in [thumbnail_portrait_path, thumbnail_path, thumbnail_landscape_path]:
             if p:
-                cover_path = str(Path(BASE_DIR / "videoFile" / p))
+                # 已是绝对路径
+                cover_path = str(p)
                 break
 
         landscape_cover = ""
         if thumbnail_landscape_path:
-            landscape_cover = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
-            )
+            # 已是绝对路径
+            landscape_cover = str(thumbnail_landscape_path)
 
         portrait_cover = ""
         if thumbnail_portrait_path:
-            portrait_cover = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_portrait_path)
-            )
+            # 已是绝对路径
+            portrait_cover = str(thumbnail_portrait_path)
 
         # Parse schedule times
         publish_datetimes = parse_schedule_time(
@@ -351,8 +359,12 @@ class IqiyiPlatform(BasePlatform):
                 # Step 3: Fill title
                 await self._fill_title(page, title or desc)
 
-                # Step 4: Fill description
-                await self._fill_description(page, desc)
+                # Step 4: Fill description (tags 以 #XXX 格式追加)
+                full_desc = desc or ""
+                if tags:
+                    tag_str = " ".join(f"#{t}" for t in tags)
+                    full_desc = f"{full_desc} {tag_str}".strip()
+                await self._fill_description(page, full_desc)
 
                 # Step 5: Click cash activity if enabled
                 if enable_cash_activity:

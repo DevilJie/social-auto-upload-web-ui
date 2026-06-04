@@ -20,9 +20,9 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("youtube")
 
-from conf import BASE_DIR, _load_proxy_url
+from conf import BASE_DIR
 
-from .._browser import create_browser_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, scrape_youtube_profile
 from ..base_platform import BasePlatform
 
@@ -37,15 +37,6 @@ class YoutubePlatform(BasePlatform):
     platform_id = 8
     platform_key = "youtube"
     platform_name = "YouTube"
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _get_proxy(self) -> dict | None:
-        """Return proxy dict for CloakBrowser, or None."""
-        url = _load_proxy_url()
-        return {"server": url} if url else None
 
     # ------------------------------------------------------------------
     # login — UNIQUE: uses persistent_context (Google requires persistent
@@ -67,7 +58,6 @@ class YoutubePlatform(BasePlatform):
             context = await self.create_persistent_context(
                 user_data_dir=user_data_dir,
                 headless=False,
-                proxy=self._get_proxy(),
             )
             page = context.pages[0] if context.pages else await context.new_page()
 
@@ -182,7 +172,7 @@ class YoutubePlatform(BasePlatform):
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = None
         try:
-            browser = await self.create_browser(headless=True, proxy=self._get_proxy())
+            browser = await self.create_browser(headless=True)
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             await page.goto(YOUTUBE_STUDIO_URL, timeout=20000)
@@ -215,7 +205,7 @@ class YoutubePlatform(BasePlatform):
         browser = None
         try:
             browser = await self.create_browser(
-                headless=True, proxy=self._get_proxy(),
+                headless=True,
             )
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
@@ -245,7 +235,7 @@ class YoutubePlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:
@@ -280,7 +270,7 @@ class YoutubePlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -308,10 +298,12 @@ class YoutubePlatform(BasePlatform):
         altered_content = kwargs.get("altered_content", False)
 
         # Resolve paths
-        video_files = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        video_files = [str(f) for f in files]
         cookie_files = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files]
         if thumbnail_path:
-            thumbnail_path = str(Path(BASE_DIR / "videoFile" / thumbnail_path))
+            # thumbnail_path 已是绝对路径
+            thumbnail_path = str(thumbnail_path)
 
         # Parse schedule times (one per file)
         publish_datetimes = parse_schedule_time(
@@ -367,7 +359,7 @@ class YoutubePlatform(BasePlatform):
         browser = None
         try:
             browser = await self.create_browser(
-                headless=False, proxy=self._get_proxy(),
+                headless=False,
             )
             context = await self.create_context(browser, storage_state=account_file)
             page = await context.new_page()

@@ -19,7 +19,7 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("bilibili")
 
-from .._browser import create_browser_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_bilibili_profile
 from ..base_platform import BasePlatform
 
@@ -69,72 +69,72 @@ class BilibiliPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
-            page = await context.new_page()
-
-            await page.goto("https://passport.bilibili.com/login")
-            original_url = page.url
-
-            # Locate QR code image with multiple selectors
-            src = None
             try:
-                qr_img = page.locator(
-                    '.qrcode-img img, img[src*="qrcode"], .login-scan img'
-                ).first
-                src = await qr_img.get_attribute("src")
-                if not src:
-                    qr_img = page.get_by_role("img").nth(0)
+                page = await context.new_page()
+
+                await page.goto("https://passport.bilibili.com/login")
+                original_url = page.url
+
+                # Locate QR code image with multiple selectors
+                src = None
+                try:
+                    qr_img = page.locator(
+                        '.qrcode-img img, img[src*="qrcode"], .login-scan img'
+                    ).first
                     src = await qr_img.get_attribute("src")
-            except Exception as e:
-                logger.info(f"[bilibili] failed to locate QR code: {e}")
+                    if not src:
+                        qr_img = page.get_by_role("img").nth(0)
+                        src = await qr_img.get_attribute("src")
+                except Exception as e:
+                    logger.info(f"[bilibili] failed to locate QR code: {e}")
 
-            if src:
-                logger.info(f"[bilibili] QR code URL: {src[:80]}")
-                status_queue.put(src)
-            else:
-                logger.info("[bilibili] QR code image not found")
-                status_queue.put("500")
-                await page.close()
-                await context.close()
-                return
+                if src:
+                    logger.info(f"[bilibili] QR code URL: {src[:80]}")
+                    status_queue.put(src)
+                else:
+                    logger.info("[bilibili] QR code image not found")
+                    status_queue.put("500")
+                    await page.close()
+                    await context.close()
+                    return
 
-            # Monitor page navigation for login completion
-            page.on(
-                "framenavigated",
-                lambda frame: asyncio.create_task(_on_url_change())
-                if frame == page.main_frame
-                else None,
-            )
+                # Monitor page navigation for login completion
+                page.on(
+                    "framenavigated",
+                    lambda frame: asyncio.create_task(_on_url_change())
+                    if frame == page.main_frame
+                    else None,
+                )
 
-            try:
-                await asyncio.wait_for(url_changed_event.wait(), timeout=200)
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await url_changed_event.wait()
                 logger.info("[bilibili] login page navigation detected")
-            except asyncio.TimeoutError:
-                status_queue.put("500")
-                logger.info("[bilibili] login page navigation timeout")
+
+                # Navigate to account home and scrape profile
+                await page.goto("https://account.bilibili.com/account/home")
+                await asyncio.sleep(2)
+
+                await save_login_result(
+                    context,
+                    page,
+                    platform_id=self.platform_id,
+                    platform_name=self.platform_name,
+                    status_queue=status_queue,
+                    scrape_fn=scrape_bilibili_profile,
+                    account_id=account_id,
+                )
+                success = True
+            finally:
+                # 释放 context + page 资源
                 await page.close()
                 await context.close()
-                return
-
-            # Navigate to account home and scrape profile
-            await page.goto("https://account.bilibili.com/account/home")
-            await asyncio.sleep(2)
-
-            await save_login_result(
-                context,
-                page,
-                platform_id=self.platform_id,
-                platform_name=self.platform_name,
-                status_queue=status_queue,
-                scrape_fn=scrape_bilibili_profile,
-                account_id=account_id,
-            )
-
-            await page.close()
-            await context.close()
         finally:
-            await browser.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # Cookie check
@@ -208,7 +208,7 @@ class BilibiliPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:
@@ -234,7 +234,7 @@ class BilibiliPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*int*, optional)
@@ -246,7 +246,6 @@ class BilibiliPlatform(BasePlatform):
         - ``thumbnail_landscape_path`` (*str*, optional) -- landscape cover
         - ``thumbnail_portrait_path`` (*str*, optional) -- portrait cover
         - ``schedule_time_str`` (*str*, optional)
-        - ``ai_content`` (*str*, optional)
         - ``creation_declaration`` (*str*, optional)
         """
 
@@ -264,6 +263,8 @@ class BilibiliPlatform(BasePlatform):
             thumbnail_landscape = kwargs.get("thumbnail_landscape_path", "")
             thumbnail_portrait = kwargs.get("thumbnail_portrait_path", "")
             schedule_time_str = kwargs.get("schedule_time_str", "")
+            # ai_content 字段已废弃：B 站新版去掉了"更多设置/声明与权益"，
+            # 创作声明直接在主页面设置，保留参数接收以兼容 app.py 调用
             ai_content = kwargs.get("ai_content", "")
             creation_declaration = kwargs.get("creation_declaration", "")
 
@@ -271,16 +272,14 @@ class BilibiliPlatform(BasePlatform):
             cookie_paths = [
                 str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files
             ]
-            file_paths = [
-                str(Path(BASE_DIR / "videoFile" / f)) for f in files
-            ]
+            # files 已是绝对路径（app.py 调用 _resolve_material_path 处理过）
+            file_paths = [str(f) for f in files]
 
             # Bilibili uses landscape cover
             thumbnail_path = None
             if thumbnail_landscape:
-                thumbnail_path = str(
-                    Path(BASE_DIR / "videoFile" / thumbnail_landscape)
-                )
+                # thumbnail_landscape 已是绝对路径
+                thumbnail_path = str(thumbnail_landscape)
 
             # Parse schedule times
             publish_datetimes = parse_schedule_time(
@@ -313,7 +312,6 @@ class BilibiliPlatform(BasePlatform):
                         category=category,
                         desc=desc,
                         thumbnail_path=thumbnail_path,
-                        ai_content=ai_content,
                         creation_declaration=creation_declaration,
                     )
 
@@ -334,7 +332,6 @@ class BilibiliPlatform(BasePlatform):
         category=None,
         desc: str = "",
         thumbnail_path: str | None = None,
-        ai_content: str = "",
         creation_declaration: str = "",
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
@@ -368,6 +365,22 @@ class BilibiliPlatform(BasePlatform):
                 await self._wait_upload_complete(page)
                 await asyncio.sleep(3)
 
+                # 2.5 等待页面就绪：B 站"推荐标签"区域（div.tag-wrp 下
+                # 的 .hot-tag-container）出现后才说明表单已渲染完整，
+                # 此时再开始填充标题/分类/标签等，否则可能因为表单
+                # 元素未就绪而操作失败
+                # 阻塞等待（10 分钟）—— 不设短超时，宁可等也不跳过
+                hot_tag = page.locator(
+                    'div.tag-wrp div.hot-tag-container'
+                ).first
+                await hot_tag.wait_for(
+                    state="attached", timeout=600000
+                )
+                logger.info(
+                    "[bilibili] hot-tag-container ready, "
+                    "form is interactive"
+                )
+
                 # Pre-form screenshot
                 await page.screenshot(
                     path=str(log_dir / "bilibili_before_form.png"),
@@ -389,10 +402,8 @@ class BilibiliPlatform(BasePlatform):
                 # 7. Set cover/thumbnail
                 await self._set_thumbnail(page, thumbnail_path)
 
-                # 8. Set declaration (AI content etc.)
-                await self._set_declaration(page, ai_content)
-
-                # 8.5 Set creation declaration (bcc-select dropdown)
+                # 8. Set creation declaration (bcc-select dropdown)
+                # B 站新版已废弃"更多设置/声明与权益"，保留创作声明即可
                 await self._set_creation_declaration(page, creation_declaration)
 
                 # 9. Set scheduled publish
@@ -552,12 +563,21 @@ class BilibiliPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_upload_complete(page):
-        """Wait until the text 'upload complete' appears."""
+        """Wait until the video upload is fully complete and the form
+        is interactive.
+
+        "上传完成" 文字出现只是上传成功的标志之一，但封面区需要
+        等整个上传流程（含后处理如转码）才能点击。需要满足：
+        1. "上传完成" 文字出现
+        2. 上传进度条/转码状态消失
+        3. 封面区域 (`div.cover-main`) 出现并可见
+        """
         max_retries = 120
         retry_count = 0
         while retry_count < max_retries:
             try:
-                # Check inside iframe first
+                # Check 1: "上传完成" 文字出现（iframe 或主页）
+                done_found = False
                 try:
                     upload_frame = page.frame_locator(
                         'iframe[name="videoUpload"]'
@@ -567,19 +587,48 @@ class BilibiliPlatform(BasePlatform):
                         await done_text.count() > 0
                         and await done_text.first.is_visible()
                     ):
-                        logger.info("[bilibili] video upload complete")
-                        return
+                        done_found = True
                 except Exception:
                     pass
+                if not done_found:
+                    done_text_main = page.locator("text=上传完成")
+                    if (
+                        await done_text_main.count() > 0
+                        and await done_text_main.first.is_visible()
+                    ):
+                        done_found = True
 
-                # Fallback: main page
-                done_text_main = page.locator("text=上传完成")
-                if (
-                    await done_text_main.count() > 0
-                    and await done_text_main.first.is_visible()
-                ):
-                    logger.info("[bilibili] video upload complete")
-                    return
+                if done_found:
+                    # Check 2: 等待转码中/进度条消失
+                    transcoding_locators = [
+                        'text=转码中',
+                        'text=正在转码',
+                        'text=处理中',
+                        '.bp-upload-progress',
+                        '[class*="progress"]:has-text("100")',
+                    ]
+                    still_transcoding = False
+                    for sel in transcoding_locators:
+                        try:
+                            loc = page.locator(sel)
+                            if await loc.count() > 0 and await loc.first.is_visible():
+                                still_transcoding = True
+                                break
+                        except Exception:
+                            continue
+
+                    if not still_transcoding:
+                        # Check 3: 封面区域出现且可交互
+                        cover_main = page.locator('div.cover-main').first
+                        if (
+                            await cover_main.count() > 0
+                            and await cover_main.is_visible()
+                        ):
+                            logger.info(
+                                "[bilibili] video upload complete, "
+                                "cover area ready"
+                            )
+                            return
 
                 # Check for upload failure
                 fail_text = page.locator("text=上传失败")
@@ -776,7 +825,14 @@ class BilibiliPlatform(BasePlatform):
 
     @staticmethod
     async def _set_thumbnail(page, thumbnail_path: str | None):
-        """Upload cover image via the Bilibili cover editor modal."""
+        """Upload cover image via the Bilibili cover editor modal.
+
+        兼容性策略：避免硬编码 class 名 / scoped hash / 固定文案。
+        按"由稳到脆"顺序探测：
+        1. 页面上直接存在的 cover file input（无需点任何按钮）
+        2. 任意可点击的"封面"语义按钮（基于 role / aria-label / 文本）
+        3. class 模糊匹配（不依赖 scoped hash）
+        """
         if not thumbnail_path:
             return
         if not os.path.exists(thumbnail_path):
@@ -793,8 +849,22 @@ class BilibiliPlatform(BasePlatform):
             )
 
             # Step 1: Open cover editor dialog
+            # 路径：div.cover-main > div.cover-item > div.cover-img > span.edit-text
+            # 不使用 data-v-* scoped hash（每次发版会变）
             dialog_opened = False
             trigger_selectors = [
+                # 最精确：完整路径，不依赖 scoped hash
+                'div.cover-main div.cover-item div.cover-img span.edit-text',
+                # class 子串 + 文本
+                '[class*="cover-main"] [class*="cover-item"] [class*="cover-img"] [class*="edit-text"]',
+                'span[class*="edit-text"]:has-text("封面设置")',
+                'span.edit-text:has-text("封面设置")',
+                '[class*="edit-text"]:has-text("封面设置")',
+                # 文本兜底
+                'span:has-text("封面设置")',
+                'button:has-text("封面设置")',
+                'text=封面设置',
+                # 旧版 B 站（保留兼容）
                 "div.cover-item",
                 ".cover-item",
                 ".video-cover-container",
@@ -823,10 +893,23 @@ class BilibiliPlatform(BasePlatform):
                 return
 
             # Wait for cover editor dialog
-            dialog = page.locator(
-                'div.bcc-dialog:has-text("封面制作")'
-            ).first
-            await dialog.wait_for(state="visible", timeout=15000)
+            # 兼容旧版"封面制作"和新版"封面设置"两种标题
+            dialog = None
+            for dialog_sel in [
+                'div.bcc-dialog:has-text("封面制作")',
+                'div.bcc-dialog:has-text("封面设置")',
+                'div.bcc-dialog',
+            ]:
+                cand = page.locator(dialog_sel).first
+                try:
+                    await cand.wait_for(state="visible", timeout=8000)
+                    dialog = cand
+                    break
+                except Exception:
+                    continue
+            if dialog is None:
+                raise RuntimeError("封面编辑弹窗未出现")
+            await asyncio.sleep(1)
             await asyncio.sleep(1)
 
             await page.screenshot(
@@ -914,76 +997,6 @@ class BilibiliPlatform(BasePlatform):
             raise RuntimeError(f"cover setting failed: {exc}") from exc
 
     @staticmethod
-    async def _set_declaration(page, ai_content: str):
-        """Set AI content declaration via the 'more settings' panel."""
-        if not ai_content:
-            return
-
-        logger.info(f"[bilibili] setting declaration: {ai_content}")
-        try:
-            log_dir = Path(BASE_DIR / "data" / "logs")
-            log_dir.mkdir(parents=True, exist_ok=True)
-
-            # Step 1: Click "more settings" to expand
-            more_settings = page.locator('span.label:has-text("更多设置")')
-            if (
-                await more_settings.count() > 0
-                and await more_settings.first.is_visible()
-            ):
-                try:
-                    await more_settings.first.click(timeout=5000)
-                except Exception:
-                    await page.keyboard.press("Escape")
-                    await asyncio.sleep(0.5)
-                    await more_settings.first.click(force=True)
-                await asyncio.sleep(2)
-            else:
-                logger.info("[bilibili] 'more settings' button not found")
-                return
-
-            # Step 2: Click declaration selector
-            declaration_selector = page.locator(
-                'p.select-item-cont:has-text('
-                '"请选择符合您视频内容的创作声明")'
-            )
-            if (
-                await declaration_selector.count() > 0
-                and await declaration_selector.first.is_visible()
-            ):
-                await declaration_selector.first.click()
-                await asyncio.sleep(1)
-            else:
-                logger.info("[bilibili] declaration selector not found")
-                return
-
-            # Step 3: Select matching declaration
-            target_text = ai_content.strip()
-            mark_items = page.locator(".mark-item")
-            count = await mark_items.count()
-            clicked = False
-            for i in range(count):
-                item = mark_items.nth(i)
-                item_text = (await item.text_content() or "").strip()
-                if target_text in item_text:
-                    await item.click()
-                    logger.info(
-                        f"[bilibili] selected declaration: {item_text}"
-                    )
-                    clicked = True
-                    break
-
-            if not clicked:
-                logger.info(
-                    f"[bilibili] matching declaration not found: "
-                    f"{target_text}"
-                )
-            await asyncio.sleep(1)
-        except Exception as exc:
-            logger.info(
-                f"[bilibili] declaration setting failed (non-fatal): {exc}"
-            )
-
-    @staticmethod
     async def _set_creation_declaration(page, creation_declaration: str):
         """Set creation declaration via bcc-select dropdown.
 
@@ -1005,27 +1018,65 @@ class BilibiliPlatform(BasePlatform):
                 'input.bcc-select-input-inner[placeholder*="创作声明"]'
             )
             if await select_input.count() == 0:
-                logger.info(
-                    "[bilibili] creation declaration dropdown not "
-                    "present, skipping"
-                )
-                return
+                # 兼容：用 section title "创作声明" 定位所在容器的 select input
+                scoped = page.locator(
+                    'div.statement-content, '
+                    'div[class*="statement-content"]'
+                ).first
+                scoped_input = scoped.locator(
+                    'input.bcc-select-input-inner'
+                ).first
+                if await scoped_input.count() > 0:
+                    select_input = scoped_input
+                else:
+                    logger.info(
+                        "[bilibili] creation declaration dropdown not "
+                        "present, skipping"
+                    )
+                    return
 
             await select_input.first.scroll_into_view_if_needed()
             await asyncio.sleep(0.5)
             await select_input.first.click(force=True)
             await asyncio.sleep(1)
 
-            await page.wait_for_selector(
-                "li.bcc-option:visible", timeout=3000
+            # 等下拉打开：检测 bcc-select-list-wrap 从 display:none 变为可见
+            # 用户给的 DOM 里 .bcc-select-list-wrap 默认 display: none，
+            # 展开后 inline style 被去除（display: block / 默认）。用
+            # 内联 style 判定更准确（避免 :visible 在 display:none 时失效）
+            list_wrap = page.locator(
+                '.bcc-select-list-wrap:not([style*="display: none"])'
             )
-            options = page.locator("li.bcc-option:visible")
-            count = await options.count()
+            try:
+                await list_wrap.first.wait_for(
+                    state="attached", timeout=5000
+                )
+            except Exception:
+                # 兜底：bcc-select 容器加 'is-open'/'is-focus' 类
+                fallback = page.locator(
+                    '.bcc-select.is-open, .bcc-select.is-focus, '
+                    '.bcc-select[class*="open"], .bcc-select[class*="focus"]'
+                )
+                await fallback.first.wait_for(state="attached", timeout=3000)
+
+            # 在创作声明容器内查选项（避免命中页面其他 bcc-select）
+            scoped_options = page.locator(
+                'div.statement-content, '
+                'div[class*="statement-content"]'
+            ).first.locator('li.bcc-option')
+            try:
+                await scoped_options.first.wait_for(
+                    state="attached", timeout=5000
+                )
+            except Exception:
+                pass
+
+            count = await scoped_options.count()
 
             target_text = creation_declaration.strip()
             clicked = False
             for i in range(count):
-                opt = options.nth(i)
+                opt = scoped_options.nth(i)
                 span = opt.locator("span").first
                 opt_text = (await span.text_content() or "").strip()
                 if opt_text == target_text:

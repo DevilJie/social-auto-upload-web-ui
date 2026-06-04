@@ -15,7 +15,7 @@ from conf import BASE_DIR
 from util._logger import get_channel_logger
 logger = get_channel_logger("kuaishou")
 
-from .._browser import create_browser_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result, scrape_user_profile
 from ..base_platform import BasePlatform
 
@@ -48,6 +48,7 @@ class KuaishouPlatform(BasePlatform):
         :func:`save_login_result`.
         """
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
             page = await context.new_page()
@@ -84,7 +85,8 @@ class KuaishouPlatform(BasePlatform):
                 "https://cp.kuaishou.com/article/manage", # manage page
             )
             current_url = page.url
-            for _ in range(200):  # ~600 seconds
+            # 无限等扫码确认（不设超时，浏览器由用户自己关）
+            while True:
                 if any(page.url.startswith(u) for u in _KS_LOGGED_IN_URLS):
                     break
                 # Check for QR expiry and refresh
@@ -95,9 +97,6 @@ class KuaishouPlatform(BasePlatform):
                         await refresh_btn.click()
                         await asyncio.sleep(1)
                 await asyncio.sleep(3)
-            else:
-                logger.info("[kuaishou] login timed out waiting for scan")
-                return
 
             # Navigate to upload page to ensure profile data is loaded
             if not page.url.startswith(_KS_UPLOAD_URL):
@@ -112,18 +111,22 @@ class KuaishouPlatform(BasePlatform):
                 scrape_fn=scrape_user_profile,
                 account_id=account_id,
             )
+            success = True
         except Exception as exc:
             logger.info(f"[kuaishou] login error: {exc}")
             status_queue.put('{"status": "0", "error": "' + str(exc) + '"}')
         finally:
             try:
+                # 释放 context 资源
                 await context.close()
             except Exception:
                 pass
-            try:
-                await browser.close()
-            except Exception:
-                pass
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Cookie check
@@ -205,7 +208,7 @@ class KuaishouPlatform(BasePlatform):
         def _launch():
             browser = create_browser_sync(headless=False)
             try:
-                context = browser.new_context(storage_state=cookie_path)
+                context = create_context_sync(browser, storage_state=cookie_path)
                 page = context.new_page()
                 page.goto(url)
                 try:
@@ -222,6 +225,169 @@ class KuaishouPlatform(BasePlatform):
         thread.start()
 
     # ------------------------------------------------------------------
+    # Publish image — image note upload pipeline
+    # ------------------------------------------------------------------
+
+    async def publish_image(self, **kwargs) -> bool:
+        """Publish an image note to Kuaishou via CloakBrowser.
+
+        Accepted keyword arguments:
+
+        - ``title`` (*str*) -- note title (will be prepended to description)
+        - ``files`` (*list[str]*) -- image absolute file paths
+        - ``tags`` (*list[str]*) -- hashtags
+        - ``account_file`` (*list[str]*) -- cookie file names
+        - ``desc`` (*str*, optional) -- description
+        - ``cover_path`` (*str*, optional) -- cover image absolute path
+        - ``author_declaration`` (*str*, optional) -- 作者声明 option text
+        - ``music_id`` (*str*, optional) -- 音乐 ID
+        - ``music_title`` (*str*, optional) -- 音乐标题（用于搜索匹配）
+        - ``enableTimer`` (*bool*, optional)
+        - ``schedule_time_str`` (*str*, optional)
+        - ``activities`` (*list[str]*, optional) -- official activities
+        - ``dry_run`` (*bool*, optional) -- skip publish click (default True)
+        """
+        title = kwargs.get("title", "")
+        files = kwargs.get("files", []) or []
+        tags = kwargs.get("tags", []) or []
+        account_file = kwargs.get("account_file", []) or []
+        desc = kwargs.get("desc", "")
+        cover_path = kwargs.get("cover_path", "")
+        author_declaration = kwargs.get("author_declaration", "")
+        music_id = kwargs.get("music_id", "")
+        music_title = kwargs.get("music_title", "")
+        enable_timer = kwargs.get("enableTimer", False)
+        schedule_time_str = kwargs.get("schedule_time_str", "")
+        activities = kwargs.get("activities", []) or []
+        dry_run = kwargs.get("dry_run", True)
+
+        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
+        file_paths = [str(f) for f in files]
+
+        if cover_path and not Path(cover_path).is_file():
+            logger.warning("Cover file not found: %s", cover_path)
+            cover_path = ""
+
+        if activities:
+            activity_tags = " ".join([f"#{act}" for act in activities])
+            desc = f"{desc} {activity_tags}".strip()
+
+        for cookie_path in account_paths:
+            await self._upload_image_note(
+                title=title,
+                file_paths=file_paths,
+                tags=tags,
+                account_file=cookie_path,
+                desc=desc,
+                cover_path=cover_path,
+                author_declaration=author_declaration,
+                music_id=music_id,
+                music_title=music_title,
+                enable_timer=enable_timer,
+                schedule_time_str=schedule_time_str,
+                dry_run=dry_run,
+            )
+        return True
+
+    async def _upload_image_note(
+        self, *, title, file_paths, tags, account_file, desc="", cover_path="",
+        author_declaration="", music_id="", music_title="",
+        enable_timer=False, schedule_time_str="", dry_run=True,
+    ):
+        """Upload image note to one Kuaishou account."""
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(browser, storage_state=account_file)
+            try:
+                page = await context.new_page()
+
+                # 1. 打开图文 tab
+                logger.info("Navigating to Kuaishou image upload page")
+                await page.goto(
+                    "https://cp.kuaishou.com/article/publish/video?tabType=2",
+                    wait_until="domcontentloaded", timeout=60000,
+                )
+                await page.wait_for_url(
+                    "**/article/publish/video?tabType=2**", timeout=60000,
+                )
+                await asyncio.sleep(2)
+
+                # 2. 上传图片（file chooser 多选）
+                logger.info("Uploading %d images", len(file_paths))
+                upload_btn = page.locator("button[class^='_upload-btn']:visible").first
+                await upload_btn.wait_for(state="visible", timeout=10000)
+                async with page.expect_file_chooser() as fc_info:
+                    await upload_btn.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(file_paths)
+                await asyncio.sleep(2)
+
+                # 3. 等编辑页加载（URL 不会变，等描述输入框出现即可）
+                logger.info("Waiting for edit page to load...")
+                await page.locator("#work-description-edit").wait_for(state="visible", timeout=30000)
+                logger.info("Edit page loaded, URL: %s", page.url)
+                await asyncio.sleep(1)
+
+                # 4. 关闭引导弹层
+                await self._close_guide_overlay(page)
+
+                # 5. 填描述（标题拼首行 + 描述 + 标签）
+                full_desc = f"{title}\n\n{desc}" if title else desc
+                logger.info("Filling description: %s", full_desc[:50])
+                desc_editor = page.locator("#work-description-edit").first
+                await desc_editor.wait_for(state="visible", timeout=15000)
+                await desc_editor.click()
+                await page.keyboard.press("Control+KeyA")
+                await page.keyboard.press("Delete")
+                await page.keyboard.type(full_desc[:500])
+                for tag in (tags or [])[:3]:
+                    await page.keyboard.type(f" #{tag}")
+                    await page.keyboard.press("Space")
+                await asyncio.sleep(0.5)
+
+                logger.info("Description filled. cover_path=%s, music_id=%s", cover_path, music_id)
+
+                # 6. 设置封面
+                if cover_path:
+                    await self._set_image_cover(page, cover_path)
+
+                # 7. 设置音乐
+                if music_id:
+                    await self._set_image_music(page, music_id, music_title)
+
+                # 8. 作者声明
+                if author_declaration:
+                    await self._set_author_declaration(page, author_declaration)
+
+                # 9. 定时发布
+                if enable_timer and schedule_time_str:
+                    publish_date = parse_schedule_time(
+                        schedule_time_str, 1, enable_timer, 1, None, 0
+                    )[0]
+                    if publish_date != 0:
+                        await self._set_schedule_time(page, publish_date)
+
+                logger.info("Form filling completed. dry_run=%s", dry_run)
+
+                if not dry_run:
+                    publish_btn = page.get_by_text("发布", exact=True)
+                    await publish_btn.first.click()
+                    await page.wait_for_url(
+                        "**/article/manage/video?status=2&from=publish**",
+                        timeout=60000,
+                    )
+                    logger.info("Published successfully")
+                    await context.storage_state(path=account_file)
+                else:
+                    logger.info("========================================")
+                    logger.info("点击发布！发布成功！（dry_run）")
+                    logger.info("========================================")
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+
+    # ------------------------------------------------------------------
     # Publish video
     # ------------------------------------------------------------------
 
@@ -231,7 +397,7 @@ class KuaishouPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title / description fallback
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``category`` (*int*, optional)
@@ -279,11 +445,13 @@ class KuaishouPlatform(BasePlatform):
 
         # 构建封面完整路径
         if cover_path:
-            cover_path = str(Path(BASE_DIR / "videoFile" / cover_path))
+            # cover_path 已是绝对路径
+            cover_path = str(cover_path)
             logger.info(f"[kuaishou] cover path: {cover_path}")
 
         for idx, file_name in enumerate(files):
-            video_path = str(Path(BASE_DIR / "videoFile" / file_name))
+            # file_name 已是绝对路径
+            video_path = str(file_name)
             pub_date = publish_dates[idx] if idx < len(publish_dates) else 0
 
             for cookie_file in account_files:
@@ -514,8 +682,8 @@ class KuaishouPlatform(BasePlatform):
             logger.info(f"[kuaishou] cover image uploaded, waiting for processing...")
             await asyncio.sleep(3)
 
-            # 6. Click "确认" button
-            confirm_btn = modal.locator("button:has-text('确认')").first
+            # 6. Click "确认" or "完成" button
+            confirm_btn = modal.locator("button:has-text('确认'), button:has-text('完成')").first
             logger.info(f"[kuaishou] clicking confirm button...")
             await confirm_btn.wait_for(state="visible", timeout=10000)
             await confirm_btn.click()
@@ -530,6 +698,104 @@ class KuaishouPlatform(BasePlatform):
             logger.info("[kuaishou] thumbnail set successfully")
         except Exception as exc:
             logger.info(f"[kuaishou] thumbnail failed (non-fatal): {exc}")
+
+    # ------------------------------------------------------------------
+    # Helper: set image cover (image note)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_image_cover(page, cover_path: str):
+        """点击「编辑封面」按钮 → 上传封面图 → 确认。"""
+        logger.info("[kuaishou] setting image cover: %s", cover_path)
+        try:
+            edit_btn = page.get_by_text("编辑封面", exact=True)
+            await edit_btn.wait_for(state="visible", timeout=10000)
+            await edit_btn.click()
+            await asyncio.sleep(2)
+
+            modal = page.locator('div[role="document"].ant-modal:visible')
+            await modal.wait_for(state="visible", timeout=30000)
+            await asyncio.sleep(1)
+
+            upload_tab = modal.locator("div[class*='header-title-item']").nth(1)
+            await upload_tab.wait_for(state="visible", timeout=10000)
+            await upload_tab.click()
+            await asyncio.sleep(1)
+
+            file_input = modal.locator("input[type='file']")
+            await file_input.wait_for(state="attached", timeout=30000)
+            await file_input.set_input_files(cover_path)
+            await asyncio.sleep(3)
+
+            confirm_btn = modal.locator("button:has-text('确认'), button:has-text('完成')").first
+            await confirm_btn.wait_for(state="visible", timeout=10000)
+            await confirm_btn.click()
+            await asyncio.sleep(2)
+
+            try:
+                await modal.wait_for(state="hidden", timeout=30000)
+            except Exception:
+                pass
+            logger.info("[kuaishou] image cover set successfully")
+        except Exception as exc:
+            logger.info(f"[kuaishou] image cover failed (non-fatal): {exc}")
+
+    # ------------------------------------------------------------------
+    # Helper: set image music (image note)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_image_music(page, music_id: str, music_title: str = ""):
+        """点击「添加音乐」→ 抽屉内搜索 → 按 musicId/music_title 匹配 → 点「添加」。"""
+        logger.info("[kuaishou] setting image music: id=%s, title=%s", music_id, music_title)
+        try:
+            # 点击「添加音乐」按钮（和音乐搜索组件保持一致：找 div:text-is 的父级）
+            text_div = page.locator("div:text-is('添加音乐')").first
+            await text_div.wait_for(state="visible", timeout=10000)
+            await text_div.locator("xpath=..").click()
+            await asyncio.sleep(2)
+
+            drawer = page.locator('div.ant-drawer-content-wrapper:visible').first
+            await drawer.wait_for(state="visible", timeout=10000)
+            await asyncio.sleep(1)
+
+            search_input = drawer.locator("input[placeholder='搜索音乐']").first
+            await search_input.click()
+            await page.keyboard.press("Control+KeyA")
+            await page.keyboard.press("Delete")
+            await page.keyboard.type(music_title or music_id)
+            await asyncio.sleep(4)
+
+            # 匹配音乐卡片：在抽屉里找包含目标标题的卡片，点其「添加」按钮
+            target_card = None
+            if music_title:
+                # 精确匹配标题
+                title_div = drawer.locator(f"div:text-is('{music_title}')").first
+                if await title_div.count():
+                    target_card = title_div.locator("xpath=ancestor::div[contains(@class,'item') or contains(@class,'card')][1]")
+                    if not await target_card.count():
+                        target_card = title_div.locator("xpath=..")
+
+            if target_card is None or not await target_card.count():
+                # fallback：取第一个结果卡片
+                all_cards = drawer.locator("div[class*='item'], div[class*='card']")
+                if await all_cards.count():
+                    target_card = all_cards.first
+                    logger.warning("[kuaishou] music title not exact match, using first card")
+
+            if target_card and await target_card.count():
+                add_btn = target_card.locator("div:has-text('添加'), button:has-text('添加')").last
+                await add_btn.click(force=True)
+                await asyncio.sleep(2)
+                logger.info("[kuaishou] music added")
+            else:
+                logger.warning("[kuaishou] no music card found")
+
+            close_btn = page.locator("div.ant-drawer-close").first
+            if await close_btn.count():
+                await close_btn.click(force=True)
+        except Exception as exc:
+            logger.info(f"[kuaishou] image music failed (non-fatal): {exc}")
 
     # ------------------------------------------------------------------
     # Helper: set author declaration (ant-select dropdown)

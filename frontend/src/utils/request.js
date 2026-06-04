@@ -59,7 +59,13 @@ request.interceptors.response.use(
     // 处理HTTP错误状态码
     if (error.response) {
       const { status } = error.response
+      const rawMsg = error.response?.data?.msg || error.response?.data?.message || ''
+      const msg = extractUserMessage(rawMsg)
+
       switch (status) {
+        case 400:
+          ElMessage.error(msg || '请求参数错误')
+          break
         case 401:
           ElMessage.error('未授权，请重新登录')
           break
@@ -69,14 +75,11 @@ request.interceptors.response.use(
         case 404:
           ElMessage.error('请求地址不存在')
           break
-        case 500: {
-          const rawMsg = error.response?.data?.msg || error.response?.data?.message || ''
-          const msg = extractUserMessage(rawMsg) || '服务器内部错误'
-          ElMessage.error(msg)
+        case 500:
+          ElMessage.error(msg || '服务器内部错误')
           break
-        }
         default:
-          ElMessage.error('网络错误')
+          ElMessage.error(msg || '网络错误')
       }
     } else {
       ElMessage.error('网络连接失败')

@@ -8,12 +8,15 @@ Publish URL: https://mp.v.qq.com/publishVideo/video
 
 import asyncio
 import json
+import os
+import threading
 from pathlib import Path
 from queue import Queue
 
 from conf import BASE_DIR
 
 from util._logger import get_channel_logger
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
@@ -85,6 +88,7 @@ class TencentVideoPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
             try:
@@ -98,14 +102,9 @@ class TencentVideoPlatform(BasePlatform):
                     else None,
                 )
 
-                # Wait up to 300s for the user to complete login and land on homepage
-                try:
-                    await asyncio.wait_for(url_changed_event.wait(), timeout=300)
-                    logger.info("Homepage detected — login successful")
-                except asyncio.TimeoutError:
-                    logger.warning("Login timed out (300 s)")
-                    status_queue.put("500")
-                    return
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await url_changed_event.wait()
+                logger.info("Homepage detected — login successful")
 
                 await save_login_result(
                     context,
@@ -116,10 +115,14 @@ class TencentVideoPlatform(BasePlatform):
                     scrape_fn=_scrape_tencent_video_profile,
                     account_id=account_id,
                 )
+                success = True
             finally:
+                # 释放 context 资源
                 await context.close()
         finally:
-            await browser.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie — verify stored cookie is still valid
@@ -176,20 +179,26 @@ class TencentVideoPlatform(BasePlatform):
 
     async def open_creator_center(self, cookie_file: str) -> None:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        browser = await self.create_browser(login_mode=True)
-        try:
-            context = await self.create_context(browser, storage_state=cookie_path)
-            page = await context.new_page()
-            await page.goto(_HOME_URL)
+        url = _HOME_URL
+
+        def _launch():
+            browser = create_browser_sync(headless=False)
             try:
-                await page.wait_for_event("close", timeout=0)
-            except Exception:
-                pass
-        finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
+                context = create_context_sync(browser, storage_state=cookie_path)
+                page = context.new_page()
+                page.goto(url)
+                try:
+                    page.wait_for_event("close", timeout=0)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_launch, daemon=True)
+        thread.start()
 
     # ------------------------------------------------------------------
     # publish_video — full Tencent Video upload pipeline
@@ -201,7 +210,7 @@ class TencentVideoPlatform(BasePlatform):
         Accepted keyword arguments:
 
         - ``title`` (*str*) -- video title
-        - ``files`` (*list[str]*) -- video file names (relative to videoFile/)
+        - ``files`` (*list[str]*) -- video absolute file paths (resolved by app.py)
         - ``tags`` (*list[str]*) -- hashtags
         - ``account_file`` (*list[str]*) -- cookie file names
         - ``enableTimer`` (*bool*, optional)
@@ -225,11 +234,11 @@ class TencentVideoPlatform(BasePlatform):
 
         # Resolve full paths
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
-        file_paths = [str(Path(BASE_DIR / "videoFile" / f)) for f in files]
+        # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
+        file_paths = [str(f) for f in files]
         if thumbnail_landscape_path:
-            thumbnail_landscape_path = str(
-                Path(BASE_DIR / "videoFile" / thumbnail_landscape_path)
-            )
+            # thumbnail_landscape_path 已是绝对路径
+            thumbnail_landscape_path = str(thumbnail_landscape_path)
 
         # Parse creation declaration(s)
         declarations = []
@@ -292,8 +301,13 @@ class TencentVideoPlatform(BasePlatform):
                 await page.wait_for_load_state("networkidle")
 
                 # Step 1: Upload video file via input[type=file]
-                logger.info("Uploading video file: %s", file_path)
+                logger.info("Uploading video file: %s (exists=%s)", file_path, os.path.exists(file_path))
                 file_input = page.locator('input[type="file"]').first
+                input_count = await page.locator('input[type="file"]').count()
+                logger.info("Found %d file input(s) on page", input_count)
+                if input_count == 0:
+                    logger.error("No file input found, cannot upload video")
+                    raise Exception("未找到视频上传入口")
                 await file_input.set_input_files(file_path)
                 logger.info("Video file set, waiting for upload to complete...")
 

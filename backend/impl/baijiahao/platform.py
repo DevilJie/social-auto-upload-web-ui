@@ -46,32 +46,39 @@ class BaijiahaoPlatform(BasePlatform):
         result via the shared utility.
         """
         browser = await self.create_browser(login_mode=True)
-        context = await self.create_context(browser)
+        success = False
         try:
-            page = await context.new_page()
-            await page.goto(
-                "https://baijiahao.baidu.com/builder/theme/bjh/login",
-                timeout=45000,
-            )
-            logger.info("百家号登录页面已打开，请完成扫码登录...")
+            context = await self.create_context(browser)
+            try:
+                page = await context.new_page()
+                await page.goto(
+                    "https://baijiahao.baidu.com/builder/theme/bjh/login",
+                    timeout=45000,
+                )
+                logger.info("百家号登录页面已打开，请完成扫码登录...")
 
-            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
-            await page.wait_for_url("**/builder/rc/home**")
-            logger.info("检测到登录成功，正在保存 cookie...")
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await page.wait_for_url("**/builder/rc/home**")
+                logger.info("检测到登录成功，正在保存 cookie...")
 
-            # Scrape profile & save via shared utility
-            await save_login_result(
-                context,
-                page,
-                platform_id=self.platform_id,
-                platform_name=self.platform_name,
-                status_queue=status_queue,
-                scrape_fn=scrape_baijiahao_profile,
-                account_id=account_id,
-            )
+                # Scrape profile & save via shared utility
+                await save_login_result(
+                    context,
+                    page,
+                    platform_id=self.platform_id,
+                    platform_name=self.platform_name,
+                    status_queue=status_queue,
+                    scrape_fn=scrape_baijiahao_profile,
+                    account_id=account_id,
+                )
+                success = True
+            finally:
+                # 释放 context 资源
+                await context.close()
         finally:
-            # 释放 context 资源（不关浏览器）
-            await context.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # check_cookie -- verify stored cookie is still valid

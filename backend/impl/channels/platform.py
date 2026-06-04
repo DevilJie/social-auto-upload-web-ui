@@ -618,6 +618,7 @@ class ChannelsPlatform(BasePlatform):
         post-login flow via ``save_login_result``.
         """
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
             page = await context.new_page()
@@ -648,6 +649,7 @@ class ChannelsPlatform(BasePlatform):
                         scrape_fn=scrape_tencent_profile,
                         account_id=account_id,
                     )
+                    success = True
                     return
 
                 if not scanned_logged and await _is_qrcode_scanned(page):
@@ -676,12 +678,16 @@ class ChannelsPlatform(BasePlatform):
             }))
         finally:
             try:
-                # 释放 context 资源（不关浏览器，用户自己关）
+                # 释放 context 资源
                 await context.close()
             except Exception:
                 pass
-            except Exception:
-                pass
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # check_cookie — open upload URL, look for login markers

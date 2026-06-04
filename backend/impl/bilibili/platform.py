@@ -69,65 +69,72 @@ class BilibiliPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await self.create_browser(login_mode=True)
-        context = await self.create_context(browser)
+        success = False
         try:
-            page = await context.new_page()
-
-            await page.goto("https://passport.bilibili.com/login")
-            original_url = page.url
-
-            # Locate QR code image with multiple selectors
-            src = None
+            context = await self.create_context(browser)
             try:
-                qr_img = page.locator(
-                    '.qrcode-img img, img[src*="qrcode"], .login-scan img'
-                ).first
-                src = await qr_img.get_attribute("src")
-                if not src:
-                    qr_img = page.get_by_role("img").nth(0)
-                    src = await qr_img.get_attribute("src")
-            except Exception as e:
-                logger.info(f"[bilibili] failed to locate QR code: {e}")
+                page = await context.new_page()
 
-            if src:
-                logger.info(f"[bilibili] QR code URL: {src[:80]}")
-                status_queue.put(src)
-            else:
-                logger.info("[bilibili] QR code image not found")
-                status_queue.put("500")
+                await page.goto("https://passport.bilibili.com/login")
+                original_url = page.url
+
+                # Locate QR code image with multiple selectors
+                src = None
+                try:
+                    qr_img = page.locator(
+                        '.qrcode-img img, img[src*="qrcode"], .login-scan img'
+                    ).first
+                    src = await qr_img.get_attribute("src")
+                    if not src:
+                        qr_img = page.get_by_role("img").nth(0)
+                        src = await qr_img.get_attribute("src")
+                except Exception as e:
+                    logger.info(f"[bilibili] failed to locate QR code: {e}")
+
+                if src:
+                    logger.info(f"[bilibili] QR code URL: {src[:80]}")
+                    status_queue.put(src)
+                else:
+                    logger.info("[bilibili] QR code image not found")
+                    status_queue.put("500")
+                    await page.close()
+                    await context.close()
+                    return
+
+                # Monitor page navigation for login completion
+                page.on(
+                    "framenavigated",
+                    lambda frame: asyncio.create_task(_on_url_change())
+                    if frame == page.main_frame
+                    else None,
+                )
+
+                # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+                await url_changed_event.wait()
+                logger.info("[bilibili] login page navigation detected")
+
+                # Navigate to account home and scrape profile
+                await page.goto("https://account.bilibili.com/account/home")
+                await asyncio.sleep(2)
+
+                await save_login_result(
+                    context,
+                    page,
+                    platform_id=self.platform_id,
+                    platform_name=self.platform_name,
+                    status_queue=status_queue,
+                    scrape_fn=scrape_bilibili_profile,
+                    account_id=account_id,
+                )
+                success = True
+            finally:
+                # 释放 context + page 资源
                 await page.close()
                 await context.close()
-                return
-
-            # Monitor page navigation for login completion
-            page.on(
-                "framenavigated",
-                lambda frame: asyncio.create_task(_on_url_change())
-                if frame == page.main_frame
-                else None,
-            )
-
-            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
-            await url_changed_event.wait()
-            logger.info("[bilibili] login page navigation detected")
-
-            # Navigate to account home and scrape profile
-            await page.goto("https://account.bilibili.com/account/home")
-            await asyncio.sleep(2)
-
-            await save_login_result(
-                context,
-                page,
-                platform_id=self.platform_id,
-                platform_name=self.platform_name,
-                status_queue=status_queue,
-                scrape_fn=scrape_bilibili_profile,
-                account_id=account_id,
-            )
         finally:
-            # 释放 context + page 资源（不关浏览器）
-            await page.close()
-            await context.close()
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # Cookie check

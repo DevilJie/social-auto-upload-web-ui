@@ -48,6 +48,7 @@ class KuaishouPlatform(BasePlatform):
         :func:`save_login_result`.
         """
         browser = await self.create_browser(login_mode=True)
+        success = False
         try:
             context = await self.create_context(browser)
             page = await context.new_page()
@@ -110,15 +111,22 @@ class KuaishouPlatform(BasePlatform):
                 scrape_fn=scrape_user_profile,
                 account_id=account_id,
             )
+            success = True
         except Exception as exc:
             logger.info(f"[kuaishou] login error: {exc}")
             status_queue.put('{"status": "0", "error": "' + str(exc) + '"}')
         finally:
             try:
-                # 释放 context 资源（不关浏览器）
+                # 释放 context 资源
                 await context.close()
             except Exception:
                 pass
+            # 成功才关浏览器（失败/异常时留着让用户看现场）
+            if success:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Cookie check

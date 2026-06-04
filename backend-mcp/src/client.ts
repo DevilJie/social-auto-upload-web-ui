@@ -40,7 +40,7 @@ export class BackendClient {
     const response = await this.http.get(path, {
       params,
       responseType: 'stream',
-      timeout: 120000, // 登录可能需要较长时间
+      timeout: 300000, // 登录需要用户操作，设置5分钟超时
     });
 
     return new Promise((resolve, reject) => {

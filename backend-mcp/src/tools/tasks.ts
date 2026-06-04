@@ -90,12 +90,14 @@ export function registerTaskTools(server: McpServer, client: BackendClient): voi
   // 任务状态 SSE 实时推送
   server.tool(
     'task_stream',
-    '订阅任务状态变更的 SSE 流。收到新状态立即 resolve 返回；如需持续订阅请用 SSE 模式连接 MCP。',
+    '订阅任务状态变更的 SSE 流。收到新状态立即 resolve 返回；如需持续订阅请用 SSE 模式连接 MCP。空闲 N 秒后未收到新状态会返回 idle 消息（受后端 SSE 端点 5 分钟硬编码限制）。',
     {
-      idle_timeout_seconds: z.number().optional().describe('空闲超时秒数（默认 60）'),
+      idle_timeout_seconds: z.number().min(1).optional().describe('空闲超时秒数（默认 60；仅影响 idle 消息文案）'),
     },
     async ({ idle_timeout_seconds = 60 }) => {
       try {
+        // TODO: idle_timeout_seconds 当前是装饰性的（getSSE 硬编码 5 分钟）。
+        // 真实超时需在 getSSE 内部支持 AbortController，或在 task_stream 外层做 Promise.race。
         const lastMessage = await client.getSSE<any>('/api/v2/tasks/stream', undefined, (msg) => {
           if (msg && typeof msg === 'object' && msg.id && msg.status) {
             return msg;

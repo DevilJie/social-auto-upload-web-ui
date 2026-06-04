@@ -6,7 +6,7 @@
 所有 context 使用 no_viewport=True，页面内容跟随窗口大小自动 reflow。
 """
 
-import os
+import asyncio
 
 from conf import LOGIN_HEADLESS, LOCAL_CHROME_HEADLESS
 from util._logger import get_channel_logger
@@ -38,11 +38,26 @@ async def create_browser(
     """异步入口：创建 stealth Chromium 浏览器。
 
     不接 proxy / extra_args —— 历史代理配置已废弃。
+
+    login_mode=True 时，自动监听浏览器关闭事件：用户手动关浏览器会
+    cancel 当前 asyncio task，使 login 流程立即终止。
     """
     if headless is None:
         headless = LOGIN_HEADLESS if login_mode else LOCAL_CHROME_HEADLESS
     from cloakbrowser import launch_async
-    return await launch_async(headless=headless)
+    browser = await launch_async(headless=headless)
+
+    if login_mode:
+        task = asyncio.current_task()
+
+        def _on_browser_closed():
+            if task and not task.done():
+                logger.info("[browser] 用户关闭了登录浏览器，取消 login task")
+                task.cancel()
+
+        browser.on("disconnected", _on_browser_closed)
+
+    return browser
 
 
 async def create_context(

@@ -5,6 +5,9 @@ import { registerMaterialTools } from './tools/materials.js';
 import { registerDraftTools } from './tools/drafts.js';
 import { registerPublishTools } from './tools/publish.js';
 import { registerSettingsTools } from './tools/settings.js';
+import { registerTaskTools } from './tools/tasks.js';
+import { registerPublishExtraTools } from './tools/publish_extra.js';
+import { registerChangelogTools } from './tools/changelog.js';
 
 export interface ServerConfig {
   backendUrl: string;
@@ -25,6 +28,9 @@ export function createMcpServer(config: ServerConfig): McpServer {
   registerDraftTools(server, client);
   registerPublishTools(server, client);
   registerSettingsTools(server, client);
+  registerTaskTools(server, client);
+  registerPublishExtraTools(server, client);
+  registerChangelogTools(server, client);
 
   return server;
 }

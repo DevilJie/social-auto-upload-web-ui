@@ -632,11 +632,10 @@ class ChannelsPlatform(BasePlatform):
             }))
             logger.info("[channels] QR code ready, waiting for scan")
 
-            # Poll for login completion
+            # Poll for login completion（无限等，浏览器由用户自己关）
             poll_interval = 3
-            max_checks = 100
             scanned_logged = False
-            for _ in range(max_checks):
+            while True:
                 if await _is_login_completed(page):
                     logger.info(f"[channels] login successful, redirected to: {page.url}")
                     await asyncio.sleep(2)
@@ -669,12 +668,6 @@ class ChannelsPlatform(BasePlatform):
                         pass
 
                 await asyncio.sleep(poll_interval)
-
-            # Timeout
-            status_queue.put(json.dumps({
-                "status": "failed",
-                "message": "视频号扫码登录超时",
-            }))
         except Exception as exc:
             logger.info(f"[channels] login error: {exc}")
             status_queue.put(json.dumps({
@@ -683,11 +676,10 @@ class ChannelsPlatform(BasePlatform):
             }))
         finally:
             try:
+                # 释放 context 资源（不关浏览器，用户自己关）
                 await context.close()
             except Exception:
                 pass
-            try:
-                await browser.close()
             except Exception:
                 pass
 

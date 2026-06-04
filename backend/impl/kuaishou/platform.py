@@ -84,7 +84,8 @@ class KuaishouPlatform(BasePlatform):
                 "https://cp.kuaishou.com/article/manage", # manage page
             )
             current_url = page.url
-            for _ in range(200):  # ~600 seconds
+            # 无限等扫码确认（不设超时，浏览器由用户自己关）
+            while True:
                 if any(page.url.startswith(u) for u in _KS_LOGGED_IN_URLS):
                     break
                 # Check for QR expiry and refresh
@@ -95,9 +96,6 @@ class KuaishouPlatform(BasePlatform):
                         await refresh_btn.click()
                         await asyncio.sleep(1)
                 await asyncio.sleep(3)
-            else:
-                logger.info("[kuaishou] login timed out waiting for scan")
-                return
 
             # Navigate to upload page to ensure profile data is loaded
             if not page.url.startswith(_KS_UPLOAD_URL):
@@ -117,11 +115,8 @@ class KuaishouPlatform(BasePlatform):
             status_queue.put('{"status": "0", "error": "' + str(exc) + '"}')
         finally:
             try:
+                # 释放 context 资源（不关浏览器）
                 await context.close()
-            except Exception:
-                pass
-            try:
-                await browser.close()
             except Exception:
                 pass
 

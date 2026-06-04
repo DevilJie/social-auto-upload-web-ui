@@ -69,8 +69,8 @@ class BilibiliPlatform(BasePlatform):
                 url_changed_event.set()
 
         browser = await self.create_browser(login_mode=True)
+        context = await self.create_context(browser)
         try:
-            context = await self.create_context(browser)
             page = await context.new_page()
 
             await page.goto("https://passport.bilibili.com/login")
@@ -107,15 +107,9 @@ class BilibiliPlatform(BasePlatform):
                 else None,
             )
 
-            try:
-                await asyncio.wait_for(url_changed_event.wait(), timeout=200)
-                logger.info("[bilibili] login page navigation detected")
-            except asyncio.TimeoutError:
-                status_queue.put("500")
-                logger.info("[bilibili] login page navigation timeout")
-                await page.close()
-                await context.close()
-                return
+            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+            await url_changed_event.wait()
+            logger.info("[bilibili] login page navigation detected")
 
             # Navigate to account home and scrape profile
             await page.goto("https://account.bilibili.com/account/home")
@@ -130,11 +124,10 @@ class BilibiliPlatform(BasePlatform):
                 scrape_fn=scrape_bilibili_profile,
                 account_id=account_id,
             )
-
+        finally:
+            # 释放 context + page 资源（不关浏览器）
             await page.close()
             await context.close()
-        finally:
-            await browser.close()
 
     # ------------------------------------------------------------------
     # Cookie check

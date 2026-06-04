@@ -57,27 +57,17 @@ class TiktokPlatform(BasePlatform):
         ``/(foryou|following|upload|@)/``, then scrapes the user profile
         and saves the result via :func:`save_login_result`.
         """
-        proxy = self._get_proxy()
         browser = await self.create_browser(
             headless=False,
             login_mode=True,
-            proxy=proxy,
-            extra_args=["--lang en-GB"],
         )
         try:
             context = await self.create_context(browser)
             page = await context.new_page()
             await page.goto("https://www.tiktok.com/login?lang=en")
 
-            # Wait for post-login redirect (foryou, following, upload, or @profile)
-            try:
-                await page.wait_for_url(
-                    re.compile(r"/(foryou|following|upload|@)"),
-                    timeout=120_000,
-                )
-            except Exception:
-                # Timed out — still save whatever state we have
-                await asyncio.sleep(3)
+            # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
+            await page.wait_for_url(re.compile(r"/(foryou|following|upload|@)"))
 
             await save_login_result(
                 context,
@@ -89,7 +79,8 @@ class TiktokPlatform(BasePlatform):
                 account_id=account_id,
             )
         finally:
-            await browser.close()
+            # 释放 context 资源（不关浏览器）
+            await context.close()
 
     # ------------------------------------------------------------------
     # Cookie validation
@@ -103,12 +94,7 @@ class TiktokPlatform(BasePlatform):
         which indicates an expired / unauthenticated session.
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        proxy = self._get_proxy()
-        browser = await self.create_browser(
-            headless=True,
-            proxy=proxy,
-            extra_args=["--lang en-GB"],
-        )
+        browser = await self.create_browser(headless=True)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
@@ -142,12 +128,7 @@ class TiktokPlatform(BasePlatform):
             tuple[str, str]: ``(display_name, avatar_url)``
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        proxy = self._get_proxy()
-        browser = await self.create_browser(
-            headless=True,
-            proxy=proxy,
-            extra_args=["--lang en-GB"],
-        )
+        browser = await self.create_browser(headless=True)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
@@ -287,11 +268,8 @@ class TiktokPlatform(BasePlatform):
     ) -> None:
         """Upload one video to one TikTok account using CloakBrowser.
         """
-        proxy = self._get_proxy()
         browser = await self.create_browser(
             headless=LOCAL_CHROME_HEADLESS,
-            proxy=proxy,
-            extra_args=["--lang en-GB"],
         )
         locator_base = None
 

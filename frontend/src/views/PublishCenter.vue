@@ -222,8 +222,8 @@
               </div>
             </div>
 
-            <!-- 通用标签输入 -->
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+            <!-- 通用标签输入（爱奇艺无标签概念，隐藏） -->
+            <div v-if="selectedPlatform !== 'iqiyi'" class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
               <div class="setting-hint">{{ selectedPlatform === 'douyin' ? '官方活动 + 标签最多 5 个，按回车确认' : '输入标签内容，按回车确认' }}</div>
               <el-input

@@ -121,8 +121,8 @@ export function registerMaterialTools(server: McpServer, client: BackendClient):
           return formatErrorResult({
             code: ErrorCodes.MATERIAL_NOT_FOUND,
             error: 'MATERIAL_NOT_FOUND',
-            message: `素材 ${id} 不存在`,
-            suggestion: '调 material_list 查可用素材 ID',
+            message: `素材 ${id} 不存在或不在前 100 条之内`,
+            suggestion: '调 material_list 翻页查找，或用 keyword 过滤',
             retryable: false,
           });
         }

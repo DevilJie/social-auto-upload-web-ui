@@ -23,12 +23,13 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
           params.account_id = account_id;
         }
 
-        const response = await client.get('/login', params);
+        // 调用Flask后端的login接口（返回SSE流）
+        const response = await client.getStream('/login', params);
 
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify(response, null, 2)
+            text: response
           }]
         };
       } catch (error: any) {

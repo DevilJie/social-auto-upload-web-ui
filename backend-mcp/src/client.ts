@@ -36,6 +36,15 @@ export class BackendClient {
     return response.data;
   }
 
+  async getStream(path: string, params?: Record<string, string>): Promise<string> {
+    const response = await this.http.get(path, {
+      params,
+      responseType: 'text',
+      timeout: 120000, // 登录可能需要较长时间
+    });
+    return response.data;
+  }
+
   async post<T>(path: string, data?: any): Promise<ApiResponse<T>> {
     const response: AxiosResponse<ApiResponse<T>> = await this.http.post(path, data);
     return response.data;

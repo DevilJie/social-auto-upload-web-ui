@@ -33,8 +33,8 @@ BACKEND_PID=""
 FRONTEND_PID=""
 MCP_PID=""
 
-# --- MCP transport mode（默认 stdio 避免 both 模式的 SSE bug）---
-TRANSPORT_MODE="${MCP_TRANSPORT_MODE:-stdio}"
+# --- MCP transport mode（默认 sse 适合后台 daemon；stdio 需父进程喂 stdin）---
+TRANSPORT_MODE="${MCP_TRANSPORT_MODE:-sse}"
 
 # --- 清理函数 ---
 cleanup() {

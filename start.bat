@@ -18,11 +18,11 @@ set "BACKEND_LOG=%PROJECT_ROOT%\backend.log"
 set "FRONTEND_LOG=%PROJECT_ROOT%\frontend.log"
 set "MCP_LOG=%PROJECT_ROOT%\mcp.log"
 
-:: --- MCP transport mode（默认 stdio 避免 both 模式的 SSE bug）---
+:: --- MCP transport mode（默认 sse 适合后台 daemon；stdio 需父进程喂 stdin）---
 if defined MCP_TRANSPORT_MODE (
     set "TRANSPORT_MODE=%MCP_TRANSPORT_MODE%"
 ) else (
-    set "TRANSPORT_MODE=stdio"
+    set "TRANSPORT_MODE=sse"
 )
 
 :: ============================================================

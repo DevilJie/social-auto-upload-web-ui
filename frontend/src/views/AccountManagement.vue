@@ -154,15 +154,11 @@
           />
         </el-form-item>
 
-        <!-- 二维码显示区域 -->
+        <!-- 登录状态提示 -->
         <div v-if="sseConnecting" class="qrcode-container">
-          <div v-if="qrCodeData && !loginStatus" class="qrcode-wrapper">
-            <p class="qrcode-tip">请使用对应平台APP扫描二维码登录</p>
-            <img :src="qrCodeData" alt="登录二维码" class="qrcode-image" />
-          </div>
-          <div v-else-if="!qrCodeData && !loginStatus" class="loading-wrapper">
+          <div v-if="!loginStatus" class="loading-wrapper">
             <el-icon class="is-loading"><Refresh /></el-icon>
-            <span>请求中...</span>
+            <span>等待登录中...</span>
           </div>
           <div v-else-if="loginStatus === '200'" class="status-wrapper success">
             <el-icon><CircleCheckFilled /></el-icon>

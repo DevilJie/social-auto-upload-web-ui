@@ -15,7 +15,7 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
       try {
         const params: Record<string, string> = { type: String(type), id: '' };
         if (account_id) {
-          params.account_id = account_id;
+          params.id = account_id;
         }
 
         const response = await client.get('/login', params);

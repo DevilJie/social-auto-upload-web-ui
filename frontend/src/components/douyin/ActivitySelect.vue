@@ -75,7 +75,9 @@ watch(() => props.modelValue, (val) => {
 })
 
 onMounted(() => {
-  loadActivityList()
+  if (props.accountId) {
+    loadActivityList()
+  }
 })
 
 watch(() => props.accountId, (val) => {

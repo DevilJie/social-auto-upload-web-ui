@@ -36,16 +36,6 @@ class TiktokPlatform(BasePlatform):
     platform_name = "TikTok"
 
     # ------------------------------------------------------------------
-    # Proxy helper
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _get_proxy():
-        """Return a proxy dict suitable for CloakBrowser / Playwright, or None."""
-        url = _load_proxy_url()
-        return {"server": url} if url else None
-
-    # ------------------------------------------------------------------
     # Login
     # ------------------------------------------------------------------
 

@@ -20,7 +20,7 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("youtube")
 
-from conf import BASE_DIR, _load_proxy_url
+from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import parse_schedule_time, scrape_youtube_profile
@@ -37,15 +37,6 @@ class YoutubePlatform(BasePlatform):
     platform_id = 8
     platform_key = "youtube"
     platform_name = "YouTube"
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _get_proxy(self) -> dict | None:
-        """Return proxy dict for CloakBrowser, or None."""
-        url = _load_proxy_url()
-        return {"server": url} if url else None
 
     # ------------------------------------------------------------------
     # login — UNIQUE: uses persistent_context (Google requires persistent

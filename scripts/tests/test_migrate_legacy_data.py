@@ -71,3 +71,47 @@ def test_default_source_windows(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     expected = tmp_path / "Social Auto Upload Web UI"
     assert mld.default_source() == expected
+
+
+def test_strip_uuid_prefix_standard():
+    """标准 uuid 前缀被剥离。"""
+    name = "1781ca06-5427-11f1-8000-bc2411b9d4e7_大理女孩-成品.mp4"
+    assert mld.strip_uuid_prefix(name) == "大理女孩-成品.mp4"
+
+
+def test_strip_uuid_prefix_uppercase():
+    """大写 UUID 前缀同样被剥离。"""
+    name = "AABBCCDD-1234-5678-9ABC-DEF012345678_video.mp4"
+    assert mld.strip_uuid_prefix(name) == "video.mp4"
+
+
+def test_strip_uuid_prefix_no_prefix():
+    """没有 uuid 前缀时原样返回。"""
+    name = "video.mp4"
+    assert mld.strip_uuid_prefix(name) == "video.mp4"
+
+
+def test_strip_uuid_prefix_inner_uuid_kept():
+    """文件名中第二个及之后的 uuid 模式不被剥离。"""
+    name = "11111111-2222-3333-4444-555555555555_aaa-bbb-ccc-ddd-eee.txt"
+    assert mld.strip_uuid_prefix(name) == "aaa-bbb-ccc-ddd-eee.txt"
+
+
+def test_is_allowed_ext_video():
+    assert mld.is_allowed_ext(".mp4") is True
+    assert mld.is_allowed_ext(".MP4") is True
+    assert mld.is_allowed_ext(".mov") is True
+    assert mld.is_allowed_ext(".webm") is True
+
+
+def test_is_allowed_ext_image():
+    assert mld.is_allowed_ext(".png") is True
+    assert mld.is_allowed_ext(".jpg") is True
+    assert mld.is_allowed_ext(".webp") is True
+
+
+def test_is_allowed_ext_rejected():
+    assert mld.is_allowed_ext(".DS_Store") is False
+    assert mld.is_allowed_ext("") is False
+    assert mld.is_allowed_ext(".tmp") is False
+    assert mld.is_allowed_ext(".db") is False

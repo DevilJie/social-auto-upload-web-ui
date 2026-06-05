@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -30,6 +31,26 @@ def default_target() -> Path:
     if env:
         return Path(env)
     return Path(__file__).resolve().parent.parent / "data"
+
+
+UUID_PREFIX = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_",
+    re.IGNORECASE,
+)
+
+VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".m4v", ".wmv", ".mpeg", ".mpg"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"}
+ALLOWED_EXTS = VIDEO_EXTS | IMAGE_EXTS
+
+
+def strip_uuid_prefix(name: str) -> str:
+    """剥掉 {uuid}_ 前缀，仅剥一次。"""
+    return UUID_PREFIX.sub("", name, count=1)
+
+
+def is_allowed_ext(filename: str) -> bool:
+    """判断文件扩展名是否在新版素材库白名单内。"""
+    return Path(filename).suffix.lower() in ALLOWED_EXTS or filename.lower() in ALLOWED_EXTS
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

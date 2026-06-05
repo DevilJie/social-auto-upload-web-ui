@@ -50,7 +50,7 @@ def strip_uuid_prefix(name: str) -> str:
 
 def is_allowed_ext(filename: str) -> bool:
     """判断文件扩展名是否在新版素材库白名单内。"""
-    return Path(filename).suffix.lower() in ALLOWED_EXTS or filename.lower() in ALLOWED_EXTS
+    return Path(filename).suffix.lower() in ALLOWED_EXTS
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

@@ -98,20 +98,20 @@ def test_strip_uuid_prefix_inner_uuid_kept():
 
 
 def test_is_allowed_ext_video():
-    assert mld.is_allowed_ext(".mp4") is True
-    assert mld.is_allowed_ext(".MP4") is True
-    assert mld.is_allowed_ext(".mov") is True
-    assert mld.is_allowed_ext(".webm") is True
+    assert mld.is_allowed_ext("foo.mp4") is True
+    assert mld.is_allowed_ext("foo.MP4") is True
+    assert mld.is_allowed_ext("foo.mov") is True
+    assert mld.is_allowed_ext("foo.webm") is True
 
 
 def test_is_allowed_ext_image():
-    assert mld.is_allowed_ext(".png") is True
-    assert mld.is_allowed_ext(".jpg") is True
-    assert mld.is_allowed_ext(".webp") is True
+    assert mld.is_allowed_ext("foo.png") is True
+    assert mld.is_allowed_ext("foo.jpg") is True
+    assert mld.is_allowed_ext("foo.webp") is True
 
 
 def test_is_allowed_ext_rejected():
-    assert mld.is_allowed_ext(".DS_Store") is False
-    assert mld.is_allowed_ext("") is False
-    assert mld.is_allowed_ext(".tmp") is False
-    assert mld.is_allowed_ext(".db") is False
+    assert mld.is_allowed_ext("foo.DS_Store") is False
+    assert mld.is_allowed_ext("foo") is False
+    assert mld.is_allowed_ext("foo.tmp") is False
+    assert mld.is_allowed_ext("foo.db") is False

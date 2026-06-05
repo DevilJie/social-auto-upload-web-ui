@@ -46,12 +46,18 @@ if not exist "%BACKEND_DIR%" (
     echo   首次使用，正在从 GitHub 拉取项目代码...
     cd /d "%PROJECT_ROOT%"
     git init
-    git remote add origin "%REPO_URL%"
+    git remote add origin "%REPO_URL%" 2>nul || git remote set-url origin "%REPO_URL%"
     git fetch origin "%MAIN_BRANCH%"
+    if !errorlevel! neq 0 (
+        echo   X 无法连接 GitHub，请检查网络连接
+        echo     如果无法访问 GitHub，请手动下载项目代码到当前目录
+        echo     仓库地址: %REPO_URL%
+        pause
+        exit /b 1
+    )
     git checkout -f "%MAIN_BRANCH%"
     echo   √ 项目代码拉取完成
     echo.
-    :: 重新执行项目自带的 start.bat
     call "%PROJECT_ROOT%\start.bat"
     exit /b
 )
@@ -62,18 +68,20 @@ if exist "%PROJECT_ROOT%\.git" (
     if !errorlevel! equ 0 (
         cd /d "%PROJECT_ROOT%"
         git fetch origin "%MAIN_BRANCH%" >nul 2>&1
-        for /f "tokens=*" %%l in ('git rev-parse HEAD 2^>nul') do set "LOCAL_HASH=%%l"
-        for /f "tokens=*" %%r in ('git rev-parse "origin/%MAIN_BRANCH%" 2^>nul') do set "REMOTE_HASH=%%r"
-        if defined REMOTE_HASH (
-            if not "!LOCAL_HASH!"=="!REMOTE_HASH!" (
-                echo.
-                echo   发现新版本！是否更新？ [Y/n]
-                set /p "UPDATE_ANS="
-                if /i not "!UPDATE_ANS!"=="n" (
-                    git pull origin "%MAIN_BRANCH%"
-                    echo   √ 更新完成，重新启动...
-                    call "%PROJECT_ROOT%\start.bat"
-                    exit /b
+        if !errorlevel! equ 0 (
+            for /f "tokens=*" %%l in ('git rev-parse HEAD 2^>nul') do set "LOCAL_HASH=%%l"
+            for /f "tokens=*" %%r in ('git rev-parse "origin/%MAIN_BRANCH%" 2^>nul') do set "REMOTE_HASH=%%r"
+            if defined REMOTE_HASH (
+                if not "!LOCAL_HASH!"=="!REMOTE_HASH!" (
+                    echo.
+                    echo   发现新版本！是否更新？ [Y/n]
+                    set /p "UPDATE_ANS="
+                    if /i not "!UPDATE_ANS!"=="n" (
+                        git pull origin "%MAIN_BRANCH%"
+                        echo   √ 更新完成，重新启动...
+                        call "%PROJECT_ROOT%\start.bat"
+                        exit /b
+                    )
                 )
             )
         )
@@ -98,6 +106,10 @@ if defined MCP_TRANSPORT_MODE (
 echo.
 echo [1/6] 检查运行时环境...
 
+:: --- 判断命令来源：内置还是系统 ---
+set "DEP_PREFIX=%PROJECT_ROOT%\dependency"
+set "DEP_PREFIX_UNIX=%DEP_PREFIX:\=/%"
+
 :: 检查 Python
 where python >nul 2>&1
 if !errorlevel! neq 0 (
@@ -107,7 +119,11 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set "PYTHON_VER=%%i"
-echo   √ Python !PYTHON_VER!
+set "PY_SRC=系统"
+for /f "tokens=*" %%p in ('where python 2^>nul') do (
+    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "PY_SRC=内置"
+)
+echo   √ Python !PYTHON_VER! (!PY_SRC!)
 
 :: 检查 Node.js
 where node >nul 2>&1
@@ -118,7 +134,10 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 for /f "tokens=*" %%i in ('node --version 2^>^&1') do set "NODE_VER=%%i"
-echo   √ Node !NODE_VER!
+set "NODE_SRC=系统"
+for /f "tokens=*" %%p in ('where node 2^>nul') do (
+    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "NODE_SRC=内置"
+)
 
 :: 检查 npm
 where npm >nul 2>&1
@@ -128,7 +147,7 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 for /f "tokens=*" %%i in ('npm --version 2^>^&1') do set "NPM_VER=%%i"
-echo   √ npm !NPM_VER!
+echo   √ Node !NODE_VER! / npm !NPM_VER! (!NODE_SRC!)
 
 :: 检查 curl
 where curl >nul 2>&1
@@ -138,7 +157,11 @@ if !errorlevel! neq 0 (
     pause
     exit /b 1
 )
-echo   √ curl 已安装
+set "CURL_SRC=系统"
+for /f "tokens=*" %%p in ('where curl 2^>nul') do (
+    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "CURL_SRC=内置"
+)
+echo   √ curl 已安装 (!CURL_SRC!)
 
 :: 检查 ffmpeg
 where ffmpeg >nul 2>&1
@@ -148,7 +171,11 @@ if !errorlevel! neq 0 (
     pause
     exit /b 1
 )
-echo   √ ffmpeg 已安装
+set "FF_SRC=系统"
+for /f "tokens=*" %%p in ('where ffmpeg 2^>nul') do (
+    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "FF_SRC=内置"
+)
+echo   √ ffmpeg 已安装 (!FF_SRC!)
 
 :: 检查 ffprobe
 where ffprobe >nul 2>&1
@@ -157,6 +184,11 @@ if !errorlevel! neq 0 (
     pause
     exit /b 1
 )
+set "FP_SRC=系统"
+for /f "tokens=*" %%p in ('where ffprobe 2^>nul') do (
+    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "FP_SRC=内置"
+)
+echo   √ ffprobe 已安装 (!FP_SRC!)
 echo   √ ffprobe 已安装
 
 :: 清除系统代理，避免 httpx/cloakbrowser 读取到不支持的 socks:// 代理
@@ -197,6 +229,7 @@ echo [3/6] 准备后端环境...
 set "VENV_DIR=%BACKEND_DIR%\.venv"
 set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
 set "VENV_PIP=%VENV_DIR%\Scripts\pip.exe"
+set "PIP_MIRROR=https://mirrors.aliyun.com/pypi/simple/"
 set "HASH_FILE=%PROJECT_ROOT%\.backend_deps_hash"
 
 :: 获取 backend 目录最近 git commit hash
@@ -240,7 +273,7 @@ if "!VENV_OK!"=="0" (
     echo     安装 Python 依赖，请稍候...
     echo.
     "%VENV_PIP%" cache purge >nul 2>&1
-    "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir
+    "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir -i "%PIP_MIRROR%"
     if !errorlevel! neq 0 (
         echo.
         echo   X Python 依赖安装失败
@@ -263,7 +296,7 @@ if "!VENV_OK!"=="0" (
     ) else (
         echo     检测到变更，更新后端依赖，请稍候...
         echo.
-        "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir
+        "%VENV_PIP%" install -r "%BACKEND_DIR%\requirements.txt" --no-cache-dir -i "%PIP_MIRROR%"
         if !errorlevel! neq 0 (
             echo.
             echo   X Python 依赖更新失败
@@ -424,7 +457,7 @@ if not exist "%MCP_DIR%\node_modules" (
 )
 
 :: 始终重新编译 MCP（保证 dist/ 与 src/ 同步）
-echo     编译 MCP (tsc)...
+echo     编译 MCP ...
 cd /d "%MCP_DIR%"
 call npm run build
 if !errorlevel! neq 0 (

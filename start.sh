@@ -71,8 +71,7 @@ if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
         REMOTE=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "")
         if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
             echo ""
-            echo -e "${CYAN}发现新版本！是否更新？[Y/n]${NC}"
-            echo -e "${WARN} 更新将覆盖本地修改，未提交的代码将丢失"
+            echo -e "${CYAN}发现新版本！是否更新？[Y/n]  更新将覆盖本地修改，未提交的代码将丢失${NC}"
             read -r answer
             if [[ ! "$answer" =~ ^[Nn]$ ]]; then
                 git checkout "$MAIN_BRANCH" 2>/dev/null

@@ -20,7 +20,7 @@ echo.
 echo 目标目录: %PROJECT_DATA%
 echo.
 echo 请输入需要迁移的源数据目录完整路径。
-echo （例如：C:\Users\foo\AppData\Local\Social Auto Upload Web UI）
+echo 例如: C:\Users\foo\AppData\Local\Social Auto Upload Web UI
 echo.
 
 set "SOURCE="

@@ -74,12 +74,16 @@ if exist "%PROJECT_ROOT%\.git" (
             if defined REMOTE_HASH (
                 if not "!LOCAL_HASH!"=="!REMOTE_HASH!" (
                     echo.
-                    echo   发现新版本，正在更新...
-                    git checkout "%MAIN_BRANCH%" >nul 2>&1
-                    git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
-                    echo   √ 更新完成，重新启动...
-                    call "%PROJECT_ROOT%\start.bat"
-                    exit /b
+                    echo   发现新版本！是否更新？ [Y/n]
+                    echo   ! 更新将覆盖本地修改，未提交的代码将丢失
+                    set /p "UPDATE_ANS="
+                    if /i not "!UPDATE_ANS!"=="n" (
+                        git checkout "%MAIN_BRANCH%" >nul 2>&1
+                        git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
+                        echo   √ 更新完成，重新启动...
+                        call "%PROJECT_ROOT%\start.bat"
+                        exit /b
+                    )
                 )
             )
         )

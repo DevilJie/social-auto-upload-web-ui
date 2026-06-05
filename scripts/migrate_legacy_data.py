@@ -197,9 +197,108 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
-    print(f"DEBUG parse_args: {args}")
+def main(argv: list[str] | None = None) -> int:
+    """脚本主入口。返回退出码。"""
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+
+    source = args.source or default_source()
+    target = args.target or default_target()
+    api_base = args.api_base.rstrip("/")
+
+    print(f"[1/5] 解析源/目标路径...")
+    print(f"      源: {source}")
+    print(f"      目标: {target}")
+    if not source.exists():
+        print(f"ERROR: 旧版数据目录不存在: {source}", file=sys.stderr)
+        return 1
+
+    # 阶段 2: 备份
+    if not args.skip_backup and target.exists():
+        ts = _timestamp()
+        backup_path = target.parent / f"data.bak.{ts}"
+        print(f"[2/5] 备份当前 data → {backup_path.name} ...")
+        if not args.dry_run:
+            try:
+                shutil.copytree(target, backup_path / "data")
+            except OSError as e:
+                print(f"ERROR: 备份失败: {e}", file=sys.stderr)
+                return 2
+            print(f"      ✓ 已备份到 {backup_path}")
+        else:
+            print(f"      ⊘ dry-run 模式，跳过实际备份")
+    else:
+        if args.skip_backup:
+            print(f"[2/5] 备份：已跳过（--skip-backup）")
+        else:
+            print(f"[2/5] 备份：目标 data 不存在，跳过")
+
+    # 确保目标子目录存在
+    for sub in ["cookies", "cookiesFile", "db", "materials"]:
+        (target / sub).mkdir(parents=True, exist_ok=True)
+
+    # 阶段 3: 后端探测
+    print(f"[3/5] 探测后端健康状态 ({api_base})...")
+    if not args.dry_run and not check_backend(api_base):
+        print(f"ERROR: 后端不可达，请先执行 start.bat / start.sh 启动后端", file=sys.stderr)
+        return 3
+    print(f"      ✓ 后端正常")
+
+    # 阶段 4: 拷贝
+    print(f"[4/5] 拷贝 cookies/cookiesFile/db ...")
+    copy_stats: dict = {}
+    for sub in ["cookies", "cookiesFile", "db"]:
+        src_sub = source / sub
+        if not src_sub.exists():
+            print(f"      ⊘ {sub}/ 源目录不存在，跳过")
+            copy_stats[sub] = (0, 0)
+            continue
+        copied, failed = copy_directory(src_sub, target / sub, dry_run=args.dry_run)
+        copy_stats[sub] = (copied, failed)
+        marker = "⊘" if args.dry_run else "✓"
+        print(f"      {marker} {sub}/  复制 {copied} 个文件" + (f", 失败 {failed}" if failed else ""))
+
+    # 阶段 5: 迁移素材
+    print(f"[5/5] 迁移素材库 (videoFile/)...")
+    vf = source / "videoFile"
+    upload_ok = 0
+    upload_fail = 0
+    upload_skip = 0
+    if not vf.exists():
+        print(f"      ⊘ videoFile/ 源目录不存在，跳过")
+    else:
+        files = sorted(p for p in vf.rglob("*") if p.is_file())
+        total = len(files)
+        for i, f in enumerate(files, 1):
+            rel = f.relative_to(vf)
+            if not is_allowed_ext(f.name):
+                upload_skip += 1
+                print(f"      [{i}/{total}] 跳过 {f.name} (非素材类型) ⊘")
+                continue
+            print(f"      [{i}/{total}] 上传 {strip_uuid_prefix(f.name)} ... ", end="", flush=True)
+            ok = upload_material(f, api_base=api_base, dry_run=args.dry_run)
+            if ok:
+                upload_ok += 1
+                print("✓" if not args.dry_run else "⊘ dry-run")
+            else:
+                upload_fail += 1
+                print("✗")
+
+    # 报告
+    print()
+    print("=" * 40)
+    print("迁移报告")
+    print("=" * 40)
+    for sub in ["cookies", "cookiesFile", "db"]:
+        c, f = copy_stats.get(sub, (0, 0))
+        print(f"  {sub}/        复制 {c} 个文件" + (f", 失败 {f}" if f else ""))
+    print(f"  videoFile/      成功 {upload_ok}, 失败 {upload_fail}, 跳过 {upload_skip}")
+    if not args.skip_backup and target.exists():
+        # 找最新的备份
+        backups = sorted(target.parent.glob("data.bak.*"), key=lambda p: p.name, reverse=True)
+        if backups:
+            print(f"  备份位置:       {backups[0]}")
+    print("=" * 40)
+
     return 0
 
 

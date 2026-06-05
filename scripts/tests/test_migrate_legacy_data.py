@@ -351,3 +351,128 @@ def test_upload_material_connection_error(monkeypatch, tmp_path, capsys):
     assert ok is False
     captured = capsys.readouterr()
     assert "ERROR" in captured.err
+
+
+def test_main_happy_path(monkeypatch, tmp_path, capsys):
+    """完整流程：备份 → 探测 → 拷贝 → 上传，dry_run=False。"""
+    # 准备旧版 fixture
+    src = tmp_path / "old"
+    (src / "cookies").mkdir(parents=True)
+    (src / "cookies" / "a.json").write_text("ck")
+    (src / "cookiesFile").mkdir()
+    (src / "cookiesFile" / "b.json").write_text("cf")
+    (src / "db").mkdir()
+    (src / "db" / "database.db").write_text("db")
+    (src / "videoFile").mkdir()
+    (src / "videoFile" / "11111111-2222-3333-4444-555555555555_movie.mp4").write_bytes(b"v")
+    (src / "videoFile" / "22222222-3333-4444-5555-666666666666_pic.png").write_bytes(b"p")
+    (src / "videoFile" / "Thumbs.db").write_bytes(b"junk")  # 应被跳过
+
+    # 准备目标 data（用 tmp_path/data，与后端 conf.py 行为对齐）
+    target = tmp_path / "data"
+    target.mkdir()
+    (target / "cookies").mkdir()
+
+    # stub 后端探测 + 上传
+    monkeypatch.setattr(mld, "check_backend", lambda api: True)
+    upload_calls: list = []
+    monkeypatch.setattr(mld, "upload_material",
+                        lambda p, api_base, dry_run=False, timeout=300.0: upload_calls.append(p.name) or True)
+
+    # stub 备份时间戳
+    monkeypatch.setattr(mld, "_timestamp", lambda: "20260605_153012")
+
+    # 用 monkeypatch 替换 sys.argv 注入参数
+    monkeypatch.setattr(sys, "argv", [
+        "migrate_legacy_data.py",
+        "--source", str(src),
+        "--target", str(target),
+        "--api-base", "http://127.0.0.1:5409",
+        "--yes",
+    ])
+
+    rc = mld.main()
+    assert rc == 0
+
+    # 断言：目标 data 包含拷贝内容
+    assert (target / "cookies" / "a.json").read_text() == "ck"
+    assert (target / "cookiesFile" / "b.json").read_text() == "cf"
+    assert (target / "db" / "database.db").read_text() == "db"
+
+    # 断言：备份存在
+    backup = tmp_path / "data.bak.20260605_153012"
+    assert backup.exists()
+    assert (backup / "data" / "cookies").exists()
+
+    # 断言：两个白名单文件都被上传，Thumbs.db 被跳过
+    assert len(upload_calls) == 2
+    assert "11111111-2222-3333-4444-555555555555_movie.mp4" in upload_calls
+    assert "22222222-3333-4444-5555-666666666666_pic.png" in upload_calls
+
+    # 断言：报告打印到 stdout
+    out = capsys.readouterr().out
+    assert "迁移报告" in out
+
+
+def test_main_backend_unreachable(monkeypatch, tmp_path):
+    """后端不可达时退出码 3。"""
+    src = tmp_path / "old"
+    src.mkdir()
+    target = tmp_path / "data"
+    target.mkdir()
+
+    monkeypatch.setattr(mld, "check_backend", lambda api: False)
+
+    monkeypatch.setattr(sys, "argv", [
+        "migrate_legacy_data.py",
+        "--source", str(src),
+        "--target", str(target),
+        "--yes",
+    ])
+
+    rc = mld.main()
+    assert rc == 3
+
+
+def test_main_source_not_found(monkeypatch, tmp_path):
+    """源路径不存在时退出码 1。"""
+    target = tmp_path / "data"
+    target.mkdir()
+
+    monkeypatch.setattr(sys, "argv", [
+        "migrate_legacy_data.py",
+        "--source", str(tmp_path / "nonexistent"),
+        "--target", str(target),
+        "--yes",
+    ])
+
+    rc = mld.main()
+    assert rc == 1
+
+
+def test_main_dry_run_no_modifications(monkeypatch, tmp_path):
+    """dry-run 模式不实际写任何文件。"""
+    src = tmp_path / "old"
+    (src / "cookies").mkdir(parents=True)
+    (src / "cookies" / "a.json").write_text("ck")
+
+    target = tmp_path / "data"
+    target.mkdir()
+
+    monkeypatch.setattr(mld, "check_backend", lambda api: True)
+    upload_calls: list = []
+    monkeypatch.setattr(mld, "upload_material",
+                        lambda *a, **kw: upload_calls.append(True) or True)
+
+    monkeypatch.setattr(sys, "argv", [
+        "migrate_legacy_data.py",
+        "--source", str(src),
+        "--target", str(target),
+        "--dry-run",
+        "--yes",
+    ])
+
+    rc = mld.main()
+    assert rc == 0
+    # 目标 cookies 目录被创建但不包含 a.json
+    assert not (target / "cookies" / "a.json").exists()

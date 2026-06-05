@@ -763,7 +763,6 @@ def health_check():
 
 
 # ── 反馈系统代理（HMAC 签名由后端完成，前端永不接触 app_secret）──
-# 注意：未来 Tasks 4-5 会追加 submit / vote 路由，统一样式
 
 
 def _feedback_sign(timestamp_ms: str, app_key: str = None, app_secret: str = None) -> str:
@@ -773,6 +772,16 @@ def _feedback_sign(timestamp_ms: str, app_key: str = None, app_secret: str = Non
         app_secret = FEEDBACK_APP_SECRET
     msg = f"{app_key}{timestamp_ms}{app_secret}".encode('utf-8')
     return hmac.new(app_secret.encode('utf-8'), msg, hashlib.sha256).hexdigest()
+
+
+def _feedback_headers() -> dict:
+    """生成带 HMAC 签名的反馈系统请求头。"""
+    ts = str(int(time.time() * 1000))
+    return {
+        'X-App-Key': FEEDBACK_APP_KEY,
+        'X-Timestamp': ts,
+        'X-Sign': _feedback_sign(ts),
+    }
 
 
 @app.route('/api/feedback/list', methods=['GET'])
@@ -788,18 +797,11 @@ def feedback_list():
     if tab == 'inactive':
         params['include_all'] = 'true'
 
-    ts = str(int(time.time() * 1000))
-    headers = {
-        'X-App-Key': FEEDBACK_APP_KEY,
-        'X-Timestamp': ts,
-        'X-Sign': _feedback_sign(ts),
-    }
-
     try:
         r = _requests.get(
             f"{FEEDBACK_API_BASE_URL}/api/v1/feedback",
             params=params,
-            headers=headers,
+            headers=_feedback_headers(),
             timeout=FEEDBACK_API_TIMEOUT,
         )
         r.raise_for_status()
@@ -832,19 +834,12 @@ def feedback_submit():
     for f in request.files.getlist('files'):
         files.append(('files', (f.filename, f.stream, f.mimetype)))
 
-    ts = str(int(time.time() * 1000))
-    headers = {
-        'X-App-Key': FEEDBACK_APP_KEY,
-        'X-Timestamp': ts,
-        'X-Sign': _feedback_sign(ts),
-    }
-
     try:
         r = _requests.post(
             f"{FEEDBACK_API_BASE_URL}/api/v1/feedback",
             data={'email': email, 'content': content},
             files=files,
-            headers=headers,
+            headers=_feedback_headers(),
             timeout=FEEDBACK_API_TIMEOUT,
         )
         return (r.json(), r.status_code)
@@ -860,18 +855,11 @@ def feedback_vote():
     if not fb_id or not email:
         return jsonify({'code': 400, 'message': 'id 和 email 必填', 'data': None}), 400
 
-    ts = str(int(time.time() * 1000))
-    headers = {
-        'X-App-Key': FEEDBACK_APP_KEY,
-        'X-Timestamp': ts,
-        'X-Sign': _feedback_sign(ts),
-    }
-
     try:
         r = _requests.post(
             f"{FEEDBACK_API_BASE_URL}/api/v1/feedback/{fb_id}/vote",
             json={'email': email},
-            headers=headers,
+            headers=_feedback_headers(),
             timeout=FEEDBACK_API_TIMEOUT,
         )
         return (r.json(), r.status_code)

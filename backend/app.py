@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import sqlite3
@@ -17,7 +19,13 @@ BACKEND_DIR = Path(__file__).parent.resolve()
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from conf import BASE_DIR
+from conf import (
+    BASE_DIR,
+    FEEDBACK_API_BASE_URL,
+    FEEDBACK_APP_KEY,
+    FEEDBACK_APP_SECRET,
+    FEEDBACK_API_TIMEOUT,
+)
 from util._logger import get_channel_logger
 
 logger = get_channel_logger("backend")
@@ -799,3 +807,13 @@ if __name__ == "__main__":
     from waitress import serve
     os.environ["SAU_PORT"] = str(port)
     serve(app, host="0.0.0.0", port=port)
+
+
+# ── 反馈系统代理（HMAC 签名由后端完成，前端永不接触 app_secret）──
+def _feedback_sign(timestamp_ms: str, app_key: str = None, app_secret: str = None) -> str:
+    if app_key is None:
+        app_key = FEEDBACK_APP_KEY
+    if app_secret is None:
+        app_secret = FEEDBACK_APP_SECRET
+    msg = f"{app_key}{timestamp_ms}{app_secret}".encode('utf-8')
+    return hmac.new(app_secret.encode('utf-8'), msg, hashlib.sha256).hexdigest()

@@ -23,6 +23,65 @@ BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 MCP_DIR="$PROJECT_ROOT/backend-mcp"
 
+# --- 本地依赖目录（优先使用）---
+DEP_DIR="$PROJECT_ROOT/dependency"
+DEP_BIN_DIR="$DEP_DIR/bin"
+if [[ -d "$DEP_BIN_DIR" ]]; then
+    export PATH="$DEP_BIN_DIR:$DEP_DIR/python/bin:$DEP_DIR/git/bin:$DEP_DIR/node/bin:$PATH"
+fi
+
+# CloakBrowser: 如果 dependency/cloakbrowser/ 下有 chrome 二进制，优先使用
+CLOAKBROWSER_LOCAL="$DEP_DIR/cloakbrowser"
+if [[ -f "$CLOAKBROWSER_LOCAL/chrome" ]]; then
+    export CLOAKBROWSER_BINARY_PATH="$CLOAKBROWSER_LOCAL/chrome"
+fi
+
+# --- 项目代码管理（git clone / update）---
+REPO_URL="https://github.com/DevilJie/social-auto-upload-web-ui.git"
+MAIN_BRANCH="master"
+
+if [[ ! -d "$BACKEND_DIR" ]]; then
+    # 首次使用：没有项目代码，从 GitHub 克隆
+    if ! command -v git &>/dev/null; then
+        echo -e "${CROSS} 未找到 git，无法克隆项目代码"
+        exit 1
+    fi
+    echo ""
+    echo -e "${CYAN}首次使用，正在从 GitHub 拉取项目代码...${NC}"
+    cd "$PROJECT_ROOT"
+    git init
+    git remote add origin "$REPO_URL" 2>/dev/null || git remote set-url origin "$REPO_URL"
+    if ! git fetch origin "$MAIN_BRANCH"; then
+        print_fail "无法连接 GitHub，请检查网络连接"
+        echo "  如果无法访问 GitHub，请手动下载项目代码到当前目录"
+        echo "  仓库地址: $REPO_URL"
+        exit 1
+    fi
+    git checkout -f "$MAIN_BRANCH"
+    echo -e "${CHECK} 项目代码拉取完成"
+    echo ""
+    exec bash "$PROJECT_ROOT/start.sh"
+fi
+
+# 已有项目代码：检查更新
+if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
+    cd "$PROJECT_ROOT"
+    if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
+        LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
+        REMOTE=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "")
+        if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
+            echo ""
+            echo -e "${CYAN}发现新版本！是否更新？[Y/n]${NC}"
+            read -r answer
+            if [[ ! "$answer" =~ ^[Nn]$ ]]; then
+                git pull origin "$MAIN_BRANCH"
+                echo -e "${CHECK} 更新完成，重新启动..."
+                exec bash "$PROJECT_ROOT/start.sh"
+            fi
+        fi
+    fi
+fi
+
 # --- 日志文件 ---
 BACKEND_LOG="$PROJECT_ROOT/backend.log"
 FRONTEND_LOG="$PROJECT_ROOT/frontend.log"
@@ -114,11 +173,11 @@ run_with_spinner() {
 kill_port() {
     local port=$1
     local pids
-    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    pids=$(lsof -P -n -ti :"$port" 2>/dev/null || true)
     if [[ -n "$pids" ]]; then
         echo "$pids" | xargs kill -9 2>/dev/null || true
         sleep 1
-        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        pids=$(lsof -P -n -ti :"$port" 2>/dev/null || true)
         if [[ -n "$pids" ]]; then
             print_fail "端口 $port 仍被占用，请手动释放后重试"
             exit 1
@@ -147,20 +206,75 @@ check_hash_changed() {
 # ============================================================
 print_step "1" "检查运行时环境"
 
+# --- 检测系统包管理器，用于给出安装提示 ---
+detect_pkg_manager() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "brew"
+    elif command -v apt-get &>/dev/null; then
+        echo "apt"
+    elif command -v dnf &>/dev/null; then
+        echo "dnf"
+    elif command -v yum &>/dev/null; then
+        echo "yum"
+    elif command -v pacman &>/dev/null; then
+        echo "pacman"
+    else
+        echo "unknown"
+    fi
+}
+PKG_MGR=$(detect_pkg_manager)
+
+# 根据系统给出安装命令
+install_hint() {
+    local pkg="$1"
+    case "$PKG_MGR" in
+        brew)
+            echo "    安装命令: brew install ${pkg}"
+            ;;
+        apt)
+            echo "    安装命令: sudo apt install ${pkg}"
+            ;;
+        dnf)
+            echo "    安装命令: sudo dnf install ${pkg}"
+            ;;
+        yum)
+            echo "    安装命令: sudo yum install ${pkg}"
+            ;;
+        pacman)
+            echo "    安装命令: sudo pacman -S ${pkg}"
+            ;;
+        *)
+            echo "    请手动安装: ${pkg}"
+            ;;
+    esac
+}
+
+# 判断命令来源：内置 (dependency/) 还是系统
+cmd_source() {
+    local cmd_path
+    cmd_path=$(command -v "$1" 2>/dev/null || true)
+    if [[ -n "$cmd_path" && "$cmd_path" == "$DEP_DIR"* ]]; then
+        echo "内置"
+    else
+        echo "系统"
+    fi
+}
+
 if ! command -v python3 &>/dev/null; then
     print_fail "未找到 python3，请先安装 Python 3.8+"
-    echo "    macOS:         brew install python3"
-    echo "    Ubuntu/Debian: sudo apt install python3 python3-venv"
-    echo "    Fedora:        sudo dnf install python3"
+    install_hint "python3 python3-venv python3-pip"
     exit 1
 fi
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-print_ok "Python ${PYTHON_VERSION}"
+print_ok "Python ${PYTHON_VERSION} ($(cmd_source python3))"
 
 if ! command -v node &>/dev/null; then
     print_fail "未找到 node，请先安装 Node.js 16+"
-    echo "    macOS:         brew install node"
-    echo "    Ubuntu/Debian: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install nodejs"
+    if [[ "$PKG_MGR" == "brew" ]]; then
+        echo "    安装命令: brew install node"
+    else
+        echo "    安装命令: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install nodejs"
+    fi
     exit 1
 fi
 NODE_VERSION=$(node --version 2>&1)
@@ -170,31 +284,27 @@ if ! command -v npm &>/dev/null; then
     exit 1
 fi
 NPM_VERSION=$(npm --version 2>&1)
-print_ok "Node ${NODE_VERSION} / npm ${NPM_VERSION}"
+print_ok "Node ${NODE_VERSION} / npm ${NPM_VERSION} ($(cmd_source node))"
 
 if ! command -v curl &>/dev/null; then
-    print_fail "未找到 curl，请先安装 curl"
-    echo "    macOS:         brew install curl"
-    echo "    Ubuntu/Debian: sudo apt install curl"
-    echo "    Fedora:        sudo dnf install curl"
+    print_fail "未找到 curl"
+    install_hint "curl"
     exit 1
 fi
-print_ok "curl $(curl --version 2>&1 | head -1 | awk '{print $2}')"
+print_ok "curl $(curl --version 2>&1 | head -1 | awk '{print $2}') ($(cmd_source curl))"
 
 if ! command -v ffmpeg &>/dev/null; then
-    print_fail "未找到 ffmpeg，请先安装 ffmpeg"
-    echo "    macOS:         brew install ffmpeg"
-    echo "    Ubuntu/Debian: sudo apt install ffmpeg"
-    echo "    Fedora:        sudo dnf install ffmpeg"
+    print_fail "未找到 ffmpeg"
+    install_hint "ffmpeg"
     exit 1
 fi
-print_ok "ffmpeg $(ffmpeg -version 2>&1 | head -1 | awk '{print $3}')"
+print_ok "ffmpeg $(ffmpeg -version 2>&1 | head -1 | awk '{print $3}') ($(cmd_source ffmpeg))"
 
 if ! command -v ffprobe &>/dev/null; then
     print_fail "未找到 ffprobe，请先安装 ffmpeg（包含 ffprobe）"
     exit 1
 fi
-print_ok "ffprobe 已安装"
+print_ok "ffprobe 已安装 ($(cmd_source ffprobe))"
 
 # 清除系统代理，避免 httpx/cloakbrowser 读取到不支持的 socks:// 代理
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
@@ -221,6 +331,7 @@ print_step "3" "准备后端环境"
 VENV_DIR="$BACKEND_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python3"
 VENV_PIP="$VENV_DIR/bin/pip"
+PIP_MIRROR="https://mirrors.aliyun.com/pypi/simple/"
 HASH_FILE="$PROJECT_ROOT/.backend_deps_hash"
 CURRENT_HASH=$(get_dir_hash "backend")
 
@@ -245,12 +356,14 @@ if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_PIP" ]]; then
     fi
     printf "\r  ${CHECK} 虚拟环境创建完成\n"
     "$VENV_PIP" cache purge >/dev/null 2>&1 || true
-    run_with_spinner "安装 Python 依赖（首次安装，请稍候）" "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet --no-cache-dir
+    echo -e "  ${CYAN}安装 Python 依赖（首次安装，请稍候）...${NC}"
+    "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --no-cache-dir -i "$PIP_MIRROR"
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "后端环境就绪"
 elif check_hash_changed "$HASH_FILE" "$CURRENT_HASH"; then
     "$VENV_PIP" cache purge >/dev/null 2>&1 || true
-    run_with_spinner "检测到变更，更新 Python 依赖" "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --quiet --no-cache-dir
+    echo -e "  ${CYAN}检测到变更，更新 Python 依赖...${NC}"
+    "$VENV_PIP" install -r "$BACKEND_DIR/requirements.txt" --no-cache-dir -i "$PIP_MIRROR"
     echo "$CURRENT_HASH" > "$HASH_FILE"
     print_ok "依赖更新完成"
 else
@@ -259,7 +372,9 @@ fi
 
 # 检查 CloakBrowser 二进制文件
 CLOAKBROWSER_DIR="$HOME/.cloakbrowser"
-if ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome >/dev/null 2>&1; then
+if [[ -n "${CLOAKBROWSER_BINARY_PATH:-}" ]]; then
+    print_ok "CloakBrowser (本地依赖)"
+elif ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome >/dev/null 2>&1; then
     echo -e "  ${CYAN}📥 首次使用，下载 CloakBrowser 浏览器${NC}"
 
     # 从 Python 获取下载信息
@@ -364,7 +479,7 @@ print_step "5" "启动服务"
 
 # 确保端口完全释放
 for i in $(seq 1 5); do
-    if ! lsof -ti :5409 >/dev/null 2>&1; then
+    if ! lsof -P -n -ti :5409 >/dev/null 2>&1; then
         break
     fi
     sleep 1
@@ -449,7 +564,7 @@ for i in $(seq 1 15); do
         exit 1
     fi
     if [[ "$TRANSPORT_MODE" == "sse" || "$TRANSPORT_MODE" == "both" ]]; then
-        if lsof -ti :5410 >/dev/null 2>&1; then
+        if lsof -P -n -ti :5410 >/dev/null 2>&1; then
             echo ""
             print_ok "MCP 就绪 (SSE 端口 5410)"
             break

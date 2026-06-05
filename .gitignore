@@ -50,4 +50,7 @@ backend/bin/
 .mcp.pid
 backend.log
 frontend.log
-mcp.log
+mcp.logdependency/
+dependency*
+QianFan*
+*.log

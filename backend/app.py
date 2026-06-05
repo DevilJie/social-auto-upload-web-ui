@@ -821,6 +821,37 @@ def feedback_list():
     return jsonify(data)
 
 
+@app.route('/api/feedback/submit', methods=['POST'])
+def feedback_submit():
+    email = request.form.get('email', '').strip()
+    content = request.form.get('content', '').strip()
+    if not email or not content:
+        return jsonify({'code': 400, 'message': '邮箱和内容必填', 'data': None}), 400
+
+    files = []
+    for f in request.files.getlist('files'):
+        files.append(('files', (f.filename, f.stream, f.mimetype)))
+
+    ts = str(int(time.time() * 1000))
+    headers = {
+        'X-App-Key': FEEDBACK_APP_KEY,
+        'X-Timestamp': ts,
+        'X-Sign': _feedback_sign(ts),
+    }
+
+    try:
+        r = _requests.post(
+            f"{FEEDBACK_API_BASE_URL}/api/v1/feedback",
+            data={'email': email, 'content': content},
+            files=files,
+            headers=headers,
+            timeout=FEEDBACK_API_TIMEOUT,
+        )
+        return (r.json(), r.status_code)
+    except _requests.RequestException as e:
+        return jsonify({'code': 502, 'message': f'反馈系统不可达: {e}', 'data': None}), 502
+
+
 # ── Server entry ────────────────────────────────────────────
 
 def find_available_port(start_port=5409, max_attempts=10):

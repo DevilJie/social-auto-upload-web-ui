@@ -129,3 +129,57 @@ def test_feedback_list_upstream_5xx_returns_502():
         r = client.get("/api/feedback/list?tab=active")
         assert r.status_code == 502
         assert "反馈系统不可达" in r.get_json()["message"]
+
+
+def test_feedback_submit_missing_fields():
+    """缺 email 或 content 返 400。"""
+    from app import app
+
+    client = app.test_client()
+    r = client.post("/api/feedback/submit", data={"email": "a@b.com"})
+    assert r.status_code == 400
+    assert "必填" in r.get_json()["message"]
+
+    r = client.post("/api/feedback/submit", data={"content": "hello"})
+    assert r.status_code == 400
+
+
+def test_feedback_submit_forwards_files():
+    """multipart 字段和文件都正确转发。"""
+    from app import app
+    import io
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 200, "data": {"id": 99}}
+    fake_resp.status_code = 200
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_post(url, data, files, headers, timeout):
+        captured["url"] = url
+        captured["data"] = data
+        captured["files"] = files
+        captured["headers"] = headers
+        return fake_resp
+
+    with patch("app._requests.post", side_effect=fake_post):
+        client = app.test_client()
+        r = client.post(
+            "/api/feedback/submit",
+            data={
+                "email": "user@example.com",
+                "content": "应用启动后白屏",
+                "files": (io.BytesIO(b"fake-image-bytes"), "screen.png"),
+            },
+            content_type="multipart/form-data",
+            buffered=True,
+        )
+        assert r.status_code == 200
+        assert captured["data"]["email"] == "user@example.com"
+        assert captured["data"]["content"] == "应用启动后白屏"
+        # 至少 1 个文件被转发
+        assert len(captured["files"]) >= 1
+        # 签名头齐
+        assert "X-Sign" in captured["headers"]
+        # URL 正确
+        assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")

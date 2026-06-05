@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         copied, failed = copy_directory(src_sub, target / sub, dry_run=args.dry_run)
         copy_stats[sub] = (copied, failed)
         marker = "⊘" if args.dry_run else "✓"
-        print(f"      {marker} {sub}/  复制 {copied} 个文件" + (f", 失败 {failed}" if failed else ""))
+        print(f"      {marker} {sub + '/':<14}复制 {copied} 个文件" + (f", 失败 {failed}" if failed else ""))
 
     # 阶段 5: 迁移素材
     print(f"[5/5] 迁移素材库 (videoFile/)...")
@@ -269,7 +269,6 @@ def main(argv: list[str] | None = None) -> int:
         files = sorted(p for p in vf.rglob("*") if p.is_file())
         total = len(files)
         for i, f in enumerate(files, 1):
-            rel = f.relative_to(vf)
             if not is_allowed_ext(f.name):
                 upload_skip += 1
                 print(f"      [{i}/{total}] 跳过 {f.name} (非素材类型) ⊘")
@@ -290,8 +289,9 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 40)
     for sub in ["cookies", "cookiesFile", "db"]:
         c, f = copy_stats.get(sub, (0, 0))
-        print(f"  {sub}/        复制 {c} 个文件" + (f", 失败 {f}" if f else ""))
-    print(f"  videoFile/      成功 {upload_ok}, 失败 {upload_fail}, 跳过 {upload_skip}")
+        suffix = f", 失败 {f}" if f else ""
+        print(f"  {sub + '/':<14}复制 {c} 个文件{suffix}")
+    print(f"  {'videoFile/':<14}成功 {upload_ok}, 失败 {upload_fail}, 跳过 {upload_skip}")
     if not args.skip_backup and target.exists():
         # 找最新的备份
         backups = sorted(target.parent.glob("data.bak.*"), key=lambda p: p.name, reverse=True)

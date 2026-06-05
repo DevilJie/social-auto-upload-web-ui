@@ -183,3 +183,57 @@ def test_feedback_submit_forwards_files():
         assert "X-Sign" in captured["headers"]
         # URL 正确
         assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
+
+
+def test_feedback_vote_missing_fields():
+    """缺 id 或 email 返 400。"""
+    from app import app
+
+    client = app.test_client()
+    r = client.post("/api/feedback/vote", json={"id": 1})
+    assert r.status_code == 400
+    r = client.post("/api/feedback/vote", json={"email": "a@b.com"})
+    assert r.status_code == 400
+    r = client.post("/api/feedback/vote", json={})
+    assert r.status_code == 400
+
+
+def test_feedback_vote_forwards():
+    """正常请求正确转发到 /<id>/vote。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 200, "data": None}
+    fake_resp.status_code = 200
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        return fake_resp
+
+    with patch("app._requests.post", side_effect=fake_post):
+        client = app.test_client()
+        r = client.post("/api/feedback/vote", json={"id": 42, "email": "voter@example.com"})
+        assert r.status_code == 200
+        assert captured["url"] == "https://feedback.cjxch.com/api/v1/feedback/42/vote"
+        assert captured["json"] == {"email": "voter@example.com"}
+        assert "X-Sign" in captured["headers"]
+
+
+def test_feedback_vote_passes_through_400():
+    """上游 4xx（如 already voted）原样透传。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 400, "message": "already voted", "data": None}
+    fake_resp.status_code = 400
+    fake_resp.raise_for_status = MagicMock()
+
+    with patch("app._requests.post", return_value=fake_resp):
+        client = app.test_client()
+        r = client.post("/api/feedback/vote", json={"id": 1, "email": "a@b.com"})
+        assert r.status_code == 400
+        assert r.get_json()["message"] == "already voted"

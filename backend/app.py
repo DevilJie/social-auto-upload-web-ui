@@ -852,6 +852,33 @@ def feedback_submit():
         return jsonify({'code': 502, 'message': f'反馈系统不可达: {e}', 'data': None}), 502
 
 
+@app.route('/api/feedback/vote', methods=['POST'])
+def feedback_vote():
+    body = request.get_json(silent=True) or {}
+    fb_id = body.get('id')
+    email = (body.get('email') or '').strip()
+    if not fb_id or not email:
+        return jsonify({'code': 400, 'message': 'id 和 email 必填', 'data': None}), 400
+
+    ts = str(int(time.time() * 1000))
+    headers = {
+        'X-App-Key': FEEDBACK_APP_KEY,
+        'X-Timestamp': ts,
+        'X-Sign': _feedback_sign(ts),
+    }
+
+    try:
+        r = _requests.post(
+            f"{FEEDBACK_API_BASE_URL}/api/v1/feedback/{fb_id}/vote",
+            json={'email': email},
+            headers=headers,
+            timeout=FEEDBACK_API_TIMEOUT,
+        )
+        return (r.json(), r.status_code)
+    except _requests.RequestException as e:
+        return jsonify({'code': 502, 'message': f'反馈系统不可达: {e}', 'data': None}), 502
+
+
 # ── Server entry ────────────────────────────────────────────
 
 def find_available_port(start_port=5409, max_attempts=10):

@@ -503,17 +503,7 @@ if /i "%TRANSPORT_MODE%"=="sse" (
 )
 echo ============================================
 echo.
-echo   查看后端日志: type %BACKEND_LOG%
-echo   查看前端日志: type %FRONTEND_LOG%
-echo   查看 MCP 日志:  type %MCP_LOG%
+echo 按 Ctrl+C 停止所有服务
 echo.
-echo   停止服务:
-echo     taskkill /F /PID !BACKEND_PID!
-echo     taskkill /F /PID !FRONTEND_PID!
-if defined MCP_PID (
-    echo     taskkill /F /PID !MCP_PID!
-) else (
-    echo     taskkill /FI "WINDOWTITLE eq SAU-MCP*" /T /F
-)
-echo.
-endlocal
+echo --- 后端日志 ---
+powershell -Command "Get-Content '%BACKEND_LOG%' -Wait -Tail 50"

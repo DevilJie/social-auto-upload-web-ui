@@ -1,6 +1,4 @@
 """反馈系统代理的单元测试。"""
-import hmac
-import hashlib
 import sys
 from pathlib import Path
 
@@ -10,19 +8,124 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 def test_feedback_sign_known_vector():
-    """固定输入产生已知 hex（与文档 §3.3 算法对齐）。"""
+    """硬编码已知 hex（用 Python 一次性算好写死的，不是运行公式）。"""
     from app import _feedback_sign
 
-    app_key = "ak_test"
-    app_secret = "sk_test"
-    timestamp = "1717555800000"
+    # 已知向量：HMAC-SHA256("sk_test", "ak_test1717555800000sk_test")
+    # 上述公式算出的 hex 是 64 字符小写：
+    expected = "54875963021a1bb4640e2c87ad7e90125d9ee4ca0e4e797bc8abd80e13cd281f"
 
-    # 期望 = HMAC-SHA256(secret, key+timestamp+secret) hex
-    expected_msg = f"{app_key}{timestamp}{app_secret}".encode('utf-8')
-    expected_sig = hmac.new(app_secret.encode('utf-8'), expected_msg, hashlib.sha256).hexdigest()
-
-    actual = _feedback_sign(timestamp, app_key=app_key, app_secret=app_secret)
-    assert actual == expected_sig
-    # 长度为 64（小写 hex）
+    actual = _feedback_sign("1717555800000", app_key="ak_test", app_secret="sk_test")
+    assert actual == expected
     assert len(actual) == 64
     assert actual == actual.lower()
+
+
+def test_feedback_sign_different_vector():
+    """不同输入应产生不同签名（防止常量被硬编码）。"""
+    from app import _feedback_sign
+    sig1 = _feedback_sign("1000", app_key="k1", app_secret="s1")
+    sig2 = _feedback_sign("2000", app_key="k1", app_secret="s1")
+    sig3 = _feedback_sign("1000", app_key="k2", app_secret="s1")
+    assert sig1 != sig2
+    assert sig1 != sig3
+    assert sig2 != sig3
+
+
+from unittest.mock import patch, MagicMock
+
+
+def test_feedback_list_active_tab():
+    """tab=active 时不传 include_all；原样透传上游响应。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {
+        "code": 200,
+        "data": {
+            "list": [
+                {"id": 1, "status": 1, "vote_count": 5, "created_at": "2026-06-05T10:00:00+08:00",
+                 "attachments": [{"file_url": "/uploads/x.png"}]}
+            ],
+            "total": 1, "page": 1, "page_size": 20
+        }
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_get(url, params, headers, timeout):
+        captured["url"] = url
+        captured["params"] = params
+        captured["headers"] = headers
+        return fake_resp
+
+    with patch("app._requests.get", side_effect=fake_get):
+        client = app.test_client()
+        r = client.get("/api/feedback/list?tab=active&page=1&page_size=20")
+        assert r.status_code == 200
+        body = r.get_json()
+        # 透传
+        assert body["data"]["total"] == 1
+        # 不应包含 include_all
+        assert "include_all" not in captured["params"]
+        # URL 指向反馈系统
+        assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
+        # 签名头齐
+        assert "X-App-Key" in captured["headers"]
+        assert "X-Timestamp" in captured["headers"]
+        assert "X-Sign" in captured["headers"]
+        assert len(captured["headers"]["X-Sign"]) == 64
+        # file_url 被改写为绝对 URL
+        assert body["data"]["list"][0]["attachments"][0]["file_url"] == "https://feedback.cjxch.com/uploads/x.png"
+
+
+def test_feedback_list_inactive_tab_filters():
+    """tab=inactive 时带 include_all=true 并过滤 status 3/4。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {
+        "code": 200,
+        "data": {
+            "list": [
+                {"id": 1, "status": 1, "vote_count": 5},  # 活跃 - 应被过滤
+                {"id": 2, "status": 3, "vote_count": 2},  # 已完成 - 保留
+                {"id": 3, "status": 4, "vote_count": 1},  # 已拒绝 - 保留
+                {"id": 4, "status": 2, "vote_count": 0},  # 处理中 - 应被过滤
+            ],
+            "total": 4
+        }
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_get(url, params, headers, timeout):
+        captured["params"] = params
+        return fake_resp
+
+    with patch("app._requests.get", side_effect=fake_get):
+        client = app.test_client()
+        r = client.get("/api/feedback/list?tab=inactive")
+        assert r.status_code == 200
+        body = r.get_json()
+        # 只剩 status 3/4
+        assert body["data"]["total"] == 2
+        ids = [x["id"] for x in body["data"]["list"]]
+        assert ids == [2, 3]
+        # 带 include_all=true
+        assert captured["params"].get("include_all") == "true"
+
+
+def test_feedback_list_upstream_5xx_returns_502():
+    """上游 5xx 时后端返回 502。"""
+    from app import app
+    import requests as _requests
+
+    fake_resp = MagicMock()
+    fake_resp.raise_for_status.side_effect = _requests.HTTPError("500 Server Error")
+
+    with patch("app._requests.get", return_value=fake_resp):
+        client = app.test_client()
+        r = client.get("/api/feedback/list?tab=active")
+        assert r.status_code == 502
+        assert "反馈系统不可达" in r.get_json()["message"]

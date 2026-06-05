@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from queue import Queue
 
+import requests as _requests
+
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from flask_cors import CORS
 
@@ -760,6 +762,65 @@ def health_check():
     return jsonify(diag)
 
 
+# ── 反馈系统代理（HMAC 签名由后端完成，前端永不接触 app_secret）──
+# 注意：未来 Tasks 4-5 会追加 submit / vote 路由，统一样式
+
+
+def _feedback_sign(timestamp_ms: str, app_key: str = None, app_secret: str = None) -> str:
+    if app_key is None:
+        app_key = FEEDBACK_APP_KEY
+    if app_secret is None:
+        app_secret = FEEDBACK_APP_SECRET
+    msg = f"{app_key}{timestamp_ms}{app_secret}".encode('utf-8')
+    return hmac.new(app_secret.encode('utf-8'), msg, hashlib.sha256).hexdigest()
+
+
+@app.route('/api/feedback/list', methods=['GET'])
+def feedback_list():
+    tab = request.args.get('tab', 'active')  # 'active' or 'inactive'
+    try:
+        page = int(request.args.get('page', 1))
+        page_size = min(int(request.args.get('page_size', 20)), 100)
+    except ValueError:
+        return jsonify({'code': 400, 'message': 'page / page_size 必须是整数', 'data': None}), 400
+
+    params = {'page': page, 'page_size': page_size}
+    if tab == 'inactive':
+        params['include_all'] = 'true'
+
+    ts = str(int(time.time() * 1000))
+    headers = {
+        'X-App-Key': FEEDBACK_APP_KEY,
+        'X-Timestamp': ts,
+        'X-Sign': _feedback_sign(ts),
+    }
+
+    try:
+        r = _requests.get(
+            f"{FEEDBACK_API_BASE_URL}/api/v1/feedback",
+            params=params,
+            headers=headers,
+            timeout=FEEDBACK_API_TIMEOUT,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except _requests.RequestException as e:
+        return jsonify({'code': 502, 'message': f'反馈系统不可达: {e}', 'data': None}), 502
+
+    if tab == 'inactive':
+        items = [x for x in data.get('data', {}).get('list', []) if x.get('status') in (3, 4)]
+        data['data']['list'] = items
+        data['data']['total'] = len(items)
+
+    # attachment.file_url 从相对路径改写为绝对 URL
+    for item in data.get('data', {}).get('list', []):
+        for att in item.get('attachments') or []:
+            if att.get('file_url', '').startswith('/'):
+                att['file_url'] = FEEDBACK_API_BASE_URL + att['file_url']
+
+    return jsonify(data)
+
+
 # ── Server entry ────────────────────────────────────────────
 
 def find_available_port(start_port=5409, max_attempts=10):
@@ -807,13 +868,3 @@ if __name__ == "__main__":
     from waitress import serve
     os.environ["SAU_PORT"] = str(port)
     serve(app, host="0.0.0.0", port=port)
-
-
-# ── 反馈系统代理（HMAC 签名由后端完成，前端永不接触 app_secret）──
-def _feedback_sign(timestamp_ms: str, app_key: str = None, app_secret: str = None) -> str:
-    if app_key is None:
-        app_key = FEEDBACK_APP_KEY
-    if app_secret is None:
-        app_secret = FEEDBACK_APP_SECRET
-    msg = f"{app_key}{timestamp_ms}{app_secret}".encode('utf-8')
-    return hmac.new(app_secret.encode('utf-8'), msg, hashlib.sha256).hexdigest()

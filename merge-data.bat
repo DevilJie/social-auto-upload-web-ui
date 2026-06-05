@@ -17,10 +17,11 @@ echo ============================================================
 echo   旧版数据迁移到新版 data 目录
 echo ============================================================
 echo.
-echo 目标目录: %PROJECT_DATA%
+echo 目标目录：
+echo %PROJECT_DATA%
 echo.
-echo 请输入需要迁移的源数据目录完整路径。
-echo 例如: C:\Users\foo\AppData\Local\Social Auto Upload Web UI
+echo 请输入需要迁移的源数据目录完整路径
+echo C:\Users\foo\AppData\Local\Social Auto Upload Web UI
 echo.
 
 set "SOURCE="
@@ -47,8 +48,10 @@ if not exist "!SOURCE!" (
 )
 
 echo.
-echo 源目录: !SOURCE!
-echo 目标目录: %PROJECT_DATA%
+echo 源目录：
+echo !SOURCE!
+echo 目标目录：
+echo %PROJECT_DATA%
 echo.
 echo 提示：先执行 start.bat 启动后端，再运行本脚本。
 echo.

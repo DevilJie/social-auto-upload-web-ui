@@ -83,7 +83,10 @@ def backup_data(
     dry_run: bool = False,
     skip: bool = False,
 ) -> Path | None:
-    """把 data 目录整个复制到 data.bak.YYYYMMDD_HHMMSS/。返回备份路径。
+    """把 data 目录整个复制到 data.bak.YYYYMMDD_HHMMSS/data/ 下。返回备份路径。
+
+    备份采用 data/ 子目录包装布局（例如 <backup>/data/cookies/foo.json），
+    方便直接 `cp -r <backup>/data/* <target>/` 整体恢复。
 
     - skip=True  时返回 None（不创建任何目录）
     - dry_run=True 时返回预期的备份路径但不实际复制

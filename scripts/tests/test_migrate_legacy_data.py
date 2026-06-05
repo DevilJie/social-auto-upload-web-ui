@@ -483,6 +483,11 @@ def test_integration_against_legacy_fixture(monkeypatch, tmp_path, capsys):
     fixture_root = Path(__file__).resolve().parent.parent / "legacy_fixture"
     target = tmp_path / "data"
     target.mkdir()
+    # 预填 target，让 backup 阶段能捕获到已有数据
+    (target / "cookies").mkdir(parents=True, exist_ok=True)
+    (target / "cookies" / "foo.json").write_text(
+        '{"placeholder": "cookie fixture", "user": "test_user"}'
+    )
 
     # 计算 fixture 中白名单/非白名单文件数（.DS_Store 可能在 .gitignore 下被
     # 本地存在但不被 git 跟踪，断言需对该情况保持鲁棒）
@@ -511,6 +516,11 @@ def test_integration_against_legacy_fixture(monkeypatch, tmp_path, capsys):
     assert (target / "cookies" / "foo.json").exists()
     assert (target / "cookiesFile" / "xhs.json").exists()
     assert (target / "db" / "database.db").exists()
+
+    # 备份存在
+    backup = tmp_path / "data.bak.20260605_153012"
+    assert backup.exists(), f"Backup dir not created at {backup}"
+    assert (backup / "data" / "cookies" / "foo.json").read_text() == '{"placeholder": "cookie fixture", "user": "test_user"}'
 
     # 上传白名单文件
     upload_names = [Path(p).name for p in upload_calls]

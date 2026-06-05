@@ -63,7 +63,7 @@ if [[ ! -d "$BACKEND_DIR" ]]; then
     exec bash "$PROJECT_ROOT/start.sh"
 fi
 
-# 已有项目代码：检查更新
+# 已有项目代码：强制更新
 if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
     cd "$PROJECT_ROOT"
     if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
@@ -71,13 +71,11 @@ if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
         REMOTE=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "")
         if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
             echo ""
-            echo -e "${CYAN}发现新版本！是否更新？[Y/n]${NC}"
-            read -r answer
-            if [[ ! "$answer" =~ ^[Nn]$ ]]; then
-                git pull origin "$MAIN_BRANCH"
-                echo -e "${CHECK} 更新完成，重新启动..."
-                exec bash "$PROJECT_ROOT/start.sh"
-            fi
+            echo -e "${CYAN}发现新版本，正在更新...${NC}"
+            git checkout "$MAIN_BRANCH" 2>/dev/null
+            git reset --hard "origin/$MAIN_BRANCH"
+            echo -e "${CHECK} 更新完成，重新启动..."
+            exec bash "$PROJECT_ROOT/start.sh"
         fi
     fi
 fi

@@ -266,3 +266,88 @@ def test_copy_directory_reports_failures(monkeypatch, tmp_path):
     assert failed == 1
     assert (dst / "good.txt").read_text() == "ok"
     assert not (dst / "bad.txt").exists()
+
+
+def test_upload_material_success(monkeypatch, tmp_path):
+    """成功上传：返回 True，文件以原文件名（去前缀）传递。"""
+    captured: dict = {}
+
+    def fake_post(url, files, timeout):
+        captured["url"] = url
+        captured["files"] = files
+        captured["timeout"] = timeout
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "code": 200,
+            "data": {"id": "new-uuid", "stored_path": "materials/2026/06/new-uuid.mp4"},
+        }
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr(mld.requests, "post", fake_post)
+
+    src = tmp_path / "11111111-2222-3333-4444-555555555555_test.mp4"
+    src.write_bytes(b"fake video content")
+
+    ok = mld.upload_material(
+        src, api_base="http://127.0.0.1:5409", dry_run=False,
+    )
+    assert ok is True
+    assert captured["url"] == "http://127.0.0.1:5409/api/materials/upload"
+    file_tuple = captured["files"]["file"]
+    # file_tuple: (filename, file_obj, mime)
+    assert file_tuple[0] == "test.mp4"  # uuid 前缀已剥离
+
+
+def test_upload_material_dry_run(monkeypatch, tmp_path):
+    """dry-run 模式不实际调用 HTTP。"""
+    called = {"count": 0}
+
+    def fake_post(*a, **kw):
+        called["count"] += 1
+        return MagicMock()
+
+    monkeypatch.setattr(mld.requests, "post", fake_post)
+
+    src = tmp_path / "uuid_test.mp4"
+    src.write_bytes(b"x")
+    ok = mld.upload_material(src, api_base="http://x", dry_run=True)
+    assert ok is True
+    assert called["count"] == 0
+
+
+def test_upload_material_http_error(monkeypatch, tmp_path, capsys):
+    """HTTP 500 时返回 False 并打印错误。"""
+    def fake_post(*a, **kw):
+        resp = MagicMock()
+        resp.status_code = 500
+        resp.text = "Internal Server Error"
+        resp.raise_for_status = MagicMock(
+            side_effect=mld.requests.exceptions.HTTPError("500")
+        )
+        return resp
+
+    monkeypatch.setattr(mld.requests, "post", fake_post)
+
+    src = tmp_path / "uuid_x.mp4"
+    src.write_bytes(b"x")
+    ok = mld.upload_material(src, api_base="http://x", dry_run=False)
+    assert ok is False
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.err
+
+
+def test_upload_material_connection_error(monkeypatch, tmp_path, capsys):
+    """连接错误时返回 False。"""
+    def fake_post(*a, **kw):
+        raise mld.requests.exceptions.ConnectionError("refused")
+
+    monkeypatch.setattr(mld.requests, "post", fake_post)
+
+    src = tmp_path / "uuid_x.mp4"
+    src.write_bytes(b"x")
+    ok = mld.upload_material(src, api_base="http://x", dry_run=False)
+    assert ok is False
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.err

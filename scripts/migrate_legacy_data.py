@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import mimetypes
 import os
 import re
 import shutil
@@ -131,6 +132,37 @@ def copy_directory(
             print(f"ERROR: copy {src_file} -> {dst_file}: {e}", file=sys.stderr)
             failed += 1
     return copied, failed
+
+
+def upload_material(
+    src: Path,
+    api_base: str,
+    dry_run: bool = False,
+    timeout: float = 300.0,
+) -> bool:
+    """把 src 调后端 /api/materials/upload 上传。返回 True/False。
+
+    - 文件名 uuid 前缀被剥离后作为 multipart.filename 传递
+    - mime 用 mimetypes.guess_type 推断
+    - dry_run=True 时不实际发送请求
+    """
+    original_name = strip_uuid_prefix(src.name)
+    if dry_run:
+        return True
+    mime_type, _ = mimetypes.guess_type(original_name)
+    mime_type = mime_type or "application/octet-stream"
+    try:
+        with open(src, "rb") as f:
+            resp = requests.post(
+                f"{api_base}/api/materials/upload",
+                files={"file": (original_name, f, mime_type)},
+                timeout=timeout,
+            )
+        resp.raise_for_status()
+        return True
+    except (requests.exceptions.RequestException, OSError) as e:
+        print(f"ERROR: 上传 {src.name} 失败: {e}", file=sys.stderr)
+        return False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

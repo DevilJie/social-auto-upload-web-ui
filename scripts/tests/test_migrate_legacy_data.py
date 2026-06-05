@@ -190,3 +190,79 @@ def test_backup_skip_returns_none(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     assert mld.backup_data(data_dir, dry_run=False, skip=True) is None
+
+
+def test_copy_directory_overwrite(monkeypatch, tmp_path):
+    """递归覆盖拷贝：目标文件存在时被覆盖，不存在的被创建。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "cookies").mkdir()
+    (src / "cookies" / "a.json").write_text("new")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "cookies").mkdir()
+    (dst / "cookies" / "old.json").write_text("old")
+
+    copied, failed = mld.copy_directory(src / "cookies", dst / "cookies", dry_run=False)
+    assert copied == 1
+    assert failed == 0
+    assert (dst / "cookies" / "a.json").read_text() == "new"
+    # 目标已有的 old.json 不被删除（覆盖语义而非 mirror 语义）
+    assert (dst / "cookies" / "old.json").read_text() == "old"
+
+
+def test_copy_directory_dry_run(monkeypatch, tmp_path):
+    """dry-run 模式不实际拷贝。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "f.txt").write_text("x")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    copied, failed = mld.copy_directory(src, dst, dry_run=True)
+    assert copied == 1
+    assert failed == 0
+    assert not (dst / "f.txt").exists()
+
+
+def test_copy_directory_handles_subdirs(monkeypatch, tmp_path):
+    """支持多层子目录递归。"""
+    src = tmp_path / "src"
+    (src / "deep" / "nested").mkdir(parents=True)
+    (src / "deep" / "nested" / "f.txt").write_text("hello")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    copied, failed = mld.copy_directory(src, dst, dry_run=False)
+    assert copied == 1
+    assert failed == 0
+    assert (dst / "deep" / "nested" / "f.txt").read_text() == "hello"
+
+
+def test_copy_directory_reports_failures(monkeypatch, tmp_path):
+    """单个文件失败不影响其他文件，并计入 failed 计数。"""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "good.txt").write_text("ok")
+    (src / "bad.txt").write_text("bad")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    real_copy2 = mld.shutil.copy2
+
+    def fake_copy2(src_file, dst_file, *a, **kw):
+        if "bad" in str(src_file):
+            raise OSError("simulated copy error")
+        return real_copy2(src_file, dst_file, *a, **kw)
+
+    monkeypatch.setattr(mld.shutil, "copy2", fake_copy2)
+
+    copied, failed = mld.copy_directory(src, dst, dry_run=False)
+    assert copied == 1
+    assert failed == 1
+    assert (dst / "good.txt").read_text() == "ok"
+    assert not (dst / "bad.txt").exists()

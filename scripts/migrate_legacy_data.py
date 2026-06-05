@@ -100,6 +100,39 @@ def backup_data(
     return backup_path
 
 
+def copy_directory(
+    src: Path,
+    dst: Path,
+    dry_run: bool = False,
+) -> tuple[int, int]:
+    """递归把 src 下的所有文件覆盖到 dst 下。
+
+    返回 (copied, failed) 计数。已存在于 dst 的文件被覆盖，但 dst 中
+    不在 src 下的文件不会被删除（覆盖语义，非镜像语义）。
+    """
+    if not src.exists():
+        return 0, 0
+    dst.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    failed = 0
+    for src_file in src.rglob("*"):
+        if not src_file.is_file():
+            continue
+        rel = src_file.relative_to(src)
+        dst_file = dst / rel
+        dst_file.parent.mkdir(parents=True, exist_ok=True)
+        if dry_run:
+            copied += 1
+            continue
+        try:
+            shutil.copy2(src_file, dst_file)
+            copied += 1
+        except OSError as e:
+            print(f"ERROR: copy {src_file} -> {dst_file}: {e}", file=sys.stderr)
+            failed += 1
+    return copied, failed
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析 CLI 参数。"""
     parser = argparse.ArgumentParser(

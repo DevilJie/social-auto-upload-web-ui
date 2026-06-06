@@ -35,8 +35,8 @@ def test_feedback_sign_different_vector():
 from unittest.mock import patch, MagicMock
 
 
-def test_feedback_list_active_tab():
-    """tab=active 时不传 include_all；原样透传上游响应。"""
+def test_feedback_list_no_filter_returns_active():
+    """不传 status/include_all 时原样透传上游响应。"""
     from app import app
 
     fake_resp = MagicMock()
@@ -61,13 +61,14 @@ def test_feedback_list_active_tab():
 
     with patch("app._requests.get", side_effect=fake_get):
         client = app.test_client()
-        r = client.get("/api/feedback/list?tab=active&page=1&page_size=20")
+        r = client.get("/api/feedback/list?page=1&page_size=20")
         assert r.status_code == 200
         body = r.get_json()
         # 透传
         assert body["data"]["total"] == 1
-        # 不应包含 include_all
+        # 不应包含 include_all 或 status
         assert "include_all" not in captured["params"]
+        assert "status" not in captured["params"]
         # URL 指向反馈系统
         assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
         # 签名头齐
@@ -79,8 +80,8 @@ def test_feedback_list_active_tab():
         assert body["data"]["list"][0]["attachments"][0]["file_url"] == "https://feedback.cjxch.com/uploads/x.png"
 
 
-def test_feedback_list_inactive_tab_filters():
-    """tab=inactive 时带 include_all=true 并过滤 status 3/4。"""
+def test_feedback_list_status_filter():
+    """status=2 只传 status 给上游。"""
     from app import app
 
     fake_resp = MagicMock()
@@ -88,12 +89,9 @@ def test_feedback_list_inactive_tab_filters():
         "code": 200,
         "data": {
             "list": [
-                {"id": 1, "status": 1, "vote_count": 5},  # 活跃 - 应被过滤
-                {"id": 2, "status": 3, "vote_count": 2},  # 已完成 - 保留
-                {"id": 3, "status": 4, "vote_count": 1},  # 已拒绝 - 保留
-                {"id": 4, "status": 2, "vote_count": 0},  # 处理中 - 应被过滤
+                {"id": 2, "status": 2, "vote_count": 3},
             ],
-            "total": 4
+            "total": 1
         }
     }
     fake_resp.raise_for_status = MagicMock()
@@ -105,15 +103,44 @@ def test_feedback_list_inactive_tab_filters():
 
     with patch("app._requests.get", side_effect=fake_get):
         client = app.test_client()
-        r = client.get("/api/feedback/list?tab=inactive")
+        r = client.get("/api/feedback/list?status=2")
         assert r.status_code == 200
-        body = r.get_json()
-        # 只剩 status 3/4
-        assert body["data"]["total"] == 2
-        ids = [x["id"] for x in body["data"]["list"]]
-        assert ids == [2, 3]
-        # 带 include_all=true
+        assert captured["params"].get("status") == 2
+        assert "include_all" not in captured["params"]
+
+
+def test_feedback_list_include_all():
+    """include_all=true 不传 status。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {
+        "code": 200,
+        "data": {"list": [], "total": 0}
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_get(url, params, headers, timeout):
+        captured["params"] = params
+        return fake_resp
+
+    with patch("app._requests.get", side_effect=fake_get):
+        client = app.test_client()
+        r = client.get("/api/feedback/list?include_all=true")
+        assert r.status_code == 200
         assert captured["params"].get("include_all") == "true"
+        assert "status" not in captured["params"]
+
+
+def test_feedback_list_invalid_status():
+    """status 非整数返 400。"""
+    from app import app
+
+    client = app.test_client()
+    r = client.get("/api/feedback/list?status=abc")
+    assert r.status_code == 400
+    assert "status" in r.get_json()["message"]
 
 
 def test_feedback_list_upstream_5xx_returns_502():
@@ -126,7 +153,7 @@ def test_feedback_list_upstream_5xx_returns_502():
 
     with patch("app._requests.get", return_value=fake_resp):
         client = app.test_client()
-        r = client.get("/api/feedback/list?tab=active")
+        r = client.get("/api/feedback/list")
         assert r.status_code == 502
         assert "反馈系统不可达" in r.get_json()["message"]
 

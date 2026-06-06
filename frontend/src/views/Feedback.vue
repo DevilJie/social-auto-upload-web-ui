@@ -8,10 +8,17 @@
       <el-button type="primary" :icon="Plus" @click="openSubmitDialog">提交反馈</el-button>
     </div>
 
-    <el-tabs v-model="activeTab" @tab-change="handleTabChange">
-      <el-tab-pane :label="`活跃反馈 (${tabCount.active})`" name="active" />
-      <el-tab-pane :label="`非活跃反馈 (${tabCount.inactive})`" name="inactive" />
-    </el-tabs>
+    <div class="filter-bar">
+      <span class="filter-label">状态</span>
+      <el-select v-model="statusFilter" placeholder="选择状态" class="status-select" @change="handleStatusChange">
+        <el-option label="全部" value="all" />
+        <el-option label="待确认" :value="1" />
+        <el-option label="处理中" :value="2" />
+        <el-option label="已完成" :value="3" />
+        <el-option label="已拒绝" :value="4" />
+      </el-select>
+      <el-button :icon="Refresh" @click="loadList" :loading="loading">刷新</el-button>
+    </div>
 
     <div v-loading="loading" class="card-grid">
       <el-empty v-if="!loading && sortedList.length === 0" description="暂无反馈" />
@@ -134,18 +141,17 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, CaretTop, Paperclip, Upload } from '@element-plus/icons-vue'
+import { Plus, CaretTop, Paperclip, Upload, Refresh } from '@element-plus/icons-vue'
 import { listFeedback, submitFeedback as apiSubmit, voteFeedback as apiVote } from '@/api/feedback'
 
 const router = useRouter()
 
-const activeTab = ref('active')
+const statusFilter = ref('all')
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-const tabCount = ref({ active: 0, inactive: 0 })
 
 const drawerVisible = ref(false)
 const currentFb = ref(null)
@@ -191,11 +197,13 @@ function formatTime(iso) {
 async function loadList() {
   loading.value = true
   try {
-    const res = await listFeedback({
-      tab: activeTab.value,
-      page: page.value,
-      pageSize: pageSize.value
-    })
+    const params = { page: page.value, pageSize: pageSize.value }
+    if (statusFilter.value === 'all') {
+      params.includeAll = true
+    } else {
+      params.status = statusFilter.value
+    }
+    const res = await listFeedback(params)
     list.value = res.data?.list || []
     total.value = res.data?.total || 0
   } catch (e) {
@@ -206,23 +214,7 @@ async function loadList() {
   }
 }
 
-async function loadTabCounts() {
-  // 活跃/非活跃总数都拉一次（小开销，page_size=1 只取 total）
-  try {
-    const [a, i] = await Promise.all([
-      listFeedback({ tab: 'active', page: 1, pageSize: 1 }),
-      listFeedback({ tab: 'inactive', page: 1, pageSize: 1 })
-    ])
-    tabCount.value = {
-      active: a.data?.total || 0,
-      inactive: i.data?.total || 0
-    }
-  } catch (e) {
-    tabCount.value = { active: 0, inactive: 0 }
-  }
-}
-
-function handleTabChange() {
+function handleStatusChange() {
   page.value = 1
   loadList()
 }
@@ -320,7 +312,6 @@ async function handleSubmit() {
     ElMessage.success('提交成功')
     submitVisible.value = false
     await loadList()
-    await loadTabCounts()
   } catch (e) {
     // 错误已由 request.js 拦截器处理
   } finally {
@@ -334,7 +325,6 @@ onMounted(async () => {
     await promptForEmail()
   }
   await loadList()
-  await loadTabCounts()
 })
 </script>
 
@@ -342,9 +332,11 @@ onMounted(async () => {
 @use '@/styles/variables.scss' as *;
 
 .feedback-page {
-  padding: 24px 32px;
-  max-width: 1400px;
-  margin: 0 auto;
+  padding: 24px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -366,12 +358,27 @@ onMounted(async () => {
   color: $text-muted;
 }
 
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+
+  .filter-label {
+    color: $text-secondary;
+    font-size: 14px;
+  }
+
+  .status-select {
+    width: 160px;
+  }
+}
+
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
   min-height: 200px;
-  margin-top: 16px;
 }
 
 .feedback-card {
@@ -495,12 +502,5 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 10px;
   font-size: 12px;
-}
-
-:deep(.el-tabs__item) {
-  color: $text-secondary;
-}
-:deep(.el-tabs__item.is-active) {
-  color: $brand-start;
 }
 </style>

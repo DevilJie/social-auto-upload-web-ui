@@ -786,15 +786,27 @@ def _feedback_headers() -> dict:
 
 @app.route('/api/feedback/list', methods=['GET'])
 def feedback_list():
-    tab = request.args.get('tab', 'active')  # 'active' or 'inactive'
+    """状态筛选：全部 / 待确认 / 处理中 / 已完成 / 已拒绝
+    - 不传 status + 不传 include_all → 仅 status 1+2（默认）
+    - status=1/2/3/4 → 仅对应状态
+    - include_all=true → 全部
+    """
     try:
         page = int(request.args.get('page', 1))
         page_size = min(int(request.args.get('page_size', 20)), 100)
     except ValueError:
         return jsonify({'code': 400, 'message': 'page / page_size 必须是整数', 'data': None}), 400
 
+    status_str = request.args.get('status', '').strip()
+    include_all = request.args.get('include_all', '').lower() == 'true'
+
     params = {'page': page, 'page_size': page_size}
-    if tab == 'inactive':
+    if status_str:
+        try:
+            params['status'] = int(status_str)
+        except ValueError:
+            return jsonify({'code': 400, 'message': 'status 必须是整数 (1-4)', 'data': None}), 400
+    elif include_all:
         params['include_all'] = 'true'
 
     try:
@@ -808,11 +820,6 @@ def feedback_list():
         data = r.json()
     except _requests.RequestException as e:
         return jsonify({'code': 502, 'message': f'反馈系统不可达: {e}', 'data': None}), 502
-
-    if tab == 'inactive':
-        items = [x for x in data.get('data', {}).get('list', []) if x.get('status') in (3, 4)]
-        data['data']['list'] = items
-        data['data']['total'] = len(items)
 
     # attachment.file_url 从相对路径改写为绝对 URL
     for item in data.get('data', {}).get('list', []):

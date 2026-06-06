@@ -1,9 +1,13 @@
 import { http } from '@/utils/request'
 
-export function listFeedback({ tab, page = 1, pageSize = 20 }) {
-  return http.get('/api/feedback/list', {
-    params: { tab, page, page_size: pageSize }
-  })
+export function listFeedback({ status, includeAll = false, page = 1, pageSize = 20 }) {
+  const params = { page, page_size: pageSize }
+  if (status !== undefined && status !== null) {
+    params.status = status
+  } else if (includeAll) {
+    params.include_all = 'true'
+  }
+  return http.get('/api/feedback/list', { params })
 }
 
 export function submitFeedback(formData) {

@@ -62,26 +62,29 @@ if not exist "%BACKEND_DIR%" (
     exit /b
 )
 
-:: 已有项目代码：强制更新
+:: 已有项目代码：检查当前分支是否有更新
 if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
         cd /d "%PROJECT_ROOT%"
-        git fetch origin "%MAIN_BRANCH%" >nul 2>&1
-        if !errorlevel! equ 0 (
-            for /f "tokens=*" %%l in ('git rev-parse HEAD 2^>nul') do set "LOCAL_HASH=%%l"
-            for /f "tokens=*" %%r in ('git rev-parse "origin/%MAIN_BRANCH%" 2^>nul') do set "REMOTE_HASH=%%r"
-            if defined REMOTE_HASH (
-                if not "!LOCAL_HASH!"=="!REMOTE_HASH!" (
-                    echo.
-                    <nul set /p "_=发现新版本！是否更新？（更新将覆盖本地修改，未提交的代码将丢失） [Y/n]："
-                    set /p "UPDATE_ANS="
-                    if /i not "!UPDATE_ANS!"=="n" (
-                        git checkout "%MAIN_BRANCH%" >nul 2>&1
-                        git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
-                        echo   √ 更新完成，重新启动...
-                        call "%PROJECT_ROOT%\start.bat"
-                        exit /b
+        set "CURRENT_BRANCH="
+        for /f "tokens=*" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "CURRENT_BRANCH=%%b"
+        if defined CURRENT_BRANCH if not "!CURRENT_BRANCH!"=="HEAD" (
+            git fetch origin "!CURRENT_BRANCH!" >nul 2>&1
+            if !errorlevel! equ 0 (
+                for /f "tokens=*" %%l in ('git rev-parse HEAD 2^>nul') do set "LOCAL_HASH=%%l"
+                for /f "tokens=*" %%r in ('git rev-parse "origin/!CURRENT_BRANCH!" 2^>nul') do set "REMOTE_HASH=%%r"
+                if defined REMOTE_HASH (
+                    if not "!LOCAL_HASH!"=="!REMOTE_HASH!" (
+                        echo.
+                        <nul set /p "_=发现新版本！是否更新？（更新将覆盖本地修改，未提交的代码将丢失） [Y/n]："
+                        set /p "UPDATE_ANS="
+                        if /i not "!UPDATE_ANS!"=="n" (
+                            git reset --hard "origin/!CURRENT_BRANCH!" >nul 2>&1
+                            echo   √ 更新完成，重新启动...
+                            call "%PROJECT_ROOT%\start.bat"
+                            exit /b
+                        )
                     )
                 )
             )
@@ -122,7 +125,8 @@ if !errorlevel! neq 0 (
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set "PYTHON_VER=%%i"
 set "PY_SRC=系统"
 for /f "tokens=*" %%p in ('where python 2^>nul') do (
-    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "PY_SRC=内置"
+    set "_CHK=%%p"
+    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "PY_SRC=内置"
 )
 echo   √ Python !PYTHON_VER! (!PY_SRC!)
 
@@ -137,7 +141,8 @@ if !errorlevel! neq 0 (
 for /f "tokens=*" %%i in ('node --version 2^>^&1') do set "NODE_VER=%%i"
 set "NODE_SRC=系统"
 for /f "tokens=*" %%p in ('where node 2^>nul') do (
-    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "NODE_SRC=内置"
+    set "_CHK=%%p"
+    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "NODE_SRC=内置"
 )
 
 :: 检查 npm
@@ -160,7 +165,8 @@ if !errorlevel! neq 0 (
 )
 set "CURL_SRC=系统"
 for /f "tokens=*" %%p in ('where curl 2^>nul') do (
-    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "CURL_SRC=内置"
+    set "_CHK=%%p"
+    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "CURL_SRC=内置"
 )
 echo   √ curl 已安装 (!CURL_SRC!)
 
@@ -174,7 +180,8 @@ if !errorlevel! neq 0 (
 )
 set "FF_SRC=系统"
 for /f "tokens=*" %%p in ('where ffmpeg 2^>nul') do (
-    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "FF_SRC=内置"
+    set "_CHK=%%p"
+    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "FF_SRC=内置"
 )
 echo   √ ffmpeg 已安装 (!FF_SRC!)
 
@@ -187,7 +194,8 @@ if !errorlevel! neq 0 (
 )
 set "FP_SRC=系统"
 for /f "tokens=*" %%p in ('where ffprobe 2^>nul') do (
-    echo %%p | findstr /C:"%DEP_PREFIX%" >nul 2>&1 && set "FP_SRC=内置"
+    set "_CHK=%%p"
+    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "FP_SRC=内置"
 )
 echo   √ ffprobe 已安装 (!FP_SRC!)
 echo   √ ffprobe 已安装

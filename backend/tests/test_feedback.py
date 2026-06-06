@@ -36,7 +36,7 @@ from unittest.mock import patch, MagicMock
 
 
 def test_feedback_list_no_filter_returns_active():
-    """不传 status/include_all 时原样透传上游响应。"""
+    """不传 status/include_all 时原样透传上游响应；自动带上 settings 里的 email。"""
     from app import app
 
     fake_resp = MagicMock()
@@ -59,25 +59,48 @@ def test_feedback_list_no_filter_returns_active():
         captured["headers"] = headers
         return fake_resp
 
-    with patch("app._requests.get", side_effect=fake_get):
-        client = app.test_client()
-        r = client.get("/api/feedback/list?page=1&page_size=20")
-        assert r.status_code == 200
-        body = r.get_json()
-        # 透传
-        assert body["data"]["total"] == 1
-        # 不应包含 include_all 或 status
-        assert "include_all" not in captured["params"]
-        assert "status" not in captured["params"]
-        # URL 指向反馈系统
-        assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
-        # 签名头齐
-        assert "X-App-Key" in captured["headers"]
-        assert "X-Timestamp" in captured["headers"]
-        assert "X-Sign" in captured["headers"]
-        assert len(captured["headers"]["X-Sign"]) == 64
-        # file_url 被改写为绝对 URL
-        assert body["data"]["list"][0]["attachments"][0]["file_url"] == "https://feedback.cjxch.com/uploads/x.png"
+    with patch("app.read_settings", return_value={"feedbackEmail": "viewer@example.com"}):
+        with patch("app._requests.get", side_effect=fake_get):
+            client = app.test_client()
+            r = client.get("/api/feedback/list?page=1&page_size=20")
+            assert r.status_code == 200
+            body = r.get_json()
+            assert body["data"]["total"] == 1
+            # 不应包含 include_all 或 status
+            assert "include_all" not in captured["params"]
+            assert "status" not in captured["params"]
+            # settings 里的 email 自动透传给上游
+            assert captured["params"].get("email") == "viewer@example.com"
+            # URL 指向反馈系统
+            assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
+            # 签名头齐
+            assert "X-App-Key" in captured["headers"]
+            assert "X-Timestamp" in captured["headers"]
+            assert "X-Sign" in captured["headers"]
+            assert len(captured["headers"]["X-Sign"]) == 64
+            # file_url 被改写为绝对 URL
+            assert body["data"]["list"][0]["attachments"][0]["file_url"] == "https://feedback.cjxch.com/uploads/x.png"
+
+
+def test_feedback_list_no_email_in_settings():
+    """settings 没 email 时不传 email 给上游（仍能正常返回）。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 200, "data": {"list": [], "total": 0}}
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_get(url, params, headers, timeout):
+        captured["params"] = params
+        return fake_resp
+
+    with patch("app.read_settings", return_value={}):
+        with patch("app._requests.get", side_effect=fake_get):
+            client = app.test_client()
+            r = client.get("/api/feedback/list")
+            assert r.status_code == 200
+            assert "email" not in captured["params"]
 
 
 def test_feedback_list_status_filter():
@@ -159,20 +182,70 @@ def test_feedback_list_upstream_5xx_returns_502():
 
 
 def test_feedback_submit_missing_fields():
-    """缺 email 或 content 返 400。"""
+    """缺 email（form + settings 都没有）和 content 返 400。"""
     from app import app
 
-    client = app.test_client()
-    r = client.post("/api/feedback/submit", data={"email": "a@b.com"})
-    assert r.status_code == 400
-    assert "必填" in r.get_json()["message"]
+    # 模拟 settings 表里也没 email
+    with patch("app.read_settings", return_value={}):
+        client = app.test_client()
+        r = client.post("/api/feedback/submit", data={"email": "a@b.com"})
+        assert r.status_code == 400
+        assert "必填" in r.get_json()["message"]
 
-    r = client.post("/api/feedback/submit", data={"content": "hello"})
-    assert r.status_code == 400
+        r = client.post("/api/feedback/submit", data={"content": "hello"})
+        assert r.status_code == 400
+
+
+def test_feedback_submit_uses_settings_email_when_form_empty():
+    """form 没传 email 时，从 settings 表读。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 200, "data": {"id": 99}}
+    fake_resp.status_code = 200
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_post(url, data, files, headers, timeout):
+        captured["data"] = data
+        return fake_resp
+
+    with patch("app.read_settings", return_value={"feedbackEmail": "settings@example.com"}):
+        with patch("app._requests.post", side_effect=fake_post):
+            client = app.test_client()
+            r = client.post("/api/feedback/submit", data={"content": "hello"})
+            assert r.status_code == 200
+            assert captured["data"]["email"] == "settings@example.com"
+            assert captured["data"]["content"] == "hello"
+
+
+def test_feedback_submit_form_email_overrides_settings():
+    """form 显式传 email 时覆盖 settings（支持一身份多用场景）。"""
+    from app import app
+
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 200, "data": {"id": 99}}
+    fake_resp.status_code = 200
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_post(url, data, files, headers, timeout):
+        captured["data"] = data
+        return fake_resp
+
+    with patch("app.read_settings", return_value={"feedbackEmail": "settings@example.com"}):
+        with patch("app._requests.post", side_effect=fake_post):
+            client = app.test_client()
+            r = client.post(
+                "/api/feedback/submit",
+                data={"email": "override@example.com", "content": "hi"},
+            )
+            assert r.status_code == 200
+            assert captured["data"]["email"] == "override@example.com"
 
 
 def test_feedback_submit_forwards_files():
-    """multipart 字段和文件都正确转发。"""
+    """multipart 文件被转发到上游。"""
     from app import app
     import io
 
@@ -189,40 +262,60 @@ def test_feedback_submit_forwards_files():
         captured["headers"] = headers
         return fake_resp
 
-    with patch("app._requests.post", side_effect=fake_post):
-        client = app.test_client()
-        r = client.post(
-            "/api/feedback/submit",
-            data={
-                "email": "user@example.com",
-                "content": "应用启动后白屏",
-                "files": (io.BytesIO(b"fake-image-bytes"), "screen.png"),
-            },
-            content_type="multipart/form-data",
-            buffered=True,
-        )
-        assert r.status_code == 200
-        assert captured["data"]["email"] == "user@example.com"
-        assert captured["data"]["content"] == "应用启动后白屏"
-        # 至少 1 个文件被转发
-        assert len(captured["files"]) >= 1
-        # 签名头齐
-        assert "X-Sign" in captured["headers"]
-        # URL 正确
-        assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
+    with patch("app.read_settings", return_value={"feedbackEmail": "user@example.com"}):
+        with patch("app._requests.post", side_effect=fake_post):
+            client = app.test_client()
+            r = client.post(
+                "/api/feedback/submit",
+                data={
+                    "content": "应用启动后白屏",
+                    "files": (io.BytesIO(b"fake-image-bytes"), "screen.png"),
+                },
+                content_type="multipart/form-data",
+                buffered=True,
+            )
+            assert r.status_code == 200
+            assert captured["data"]["email"] == "user@example.com"
+            assert captured["data"]["content"] == "应用启动后白屏"
+            assert len(captured["files"]) >= 1
+            assert "X-Sign" in captured["headers"]
+            assert captured["url"].startswith("https://feedback.cjxch.com/api/v1/feedback")
 
 
-def test_feedback_vote_missing_fields():
-    """缺 id 或 email 返 400。"""
+def test_feedback_vote_uses_settings_email():
+    """vote 不传 email 时从 settings 读。"""
     from app import app
 
-    client = app.test_client()
-    r = client.post("/api/feedback/vote", json={"id": 1})
-    assert r.status_code == 400
-    r = client.post("/api/feedback/vote", json={"email": "a@b.com"})
-    assert r.status_code == 400
-    r = client.post("/api/feedback/vote", json={})
-    assert r.status_code == 400
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {"code": 200, "data": None}
+    fake_resp.status_code = 200
+    fake_resp.raise_for_status = MagicMock()
+
+    captured = {}
+    def fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        return fake_resp
+
+    with patch("app.read_settings", return_value={"feedbackEmail": "settings@example.com"}):
+        with patch("app._requests.post", side_effect=fake_post):
+            client = app.test_client()
+            r = client.post("/api/feedback/vote", json={"id": 42})
+            assert r.status_code == 200
+            assert captured["url"] == "https://feedback.cjxch.com/api/v1/feedback/42/vote"
+            assert captured["json"] == {"email": "settings@example.com"}
+
+
+def test_feedback_vote_no_email_anywhere_returns_400():
+    """settings 没 email + body 也没 email → 400。"""
+    from app import app
+
+    with patch("app.read_settings", return_value={}):
+        client = app.test_client()
+        r = client.post("/api/feedback/vote", json={"id": 1})
+        assert r.status_code == 400
+        r = client.post("/api/feedback/vote", json={"id": 1, "email": ""})
+        assert r.status_code == 400
 
 
 def test_feedback_vote_forwards():
@@ -241,13 +334,14 @@ def test_feedback_vote_forwards():
         captured["headers"] = headers
         return fake_resp
 
-    with patch("app._requests.post", side_effect=fake_post):
-        client = app.test_client()
-        r = client.post("/api/feedback/vote", json={"id": 42, "email": "voter@example.com"})
-        assert r.status_code == 200
-        assert captured["url"] == "https://feedback.cjxch.com/api/v1/feedback/42/vote"
-        assert captured["json"] == {"email": "voter@example.com"}
-        assert "X-Sign" in captured["headers"]
+    with patch("app.read_settings", return_value={"feedbackEmail": "settings@example.com"}):
+        with patch("app._requests.post", side_effect=fake_post):
+            client = app.test_client()
+            r = client.post("/api/feedback/vote", json={"id": 42, "email": "voter@example.com"})
+            assert r.status_code == 200
+            assert captured["url"] == "https://feedback.cjxch.com/api/v1/feedback/42/vote"
+            assert captured["json"] == {"email": "voter@example.com"}
+            assert "X-Sign" in captured["headers"]
 
 
 def test_feedback_vote_passes_through_400():

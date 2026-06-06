@@ -14,6 +14,6 @@ export function submitFeedback(formData) {
   return http.upload('/api/feedback/submit', formData)
 }
 
-export function voteFeedback({ id, email }) {
-  return http.post('/api/feedback/vote', { id, email })
+export function voteFeedback({ id }) {
+  return http.post('/api/feedback/vote', { id })
 }

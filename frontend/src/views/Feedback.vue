@@ -148,6 +148,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, CaretTop, Paperclip, Upload, Refresh } from '@element-plus/icons-vue'
 import { listFeedback, submitFeedback as apiSubmit, voteFeedback as apiVote } from '@/api/feedback'
+import { http } from '@/utils/request'
 
 const router = useRouter()
 
@@ -240,21 +241,22 @@ function openDrawer(fb) {
 }
 
 async function handleVote(fb) {
-  const email = localStorage.getItem('global_user_email') || ''
-  if (!email) {
+  // 后端从 settings 表读 email；前端不再传。前端只用来判断是否需要引导去设置。
+  const localEmail = localStorage.getItem('global_user_email') || ''
+  if (!localEmail) {
     await promptForEmail()
     return
   }
   if (votedIds.value.has(fb.id)) return
   try {
-    await apiVote({ id: fb.id, email })
+    await apiVote({ id: fb.id })
     votedIds.value.add(fb.id)
     persistVotedIds()
     fb.vote_count = (fb.vote_count || 0) + 1
     ElMessage.success('+1 成功')
   } catch (e) {
-    // 400 already voted - 加入集合
-    if (e.message && e.message.includes('already voted')) {
+    // 400 您已经为该反馈 +1 过了
+    if (e.message && e.message.includes('+1 过了')) {
       votedIds.value.add(fb.id)
       persistVotedIds()
       ElMessage.warning('您已为此反馈投过票')
@@ -306,15 +308,20 @@ async function handleSubmit() {
     ElMessage.error('邮箱和内容必填')
     return
   }
-  // 邮箱不匹配全局设置时，自动更新
+  // 用户在对话框里可能改了 email，把它同步回 settings + localStorage
   const globalEmail = localStorage.getItem('global_user_email') || ''
   if (email !== globalEmail) {
     localStorage.setItem('global_user_email', email)
+    // 同步回后端 settings（让下次 list/vote 也能用上）
+    try {
+      await http.put('/api/v2/settings', { feedbackEmail: email })
+    } catch (_) { /* 后端同步失败不影响本次提交 */ }
   }
 
   submitting.value = true
   try {
     const fd = new FormData()
+    // 后端优先用 settings 里的 email，这里也传作为覆盖（保持兼容性）
     fd.append('email', email)
     fd.append('content', content)
     if (submitFile.value) {

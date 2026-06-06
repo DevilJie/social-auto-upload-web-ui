@@ -64,6 +64,7 @@ logger.info(f"[Startup] Python {sys.version} starting...")
 logger.info(f"[Startup] Script: {__file__}")
 logger.info(f"[Startup] SAU_PORT={os.environ.get('SAU_PORT')}, SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 from impl.registry import get_platform
+from impl.settings import read_settings
 
 app = Flask(__name__)
 CORS(app)
@@ -784,6 +785,12 @@ def _feedback_headers() -> dict:
     }
 
 
+def _get_feedback_email() -> str:
+    """从 settings 表读 feedbackEmail（用户全局邮箱）。空字符串表示未配置。"""
+    val = read_settings().get('feedbackEmail')
+    return (val or '').strip() if isinstance(val, str) else ''
+
+
 @app.route('/api/feedback/list', methods=['GET'])
 def feedback_list():
     """状态筛选：全部 / 待确认 / 处理中 / 已完成 / 已拒绝
@@ -809,6 +816,11 @@ def feedback_list():
     elif include_all:
         params['include_all'] = 'true'
 
+    # 从 settings 表读用户邮箱，作为 metoo 计算依据
+    viewer_email = _get_feedback_email()
+    if viewer_email:
+        params['email'] = viewer_email
+
     try:
         r = _requests.get(
             f"{FEEDBACK_API_BASE_URL}/api/v1/feedback",
@@ -832,10 +844,11 @@ def feedback_list():
 
 @app.route('/api/feedback/submit', methods=['POST'])
 def feedback_submit():
-    email = request.form.get('email', '').strip()
     content = request.form.get('content', '').strip()
+    # 邮箱优先取表单（覆盖场景），否则从 settings 读
+    email = request.form.get('email', '').strip() or _get_feedback_email()
     if not email or not content:
-        return jsonify({'code': 400, 'message': '邮箱和内容必填', 'data': None}), 400
+        return jsonify({'code': 400, 'message': '邮箱和内容必填；如未配置邮箱请先在设置页填写', 'data': None}), 400
 
     files = []
     for f in request.files.getlist('files'):
@@ -858,9 +871,10 @@ def feedback_submit():
 def feedback_vote():
     body = request.get_json(silent=True) or {}
     fb_id = body.get('id')
-    email = (body.get('email') or '').strip()
+    # 邮箱优先取 body（允许前端临时用别的身份），否则从 settings 读
+    email = (body.get('email') or '').strip() or _get_feedback_email()
     if not fb_id or not email:
-        return jsonify({'code': 400, 'message': 'id 和 email 必填', 'data': None}), 400
+        return jsonify({'code': 400, 'message': 'id 和 email 必填；如未配置邮箱请先在设置页填写', 'data': None}), 400
 
     try:
         r = _requests.post(

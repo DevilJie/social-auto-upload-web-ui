@@ -400,9 +400,10 @@ const fetchSettings = async () => {
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }
-      const savedEmail = localStorage.getItem('global_user_email')
-      if (savedEmail && !settings.feedbackEmail) {
-        settings.feedbackEmail = savedEmail
+      if (res.data.feedbackEmail !== undefined) {
+        settings.feedbackEmail = res.data.feedbackEmail
+        // 同步到 localStorage 让非设置页也能快速判断 email 是否已配置
+        localStorage.setItem('global_user_email', settings.feedbackEmail || '')
       }
     }
   } catch (e) {
@@ -423,6 +424,7 @@ const handleSave = async () => {
       portraitRatio: settings.portraitRatio,
       landscapeRatio: settings.landscapeRatio,
       storage: settings.storage,
+      feedbackEmail: settings.feedbackEmail,
     })
     if (res.code === 200) {
       appStore.setPortraitRatio(settings.portraitRatio)

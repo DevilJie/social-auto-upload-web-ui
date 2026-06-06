@@ -232,6 +232,28 @@
       </div>
     </div>
 
+    <!-- 反馈系统 -->
+    <div class="settings-card">
+      <h3 class="card-title">
+        <el-icon class="title-icon"><ChatDotRound /></el-icon>
+        反馈系统
+      </h3>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">反馈邮箱</span>
+          <span class="setting-desc">用于在「一键反馈」菜单提交反馈和投票。不填将无法使用这些功能</span>
+        </div>
+        <div class="setting-control">
+          <el-input
+            v-model="settings.feedbackEmail"
+            placeholder="your@email.com"
+            style="width: 300px"
+            clearable
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- Save button -->
     <div class="save-bar">
       <button class="save-btn" :disabled="saving" @click="handleSave">
@@ -244,6 +266,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ChatDotRound } from '@element-plus/icons-vue'
 import { settingsApi } from '@/api/v2'
 import { platformList } from '@/config/platforms'
 import { http } from '@/utils/request'
@@ -320,6 +343,7 @@ const settings = reactive({
     type: 'local',
     s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
   },
+  feedbackEmail: '',
 })
 
 const s3Testing = ref(false)
@@ -376,6 +400,11 @@ const fetchSettings = async () => {
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }
+      if (res.data.feedbackEmail !== undefined) {
+        settings.feedbackEmail = res.data.feedbackEmail
+        // 同步到 localStorage 让非设置页也能快速判断 email 是否已配置
+        localStorage.setItem('global_user_email', settings.feedbackEmail || '')
+      }
     }
   } catch (e) {
     console.error(e)
@@ -395,10 +424,12 @@ const handleSave = async () => {
       portraitRatio: settings.portraitRatio,
       landscapeRatio: settings.landscapeRatio,
       storage: settings.storage,
+      feedbackEmail: settings.feedbackEmail,
     })
     if (res.code === 200) {
       appStore.setPortraitRatio(settings.portraitRatio)
       appStore.setLandscapeRatio(settings.landscapeRatio)
+      localStorage.setItem('global_user_email', settings.feedbackEmail || '')
       ElMessage.success('设置已保存')
     } else {
       ElMessage.error(res.msg || '保存失败')

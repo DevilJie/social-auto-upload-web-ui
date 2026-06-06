@@ -79,7 +79,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, User, Picture, Upload,
-  Clock, Setting, Expand, Fold, UserFilled, Document, Notebook
+  Clock, Setting, Expand, Fold, UserFilled, Document, Notebook, ChatDotRound
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -91,12 +91,13 @@ const navItems = [
   { path: '/', icon: HomeFilled, title: '仪表盘' },
   { path: '/account-management', icon: User, title: '账号管理' },
   { path: '/material-management', icon: Picture, title: '素材管理' },
-  { path: '/drafts', icon: Document, title: '草稿箱' },
   { path: '/publish-center', icon: Upload, title: '视频发布' },
   { path: '/image-publish', icon: Picture, title: '图文发布' },
+  { path: '/drafts', icon: Document, title: '草稿箱' },
   { path: '/publish-history', icon: Clock, title: '发布历史' },
   { path: '/changelog', icon: Notebook, title: '更新日志' },
-  { path: '/author', icon: UserFilled, title: '关于作者' }
+  { path: '/author', icon: UserFilled, title: '关于作者' },
+  { path: '/feedback', icon: ChatDotRound, title: '一键反馈' }
 ]
 
 const settingsItem = { path: '/settings', icon: Setting, title: '系统设置' }

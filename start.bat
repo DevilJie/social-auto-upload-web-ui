@@ -35,7 +35,7 @@ set "REPO_URL=https://github.com/DevilJie/social-auto-upload-web-ui.git"
 set "MAIN_BRANCH=master"
 
 if not exist "%BACKEND_DIR%" (
-    :: 首次使用：没有项目代码，从 GitHub 克隆
+    rem 首次使用：没有项目代码，从 GitHub 克隆
     where git >nul 2>&1
     if !errorlevel! neq 0 (
         echo   X 未找到 git，无法克隆项目代码
@@ -124,11 +124,15 @@ if !errorlevel! neq 0 (
 )
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set "PYTHON_VER=%%i"
 set "PY_SRC=系统"
+set "PY_PATH="
 for /f "tokens=*" %%p in ('where python 2^>nul') do (
-    set "_CHK=%%p"
-    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "PY_SRC=内置"
+    if not defined PY_PATH (
+        set "PY_PATH=%%p"
+        set "_CHK=%%p"
+        if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "PY_SRC=内置"
+    )
 )
-echo   √ Python !PYTHON_VER! (!PY_SRC!)
+echo   √ Python !PYTHON_VER! (!PY_SRC!) [!PY_PATH!]
 
 :: 检查 Node.js
 where node >nul 2>&1
@@ -140,9 +144,13 @@ if !errorlevel! neq 0 (
 )
 for /f "tokens=*" %%i in ('node --version 2^>^&1') do set "NODE_VER=%%i"
 set "NODE_SRC=系统"
+set "NODE_PATH="
 for /f "tokens=*" %%p in ('where node 2^>nul') do (
-    set "_CHK=%%p"
-    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "NODE_SRC=内置"
+    if not defined NODE_PATH (
+        set "NODE_PATH=%%p"
+        set "_CHK=%%p"
+        if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "NODE_SRC=内置"
+    )
 )
 
 :: 检查 npm
@@ -153,7 +161,7 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 for /f "tokens=*" %%i in ('npm --version 2^>^&1') do set "NPM_VER=%%i"
-echo   √ Node !NODE_VER! / npm !NPM_VER! (!NODE_SRC!)
+echo   √ Node !NODE_VER! / npm !NPM_VER! (!NODE_SRC!) [!NODE_PATH!]
 
 :: 检查 curl
 where curl >nul 2>&1
@@ -164,11 +172,15 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 set "CURL_SRC=系统"
+set "CURL_PATH="
 for /f "tokens=*" %%p in ('where curl 2^>nul') do (
-    set "_CHK=%%p"
-    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "CURL_SRC=内置"
+    if not defined CURL_PATH (
+        set "CURL_PATH=%%p"
+        set "_CHK=%%p"
+        if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "CURL_SRC=内置"
+    )
 )
-echo   √ curl 已安装 (!CURL_SRC!)
+echo   √ curl 已安装 (!CURL_SRC!) [!CURL_PATH!]
 
 :: 检查 ffmpeg
 where ffmpeg >nul 2>&1
@@ -179,11 +191,15 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 set "FF_SRC=系统"
+set "FF_PATH="
 for /f "tokens=*" %%p in ('where ffmpeg 2^>nul') do (
-    set "_CHK=%%p"
-    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "FF_SRC=内置"
+    if not defined FF_PATH (
+        set "FF_PATH=%%p"
+        set "_CHK=%%p"
+        if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "FF_SRC=内置"
+    )
 )
-echo   √ ffmpeg 已安装 (!FF_SRC!)
+echo   √ ffmpeg 已安装 (!FF_SRC!) [!FF_PATH!]
 
 :: 检查 ffprobe
 where ffprobe >nul 2>&1
@@ -193,12 +209,15 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 set "FP_SRC=系统"
+set "FP_PATH="
 for /f "tokens=*" %%p in ('where ffprobe 2^>nul') do (
-    set "_CHK=%%p"
-    if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "FP_SRC=内置"
+    if not defined FP_PATH (
+        set "FP_PATH=%%p"
+        set "_CHK=%%p"
+        if not "!_CHK:%DEP_PREFIX%=!"=="!_CHK!" set "FP_SRC=内置"
+    )
 )
-echo   √ ffprobe 已安装 (!FP_SRC!)
-echo   √ ffprobe 已安装
+echo   √ ffprobe 已安装 (!FP_SRC!) [!FP_PATH!]
 
 :: 清除系统代理，避免 httpx/cloakbrowser 读取到不支持的 socks:// 代理
 set "http_proxy="
@@ -249,7 +268,7 @@ if "!CURRENT_HASH!"=="" set "CURRENT_HASH=no-git"
 :: 检查 venv 是否完整（目录 + pip + flask 都存在）
 set "VENV_OK=0"
 if exist "%VENV_DIR%" if exist "%VENV_PIP%" (
-    :: 检查 flask 是否已安装
+    rem 检查 flask 是否已安装
     "%VENV_PYTHON%" -c "import flask" >nul 2>&1
     if !errorlevel! equ 0 set "VENV_OK=1"
 )
@@ -258,7 +277,7 @@ if "!VENV_OK!"=="0" (
     if exist "%VENV_DIR%" rmdir /s /q "%VENV_DIR%" >nul 2>&1
     echo     创建虚拟环境...
 
-    :: 检查 venv 模块是否可用
+    rem 检查 venv 模块是否可用
     python -c "import venv" >nul 2>&1
     if !errorlevel! neq 0 (
         echo   X Python venv 模块不可用
@@ -293,7 +312,7 @@ if "!VENV_OK!"=="0" (
     echo !CURRENT_HASH!> "%HASH_FILE%"
     echo   √ 后端环境就绪
 ) else (
-    :: venv 存在，检查依赖是否有变更
+    rem venv 存在，检查依赖是否有变更
     set "SAVED_HASH="
     if exist "%HASH_FILE%" (
         for /f "tokens=*" %%i in ('type "%HASH_FILE%"') do set "SAVED_HASH=%%i"
@@ -319,16 +338,27 @@ if "!VENV_OK!"=="0" (
 )
 
 :: 检查 CloakBrowser 二进制文件
-set "CLOAKBROWSER_DIR=%USERPROFILE%\.cloakbrowser"
+set "CB_SRC=系统"
+set "CB_PATH="
 set "CHROME_FOUND=0"
-for /d %%d in ("%CLOAKBROWSER_DIR%\chromium-*") do (
-    if exist "%%d\chrome.exe" set "CHROME_FOUND=1"
+set "CB_BUILTIN=!PROJECT_ROOT!\dependency\cloakbrowser\chrome.exe"
+if exist "!CB_BUILTIN!" (
+    set "CLOAKBROWSER_BINARY_PATH=!CB_BUILTIN!"
+    set "CB_SRC=内置"
+    set "CB_PATH=!CB_BUILTIN!"
+    set "CHROME_FOUND=1"
+)
+if "!CHROME_FOUND!"=="0" (
+    set "CLOAKBROWSER_DIR=!USERPROFILE!\.cloakbrowser"
+    for /d %%d in ("!CLOAKBROWSER_DIR!\chromium-*") do (
+        if exist "%%d\chrome.exe" set "CHROME_FOUND=1" & set "CB_PATH=%%d\chrome.exe"
+    )
 )
 
 if "!CHROME_FOUND!"=="0" (
     echo     首次使用，下载 CloakBrowser 浏览器（约 200MB）...
 
-    :: 获取下载信息
+    rem 获取下载信息
     "%VENV_PYTHON%" -c "import cloakbrowser.download as d; f=open(r'%TEMP%\cb_info.txt','w'); f.write(str(d.get_fallback_download_url())+'\n'); f.write(str(d.get_binary_dir())+'\n'); f.close()"
     set "DOWNLOAD_URL="
     set "BINARY_DIR="
@@ -341,8 +371,8 @@ if "!CHROME_FOUND!"=="0" (
     echo     下载地址: !DOWNLOAD_URL!
     echo.
 
-    :: 使用 curl 下载（带进度条）
-    :: 从 URL 检测文件格式（.zip 或 .tar.gz）
+    rem 使用 curl 下载（带进度条）
+    rem 从 URL 检测文件格式（.zip 或 .tar.gz）
     set "TMP_EXT=.zip"
     echo !DOWNLOAD_URL! | findstr /C:".tar.gz" >nul 2>&1
     if !errorlevel! equ 0 set "TMP_EXT=.tar.gz"
@@ -365,12 +395,12 @@ if "!CHROME_FOUND!"=="0" (
     echo.
     echo     解压中...
 
-    :: 解压（tar -xf 自动识别 zip 和 tar.gz 格式）
+    rem 解压（tar -xf 自动识别 zip 和 tar.gz 格式）
     if not exist "!BINARY_DIR!" mkdir "!BINARY_DIR!"
     tar -xf "!TMP_FILE!" -C "!BINARY_DIR!" >nul 2>&1
     del /f "!TMP_FILE!" >nul 2>&1
 
-    :: 检查是否成功（chrome.exe 可能直接在 BINARY_DIR 或其子目录中）
+    rem 检查是否成功（chrome.exe 可能直接在 BINARY_DIR 或其子目录中）
     set "EXTRACT_OK=0"
     if exist "!BINARY_DIR!\chrome.exe" set "EXTRACT_OK=1"
     if "!EXTRACT_OK!"=="0" (
@@ -387,7 +417,7 @@ if "!CHROME_FOUND!"=="0" (
         exit /b 1
     )
 ) else (
-    echo   √ CloakBrowser 已安装
+    echo   √ CloakBrowser 已安装 ^(!CB_SRC!^) [!CB_PATH!]
 )
 
 :: ============================================================

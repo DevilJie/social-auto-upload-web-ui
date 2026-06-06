@@ -70,10 +70,31 @@ echo "[1/5] 下载 CloakBrowser..."
 
 CB_DIR="$DEP_DIR/cloakbrowser"
 CB_TMP=$(mktemp -d)
+CB_ARCHIVE_SRC=""
 
 if [[ "$PLATFORM_OS" == "macos" ]]; then
-    echo "  [SKIP] macOS 的 CloakBrowser 暂无官方离线包"
-    echo "         请用户在有网络时首次运行 start.sh 自动下载"
+    # macOS 暂无官方离线包：需要用户提供 tar.gz 放到 scripts/ 下。
+    # 支持两种命名：cloakbrowser-macos-{x64,arm64}.tar.gz（项目命名）
+    # 或 cloakbrowser-darwin-{x64,arm64}.tar.gz（Node.js/Python 行业惯例）
+    _mac_arch="${PLATFORM#macos-}"
+    CB_LOCAL=""
+    for _candidate in \
+        "$SCRIPT_DIR/cloakbrowser-${PLATFORM}.tar.gz" \
+        "$SCRIPT_DIR/cloakbrowser-darwin-${_mac_arch}.tar.gz"; do
+        if [[ -f "$_candidate" ]]; then
+            CB_LOCAL="$_candidate"
+            break
+        fi
+    done
+    if [[ -n "$CB_LOCAL" ]]; then
+        cp "$CB_LOCAL" "$CB_TMP/cb-archive"
+        CB_ARCHIVE_SRC="$CB_LOCAL"
+    else
+        echo "  [SKIP] macOS 的 CloakBrowser 需要用户提供离线包"
+        echo "         请将以下任一文件放到 $SCRIPT_DIR/ 后重跑："
+        echo "           - cloakbrowser-${PLATFORM}.tar.gz"
+        echo "           - cloakbrowser-darwin-${_mac_arch}.tar.gz"
+    fi
 else
     CB_VERSION=$(curl -sL "https://api.github.com/repos/CloakHQ/CloakBrowser/releases/latest" \
         | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])" 2>/dev/null || true)
@@ -81,20 +102,23 @@ else
     [[ -z "$CB_VERSION" ]] && CB_VERSION="146.0.7680.177.5"
 
     case "$PLATFORM" in
-        linux-x64) CB_ARCHIVE="cloakbrowser-linux-x64.tar.gz" ;;
-        win-x64)   CB_ARCHIVE="cloakbrowser-windows-x64.zip" ;;
+        linux-x64) CB_ARCHIVE_NAME="cloakbrowser-linux-x64.tar.gz" ;;
+        win-x64)   CB_ARCHIVE_NAME="cloakbrowser-windows-x64.zip" ;;
         *)         fail "CloakBrowser 不支持平台: $PLATFORM" ;;
     esac
 
-    CB_URL="https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v${CB_VERSION}/${CB_ARCHIVE}"
+    CB_URL="https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v${CB_VERSION}/${CB_ARCHIVE_NAME}"
     download "$CB_URL" "$CB_TMP/cb-archive"
+    CB_ARCHIVE_SRC="$CB_URL"
+fi
 
+# 统一解压逻辑（macOS 用户提供 / linux + win 从 GitHub 下载）
+if [[ -f "$CB_TMP/cb-archive" ]]; then
     mkdir -p "$CB_DIR"
-    if [[ "$CB_ARCHIVE" == *.zip ]]; then
-        unzip -o "$CB_TMP/cb-archive" -d "$CB_DIR"
-    else
-        tar -xzf "$CB_TMP/cb-archive" -C "$CB_DIR"
-    fi
+    case "$PLATFORM" in
+        win-x64) unzip -o "$CB_TMP/cb-archive" -d "$CB_DIR" ;;
+        *)       tar -xzf "$CB_TMP/cb-archive" -C "$CB_DIR" ;;
+    esac
 
     CB_FOUND=false
     if [[ "$PLATFORM_OS" == "win" ]]; then
@@ -107,7 +131,15 @@ else
         fi
     fi
 
-    [[ "$CB_FOUND" == "true" ]] && ok "CloakBrowser" || echo "  [WARN] CloakBrowser 二进制未找到"
+    if [[ "$CB_FOUND" == "true" ]]; then
+        if [[ "$PLATFORM_OS" == "macos" ]]; then
+            ok "CloakBrowser (用户提供离线包: ${CB_ARCHIVE_SRC##*/})"
+        else
+            ok "CloakBrowser"
+        fi
+    else
+        echo "  [WARN] CloakBrowser 二进制未找到"
+    fi
 fi
 rm -rf "$CB_TMP"
 

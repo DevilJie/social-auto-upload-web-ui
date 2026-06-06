@@ -348,6 +348,10 @@ class IqiyiPlatform(BasePlatform):
                 await file_input.set_input_files(file_path)
                 logger.info("Video file set, waiting for upload to complete...")
 
+                # Step 1.5: 等待视频上传到服务器完成（"上传过程中"提示先出现后消失）
+                await self._wait_video_upload_complete(page)
+                await asyncio.sleep(2)
+
                 # Step 2: Wait for the publish form to appear after upload
                 await page.wait_for_selector(
                     '[class*="wemedia-catalog-form"]',
@@ -411,6 +415,38 @@ class IqiyiPlatform(BasePlatform):
                 await context.close()
         finally:
             await browser.close()
+
+    # ------------------------------------------------------------------
+    # Upload wait helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _wait_video_upload_complete(page, timeout_ms: int = 600000) -> None:
+        """等待视频上传到服务器完成。
+
+        通过文本内容（不用 class）定位"上传过程中"提示：
+          - 该提示出现 → 确认上传已开始
+          - 该提示消失 → 确认上传已结束
+        """
+        uploading_tip = "上传过程中请不要删除/移动文件"
+        tip_locator = page.get_by_text(uploading_tip, exact=True).first
+
+        try:
+            await tip_locator.wait_for(state="visible", timeout=30000)
+            logger.info("检测到'上传过程中'提示，开始等待上传完成...")
+        except Exception:
+            logger.warning(
+                "未检测到'上传过程中'提示（可能上传极快或已结束），"
+                "跳过等待"
+            )
+            return
+
+        try:
+            await tip_locator.wait_for(state="hidden", timeout=timeout_ms)
+            logger.info("'上传过程中'提示已消失，视频上传完成")
+        except Exception as e:
+            logger.error("等待视频上传完成超时: %s", e)
+            raise
 
     # ------------------------------------------------------------------
     # Form field helpers
@@ -734,8 +770,13 @@ class IqiyiPlatform(BasePlatform):
     async def _click_publish(page) -> bool:
         """Click the publish button and wait for navigation to the success page.
 
-        Returns ``True`` if the page navigates away from the publish URL
-        (indicating success), ``False`` otherwise.
+        成功判定（两层，任一满足即返回 True）：
+          1. URL 离开发布页（不再包含 /publish/video/wemedia）
+             **且** 页面出现成功关键词（"发布成功" / "已发布" / "提交成功" / "发布完成"）
+          2. URL 跳转到包含 success / published / done 的成功路径
+
+        仅 URL 变化但页面无成功标志时，判定为失败（避免误判跳转到
+        内容管理页 / 错误页的情况）。
         """
         logger.info("Clicking publish button")
         try:
@@ -749,27 +790,47 @@ class IqiyiPlatform(BasePlatform):
             await publish_btn.click()
             logger.info("Publish button clicked, waiting for navigation")
 
-            # Wait for navigation away from the publish URL (max 60s)
-            # Use wait_for_function instead of wait_for_url for reliable JS eval
+            # 等待 URL 离开发布页（最多 60s）
             try:
                 await page.wait_for_function(
                     '!window.location.href.includes("/publish/video/wemedia")',
                     timeout=60000,
                 )
-                logger.info("Navigated to success page: %s", page.url)
-                await asyncio.sleep(2)
-                logger.info("Video published successfully")
-                return True
             except Exception:
                 logger.warning(
-                    "Publish failed — still on publish page after timeout. "
+                    "Publish failed — still on publish page after 60s timeout. "
                     "URL: %s", page.url
                 )
-                # Log visible error messages to help diagnose field issues
-                await page.evaluate(
-                    "console.error('PUBLISH BLOCKED — validation errors on page')"
-                )
                 return False
+
+            logger.info("URL 离开发布页: %s", page.url)
+            await asyncio.sleep(3)  # 等跳转后的页面稳定
+
+            # 判定 1: URL 包含 success / published / done 路径
+            current_url = page.url.lower()
+            if any(kw in current_url for kw in ("/success", "published", "/done")):
+                logger.info("URL 命中成功路径关键词: %s", page.url)
+                logger.info("Video published successfully")
+                return True
+
+            # 判定 2: 页面文本包含成功关键词
+            success_keywords = ("发布成功", "已发布", "提交成功", "发布完成")
+            for kw in success_keywords:
+                try:
+                    if await page.get_by_text(kw, exact=False).count() > 0:
+                        logger.info("页面文本命中成功关键词: %r", kw)
+                        logger.info("Video published successfully")
+                        return True
+                except Exception:
+                    continue
+
+            # 所有判定都不满足 → 视为跳转到了非成功页（如内容管理页）
+            logger.warning(
+                "URL 已离开发布页，但未检测到成功标志（关键词 %s）"
+                "。当前 URL: %s",
+                success_keywords, page.url,
+            )
+            return False
         except Exception as e:
             logger.warning("Publish click failed: %s", e)
             raise

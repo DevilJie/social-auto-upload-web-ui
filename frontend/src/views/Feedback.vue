@@ -166,7 +166,12 @@ const submitting = ref(false)
 const submitForm = ref({ email: '', content: '' })
 const submitFile = ref(null)
 
-const votedIds = ref(new Set())
+const VOTED_LS_KEY = 'feedback_voted_ids'
+const votedIds = ref(new Set(JSON.parse(localStorage.getItem(VOTED_LS_KEY) || '[]')))
+
+function persistVotedIds() {
+  localStorage.setItem(VOTED_LS_KEY, JSON.stringify([...votedIds.value]))
+}
 
 const sortedList = computed(() => {
   return [...list.value].sort((a, b) => {
@@ -244,12 +249,14 @@ async function handleVote(fb) {
   try {
     await apiVote({ id: fb.id, email })
     votedIds.value.add(fb.id)
+    persistVotedIds()
     fb.vote_count = (fb.vote_count || 0) + 1
     ElMessage.success('+1 成功')
   } catch (e) {
     // 400 already voted - 加入集合
     if (e.message && e.message.includes('already voted')) {
       votedIds.value.add(fb.id)
+      persistVotedIds()
       ElMessage.warning('您已为此反馈投过票')
     }
     // 其他错误已被 request.js 拦截器处理

@@ -91,14 +91,11 @@ async function load() {
         item.coverSrc = buildVideoCoverUrl(item.thumbnail_path)
       } else if (item.type === 'image' && item.first_image_id) {
         try {
-          const m = await http.get('/api/materials/list', {
-            id: item.first_image_id, page: 1, page_size: 1
-          })
-          const mat = m.data?.list?.[0]
+          const m = await http.get(`/api/materials/${item.first_image_id}`)
+          const mat = m.data
           if (mat) {
-            const stored = mat.stored_path || ''
-            item.coverSrc = stored
-              ? `${window.location.protocol}//${window.location.hostname}:5409/${stored.replace(/^\/+/, '')}`
+            item.coverSrc = mat.stored_path
+              ? `${window.location.protocol}//${window.location.hostname}:5409/${mat.stored_path.replace(/^\/+/, '')}`
               : mat.url || ''
           } else {
             item.coverSrc = ''

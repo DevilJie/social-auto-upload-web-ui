@@ -768,3 +768,121 @@ def get_changelog():
 
     files.sort(key=lambda x: x['date'], reverse=True)
     return jsonify({"code": 200, "data": files})
+
+
+# ========== 一键填写模板 ==========
+
+@ext_api.route('/publish-templates', methods=['GET'])
+def get_publish_templates():
+    """一键填写：从历史成功发布里取可复用的 per-channel 配置。
+    Query: type=video|image, page=1, page_size=20
+    """
+    import json as _json
+    type_ = request.args.get('type', '').strip()
+    if type_ not in ('video', 'image'):
+        return jsonify({"code": 400, "msg": "type 必须是 video 或 image"}), 400
+
+    try:
+        page = int(request.args.get('page', 1))
+        page_size = min(int(request.args.get('page_size', 20)), 100)
+    except ValueError:
+        return jsonify({"code": 400, "msg": "page / page_size 必须是整数"}), 400
+
+    offset = (page - 1) * page_size
+    conn = _db_conn()
+    # 兼容测试中 mock 的连接（mock 不一定设置 row_factory），统一用 Row 访问
+    conn.row_factory = sqlite3.Row
+
+    if type_ == 'video':
+        rows = conn.execute(
+            """SELECT id, title, description, thumbnail_path, account_configs, created_at
+               FROM publish_tasks
+               WHERE status = 'success' AND account_configs IS NOT NULL AND account_configs != '{}'
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?""",
+            (page_size, offset)
+        ).fetchall()
+        total = conn.execute(
+            """SELECT COUNT(*) FROM publish_tasks
+               WHERE status = 'success' AND account_configs IS NOT NULL AND account_configs != '{}'"""
+        ).fetchone()[0]
+        conn.close()
+
+        items = []
+        for r in rows:
+            configs = _json.loads(r['account_configs'] or '{}')
+            channels = [{'platform': k} for k in configs.keys()]
+            items.append({
+                "id": r['id'],
+                "type": "video",
+                "title": r['title'] or '',
+                "description": r['description'] or '',
+                "thumbnail_path": r['thumbnail_path'] or '',
+                "first_image_id": None,
+                "channels": channels,
+                "account_configs": configs,
+                "created_at": r['created_at'],
+            })
+    else:  # image
+        rows = conn.execute(
+            """SELECT id, account_configs, image_ids, created_at
+               FROM image_publish_tasks
+               WHERE status = 'success' AND account_configs IS NOT NULL
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?""",
+            (page_size, offset)
+        ).fetchall()
+        total = conn.execute(
+            """SELECT COUNT(*) FROM image_publish_tasks
+               WHERE status = 'success' AND account_configs IS NOT NULL"""
+        ).fetchone()[0]
+        conn.close()
+
+        items = []
+        for r in rows:
+            configs = _json.loads(r['account_configs'] or '[]')
+            image_ids = _json.loads(r['image_ids'] or '[]')
+            first_image_id = image_ids[0] if image_ids else None
+            channels = [
+                {'platform': c.get('platform', ''), 'account_id': c.get('account_id')}
+                for c in configs
+            ]
+            items.append({
+                "id": r['id'],
+                "type": "image",
+                "title": (configs[0].get('title') if configs else '') or '',
+                "description": (configs[0].get('description') if configs else '') or '',
+                "thumbnail_path": None,
+                "first_image_id": first_image_id,
+                "channels": channels,
+                "account_configs": configs,
+                "created_at": r['created_at'],
+            })
+
+    return jsonify({
+        "code": 200,
+        "data": {
+            "list": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    })
+
+
+# ========== 测试用 Flask app ==========
+# 测试代码（test_publish_templates.py）通过 `ext_api.app.test_request_context()` 推请求上下文调用
+# 路由函数。这个独立 Flask app 让 Blueprint 可独立测试，不污染 backend/app.py 的主 app。
+from flask import Flask
+app = Flask(__name__)
+app.register_blueprint(ext_api)
+
+
+# ========== 解决 `import ext_api` 与 `import ext_api.__init__` 是不同模块对象的问题 ==========
+# Python 在 `import ext_api` 时把 `__init__.py` 注册为 `sys.modules['ext_api']`，
+# 但 `import ext_api.__init__` 会把同一个文件再注册为 `sys.modules['ext_api.__init__']`。
+# 两个条目指向不同 module 对象，导致测试中 patch `_db_conn` 不生效（route 函数的
+# __globals__ 仍指向 `ext_api`，而 patch 修改的是 `ext_api.__init__`）。
+# 这里把 `ext_api.__init__` 重定向到 `ext_api`，让两种 import 路径拿到同一个对象。
+import sys as _sys
+_sys.modules.setdefault('ext_api.__init__', _sys.modules[__name__])

@@ -41,39 +41,6 @@ def init_database():
     )
     """)
 
-    # 阶段二：发布任务表
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS publish_tasks (
-        id TEXT PRIMARY KEY,
-        platform TEXT NOT NULL,
-        account_name TEXT NOT NULL,
-        video_path TEXT NOT NULL,
-        title TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        tags TEXT DEFAULT '[]',
-        status TEXT DEFAULT 'pending',
-        retry_count INTEGER DEFAULT 0,
-        max_retries INTEGER DEFAULT 3,
-        error_message TEXT DEFAULT '',
-        publish_url TEXT DEFAULT '',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        started_at TIMESTAMP,
-        finished_at TIMESTAMP
-    )
-    """)
-
-    # 阶段二：发布日志表
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS publish_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT NOT NULL,
-        level TEXT DEFAULT 'info',
-        message TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (task_id) REFERENCES publish_tasks(id)
-    )
-    """)
-
     # 阶段二：系统设置表
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS settings (
@@ -96,36 +63,6 @@ def init_database():
         video_file_size INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    # 图文发布任务表
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS image_publish_tasks (
-        id TEXT PRIMARY KEY,
-        image_ids TEXT NOT NULL,
-        account_configs TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        scheduled_at TEXT,
-        published_at TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    # 图文发布日志表
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS image_publish_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT NOT NULL,
-        account_id INTEGER NOT NULL,
-        platform TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        error_message TEXT,
-        retry_count INTEGER DEFAULT 0,
-        published_at TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (task_id) REFERENCES image_publish_tasks(id)
     )
     """)
 
@@ -152,6 +89,55 @@ def init_database():
         upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+    # 阶段二：发布主记录表（每次"发布"=1 行）
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS publish_batches (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        video_material_id TEXT DEFAULT '',
+        image_material_ids TEXT DEFAULT '[]',
+        landscape_cover_material_id TEXT DEFAULT '',
+        portrait_cover_material_id TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending',
+        account_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        schedule_time TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        finished_at TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_batches_created ON publish_batches(created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_batches_status ON publish_batches(status)")
+
+    # 阶段二：发布明细表（每个账号 1 行）
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS publish_details (
+        id TEXT PRIMARY KEY,
+        batch_id TEXT NOT NULL,
+        account_id INTEGER,
+        account_name TEXT NOT NULL DEFAULT '',
+        platform TEXT NOT NULL DEFAULT '',
+        account_configs TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        max_retries INTEGER NOT NULL DEFAULT 3,
+        error_message TEXT NOT NULL DEFAULT '',
+        publish_url TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        finished_at TIMESTAMP,
+        FOREIGN KEY (batch_id) REFERENCES publish_batches(id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_details_batch ON publish_details(batch_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_details_status ON publish_details(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_details_platform ON publish_details(platform)")
 
     # 素材库表
     cursor.execute("""
@@ -185,20 +171,6 @@ def migrate_database():
     try:
         cursor.execute('ALTER TABLE user_info ADD COLUMN avatar TEXT DEFAULT ""')
         logger.info("已添加 avatar 列")
-    except sqlite3.OperationalError:
-        pass  # 列已存在
-
-    # publish_tasks 添加 thumbnail_path 列
-    try:
-        cursor.execute('ALTER TABLE publish_tasks ADD COLUMN thumbnail_path TEXT DEFAULT ""')
-        logger.info("已添加 thumbnail_path 列")
-    except sqlite3.OperationalError:
-        pass  # 列已存在
-
-    # publish_tasks 添加 account_configs 列（一键填写用）
-    try:
-        cursor.execute('ALTER TABLE publish_tasks ADD COLUMN account_configs TEXT DEFAULT "{}"')
-        logger.info("已添加 publish_tasks.account_configs 列")
     except sqlite3.OperationalError:
         pass  # 列已存在
 

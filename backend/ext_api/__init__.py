@@ -248,15 +248,13 @@ def queue_status():
 
 @ext_api.route('/history', methods=['GET'])
 def get_history():
-    """发布历史记录（支持日期范围、平台、状态过滤）"""
-    # 平台 key → 中文名映射
-    platform_key_map = {
-        'xiaohongshu': '小红书', 'channels': '视频号', 'douyin': '抖音',
-        'kuaishou': '快手', 'bilibili': 'B站',
-    }
+    """获取发布历史（按批次分组），支持分页、平台/状态/类型过滤
 
-    platform = request.args.get('platform')
+    Query: type=video|image (可选), page=1, pageSize=20
+    """
+    type_ = request.args.get('type')
     status = request.args.get('status')
+    platform = request.args.get('platform')  # 暂未使用，留扩展
     time_range = request.args.get('timeRange')
     start_date = request.args.get('startDate')
     end_date = request.args.get('endDate')
@@ -264,7 +262,6 @@ def get_history():
     page_size = int(request.args.get('pageSize', 20))
     offset = (page - 1) * page_size
 
-    # 将 timeRange 转换为实际日期范围
     if time_range and not start_date:
         now = datetime.now()
         if time_range == 'today':
@@ -274,16 +271,11 @@ def get_history():
         elif time_range == '30days':
             start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
 
-    # 将平台 key 转换为中文名
-    if platform and platform in platform_key_map:
-        platform = platform_key_map[platform]
-
     conditions = []
     params = []
-
-    if platform:
-        conditions.append("platform = ?")
-        params.append(platform)
+    if type_ in ('video', 'image'):
+        conditions.append("type = ?")
+        params.append(type_)
     if status:
         conditions.append("status = ?")
         params.append(status)
@@ -293,37 +285,71 @@ def get_history():
     if end_date:
         conditions.append("created_at <= ?")
         params.append(end_date)
-
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     try:
         conn = _db_conn()
-        total = conn.execute(f"SELECT COUNT(*) FROM publish_tasks {where}", params).fetchone()[0]
-
+        total = conn.execute(f"SELECT COUNT(*) FROM publish_batches {where}", params).fetchone()[0]
         rows = conn.execute(
-            f"SELECT * FROM publish_tasks {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM publish_batches {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             params + [page_size, offset]
         ).fetchall()
+        batches = [dict(r) for r in rows]
 
-        records = [dict(row) for row in rows]
-        for r in records:
-            try:
-                r['tags'] = json.loads(r.get('tags', '[]'))
-            except json.JSONDecodeError:
-                r['tags'] = []
-            # 为前端补充 duration 字段（秒数）
-            if r.get('started_at') and r.get('finished_at'):
+        # 拿当前页所有 batch_id 的明细，一次 IN 查询
+        if batches:
+            batch_ids = [b['id'] for b in batches]
+            placeholders = ','.join('?' * len(batch_ids))
+            detail_rows = conn.execute(
+                f"SELECT * FROM publish_details WHERE batch_id IN ({placeholders}) ORDER BY created_at ASC",
+                batch_ids
+            ).fetchall()
+            details_by_batch: dict[str, list] = {}
+            for d in detail_rows:
+                dd = dict(d)
                 try:
-                    started = datetime.fromisoformat(r['started_at'])
-                    finished = datetime.fromisoformat(r['finished_at'])
-                    r['duration'] = int((finished - started).total_seconds())
-                except (ValueError, TypeError):
-                    r['duration'] = None
-            else:
-                r['duration'] = None
+                    dd['account_configs'] = json.loads(dd.get('account_configs', '{}'))
+                except json.JSONDecodeError:
+                    dd['account_configs'] = {}
+                # 计算 duration
+                if dd.get('started_at') and dd.get('finished_at'):
+                    try:
+                        s = datetime.fromisoformat(dd['started_at'])
+                        f = datetime.fromisoformat(dd['finished_at'])
+                        dd['duration'] = int((f - s).total_seconds())
+                    except (ValueError, TypeError):
+                        dd['duration'] = None
+                else:
+                    dd['duration'] = None
+                details_by_batch.setdefault(dd['batch_id'], []).append(dd)
+        else:
+            details_by_batch = {}
+
+        items = []
+        for b in batches:
+            items.append({
+                'id': b['id'],
+                'type': b['type'],
+                'title': b.get('title', ''),
+                'description': b.get('description', ''),
+                'landscape_cover_material_id': b.get('landscape_cover_material_id', ''),
+                'portrait_cover_material_id': b.get('portrait_cover_material_id', ''),
+                'account_count': b.get('account_count', 0),
+                'success_count': b.get('success_count', 0),
+                'failed_count': b.get('failed_count', 0),
+                'status': b.get('status', 'pending'),
+                'schedule_time': b.get('schedule_time', ''),
+                'created_at': _to_beijing_time(b.get('created_at')),
+                'started_at': _to_beijing_time(b.get('started_at')),
+                'finished_at': _to_beijing_time(b.get('finished_at')),
+                'items': details_by_batch.get(b['id'], []),
+            })
 
         conn.close()
-        return jsonify({"code": 200, "data": {"items": records, "total": total, "page": page, "pageSize": page_size}})
+        return jsonify({
+            "code": 200,
+            "data": {"items": items, "total": total, "page": page, "pageSize": page_size}
+        })
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 

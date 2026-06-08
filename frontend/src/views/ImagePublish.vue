@@ -623,6 +623,11 @@ async function publishAll() {
   currentPublishingAccount.value = ''
   batchPublishDialogVisible.value = true
 
+  // Task 13：生成本次一键发布的 batchId + 封面素材 ID（一次发布，跨账号复用）
+  const batchId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2))
+  const coverMaterialId = commonConfig.coverImage?.id || ''
+  const publishExtra = { batchId, landscapeCoverMaterialId: coverMaterialId, portraitCoverMaterialId: coverMaterialId }
+
   const commonData = { images: commonConfig.images, coverImage: commonConfig.coverImage }
 
   const allTasks = []
@@ -652,7 +657,7 @@ async function publishAll() {
 
     const panel = getPanel(groupKey)
     if (panel) {
-      await panel.publish(account.id, account.name, commonData)
+      await panel.publish(account.id, account.name, commonData, publishExtra)
     }
   }
 

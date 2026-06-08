@@ -7,7 +7,7 @@ import { ref, reactive, watch } from 'vue'
  * @param {object}    defaults         渠道默认字段（含 tags: []）
  * @param {object}    props           组件 props { accountId, disabled }
  * @param {object}    emit            组件 emit
- * @param {function}  publishFn       (accountId, accountName, commonData) => Promise
+ * @param {function}  publishFn       (accountId, accountName, commonData, merged, extra) => Promise
  * @param {function}  validateFn       (accountId) => { valid, errors }
  */
 export function useChannelForm(defaults, { props, emit }, { publishFn, validateFn } = {}) {
@@ -107,9 +107,9 @@ export function useChannelForm(defaults, { props, emit }, { publishFn, validateF
 
   // ===== 暴露给父组件的接口 =====
   const publicApi = {
-    async publish(accountId, accountName, commonData) {
+    async publish(accountId, accountName, commonData, extra) {
       if (publishFn) {
-        await publishFn(accountId, accountName, commonData, getMergedConfig(accountId))
+        await publishFn(accountId, accountName, commonData, getMergedConfig(accountId), extra)
       }
     },
 

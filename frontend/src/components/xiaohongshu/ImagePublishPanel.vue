@@ -91,7 +91,7 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
   XHS_DEFAULTS,
   { props, emit },
   {
-    publishFn: async (accountId, accountName, commonData, merged) => {
+    publishFn: async (accountId, accountName, commonData, merged, extra) => {
       const account = accountStore.accounts.find(a => a.id === accountId)
       if (!account) {
         emit('publish-result', { accountName, status: 'fail', message: '账号不存在' })
@@ -100,14 +100,17 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
       try {
         await imagePublishApi.publishImage({
           image_ids: commonData.images.map(img => img.id),
-          account_configs: [{
+          account_configs: {
             account_id: accountId, platform: account.platform, filePath: account.filePath,
             title: merged.title, description: merged.description || '',
             tags: merged.tags || [], scheduleTime: merged.enableTimer ? merged.scheduleTime : '',
             aiContent: merged.aiContent || '', isOriginal: merged.isOriginal || false,
             cover_path: commonData.coverImage?.stored_path || '',
             dry_run: false,
-          }],
+          },
+          batchId: extra?.batchId || '',
+          landscapeCoverMaterialId: extra?.landscapeCoverMaterialId || '',
+          portraitCoverMaterialId: extra?.portraitCoverMaterialId || '',
         })
         emit('publish-result', { accountName, status: 'success', message: '发布成功' })
       } catch (e) {

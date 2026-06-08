@@ -800,8 +800,9 @@ def get_changelog():
 
 @ext_api.route('/publish-templates', methods=['GET'])
 def get_publish_templates():
-    """一键填写：从历史成功发布里取可复用的 per-channel 配置。
-    Query: type=video|image, page=1, page_size=20
+    """一键填写：从历史成功/部分成功批次里取可复用的 per-channel 配置。
+
+    Query: type=video|image (必填), page=1, page_size=20
     """
     import json as _json
     type_ = request.args.get('type', '').strip()
@@ -816,74 +817,63 @@ def get_publish_templates():
 
     offset = (page - 1) * page_size
     conn = _db_conn()
-    # 兼容测试中 mock 的连接（mock 不一定设置 row_factory），统一用 Row 访问
-    conn.row_factory = sqlite3.Row
 
-    if type_ == 'video':
-        rows = conn.execute(
-            """SELECT id, title, description, thumbnail_path, account_configs, created_at
-               FROM publish_tasks
-               WHERE status = 'success' AND account_configs IS NOT NULL AND account_configs != '{}'
-               ORDER BY created_at DESC
-               LIMIT ? OFFSET ?""",
-            (page_size, offset)
+    # 主查询：所有有 detail 带 account_configs 的成功/部分成功 batch
+    rows = conn.execute(
+        """SELECT b.id, b.type, b.title, b.description,
+                  b.landscape_cover_material_id, b.portrait_cover_material_id,
+                  b.video_material_id, b.image_material_ids,
+                  b.created_at
+           FROM publish_batches b
+           WHERE b.type = ?
+             AND b.status IN ('success', 'partial')
+             AND EXISTS (SELECT 1 FROM publish_details d
+                         WHERE d.batch_id = b.id AND d.account_configs != '{}')
+           ORDER BY b.created_at DESC
+           LIMIT ? OFFSET ?""",
+        (type_, page_size, offset)
+    ).fetchall()
+    total = conn.execute(
+        """SELECT COUNT(*) FROM publish_batches b
+           WHERE b.type = ? AND b.status IN ('success', 'partial')
+             AND EXISTS (SELECT 1 FROM publish_details d
+                         WHERE d.batch_id = b.id AND d.account_configs != '{}')""",
+        (type_,)
+    ).fetchone()[0]
+    conn.close()
+
+    items = []
+    for r in rows:
+        # 拿第一个 detail 的 account_configs（用作可复用模板）
+        # 单次小查询，按 batch_id 升序拿第一条
+        dconn = _db_conn()
+        first_detail = dconn.execute(
+            "SELECT account_configs, platform FROM publish_details WHERE batch_id = ? "
+            "AND account_configs != '{}' ORDER BY created_at ASC LIMIT 1",
+            (r['id'],)
+        ).fetchone()
+        # 拿所有 platform 作 channels 列表
+        all_platforms = dconn.execute(
+            "SELECT DISTINCT platform FROM publish_details WHERE batch_id = ?",
+            (r['id'],)
         ).fetchall()
-        total = conn.execute(
-            """SELECT COUNT(*) FROM publish_tasks
-               WHERE status = 'success' AND account_configs IS NOT NULL AND account_configs != '{}'"""
-        ).fetchone()[0]
-        conn.close()
+        dconn.close()
 
-        items = []
-        for r in rows:
-            configs = _json.loads(r['account_configs'] or '{}')
-            channels = [{'platform': k} for k in configs.keys()]
-            items.append({
-                "id": r['id'],
-                "type": "video",
-                "title": r['title'] or '',
-                "description": r['description'] or '',
-                "thumbnail_path": r['thumbnail_path'] or '',
-                "first_image_id": None,
-                "channels": channels,
-                "account_configs": configs,
-                "created_at": r['created_at'],
-            })
-    else:  # image
-        rows = conn.execute(
-            """SELECT id, account_configs, image_ids, created_at
-               FROM image_publish_tasks
-               WHERE status = 'success' AND account_configs IS NOT NULL
-               ORDER BY created_at DESC
-               LIMIT ? OFFSET ?""",
-            (page_size, offset)
-        ).fetchall()
-        total = conn.execute(
-            """SELECT COUNT(*) FROM image_publish_tasks
-               WHERE status = 'success' AND account_configs IS NOT NULL"""
-        ).fetchone()[0]
-        conn.close()
+        configs = _json.loads((first_detail['account_configs'] if first_detail else None) or '{}')
+        channels = [{'platform': p['platform']} for p in all_platforms if p['platform']]
 
-        items = []
-        for r in rows:
-            configs = _json.loads(r['account_configs'] or '[]')
-            image_ids = _json.loads(r['image_ids'] or '[]')
-            first_image_id = image_ids[0] if image_ids else None
-            channels = [
-                {'platform': c.get('platform', ''), 'account_id': c.get('account_id')}
-                for c in configs
-            ]
-            items.append({
-                "id": r['id'],
-                "type": "image",
-                "title": (configs[0].get('title') if configs else '') or '',
-                "description": (configs[0].get('description') if configs else '') or '',
-                "thumbnail_path": None,
-                "first_image_id": first_image_id,
-                "channels": channels,
-                "account_configs": configs,
-                "created_at": r['created_at'],
-            })
+        items.append({
+            "id": r['id'],
+            "type": r['type'],
+            "title": r['title'] or '',
+            "description": r['description'] or '',
+            "thumbnail_path": r['landscape_cover_material_id'] or r['portrait_cover_material_id'] or '',
+            "first_image_id": (r['image_material_ids'] or '[]'),
+            "video_material_id": r['video_material_id'] or '',
+            "channels": channels,
+            "account_configs": configs,
+            "created_at": r['created_at'],
+        })
 
     return jsonify({
         "code": 200,

@@ -418,75 +418,11 @@ def delete_draft(draft_id):
         return jsonify({"code": 500, "msg": f"删除失败: {str(e)}"}), 500
 
 
-# ========== 发布历史 ==========
-
-@image_publish_bp.route('/history', methods=['GET'])
-def get_history():
-    """获取图文发布历史"""
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('pageSize', 20))
-    status_filter = request.args.get('status')
-    offset = (page - 1) * page_size
-
-    try:
-        conn = _get_db()
-
-        where = ""
-        params = []
-        if status_filter and status_filter != 'all':
-            where = "WHERE status = ?"
-            params.append(status_filter)
-
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM image_publish_tasks {where}", params
-        ).fetchone()[0]
-
-        rows = conn.execute(
-            f"""SELECT * FROM image_publish_tasks {where}
-                ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-            params + [page_size, offset]
-        ).fetchall()
-
-        tasks = []
-        for row in rows:
-            d = dict(row)
-            try:
-                d['image_ids'] = json.loads(d.get('image_ids', '[]'))
-            except json.JSONDecodeError:
-                d['image_ids'] = []
-            try:
-                d['account_configs'] = json.loads(d.get('account_configs', '[]'))
-            except json.JSONDecodeError:
-                d['account_configs'] = []
-
-            # 查询该任务的发布日志
-            log_rows = conn.execute(
-                "SELECT * FROM image_publish_logs WHERE task_id = ?", (d['id'],)
-            ).fetchall()
-            d['logs'] = [dict(log) for log in log_rows]
-
-            tasks.append(d)
-
-        conn.close()
-        return jsonify({
-            "code": 200,
-            "data": {
-                "items": tasks,
-                "total": total,
-                "page": page,
-                "pageSize": page_size,
-            }
-        })
-    except Exception as e:
-        logger.error(f"获取发布历史失败: {e}")
-        return jsonify({"code": 500, "msg": str(e)}), 500
-
-
 # ========== 实际发布执行 ==========
 
 @image_publish_bp.route('/execute-publish', methods=['POST'])
 def execute_publish():
-    """执行图文发布任务 - 调用平台API"""
+    """执行图文发布任务 - 调用平台API（单账号 + batchId 模式）"""
     import asyncio
     from impl.registry import get_platform
 
@@ -498,17 +434,66 @@ def execute_publish():
     if not platform_type:
         return jsonify({"code": 400, "msg": "缺少平台类型"}), 400
 
-    platform = get_platform(platform_type)
-    if not platform:
-        return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+    image_ids = data.get('image_ids', [])
+    if not image_ids:
+        return jsonify({"code": 400, "msg": "请选择至少一张图片"}), 400
+
+    batch_id = data.get('batchId') or str(uuid.uuid4())
+    detail_id = str(uuid.uuid4())
+    title = data.get('title', '')
+    description = data.get('desc', '')
+    account_file = data.get('account_file', [])
+    account_id = data.get('account_id')
+    account_name = data.get('account_name') or (
+        Path(account_file[0]).stem if account_file else ''
+    )
+
+    # 平台名映射（与 /publish 一致，用于在 publish_details.platform 存可读名）
+    platform_name_map = {1: '小红书', 2: '视频号', 3: '抖音', 4: '快手', 5: 'B站',
+                         6: '百家号', 7: 'TikTok', 8: 'YouTube', 9: '腾讯视频', 10: '爱奇艺'}
+    platform_label = platform_name_map.get(int(platform_type), str(platform_type))
+
+    now = datetime.now().isoformat()
+
+    # account_configs JSON：除封面字段外的所有配置
+    excluded = {'landscapeCoverMaterialId', 'portraitCoverMaterialId'}
+    account_configs = {k: v for k, v in data.items() if k not in excluded}
 
     try:
-        # 准备图片文件路径列表
-        image_ids = data.get('image_ids', [])
-        if not image_ids:
-            return jsonify({"code": 400, "msg": "请选择至少一张图片"}), 400
+        conn = _get_db()
+        conn.execute(
+            """INSERT OR IGNORE INTO publish_batches
+               (id, type, title, description, image_material_ids,
+                landscape_cover_material_id, portrait_cover_material_id,
+                account_count, status, created_at, updated_at)
+               VALUES (?, 'image', ?, ?, ?, ?, ?, 0, 'pending', ?, ?)""",
+            (batch_id, title, description, json.dumps(image_ids, ensure_ascii=False),
+             data.get('landscapeCoverMaterialId', ''),
+             data.get('portraitCoverMaterialId', ''),
+             now, now)
+        )
+        conn.execute(
+            """INSERT INTO publish_details
+               (id, batch_id, account_id, account_name, platform, account_configs,
+                status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'running', ?)""",
+            (detail_id, batch_id, account_id, account_name, platform_label,
+             json.dumps(account_configs, ensure_ascii=False), now)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"写入失败: {e}"}), 500
 
-        # 从数据库获取图片文件路径（从 materials 表读取 stored_path，再解析本地路径）
+    # ---------- 实际发布执行（保留原有逻辑） ----------
+    success = False
+    err = ""
+    try:
+        platform = get_platform(platform_type)
+        if not platform:
+            raise ValueError(f"不支持的平台类型: {platform_type}")
+
+        # 从 materials 表读取 stored_path，再解析本地路径
         from storage import get_storage
         storage = get_storage()
         conn = _get_db()
@@ -526,58 +511,43 @@ def execute_publish():
         conn.close()
 
         if not image_files:
-            return jsonify({"code": 400, "msg": "未找到有效的图片文件"}), 400
+            raise ValueError("未找到有效的图片文件")
 
         # 调用平台的 publish_image 方法
         publish_fn = platform.publish_image
+        publish_kwargs = dict(
+            title=title,
+            files=image_files,
+            tags=data.get('tags', []),
+            account_file=account_file,
+            desc=description,
+            cover_path=resolve_material_path(data.get('cover_path', '')),
+            mix_id=data.get('mix_id', ''),
+            music_name=data.get('music_name', ''),
+            hotspot=data.get('hotspot', ''),
+            location=data.get('location', ''),
+            enableTimer=data.get('enableTimer', False),
+            schedule_time_str=data.get('schedule_time_str', ''),
+            ai_content=data.get('ai_content', ''),
+            activities=data.get('activities', []),
+            author_declaration=data.get('author_declaration', ''),
+            music_id=data.get('music_id', ''),
+            music_title=data.get('music_title', ''),
+            dry_run=data.get('dry_run', True),
+        )
         if asyncio.iscoroutinefunction(publish_fn):
-            result = asyncio.run(publish_fn(
-                title=data.get('title', ''),
-                files=image_files,
-                tags=data.get('tags', []),
-                account_file=data.get('account_file', []),
-                desc=data.get('desc', ''),
-                cover_path=resolve_material_path(data.get('cover_path', '')),
-                mix_id=data.get('mix_id', ''),
-                music_name=data.get('music_name', ''),
-                hotspot=data.get('hotspot', ''),
-                location=data.get('location', ''),
-                enableTimer=data.get('enableTimer', False),
-                schedule_time_str=data.get('schedule_time_str', ''),
-                ai_content=data.get('ai_content', ''),
-                activities=data.get('activities', []),
-                author_declaration=data.get('author_declaration', ''),
-                music_id=data.get('music_id', ''),
-                music_title=data.get('music_title', ''),
-                dry_run=data.get('dry_run', True),
-            ))
+            result = asyncio.run(publish_fn(**publish_kwargs))
         else:
-            result = publish_fn(
-                title=data.get('title', ''),
-                files=image_files,
-                tags=data.get('tags', []),
-                account_file=data.get('account_file', []),
-                desc=data.get('desc', ''),
-                cover_path=resolve_material_path(data.get('cover_path', '')),
-                mix_id=data.get('mix_id', ''),
-                music_name=data.get('music_name', ''),
-                hotspot=data.get('hotspot', ''),
-                location=data.get('location', ''),
-                enableTimer=data.get('enableTimer', False),
-                schedule_time_str=data.get('schedule_time_str', ''),
-                ai_content=data.get('ai_content', ''),
-                activities=data.get('activities', []),
-                author_declaration=data.get('author_declaration', ''),
-                music_id=data.get('music_id', ''),
-                music_title=data.get('music_title', ''),
-                dry_run=data.get('dry_run', True),
-            )
-
-        if result:
-            return jsonify({"code": 200, "msg": "发布任务已执行", "data": None})
-        else:
-            return jsonify({"code": 500, "msg": "发布失败"}), 500
-
+            result = publish_fn(**publish_kwargs)
+        success = bool(result)
     except Exception as e:
         logger.error(f"执行发布失败: {e}")
-        return jsonify({"code": 500, "msg": f"发布失败: {str(e)}"}), 500
+        err = str(e)
+        success = False
+
+    final_status = 'success' if success else 'failed'
+    _update_image_publish_detail(detail_id, final_status, error_message=err)
+
+    if success:
+        return jsonify({"code": 200, "msg": "发布任务已执行", "data": {"batch_id": batch_id, "detail_id": detail_id}})
+    return jsonify({"code": 500, "msg": f"发布失败: {err}"}), 500

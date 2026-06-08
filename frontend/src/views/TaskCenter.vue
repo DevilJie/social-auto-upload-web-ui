@@ -63,9 +63,9 @@
               <span class="account-name">{{ scope.row.account_name || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="title" label="标题" min-width="200">
+          <el-table-column prop="batch_title" label="批次标题" min-width="200">
             <template #default="scope">
-              <span class="task-title" :title="scope.row.title">{{ scope.row.title || '-' }}</span>
+              <span class="task-title" :title="scope.row.batch_title">{{ scope.row.batch_title || '-' }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="110">
@@ -198,7 +198,7 @@ const filteredTasks = computed(() => {
   if (searchKeyword.value) {
     const kw = searchKeyword.value.toLowerCase()
     result = result.filter(t =>
-      (t.title || '').toLowerCase().includes(kw) ||
+      (t.batch_title || '').toLowerCase().includes(kw) ||
       (t.account_name || '').toLowerCase().includes(kw)
     )
   }

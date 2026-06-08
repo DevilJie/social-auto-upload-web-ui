@@ -153,6 +153,10 @@ def _get_db_path():
 
 DB_PATH = _get_db_path()
 PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺"}
+PLATFORM_ID_TO_KEY = {
+    1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
+    6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
+}
 
 
 def _get_account_record(account_id):
@@ -711,7 +715,7 @@ def _before_publish():
             tags=data.get('tags', []),
             status='running',
             started_at=now,
-            account_configs={data.get('type'): {**{k: v for k, v in data.items() if k not in ('fileList', 'accountList', 'type', 'title', 'description', 'tags', 'thumbnail', 'thumbnailLandscape', 'thumbnailPortrait')}, 'title': data.get('title'), 'description': data.get('description'), 'tags': data.get('tags')}},
+            account_configs={PLATFORM_ID_TO_KEY.get(data.get('type'), str(data.get('type'))): {**{k: v for k, v in data.items() if k not in ('fileList', 'accountList', 'type', 'title', 'description', 'tags', 'thumbnail', 'thumbnailLandscape', 'thumbnailPortrait')}, 'title': data.get('title'), 'description': data.get('description'), 'tags': data.get('tags')}},
         )
         g.publish_task_id = task_id
         g.publish_start_time = now

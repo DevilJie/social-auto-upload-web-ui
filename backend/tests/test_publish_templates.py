@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
@@ -175,3 +175,76 @@ def test_publish_templates_pagination():
             data = resp.get_json()
             assert data['data']['total'] == 25
             assert len(data['data']['list']) == 10
+
+
+def _postvideo_roundtrip_db_path():
+    """Create a temp DB with publish_tasks (so _ensure_db 看到表就跳过初始化)."""
+    return _make_db()
+
+
+def test_postvideo_stores_account_configs_with_string_key_douyin():
+    """/postVideo 收到 type=3 抖音时，存到 account_configs 的 key 必须是 'douyin'。"""
+    from app import app
+
+    db_path = _postvideo_roundtrip_db_path()
+    fake_platform = MagicMock()
+    fake_platform.publish_video = MagicMock(return_value=True)
+
+    with patch("app.get_platform", return_value=fake_platform), \
+         patch("app.DB_PATH", db_path), \
+         patch("app._get_db_path", return_value=db_path), \
+         patch("app._resolve_material_path", side_effect=lambda p: p or "/tmp/v.mp4"):
+        client = app.test_client()
+        r = client.post("/postVideo", json={
+            "type": 3,  # 抖音
+            "title": "测试",
+            "description": "d",
+            "tags": ["a"],
+            "fileList": ["/tmp/v.mp4"],
+            "accountList": ["/tmp/cookie.json"],
+        })
+        assert r.status_code == 200, r.get_data(as_text=True)
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        "SELECT account_configs FROM publish_tasks ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    stored = json.loads(row[0])
+    assert "douyin" in stored, f"Expected key 'douyin' in {stored}"
+    assert "3" not in stored, f"Expected no numeric '3' key in {stored}"
+    assert stored["douyin"]["title"] == "测试"
+    assert stored["douyin"]["tags"] == ["a"]
+    conn.close()
+
+
+def test_postvideo_stores_account_configs_with_string_key_xiaohongshu():
+    """/postVideo 收到 type=1 小红书时，存到 account_configs 的 key 必须是 'xiaohongshu'。"""
+    from app import app
+
+    db_path = _postvideo_roundtrip_db_path()
+    fake_platform = MagicMock()
+    fake_platform.publish_video = MagicMock(return_value=True)
+
+    with patch("app.get_platform", return_value=fake_platform), \
+         patch("app.DB_PATH", db_path), \
+         patch("app._get_db_path", return_value=db_path), \
+         patch("app._resolve_material_path", side_effect=lambda p: p or "/tmp/v.mp4"):
+        client = app.test_client()
+        r = client.post("/postVideo", json={
+            "type": 1,  # 小红书
+            "title": "xhs",
+            "description": "",
+            "tags": [],
+            "fileList": ["/tmp/v.mp4"],
+            "accountList": ["/tmp/cookie.json"],
+        })
+        assert r.status_code == 200, r.get_data(as_text=True)
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute(
+        "SELECT account_configs FROM publish_tasks ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    stored = json.loads(row[0])
+    assert "xiaohongshu" in stored, f"Expected key 'xiaohongshu' in {stored}"
+    assert "1" not in stored, f"Expected no numeric '1' key in {stored}"
+    conn.close()

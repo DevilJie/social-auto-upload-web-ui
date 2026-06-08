@@ -25,6 +25,8 @@ export const taskApi = {
 // 发布历史
 export const historyApi = {
   getHistory(params) {
+    // params: { type?: 'video'|'image', status?, timeRange?, startDate?, endDate?, page, pageSize }
+    // 返回: data.items = [{id, type, title, ..., items: [{id, account_name, platform, status, ...}]}, ...]
     return http.get('/api/v2/history', params)
   },
 }

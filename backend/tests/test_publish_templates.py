@@ -248,34 +248,51 @@ def test_publish_templates_pagination():
 
 
 def _postvideo_roundtrip_db_path():
-    """Create a temp DB with old publish_tasks schema (so _ensure_db 看到表就跳过初始化).
+    """Create a temp DB with new publish_batches + publish_details schema (Task 6).
 
-    注意：/postVideo → _record_publish 仍写旧 publish_tasks 表（Task 6 会重构），
-    所以这里必须用旧 schema 才能让这些 roundtrip 测试通过。
+    之前 /postVideo → _record_publish 写旧 publish_tasks 表；Task 6 重构后写到新表。
+    这些 roundtrip 测试现在用新 schema，断言改查 publish_details。
     """
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
     db_path = Path(tmp.name)
     conn = sqlite3.connect(str(db_path))
     conn.executescript("""
-        CREATE TABLE publish_tasks (
+        CREATE TABLE publish_batches (
             id TEXT PRIMARY KEY,
-            platform TEXT NOT NULL,
-            account_name TEXT NOT NULL,
-            video_path TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            tags TEXT DEFAULT '[]',
-            status TEXT DEFAULT 'pending',
-            retry_count INTEGER DEFAULT 0,
-            max_retries INTEGER DEFAULT 3,
-            error_message TEXT DEFAULT '',
-            publish_url TEXT DEFAULT '',
+            type TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            video_material_id TEXT DEFAULT '',
+            image_material_ids TEXT DEFAULT '[]',
+            landscape_cover_material_id TEXT DEFAULT '',
+            portrait_cover_material_id TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            account_count INTEGER NOT NULL DEFAULT 0,
+            success_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            schedule_time TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             started_at TIMESTAMP,
             finished_at TIMESTAMP,
-            thumbnail_path TEXT DEFAULT '',
-            account_configs TEXT DEFAULT '{}'
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE publish_details (
+            id TEXT PRIMARY KEY,
+            batch_id TEXT NOT NULL,
+            account_id INTEGER,
+            account_name TEXT NOT NULL DEFAULT '',
+            platform TEXT NOT NULL DEFAULT '',
+            account_configs TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            error_message TEXT NOT NULL DEFAULT '',
+            publish_url TEXT NOT NULL DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            FOREIGN KEY (batch_id) REFERENCES publish_batches(id) ON DELETE CASCADE
         );
     """)
     conn.commit()
@@ -284,11 +301,7 @@ def _postvideo_roundtrip_db_path():
 
 
 def test_postvideo_stores_account_configs_with_string_key_douyin():
-    """/postVideo 收到 type=3 抖音时，存到 account_configs 的 key 必须是 'douyin'。
-
-    TODO: Task 6 会重构 /postVideo 写路径到 publish_batches + publish_details，
-    届时把 fixture 改成新表 schema，断言改查 publish_details.account_configs。
-    """
+    """/postVideo 收到 type=3 抖音时，platform 列存中文 '抖音'，account_configs JSON 不含数字 '3'。"""
     from app import app
 
     db_path = _postvideo_roundtrip_db_path()
@@ -312,21 +325,18 @@ def test_postvideo_stores_account_configs_with_string_key_douyin():
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute(
-        "SELECT account_configs FROM publish_tasks ORDER BY created_at DESC LIMIT 1"
+        "SELECT platform, account_configs FROM publish_details ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
-    stored = json.loads(row[0])
-    assert "douyin" in stored, f"Expected key 'douyin' in {stored}"
+    assert row[0] == "抖音", f"Expected platform='抖音', got {row[0]!r}"
+    stored = json.loads(row[1])
     assert "3" not in stored, f"Expected no numeric '3' key in {stored}"
-    assert stored["douyin"]["title"] == "测试"
-    assert stored["douyin"]["tags"] == ["a"]
+    assert stored["title"] == "测试"
+    assert stored["tags"] == ["a"]
     conn.close()
 
 
 def test_postvideo_stores_account_configs_with_string_key_xiaohongshu():
-    """/postVideo 收到 type=1 小红书时，存到 account_configs 的 key 必须是 'xiaohongshu'。
-
-    TODO: Task 6 会重构 /postVideo 写路径到 publish_batches + publish_details。
-    """
+    """/postVideo 收到 type=1 小红书时，platform 列存中文 '小红书'，account_configs JSON 不含数字 '1'。"""
     from app import app
 
     db_path = _postvideo_roundtrip_db_path()
@@ -350,9 +360,9 @@ def test_postvideo_stores_account_configs_with_string_key_xiaohongshu():
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute(
-        "SELECT account_configs FROM publish_tasks ORDER BY created_at DESC LIMIT 1"
+        "SELECT platform, account_configs FROM publish_details ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
-    stored = json.loads(row[0])
-    assert "xiaohongshu" in stored, f"Expected key 'xiaohongshu' in {stored}"
+    assert row[0] == "小红书", f"Expected platform='小红书', got {row[0]!r}"
+    stored = json.loads(row[1])
     assert "1" not in stored, f"Expected no numeric '1' key in {stored}"
     conn.close()

@@ -238,7 +238,23 @@ async function load() {
     const res = await http.get('/api/v2/publish-templates', {
       params: { type: props.type, page: page.value, page_size: pageSize.value }
     })
-    list.value = res.data?.list || []
+    const items = res.data?.list || []
+    // 给每条记录补上 coverSrc：视频用 thumbnail_path 拼；图文查 materials API
+    for (const item of items) {
+      if (item.type === 'video' && item.thumbnail_path) {
+        item.coverSrc = `${window.location.protocol}//${window.location.hostname}:5409/uploads/${item.thumbnail_path.replace(/^uploads\//, '')}`
+      } else if (item.type === 'image' && item.first_image_id) {
+        // 调用 materials API 拿 URL（项目已有 http.get('/api/materials/list', {params:{id}})）
+        try {
+          const m = await http.get('/api/materials/list', { params: { id: item.first_image_id, page: 1, page_size: 1 } })
+          const mat = m.data?.list?.[0]
+          item.coverSrc = mat?.url || mat?.stored_path ? `${window.location.protocol}//${window.location.hostname}:5409/${mat.stored_path}` : ''
+        } catch (_) { item.coverSrc = '' }
+      } else {
+        item.coverSrc = ''
+      }
+    }
+    list.value = items
     total.value = res.data?.total || 0
   } catch (e) {
     list.value = []
@@ -275,7 +291,7 @@ function handlePick(record) {
               :description="`还没有可用的历史记录，去 ${type === 'video' ? '视频发布' : '图文发布'} 试试？`" />
     <div v-for="record in list" :key="record.id" class="card" @click="handlePick(record)">
       <div class="card-cover">
-        <img v-if="record.cover_url" :src="record.cover_url" alt="封面" />
+        <img v-if="record.coverSrc" :src="record.coverSrc" alt="封面" />
         <div v-else class="cover-placeholder">
           <el-icon :size="32"><Picture /></el-icon>
         </div>

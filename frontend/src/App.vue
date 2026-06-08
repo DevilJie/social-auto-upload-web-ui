@@ -85,7 +85,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 
-const sidebarCollapsed = ref(true)
+const sidebarCollapsed = ref(false)
 
 const navItems = [
   { path: '/', icon: HomeFilled, title: '仪表盘' },

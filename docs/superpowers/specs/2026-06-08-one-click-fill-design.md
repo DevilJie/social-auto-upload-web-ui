@@ -137,20 +137,21 @@ def get_publish_templates():
         items = []
         for r in rows:
             configs = json.loads(r['account_configs'] or '{}')
-            channels = list(configs.keys())  # 简化：用 key 表示 platforms
+            # channels: 视频是 dict (key=platform), 用 keys 列表
+            channels = [{'platform': k} for k in configs.keys()]
             items.append({
                 "id": r['id'],
                 "type": "video",
                 "title": r['title'] or "",
                 "description": r['description'] or "",
-                "cover_url": _absolutize_thumb(r['thumbnail_path']),
+                "thumbnail_path": r['thumbnail_path'] or "",  # 相对路径，前端拼
                 "channels": channels,
                 "account_configs": configs,
                 "created_at": r['created_at'],
             })
     else:  # image
         rows = conn.execute(
-            """SELECT id, account_configs, created_at
+            """SELECT id, account_configs, image_ids, created_at
                FROM image_publish_tasks
                WHERE status = 'success' AND account_configs IS NOT NULL
                ORDER BY created_at DESC
@@ -165,18 +166,20 @@ def get_publish_templates():
         items = []
         for r in rows:
             configs = json.loads(r['account_configs'] or '[]')
-            # 图文 cover 取 image_ids[0]，需要再 SELECT 一下
-            img_row = conn.execute(
-                "SELECT image_ids FROM image_publish_tasks WHERE id = ?", (r['id'],)
-            ).fetchone()
-            first_img = json.loads(img_row['image_ids'])[0] if img_row else None
+            image_ids = json.loads(r['image_ids'] or '[]')
+            first_image_id = image_ids[0] if image_ids else None
+            # channels: 图文是 list, 每个含 account_id / platform
+            channels = [
+                {'platform': c.get('platform', ''), 'account_id': c.get('account_id')}
+                for c in configs
+            ]
             items.append({
                 "id": r['id'],
                 "type": "image",
                 "title": (configs[0].get('title') if configs else '') or '',
                 "description": (configs[0].get('description') if configs else '') or '',
-                "cover_url": _absolutize_image(first_img),
-                "channels": configs,  # 图文直接是数组
+                "first_image_id": first_image_id,  # 前端用 materials API 拿 URL
+                "channels": channels,
                 "account_configs": configs,
                 "created_at": r['created_at'],
             })
@@ -192,7 +195,13 @@ def get_publish_templates():
     })
 ```
 
-`_absolutize_thumb` / `_absolutize_image` 是工具函数，把 `uploads/...` 相对路径补成 `http://127.0.0.1:5409/uploads/...`（项目其他模块已用此模式）。
+**响应字段约定**：
+- 视频：返回 `thumbnail_path`（相对路径），前端拼 base_url
+- 图文：返回 `first_image_id`，前端调 `materials` API 拿 URL
+- `channels` 统一为 `[{'platform': str, 'account_id'?: number}]` 对象数组
+- `account_configs`：
+  - 视频：dict，`{platform_key: per_platform_config}`
+  - 图文：list，`[per_account_config]`
 
 ## 前端设计
 

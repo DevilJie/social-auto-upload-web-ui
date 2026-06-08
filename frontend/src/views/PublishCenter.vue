@@ -1346,6 +1346,12 @@ async function publishAll() {
     }
   }
 
+  // 生成本次一键发布的 batchId 与素材 ID（一次发布，跨账号复用）
+  const batchId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2))
+  const videoMaterialId = commonConfig.videoLandscape?.id || commonConfig.videoPortrait?.id || ''
+  const landscapeCoverMaterialId = commonConfig.coverLandscape?.id || ''
+  const portraitCoverMaterialId = commonConfig.coverPortrait?.id || ''
+
   if (allTasks.length === 0) {
     ElMessage.warning('没有可发布的账号')
     publishing.value = false
@@ -1423,6 +1429,12 @@ async function publishAll() {
         enableCashActivity: platformSettings.enableCashActivity || false,
         audience: platformSettings.audience || 'not_kids',
         alteredContent: platformSettings.alteredContent || false,
+        // Task 12：本次一键发布的批次与素材 ID
+        batchId,
+        videoMaterialId,
+        landscapeCoverMaterialId,
+        portraitCoverMaterialId,
+        accountId: account.id,
       }
 
       await http.post('/postVideo', publishData)

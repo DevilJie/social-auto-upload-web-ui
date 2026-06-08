@@ -36,6 +36,7 @@ class TaskStatus(str, Enum):
 @dataclass
 class PublishTask:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    batch_id: str = ''                       # 新增
     platform: str = ""
     platform_type: int = 0  # 1=小红书 2=视频号 3=抖音 4=快手 5=B站
     account_name: str = ""
@@ -70,6 +71,7 @@ class PublishTask:
                 tags = []
         return cls(
             id=row_dict['id'],
+            batch_id=row_dict.get('batch_id', ''),
             platform=row_dict['platform'],
             platform_type=row_dict.get('platform_type', 0),
             account_name=row_dict['account_name'],
@@ -281,33 +283,75 @@ class TaskQueue:
     # ========== 数据库操作 ==========
 
     def _insert_db(self, task: PublishTask):
+        """插 1 行 publish_batches（如果不存在）+ 1 行 publish_details"""
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
+                # batch 插一次，多次同 batch_id 跳过
                 conn.execute(
-                    """INSERT OR REPLACE INTO publish_tasks
-                       (id, platform, account_name, video_path, title, description,
-                        thumbnail_path, tags, status, retry_count, max_retries, error_message,
-                        publish_url, created_at, started_at, finished_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (task.id, task.platform, task.account_name, task.video_path,
-                     task.title, task.description, task.thumbnail_path,
-                     json.dumps(task.tags, ensure_ascii=False),
-                     task.status, task.retry_count, task.max_retries, task.error_message,
-                     task.publish_url, task.created_at, task.started_at, task.finished_at)
+                    """INSERT OR IGNORE INTO publish_batches
+                       (id, type, title, description, video_material_id,
+                        landscape_cover_material_id, portrait_cover_material_id,
+                        account_count, status, created_at, updated_at)
+                       VALUES (?, 'video', ?, ?, '', '', '', 0, 'pending', ?, ?)""",
+                    (task.batch_id or task.id, task.title, task.description,
+                     task.created_at, task.created_at)
+                )
+                # account_configs：把 task 字段打包成 JSON
+                cfg = {
+                    'title': task.title,
+                    'description': task.description,
+                    'tags': task.tags,
+                    'thumbnail_path': task.thumbnail_path,
+                    'platform_type': task.platform_type,
+                }
+                conn.execute(
+                    """INSERT INTO publish_details
+                       (id, batch_id, account_id, account_name, platform, account_configs,
+                        status, created_at)
+                       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)""",
+                    (task.id, task.batch_id or task.id, task.account_name, task.platform,
+                     json.dumps(cfg, ensure_ascii=False), task.status, task.created_at)
                 )
         except Exception as e:
             logger.info(f"[TaskQueue] 插入数据库失败: {e}")
 
     def _update_db(self, task: PublishTask):
+        """更新 1 行 publish_details + 聚合 publish_batches 状态"""
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
                 conn.execute(
-                    """UPDATE publish_tasks
+                    """UPDATE publish_details
                        SET status=?, retry_count=?, error_message=?, publish_url=?,
                            started_at=?, finished_at=?
                        WHERE id=?""",
                     (task.status, task.retry_count, task.error_message, task.publish_url,
                      task.started_at, task.finished_at, task.id)
+                )
+                # 聚合
+                row = conn.execute(
+                    "SELECT batch_id FROM publish_details WHERE id=?", (task.id,)
+                ).fetchone()
+                if not row: return
+                batch_id = row[0]
+                counts = conn.execute(
+                    """SELECT COUNT(*),
+                              SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
+                              SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END)
+                       FROM publish_details WHERE batch_id=?""",
+                    (batch_id,)
+                ).fetchone()
+                total, succ, fail = counts[0], counts[1] or 0, counts[2] or 0
+                if total == 0: bs = 'pending'
+                elif fail == 0: bs = 'success'
+                elif succ == 0: bs = 'failed'
+                else: bs = 'partial'
+                now = datetime.now().isoformat()
+                conn.execute(
+                    """UPDATE publish_batches
+                       SET status=?, success_count=?, failed_count=?, account_count=?,
+                           finished_at=?, updated_at=?
+                       WHERE id=?""",
+                    (bs, succ, fail, total, task.finished_at or now, now, batch_id)
                 )
         except Exception as e:
             logger.info(f"[TaskQueue] 更新数据库失败: {e}")

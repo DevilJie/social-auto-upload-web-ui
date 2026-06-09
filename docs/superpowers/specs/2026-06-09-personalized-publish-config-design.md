@@ -120,6 +120,13 @@
 
 ### 3.3 PublishCenter.vue 改动
 
+**覆写区与现有 per-platform form 的关系**：
+- 现有 `platformConfigs[platformKey].title/desc/tags` 输入保留（不动），仍为"渠道默认"文本
+- 新增"渠道覆写区" / "账号覆写区" 是**新的独立编辑面板**，用于覆写视频/封面 + 文本
+- 三个层级的文本字段在发布时的优先级：**账号覆写 > 渠道覆写 > 渠道默认（platformConfigs）**
+- 视频/封面的优先级：**账号覆写 > 渠道覆写 > 公共区域（commonConfig）**
+- UI 上：覆写区与 per-platform form 并存（不替换）。用户编辑覆写区时，per-platform form 不变；反之亦然。两边的输入都可见，但发布时按优先级合并
+
 **新增响应式 state**：
 ```js
 // 平台级覆写
@@ -200,14 +207,13 @@ function onAccountCheckChange(checked) { ... }
 **`publishAll` 改造**：
 ```js
 function resolveAccountConfig(platformKey, accountId) {
-  // 优先级：账号 > 平台 > 公共
-  if (accountChecked[accountId] && accountOverrides[accountId]) {
-    return mergeConfig(commonConfig, platformOverrides[platformKey], accountOverrides[accountId])
-  }
-  if (platformChecked[platformKey] && platformOverrides[platformKey]) {
-    return mergeConfig(commonConfig, platformOverrides[platformKey], null)
-  }
-  return mergeConfig(commonConfig, null, null)
+  // 文本字段优先级：账号覆写 > 渠道覆写 > 渠道默认 (platformConfigs[platformKey])
+  // 视频/封面优先级：账号覆写 > 渠道覆写 > 公共区域 (commonConfig)
+  // 平台特有字段优先级：账号覆写 > 渠道覆写 > 渠道默认 > 公共默认
+  const accountOv = (accountChecked[accountId] && accountOverrides[accountId]) || null
+  const platformOv = (platformChecked[platformKey] && platformOverrides[platformKey]) || null
+  const platformDefault = platformConfigs[platformKey] || null
+  return mergeConfig(commonConfig, platformDefault, platformOv, accountOv)
 }
 
 async function publishAll() {
@@ -223,23 +229,27 @@ async function publishAll() {
   }
 }
 
-function mergeConfig(common, platform, account) {
-  // 浅合并；account 优先于 platform 优先于 common
-  // 平台特有字段（aiContent / isOriginal / 视频格式 / 定时 等）按相同模式合并：
-  //   account?.[field] ?? platform?.[field] ?? common?.[field] ?? defaultValue
+function mergeConfig(common, platformDefault, platformOv, accountOv) {
+  // 4 级优先级：accountOv > platformOv > platformDefault > common
+  // 文本字段（title/desc/tags）不走 common 兜底（commonConfig 没存这些文本），
+  // 走 platformDefault (platformConfigs) 兜底。
   return {
-    title: account?.title ?? platform?.title ?? '',
-    description: account?.description ?? platform?.description ?? '',
-    tags: account?.tags ?? platform?.tags ?? [],
-    coverLandscape: account?.coverLandscape ?? platform?.coverLandscape ?? common.coverLandscape,
-    coverPortrait:  account?.coverPortrait  ?? platform?.coverPortrait  ?? common.coverPortrait,
-    videoLandscape: account?.videoLandscape ?? platform?.videoLandscape ?? common.videoLandscape,
-    videoPortrait:  account?.videoPortrait  ?? platform?.videoPortrait  ?? common.videoPortrait,
-    videoFormat: account?.videoFormat ?? platform?.videoFormat ?? common.videoFormat ?? 'portrait',
-    enableTimer: account?.enableTimer ?? platform?.enableTimer ?? common.enableTimer ?? 0,
-    scheduleTime: account?.scheduleTime ?? platform?.scheduleTime ?? common.scheduleTime ?? '',
-    aiContent: account?.aiContent ?? platform?.aiContent ?? common.aiContent ?? '',
-    isOriginal: account?.isOriginal ?? platform?.isOriginal ?? common.isOriginal ?? false,
+    title: accountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
+    description: accountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
+    tags: accountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
+    // 视频/封面走 commonConfig 兜底
+    coverLandscape: accountOv?.coverLandscape ?? platformOv?.coverLandscape ?? common.coverLandscape,
+    coverPortrait:  accountOv?.coverPortrait  ?? platformOv?.coverPortrait  ?? common.coverPortrait,
+    videoLandscape: accountOv?.videoLandscape ?? platformOv?.videoLandscape ?? common.videoLandscape,
+    videoPortrait:  accountOv?.videoPortrait  ?? platformOv?.videoPortrait  ?? common.videoPortrait,
+    // 平台特有字段（视频格式 / 定时 / AI 声明 等）：
+    // 文本/枚举走 platformDefault 兜底（per-platform form 一定有值），
+    // 不走 common 兜底（commonConfig 不存这些）
+    videoFormat: accountOv?.videoFormat ?? platformOv?.videoFormat ?? platformDefault?.videoFormat ?? 'portrait',
+    enableTimer: accountOv?.enableTimer ?? platformOv?.enableTimer ?? platformDefault?.enableTimer ?? 0,
+    scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
+    aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
+    isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
     // ... 其他 platformConfigs 字段按相同优先级模式展开
   }
 }
@@ -272,13 +282,17 @@ function loadDraft(d) {
 
 完全平行于 PublishCenter，差异：
 - 公共区域只有 `images` / `coverImage`（无视频文件）
-- 渠道级覆写区使用 panel 内部组件（`<DouyinImagePublishPanel>` 等）
-- 平台特有字段由 panel 内部维护
+- 平台特有字段（aiContent/isOriginal/产品链接等）由 panel 内部维护
+
+**覆写区与 panel 的关系**：
+- 渠道级覆写区 / 账号级覆写区是**新的独立编辑面板**（与视频覆写区同结构），不复用 panel 组件
+- panel 组件本身（`DouyinImagePublishPanel` 等）保持原样，仅承担"渠道默认"的角色
+- 复选框在覆写区 section 的 header，复选区在 section 内部
+- 父组件 ImagePublish.vue 自己管理覆写区 state（不通过 panel 透传）
 
 **改造点**：
-- 给每个 panel 传 `:platform-override="platformOverrides[selectedPlatform]"` `:account-override="accountOverrides[selectedAccountId]"`
-- panel emit `update:platform-override` / `update:account-override` → 父组件更新
-- 平台级/账号级勾选/取消逻辑同视频
+- 新增 `platformOverrides` / `accountOverrides` / `platformChecked` / `accountChecked` 四个 reactive 对象（同 PublishCenter 模式）
+- 渠道级覆写区在"渠道默认 panel 上方"渲染，账号级覆写区在"渠道默认 panel 下方 + selectedAccountId 时"渲染
 - 草稿保存/恢复同视频
 
 ### 3.5 PublishHistory.vue 明细卡片化
@@ -327,12 +341,13 @@ function getCfgField(d, field) {
 }
 
 function getCoverUrl(d) {
+  // account_configs.coverLandscape / coverPortrait 是 dict 对象（含 url 字段）
   const cfg = d.account_configs || {}
-  return cfg.coverLandscape || cfg.coverPortrait || d.cover_url || ''
+  return cfg.coverLandscape?.url || cfg.coverPortrait?.url || d.cover_url || ''
 }
 ```
 
-**`personalized` 字段**：后端 `/api/v2/history` 端点计算每个 detail 的 `personalized` 派生布尔：当 `account_configs.{title,description,tags,coverLandscape,coverPortrait,videoLandscape,videoPortrait}` 任一字段与 `publish_batches.{title,description}` 或该账号所在平台的 default 字段不一致时为 true。**写库不存**，仅在响应中计算（详见 §4.3）。
+**`personalized` 字段**：后端 `/api/v2/history` 端点派生计算（详见 §4.3）。**数据库不存**。
 
 ## 4. 后端改动
 
@@ -350,16 +365,28 @@ cfg = {
     'videoPortrait':  task.video_portrait,            # 新增
     'coverLandscape': task.cover_landscape,            # 新增
     'coverPortrait':  task.cover_portrait,             # 新增
+    'videoFormat': task.video_format,                 # 新增
+    'enableTimer': task.enable_timer,                 # 新增
+    'scheduleTime': task.schedule_time,               # 新增
+    'aiContent': task.ai_content,                     # 新增
+    'isOriginal': task.is_original,                   # 新增
     'platform_type': task.platform_type,
-    # ... 其他 platformConfigs 字段
+    # ... 其他 platformConfigs 字段（per-platform form 全部纳入）
 }
 ```
+
+**重要**：当前 `cfg` 只存 `title/desc/tags/thumbnail_path/platform_type`，导致历史卡片信息不全。**这次改造把所有 per-platform form 字段都纳入 `account_configs` JSON**，使得历史卡片可以完整还原该账号当时实际发布的内容。
 
 `PublishTask` dataclass 加可选字段（默认值 None）：
 - `video_landscape: dict | None = None`
 - `video_portrait: dict | None = None`
 - `cover_landscape: dict | None = None`
 - `cover_portrait: dict | None = None`
+- `video_format: str | None = None`
+- `enable_timer: int | None = None`
+- `schedule_time: str | None = None`
+- `ai_content: str | None = None`
+- `is_original: bool | None = None`
 
 后端在 `/postVideo` 路由把前端传来的对应字段写入 `task.video_landscape` 等。`/postVideo` 路由接受新字段，存入 `task` 对象。
 
@@ -376,13 +403,39 @@ cfg = {
 
 请求响应**已**返回 `account_configs` JSON 解析后的对象，**无需改字段**。
 
-**新增派生字段** `items[].personalized: bool`：在 `/api/v2/history` 中对每个 detail 计算。当 `account_configs.{title,description,tags,coverLandscape,coverPortrait,videoLandscape,videoPortrait,images,coverImage}` 任一字段与 `publish_batches.{title,description}` 或该账号所在平台的默认值不一致时为 true。**数据库不存**，仅在响应中计算。
+**新增派生字段** `items[].personalized: bool`：在 `/api/v2/history` 中对每个 detail 计算。**数据库不存**，仅在响应中计算。
 
-实现位置：`backend/ext_api/__init__.py` 的 `/api/v2/history` handler，在 for-loop 处理 `batches` 时给每个 `items[i]` 注入 `personalized` 字段。
+**具体比较规则**（按字段类型区分）：
+
+| 字段 | `account_configs` 侧 | `publish_batches` 侧 | 比较方式 |
+|---|---|---|---|
+| 视频 | `cfg.videoLandscape?.id` (字符串) | `b.video_material_id` (字符串) | 字符串 `!=` |
+| 视频 | `cfg.videoPortrait?.id` | `b.video_material_id` | 字符串 `!=` |
+| 横版封面 | `cfg.coverLandscape?.id` | `b.landscape_cover_material_id` | 字符串 `!=` |
+| 竖版封面 | `cfg.coverPortrait?.id` | `b.portrait_cover_material_id` | 字符串 `!=` |
+| 标题 | `cfg.title` (字符串) | `b.title` (字符串) | 字符串 `!=` |
+| 描述 | `cfg.description` (字符串) | `b.description` (字符串) | 字符串 `!=` |
+| 图文图片 | `cfg.images?.map(i => i.id).join(',')` | `b.image_material_ids` JSON 数组 join | 字符串 `!=` |
+| 图文封面 | `cfg.coverImage?.id` | `b.image_material_ids[0]` | 字符串 `!=`（兜底） |
+| 标签 | `cfg.tags` (数组) | **无对应字段** | **跳过**（`publish_batches` 不存 tags，无法对比） |
+| 平台特有字段 (aiContent/isOriginal/...) | `cfg.*` | 无 | 跳过（不存公共值） |
+
+**任一非跳过字段不一致 → `personalized = true`**。
+
+实现位置：`backend/ext_api/__init__.py` 的 `/api/v2/history` handler，在 for-loop 处理 `batches` 时给每个 `items[i]` 注入 `personalized` 字段。建议把比较逻辑抽成独立函数 `_compute_personalized(account_configs, batch_row)` 便于单测。
 
 ### 4.4 草稿后端（`backend/app.py` 的 draft 路由）
 
-`POST /api/drafts/save` 和 `GET /api/drafts/{id}` 接受/返回的 JSON 整体打包，新增键 `platformOverrides` / `accountOverrides` / `platformChecked` / `accountChecked` 透传即可。**不动后端代码**。
+`POST /api/drafts/save` 和 `GET /api/drafts/{id}` 接受/返回的 JSON 整体打包，新增键 `platformOverrides` / `accountOverrides` / `platformChecked` / `accountChecked` 透传即可。
+
+**前置验证（实施步骤第一步必做）**：
+- 实施前先看 `backend/app.py` 的 draft 路由源码，确认：
+  1. 入参是否做了 schema 校验（如有，新增键会被静默丢弃 → 需要放开白名单或去掉校验）
+  2. 出参是否做了字段过滤（如有，新增键不会返回给前端 → 需要放开）
+  3. 数据库列（如 `data TEXT`）是否够大（草稿 JSON 现在变大 2-3 倍，需要确保不是 VARCHAR(255) 之类）
+- 验证方式：写一个最小测试脚本 `scripts/verify_draft_passthrough.py`，POST 一个带新键的草稿，再 GET 回来，对比 JSON 一致
+
+**后端代码只在验证发现问题时才动**。
 
 ### 4.5 不动的后端文件
 
@@ -463,13 +516,14 @@ cfg = {
 
 ## 8. 实施步骤（高层）
 
-1. `backend/ext_api/task_queue.py`：`PublishTask` 加可选字段，`_insert_db` cfg dict 扩展
+0. **前置验证**：写 `scripts/verify_draft_passthrough.py`，跑通草稿后端透传新键（按 §4.4）。不通过则改后端
+1. `backend/ext_api/task_queue.py`：`PublishTask` 加可选字段，`_insert_db` cfg dict 扩展（含 per-platform form 全字段）
 2. `backend/app.py` `/postVideo`：把新字段从 request body 透传到 `task`
 3. `backend/blueprints/image_publish_bp.py` `/api/image-publish/publish`：扩 `account_configs` 字段透传
-4. `backend/tests/test_personalized_config.py`：新增测试
-5. `frontend/src/views/PublishCenter.vue`：state + 模板 + publishAll + saveDraft/loadDraft 改造
-6. `frontend/src/views/ImagePublish.vue`：同上
-7. `frontend/src/components/{Douyin,Xiaohongshu,Kuaishou}ImagePublishPanel.vue`：暴露 override props/emit
+4. `backend/ext_api/__init__.py` `/api/v2/history`：抽 `_compute_personalized()` 函数 + 在 items 里注入 `personalized` 字段
+5. `backend/tests/test_personalized_config.py`：新增测试（含 personalized 计算的边界用例）
+6. `frontend/src/views/PublishCenter.vue`：state + 模板 + publishAll + saveDraft/loadDraft 改造
+7. `frontend/src/views/ImagePublish.vue`：同上
 8. `frontend/src/views/PublishHistory.vue`：`.detail-row` → `.detail-card` 卡片化
 9. 跑后端单测 + 前端 e2e + 手工冒烟
 

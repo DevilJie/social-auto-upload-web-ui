@@ -54,12 +54,28 @@
             <div class="bar purple"></div>
             <span class="section-label">公共配置</span>
             <span class="hint">所有账号共享</span>
+            <template v-if="currentPlatformConfig">
+              <el-checkbox
+                v-model="platformChecked[selectedPlatform]"
+                @change="onPlatformCheckChange"
+              >
+                {{ currentPlatformConfig.name }} 渠道个性化
+              </el-checkbox>
+              <el-checkbox
+                v-if="selectedAccountId"
+                v-model="accountChecked[selectedAccountId]"
+                :disabled="!platformChecked[selectedPlatform]"
+                @change="onAccountCheckChange"
+              >
+                {{ getAccountDisplayName(selectedAccountId) }} 账号个性化
+              </el-checkbox>
+            </template>
           </div>
 
           <!-- 封面图片 -->
           <div class="cover-section">
             <ImageCoverUpload
-              v-model="commonConfig.coverImage"
+              v-model="currentEditTarget.coverImage"
               label="封面图片"
               @open-library="openMaterialLibraryForCover"
             />
@@ -69,69 +85,12 @@
           <div class="media-section">
             <ImageUploader
               ref="imageUploaderRef"
-              v-model="commonConfig.images"
+              v-model="currentEditTarget.images"
               :max-count="35"
               :visible-rows="3"
               :columns="5"
               @open-material-library="openMaterialLibraryForImage"
             />
-          </div>
-
-          <!-- Batch title/description/tags sync -->
-          <div class="batch-sync-section">
-            <div class="batch-sync-header" @click="batchSyncExpanded = !batchSyncExpanded">
-              <span>批量设置标题、描述和标签</span>
-              <el-icon class="cursor-pointer">
-                <component :is="batchSyncExpanded ? ArrowDown : ArrowRight" />
-              </el-icon>
-            </div>
-            <div v-show="batchSyncExpanded" class="batch-sync-body">
-              <div class="form-field">
-                <div class="field-head">
-                  <span>标题</span>
-                </div>
-                <el-input
-                  v-model="batchTitle"
-                  placeholder="输入标题后点击同步..."
-                  maxlength="100"
-                />
-              </div>
-              <div class="form-field">
-                <div class="field-head">
-                  <span>描述</span>
-                </div>
-                <el-input
-                  v-model="batchDescription"
-                  type="textarea"
-                  :rows="5"
-                  placeholder="输入描述后点击同步..."
-                  maxlength="2000"
-                />
-              </div>
-              <div class="form-field">
-                <div class="field-head">
-                  <span>标签</span>
-                </div>
-                <el-input
-                  v-model="batchTagInput"
-                  placeholder="输入标签，回车添加"
-                  @keyup.enter="addBatchTag"
-                  clearable
-                />
-                <div v-if="batchTags.length > 0" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
-                  <el-tag
-                    v-for="(t, i) in batchTags"
-                    :key="i"
-                    closable
-                    @close="batchTags.splice(i, 1)"
-                    size="small"
-                  >#{{ t }}</el-tag>
-                </div>
-              </div>
-              <button class="cover-action-btn primary" @click="syncBatchToAll">
-                <el-icon :size="15"><Promotion /></el-icon><span>同步到所有平台</span>
-              </button>
-            </div>
           </div>
         </div>
 
@@ -147,114 +106,6 @@
               {{ selectedAccountId ? '· ' + getAccountDisplayName(selectedAccountId) : '· 默认设置' }}
             </span>
             <span class="hint">{{ selectedAccountId ? '仅对该账号生效' : '对该分组所有未自定义的账号生效' }}</span>
-          </div>
-
-          <!-- ===== 平台级个性化覆写区 ===== -->
-          <div v-if="currentPlatformConfig" class="config-section platform-override-section">
-            <div class="section-bar">
-              <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
-              <span class="section-label">{{ currentPlatformConfig.name }} 渠道个性化</span>
-              <el-checkbox v-model="platformChecked[selectedPlatform]" @change="onPlatformCheckChange">
-                使用个性化配置
-              </el-checkbox>
-            </div>
-            <div v-if="platformChecked[selectedPlatform] && platformOverrides[selectedPlatform]" class="override-body">
-              <div class="form-field">
-                <div class="field-head"><span>渠道标题</span></div>
-                <el-input v-model="platformOverrides[selectedPlatform].title" placeholder="渠道标题" maxlength="100" />
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>渠道描述</span></div>
-                <el-input v-model="platformOverrides[selectedPlatform].description" type="textarea" :rows="3" placeholder="渠道描述" maxlength="2000" />
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>渠道标签</span></div>
-                <el-input
-                  :model-value="platformOverrides[selectedPlatform].tagInput || ''"
-                  @update:model-value="v => platformOverrides[selectedPlatform].tagInput = v"
-                  @keyup.enter="addPlatformTag"
-                  placeholder="输入标签后回车"
-                  clearable
-                />
-                <div v-if="platformOverrides[selectedPlatform].tags?.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
-                  <el-tag
-                    v-for="(t, i) in platformOverrides[selectedPlatform].tags"
-                    :key="i"
-                    closable
-                    @close="platformOverrides[selectedPlatform].tags.splice(i, 1)"
-                    size="small"
-                  >#{{ t }}</el-tag>
-                </div>
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>渠道图片</span></div>
-                <ImageUploader
-                  v-model="platformOverrides[selectedPlatform].images"
-                  :max-count="35"
-                  :visible-rows="2"
-                  :columns="5"
-                />
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>渠道封面</span></div>
-                <ImageCoverUpload v-model="platformOverrides[selectedPlatform].coverImage" />
-              </div>
-            </div>
-          </div>
-
-          <!-- ===== 账号级个性化覆写区 ===== -->
-          <div v-if="selectedAccountId" class="config-section account-override-section">
-            <div class="section-bar">
-              <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
-              <span class="section-label">{{ getAccountDisplayName(selectedAccountId) }} 账号个性化</span>
-              <el-checkbox
-                v-model="accountChecked[selectedAccountId]"
-                :disabled="!platformChecked[selectedPlatform]"
-                @change="onAccountCheckChange"
-              >使用个性化配置</el-checkbox>
-            </div>
-            <div v-if="accountChecked[selectedAccountId] && accountOverrides[selectedAccountId]" class="override-body">
-              <div class="form-field">
-                <div class="field-head"><span>账号标题</span></div>
-                <el-input v-model="accountOverrides[selectedAccountId].title" placeholder="账号标题" maxlength="100" />
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>账号描述</span></div>
-                <el-input v-model="accountOverrides[selectedAccountId].description" type="textarea" :rows="3" placeholder="账号描述" maxlength="2000" />
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>账号标签</span></div>
-                <el-input
-                  :model-value="accountOverrides[selectedAccountId].tagInput || ''"
-                  @update:model-value="v => accountOverrides[selectedAccountId].tagInput = v"
-                  @keyup.enter="addAccountTag"
-                  placeholder="输入标签后回车"
-                  clearable
-                />
-                <div v-if="accountOverrides[selectedAccountId].tags?.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
-                  <el-tag
-                    v-for="(t, i) in accountOverrides[selectedAccountId].tags"
-                    :key="i"
-                    closable
-                    @close="accountOverrides[selectedAccountId].tags.splice(i, 1)"
-                    size="small"
-                  >#{{ t }}</el-tag>
-                </div>
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>账号图片</span></div>
-                <ImageUploader
-                  v-model="accountOverrides[selectedAccountId].images"
-                  :max-count="35"
-                  :visible-rows="2"
-                  :columns="5"
-                />
-              </div>
-              <div class="form-field">
-                <div class="field-head"><span>账号封面</span></div>
-                <ImageCoverUpload v-model="accountOverrides[selectedAccountId].coverImage" />
-              </div>
-            </div>
           </div>
 
           <DouyinImagePublishPanel
@@ -299,7 +150,7 @@
         <div class="phone-panel-header">
           <span class="phone-panel-title">图片预览</span>
           <button
-            v-if="commonConfig.images.length > 0"
+            v-if="currentEditTarget.images.length > 0"
             class="cover-action-btn"
             @click="openPreviewDialog"
           >
@@ -312,8 +163,8 @@
             <div class="phone-notch"></div>
             <div class="phone-screen">
               <ImageCarousel
-                v-if="commonConfig.images.length > 0"
-                :images="commonConfig.images"
+                v-if="currentEditTarget.images.length > 0"
+                :images="currentEditTarget.images"
                 @change="onCarouselChange"
               />
               <div v-else class="phone-empty" @click="triggerUpload">
@@ -334,9 +185,9 @@
           </button>
         </div>
 
-        <div v-if="commonConfig.images.length > 0" class="phone-panel-info">
-          <span class="phone-info-name">{{ commonConfig.images[currentPreviewIndex]?.name || '未选择图片' }}</span>
-          <span class="phone-info-count">{{ currentPreviewIndex + 1 }}/{{ commonConfig.images.length }}</span>
+        <div v-if="currentEditTarget.images.length > 0" class="phone-panel-info">
+          <span class="phone-info-name">{{ currentEditTarget.images[currentPreviewIndex]?.name || '未选择图片' }}</span>
+          <span class="phone-info-count">{{ currentPreviewIndex + 1 }}/{{ currentEditTarget.images.length }}</span>
         </div>
       </div>
 
@@ -363,7 +214,7 @@
     <!-- Image Preview Dialog -->
     <ImagePreviewDialog
       ref="imagePreviewDialogRef"
-      :images="commonConfig.images"
+      :images="currentEditTarget.images"
       :initial-index="currentPreviewIndex"
     />
 
@@ -388,8 +239,8 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import {
-  Upload, ArrowDown, ArrowRight, Picture, PictureFilled,
-  Promotion, Document, FullScreen, MagicStick
+  Upload, Picture, PictureFilled,
+  Document, FullScreen, MagicStick
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -465,18 +316,26 @@ const commonConfig = reactive({
   coverImage: null,
 })
 
-// ========== 平台/账号级覆写（spec §3.4） ==========
-const platformOverrides = reactive({})         // { [platformKey]: { title, description, tags, images, coverImage, ... } }
+// ========== 平台/账号级覆写（spec §3.4）—— 公共区域的媒体字段覆写 ==========
+const platformOverrides = reactive({})         // { [platformKey]: { images, coverImage } }
 const platformChecked = reactive({})           // { [platformKey]: boolean }
-const accountOverrides = reactive({})          // { [accountId]: { title, description, tags, images, coverImage, ... } }
+const accountOverrides = reactive({})          // { [accountId]: { images, coverImage } }
 const accountChecked = reactive({})            // { [accountId]: boolean }
+
+// 当前编辑目标：公共区域 v-model 的实际绑定对象
+// 勾选账号 → accountOverrides[id]；勾选平台 → platformOverrides[key]；默认 → commonConfig
+const currentEditTarget = computed(() => {
+  const aid = selectedAccountId.value
+  if (aid && accountChecked[aid] && accountOverrides[aid]) return accountOverrides[aid]
+  const pk = selectedPlatform.value
+  if (pk && platformChecked[pk] && platformOverrides[pk]) return platformOverrides[pk]
+  return commonConfig
+})
 
 function hasPlatformOverrideContent(platformKey) {
   const ov = platformOverrides[platformKey]
   if (!ov) return false
   return !!(
-    ov.title || ov.description ||
-    (ov.tags && ov.tags.length > 0) ||
     (ov.images && ov.images.length > 0) ||
     ov.coverImage
   )
@@ -486,8 +345,6 @@ function hasAccountOverrideContent(accountId) {
   const ov = accountOverrides[accountId]
   if (!ov) return false
   return !!(
-    ov.title || ov.description ||
-    (ov.tags && ov.tags.length > 0) ||
     (ov.images && ov.images.length > 0) ||
     ov.coverImage
   )
@@ -547,7 +404,6 @@ function onPlatformCheckChange(checked) {
     })
   } else if (checked) {
     platformOverrides[selectedPlatform.value] = {
-      title: '', description: '', tags: [], tagInput: '',
       images: [], coverImage: null,
     }
   }
@@ -565,34 +421,9 @@ function onAccountCheckChange(checked) {
     })
   } else if (checked) {
     accountOverrides[selectedAccountId.value] = {
-      title: '', description: '', tags: [], tagInput: '',
       images: [], coverImage: null,
     }
   }
-}
-
-function addPlatformTag() {
-  const v = (platformOverrides[selectedPlatform.value]?.tagInput || '').trim()
-  if (!v) return
-  if (!platformOverrides[selectedPlatform.value].tags) platformOverrides[selectedPlatform.value].tags = []
-  if (platformOverrides[selectedPlatform.value].tags.includes(v)) {
-    ElMessage.warning('标签已存在')
-    return
-  }
-  platformOverrides[selectedPlatform.value].tags.push(v)
-  platformOverrides[selectedPlatform.value].tagInput = ''
-}
-
-function addAccountTag() {
-  const v = (accountOverrides[selectedAccountId.value]?.tagInput || '').trim()
-  if (!v) return
-  if (!accountOverrides[selectedAccountId.value].tags) accountOverrides[selectedAccountId.value].tags = []
-  if (accountOverrides[selectedAccountId.value].tags.includes(v)) {
-    ElMessage.warning('标签已存在')
-    return
-  }
-  accountOverrides[selectedAccountId.value].tags.push(v)
-  accountOverrides[selectedAccountId.value].tagInput = ''
 }
 
 // ========== 4 级优先级合并（spec §3.3 / §3.4） ==========
@@ -607,9 +438,11 @@ function resolveAccountConfig(platformKey, accountId) {
 
 function mergeConfig(common, platformDefault, platformOv, accountOv) {
   return {
-    title: accountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
-    description: accountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
-    tags: accountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
+    // 文本字段仅从 platformDefault 取（覆写区不再含 title/desc/tags）
+    title: platformDefault?.title ?? '',
+    description: platformDefault?.description ?? '',
+    tags: platformDefault?.tags ?? [],
+    // 媒体字段走 4 级合并 → commonConfig 兜底
     images: accountOv?.images ?? platformOv?.images ?? platformDefault?.images ?? common.images,
     coverImage: accountOv?.coverImage ?? platformOv?.coverImage ?? platformDefault?.coverImage ?? common.coverImage,
     enableTimer: accountOv?.enableTimer ?? platformOv?.enableTimer ?? platformDefault?.enableTimer ?? 0,
@@ -617,33 +450,6 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
   }
-}
-
-// ========== Batch sync ==========
-const batchTitle = ref('')
-const batchDescription = ref('')
-const batchTags = ref([])
-const batchTagInput = ref('')
-const batchSyncExpanded = ref(false)
-
-function addBatchTag() {
-  const tag = batchTagInput.value.trim()
-  if (!tag) return
-  if (batchTags.value.includes(tag)) return
-  batchTags.value.push(tag)
-  batchTagInput.value = ''
-}
-
-function syncBatchToAll() {
-  const platforms = ['douyin', 'xiaohongshu', 'kuaishou']
-  for (const key of platforms) {
-    const panel = getPanel(key)
-    if (!panel) continue
-    if (batchTitle.value) panel.syncTitle(batchTitle.value)
-    if (batchDescription.value) panel.syncDescription(batchDescription.value)
-    if (batchTags.value.length) panel.syncTags([...batchTags.value])
-  }
-  ElMessage.success('已同步到所有平台')
 }
 
 // ========== Init ==========
@@ -747,7 +553,7 @@ function onMaterialSelected(material) {
   }
 
   if (materialSelectMode.value === 'cover') {
-    commonConfig.coverImage = {
+    currentEditTarget.value.coverImage = {
       id: material.id,
       name: material.name,
       url: material.url,
@@ -760,11 +566,12 @@ function onMaterialSelected(material) {
   }
 
   const targetIdx = materialTargetIndex.value
-  if (targetIdx >= 0 && targetIdx < commonConfig.images.length) {
-    commonConfig.images[targetIdx] = { ...commonConfig.images[targetIdx], ...imageData }
+  const targetImages = currentEditTarget.value.images
+  if (targetIdx >= 0 && targetIdx < targetImages.length) {
+    targetImages[targetIdx] = { ...targetImages[targetIdx], ...imageData }
   } else {
-    if (commonConfig.images.length < 35) {
-      commonConfig.images.push(imageData)
+    if (targetImages.length < 35) {
+      targetImages.push(imageData)
     } else {
       ElMessage.warning('最多只能上传 35 张图片')
     }

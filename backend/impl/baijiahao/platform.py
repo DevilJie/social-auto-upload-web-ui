@@ -41,9 +41,10 @@ class BaijiahaoPlatform(BasePlatform):
         """Perform Baijiahao login.
 
         Opens ``https://baijiahao.baidu.com/builder/theme/bjh/login`` and
-        waits for the page to redirect to ``**/builder/rc/home**`` (up to
-        120 s).  On success, scrapes the user profile and saves the login
-        result via the shared utility.
+        waits for the page to redirect to ``**/builder/rc/home**`` without
+        timeout — QR code login may take several minutes.  On success,
+        scrapes the user profile and saves the login result via the shared
+        utility.
         """
         browser = await self.create_browser(login_mode=True)
         success = False
@@ -58,7 +59,7 @@ class BaijiahaoPlatform(BasePlatform):
                 logger.info("百家号登录页面已打开，请完成扫码登录...")
 
                 # 不设超时——扫码登录可能耗时几分钟，浏览器由用户自己关
-                await page.wait_for_url("**/builder/rc/home**")
+                await page.wait_for_url("**/builder/rc/home**", timeout=0)
                 logger.info("检测到登录成功，正在保存 cookie...")
 
                 # Scrape profile & save via shared utility

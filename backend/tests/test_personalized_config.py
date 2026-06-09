@@ -276,5 +276,59 @@ class TestImagePublishPersistsOverrides(unittest.TestCase):
         self.assertNotIn("filePath", cfg)
 
 
+class TestComputePersonalized(unittest.TestCase):
+    """测试 _compute_personalized 函数"""
+
+    def test_personalized_true_when_title_differs(self):
+        from ext_api._personalized import compute_personalized
+        cfg = {"title": "渠道专属标题", "description": "公共描述"}
+        batch = {"title": "公共标题", "description": "公共描述"}
+        self.assertTrue(compute_personalized(cfg, batch))
+
+    def test_personalized_false_when_identical(self):
+        from ext_api._personalized import compute_personalized
+        cfg = {"title": "公共标题", "description": "公共描述"}
+        batch = {"title": "公共标题", "description": "公共描述"}
+        self.assertFalse(compute_personalized(cfg, batch))
+
+    def test_personalized_true_when_cover_differs(self):
+        from ext_api._personalized import compute_personalized
+        cfg = {"coverLandscape": {"id": "c-ov"}, "title": "t", "description": "d"}
+        batch = {"landscape_cover_material_id": "c-default", "title": "t", "description": "d"}
+        self.assertTrue(compute_personalized(cfg, batch))
+
+    def test_personalized_true_when_video_differs(self):
+        from ext_api._personalized import compute_personalized
+        cfg = {"videoLandscape": {"id": "v-ov"}, "title": "t", "description": "d"}
+        batch = {"video_material_id": "v-default", "title": "t", "description": "d"}
+        self.assertTrue(compute_personalized(cfg, batch))
+
+    def test_personalized_skips_tags(self):
+        from ext_api._personalized import compute_personalized
+        # publish_batches 不存 tags，所以即使 tags 不同也不算 personalized
+        cfg = {"tags": ["#a"], "title": "t", "description": "d"}
+        batch = {"title": "t", "description": "d"}
+        self.assertFalse(compute_personalized(cfg, batch))
+
+    def test_personalized_image_differs(self):
+        from ext_api._personalized import compute_personalized
+        cfg = {"images": [{"id": "i1"}, {"id": "i2"}]}
+        batch = {"image_material_ids": '["i1","i3"]'}
+        self.assertTrue(compute_personalized(cfg, batch))
+
+    def test_personalized_image_same(self):
+        from ext_api._personalized import compute_personalized
+        cfg = {"images": [{"id": "i1"}, {"id": "i2"}]}
+        batch = {"image_material_ids": '["i1","i2"]'}
+        self.assertFalse(compute_personalized(cfg, batch))
+
+    def test_personalized_handles_missing_fields(self):
+        """老数据缺字段时不报错"""
+        from ext_api._personalized import compute_personalized
+        cfg = {}  # 全空
+        batch = {"title": "t", "description": "d"}
+        self.assertFalse(compute_personalized(cfg, batch))
+
+
 if __name__ == "__main__":
     unittest.main()

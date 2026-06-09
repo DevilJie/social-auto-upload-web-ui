@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from conf import BASE_DIR
 
 from .task_queue import get_task_queue, PublishTask, TaskStatus
+from ._personalized import compute_personalized
 
 ext_api = Blueprint('ext_api', __name__, url_prefix='/api/v2')
 
@@ -364,6 +365,11 @@ def get_history():
         items = []
         for b in batches:
             batch_details = details_by_batch.get(b['id'], [])
+            # 给每个 detail 注入 personalized 派生字段（按 account_configs vs batch_row 公共值比较）
+            for d_item in batch_details:
+                d_item['personalized'] = compute_personalized(
+                    d_item.get('account_configs') or {}, b
+                )
             # 兜底：当 batch 列上的 material_id 都为空（封面是从视频抽帧得到的，没有 materials.id）时，
             # 从第一个 detail 的 account_configs 里取 thumbnailLandscape / thumbnailPortrait。
             fallback_cover_url = ''

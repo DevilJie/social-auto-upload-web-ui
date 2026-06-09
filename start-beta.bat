@@ -77,6 +77,7 @@ if exist "%PROJECT_ROOT%\.git" (
                     <nul set /p "_=发现新版本！是否更新？（更新将覆盖本地修改，未提交的代码将丢失） [Y/n]："
                     set /p "UPDATE_ANS="
                     if /i not "!UPDATE_ANS!"=="n" (
+        		git checkout -f "%MAIN_BRANCH%"
                         git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
                         echo   √ 更新完成，重新启动...
                         call "%PROJECT_ROOT%\start-beta.bat"

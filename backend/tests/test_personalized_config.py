@@ -72,6 +72,10 @@ from ext_api.task_queue import PublishTask, TaskQueue  # noqa: E402
 class TestPublishTaskPersonalizedFields(unittest.TestCase):
     def setUp(self):
         _setup_db()
+        # 把 test 自己的 DB_PATH 注入到 task_queue 模块
+        # 镜像 test_task_queue_writes.py:74-75 的模式,避免 test 间 DB_PATH 互扰
+        from ext_api import task_queue as _tq_mod
+        _tq_mod.DB_PATH = DB_PATH
         # 每个测试用独立 task id 避免互扰
         self.t = PublishTask(
             id="task-1",

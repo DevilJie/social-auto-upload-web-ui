@@ -96,6 +96,13 @@ def _resolve_cover_url(material_id: str) -> str:
         return ''
 
 
+def _resolve_cover_from_path(stored_path: str) -> str:
+    """直接用 stored_path 构造 /api/materials/file/{path} URL。空串返回空。"""
+    if not stored_path:
+        return ''
+    return f"/api/materials/file/{stored_path}"
+
+
 # ========== 任务管理 ==========
 
 @ext_api.route('/tasks', methods=['GET'])
@@ -356,6 +363,16 @@ def get_history():
 
         items = []
         for b in batches:
+            batch_details = details_by_batch.get(b['id'], [])
+            # 兜底：当 batch 列上的 material_id 都为空（封面是从视频抽帧得到的，没有 materials.id）时，
+            # 从第一个 detail 的 account_configs 里取 thumbnailLandscape / thumbnailPortrait。
+            fallback_cover_url = ''
+            if batch_details:
+                first_cfg = batch_details[0].get('account_configs') or {}
+                fallback_cover_url = (
+                    _resolve_cover_from_path(first_cfg.get('thumbnailLandscape', ''))
+                    or _resolve_cover_from_path(first_cfg.get('thumbnailPortrait', ''))
+                )
             items.append({
                 'id': b['id'],
                 'type': b['type'],
@@ -364,7 +381,8 @@ def get_history():
                 'landscape_cover_material_id': b.get('landscape_cover_material_id', ''),
                 'portrait_cover_material_id': b.get('portrait_cover_material_id', ''),
                 'cover_url': _resolve_cover_url(b.get('landscape_cover_material_id', ''))
-                            or _resolve_cover_url(b.get('portrait_cover_material_id', '')),
+                            or _resolve_cover_url(b.get('portrait_cover_material_id', ''))
+                            or fallback_cover_url,
                 'account_count': b.get('account_count', 0),
                 'success_count': b.get('success_count', 0),
                 'failed_count': b.get('failed_count', 0),
@@ -373,7 +391,7 @@ def get_history():
                 'created_at': _to_beijing_time(b.get('created_at')),
                 'started_at': _to_beijing_time(b.get('started_at')),
                 'finished_at': _to_beijing_time(b.get('finished_at')),
-                'items': details_by_batch.get(b['id'], []),
+                'items': batch_details,
             })
 
         conn.close()

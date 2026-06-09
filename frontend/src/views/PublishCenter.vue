@@ -81,14 +81,14 @@
 
           <CoverEditorDialog
             ref="coverEditorRef"
-            :video-landscape="commonConfig.videoLandscape"
-            :video-portrait="commonConfig.videoPortrait"
-            :cover-landscape="commonConfig.coverLandscape"
-            :cover-portrait="commonConfig.coverPortrait"
+            :video-landscape="editorSource.videoLandscape"
+            :video-portrait="editorSource.videoPortrait"
+            :cover-landscape="editorSource.coverLandscape"
+            :cover-portrait="editorSource.coverPortrait"
             :portrait-ratio="appStore.portraitRatio"
             :landscape-ratio="appStore.landscapeRatio"
-            @update:cover-landscape="commonConfig.coverLandscape = $event"
-            @update:cover-portrait="commonConfig.coverPortrait = $event"
+            @update:cover-landscape="onEditorUpdate({coverLandscape: $event})"
+            @update:cover-portrait="onEditorUpdate({coverPortrait: $event})"
           />
 
           <!-- Batch title/description sync -->
@@ -152,6 +152,125 @@
 
         <!-- Divider -->
         <div class="divider"></div>
+
+        <!-- ===== 平台级个性化覆写区 ===== -->
+        <div v-if="currentPlatformConfig" class="config-section platform-override-section">
+          <div class="section-bar">
+            <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
+            <span class="section-label">{{ currentPlatformConfig.name }} 渠道个性化</span>
+            <el-checkbox
+              v-model="platformChecked[selectedPlatform]"
+              @change="onPlatformCheckChange"
+            >使用个性化配置</el-checkbox>
+          </div>
+          <div v-show="platformChecked[selectedPlatform]" class="override-body">
+            <div class="form-field">
+              <div class="field-head"><span>渠道标题</span></div>
+              <el-input v-model="platformOverrides[selectedPlatform].title" placeholder="渠道标题" maxlength="100" />
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>渠道描述</span></div>
+              <el-input v-model="platformOverrides[selectedPlatform].description" type="textarea" :rows="3" placeholder="渠道描述" maxlength="2000" />
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>渠道标签</span></div>
+              <el-input
+                :model-value="platformOverrides[selectedPlatform].tagInput || ''"
+                @update:model-value="v => platformOverrides[selectedPlatform].tagInput = v"
+                @keyup.enter="addPlatformTag"
+                placeholder="输入标签后回车"
+                clearable
+              />
+              <div v-if="platformOverrides[selectedPlatform].tags?.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
+                <el-tag
+                  v-for="(t, i) in platformOverrides[selectedPlatform].tags"
+                  :key="i"
+                  closable
+                  @close="platformOverrides[selectedPlatform].tags.splice(i, 1)"
+                  size="small"
+                >#{{ t }}</el-tag>
+              </div>
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>横版封面（渠道）</span></div>
+              <CoverCard
+                v-model="platformOverrides[selectedPlatform].coverLandscape"
+                :has-video="!!(platformOverrides[selectedPlatform].videoPortrait || platformOverrides[selectedPlatform].videoLandscape)"
+                @edit="openPlatformCoverEditor('landscape')"
+                @open-library="openPlatformLibrary('cover', 'landscape')"
+              />
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>竖版封面（渠道）</span></div>
+              <CoverCard
+                v-model="platformOverrides[selectedPlatform].coverPortrait"
+                :has-video="!!(platformOverrides[selectedPlatform].videoPortrait || platformOverrides[selectedPlatform].videoLandscape)"
+                @edit="openPlatformCoverEditor('portrait')"
+                @open-library="openPlatformLibrary('cover', 'portrait')"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 账号级个性化覆写区 ===== -->
+        <div v-if="selectedAccountId" class="config-section account-override-section">
+          <div class="section-bar">
+            <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
+            <span class="section-label">{{ getAccountName(selectedAccountId) }} 账号个性化</span>
+            <el-checkbox
+              v-model="accountChecked[selectedAccountId]"
+              :disabled="!platformChecked[selectedPlatform]"
+              @change="onAccountCheckChange"
+            >使用个性化配置</el-checkbox>
+          </div>
+          <div v-show="accountChecked[selectedAccountId]" class="override-body">
+            <div class="form-field">
+              <div class="field-head"><span>账号标题</span></div>
+              <el-input v-model="accountOverrides[selectedAccountId].title" placeholder="账号标题" maxlength="100" />
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>账号描述</span></div>
+              <el-input v-model="accountOverrides[selectedAccountId].description" type="textarea" :rows="3" placeholder="账号描述" maxlength="2000" />
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>账号标签</span></div>
+              <el-input
+                :model-value="accountOverrides[selectedAccountId].tagInput || ''"
+                @update:model-value="v => accountOverrides[selectedAccountId].tagInput = v"
+                @keyup.enter="addAccountTag"
+                placeholder="输入标签后回车"
+                clearable
+              />
+              <div v-if="accountOverrides[selectedAccountId].tags?.length" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">
+                <el-tag
+                  v-for="(t, i) in accountOverrides[selectedAccountId].tags"
+                  :key="i"
+                  closable
+                  @close="accountOverrides[selectedAccountId].tags.splice(i, 1)"
+                  size="small"
+                >#{{ t }}</el-tag>
+              </div>
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>横版封面（账号）</span></div>
+              <CoverCard
+                v-model="accountOverrides[selectedAccountId].coverLandscape"
+                :has-video="!!(accountOverrides[selectedAccountId].videoPortrait || accountOverrides[selectedAccountId].videoLandscape)"
+                @edit="openAccountCoverEditor('landscape')"
+                @open-library="openAccountLibrary('cover', 'landscape')"
+              />
+            </div>
+            <div class="form-field">
+              <div class="field-head"><span>竖版封面（账号）</span></div>
+              <CoverCard
+                v-model="accountOverrides[selectedAccountId].coverPortrait"
+                :has-video="!!(accountOverrides[selectedAccountId].videoPortrait || accountOverrides[selectedAccountId].videoLandscape)"
+                @edit="openAccountCoverEditor('portrait')"
+                @open-library="openAccountLibrary('cover', 'portrait')"
+              />
+            </div>
+          </div>
+        </div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
         <div v-if="currentPlatformConfig" class="config-section">
@@ -494,7 +613,7 @@
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
 import { Upload, ArrowDown, ArrowRight, Picture, VideoCameraFilled, Promotion, Delete, Document, WarningFilled, MagicStick } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { materialsApi } from '@/api/materials'
@@ -599,6 +718,126 @@ function hasAccountOverrideContent(accountId) {
     ov.coverPortrait || ov.coverLandscape ||
     ov.videoPortrait  || ov.videoLandscape
   )
+}
+
+// ========== Override Section: Interaction ==========
+
+function onPlatformCheckChange(checked) {
+  if (!checked && hasPlatformOverrideContent(selectedPlatform.value)) {
+    ElMessageBox.confirm(
+      '取消个性化配置后，本渠道的覆写将丢失，恢复使用公共默认，是否继续？',
+      '确认取消', { confirmButtonText: '继续', cancelButtonText: '取消', type: 'warning' }
+    ).then(() => {
+      delete platformOverrides[selectedPlatform.value]
+    }).catch(() => {
+      platformChecked[selectedPlatform.value] = true
+    })
+  } else if (checked) {
+    platformOverrides[selectedPlatform.value] = {
+      title: '', description: '', tags: [], tagInput: '',
+      coverPortrait: null, coverLandscape: null,
+      videoPortrait: null, videoLandscape: null,
+    }
+  }
+}
+
+function onAccountCheckChange(checked) {
+  if (!checked && hasAccountOverrideContent(selectedAccountId.value)) {
+    ElMessageBox.confirm(
+      '取消个性化配置后，本账号的覆写将丢失，恢复使用渠道默认，是否继续？',
+      '确认取消', { confirmButtonText: '继续', cancelButtonText: '取消', type: 'warning' }
+    ).then(() => {
+      delete accountOverrides[selectedAccountId.value]
+    }).catch(() => {
+      accountChecked[selectedAccountId.value] = true
+    })
+  } else if (checked) {
+    accountOverrides[selectedAccountId.value] = {
+      title: '', description: '', tags: [], tagInput: '',
+      coverPortrait: null, coverLandscape: null,
+      videoPortrait: null, videoLandscape: null,
+    }
+  }
+}
+
+function addPlatformTag() {
+  const v = (platformOverrides[selectedPlatform.value]?.tagInput || '').trim()
+  if (!v) return
+  platformOverrides[selectedPlatform.value].tags.push(v)
+  platformOverrides[selectedPlatform.value].tagInput = ''
+}
+
+function addAccountTag() {
+  const v = (accountOverrides[selectedAccountId.value]?.tagInput || '').trim()
+  if (!v) return
+  accountOverrides[selectedAccountId.value].tags.push(v)
+  accountOverrides[selectedAccountId.value].tagInput = ''
+}
+
+function openPlatformCoverEditor(type) {
+  // 复用全局 CoverEditorDialog，但让它的输出写入 platformOverrides
+  platformCoverEditorTarget.value = type  // 'portrait' | 'landscape'
+  coverEditorRef.value?.open(type)
+}
+
+function openPlatformLibrary(coverType, ratio) {
+  // 复用全局素材库，但让选择结果写入 platformOverrides
+  platformLibraryTarget.value = { type: coverType, ratio }
+  materialSelectRef.value?.open()
+}
+
+// 同样的镜像函数给账号级
+function openAccountCoverEditor(type) {
+  accountCoverEditorTarget.value = type
+  coverEditorRef.value?.open(type)
+}
+function openAccountLibrary(coverType, ratio) {
+  accountLibraryTarget.value = { type: coverType, ratio }
+  materialSelectRef.value?.open()
+}
+
+// ========== Override Section: CoverEditor source/target ==========
+
+const editorSource = computed(() => {
+  if (platformCoverEditorTarget.value) {
+    return {
+      videoLandscape: platformOverrides[selectedPlatform.value]?.videoLandscape,
+      videoPortrait:  platformOverrides[selectedPlatform.value]?.videoPortrait,
+      coverLandscape: platformOverrides[selectedPlatform.value]?.coverLandscape,
+      coverPortrait:  platformOverrides[selectedPlatform.value]?.coverPortrait,
+    }
+  }
+  if (accountCoverEditorTarget.value) {
+    return {
+      videoLandscape: accountOverrides[selectedAccountId.value]?.videoLandscape,
+      videoPortrait:  accountOverrides[selectedAccountId.value]?.videoPortrait,
+      coverLandscape: accountOverrides[selectedAccountId.value]?.coverLandscape,
+      coverPortrait:  accountOverrides[selectedAccountId.value]?.coverPortrait,
+    }
+  }
+  return {
+    videoLandscape: commonConfig.videoLandscape,
+    videoPortrait:  commonConfig.videoPortrait,
+    coverLandscape: commonConfig.coverLandscape,
+    coverPortrait:  commonConfig.coverPortrait,
+  }
+})
+
+function onEditorUpdate({ coverLandscape, coverPortrait }) {
+  if (platformCoverEditorTarget.value) {
+    const ov = platformOverrides[selectedPlatform.value] || {}
+    if (coverLandscape) ov.coverLandscape = coverLandscape
+    if (coverPortrait)  ov.coverPortrait  = coverPortrait
+    platformOverrides[selectedPlatform.value] = ov
+  } else if (accountCoverEditorTarget.value) {
+    const ov = accountOverrides[selectedAccountId.value] || {}
+    if (coverLandscape) ov.coverLandscape = coverLandscape
+    if (coverPortrait)  ov.coverPortrait  = coverPortrait
+    accountOverrides[selectedAccountId.value] = ov
+  } else {
+    if (coverLandscape) commonConfig.coverLandscape = coverLandscape
+    if (coverPortrait)  commonConfig.coverPortrait  = coverPortrait
+  }
 }
 
 // Cover editor
@@ -929,6 +1168,8 @@ function clearVideo(type) {
 // ========== Cover Editor ==========
 
 function openCoverEditor(tab = 'landscape') {
+  platformCoverEditorTarget.value = null
+  accountCoverEditorTarget.value = null
   coverEditorRef.value?.open(tab)
 }
 
@@ -1032,6 +1273,33 @@ async function selectFromLibrary(mode = 'video', videoOrCoverTarget = 'landscape
 }
 
 function onMaterialSelect(material) {
+  // 平台覆写区 target
+  if (platformLibraryTarget.value) {
+    const ov = platformOverrides[selectedPlatform.value]
+    if (!ov) { platformLibraryTarget.value = null; return }
+    if (platformLibraryTarget.value.type === 'cover' && platformLibraryTarget.value.ratio === 'portrait') {
+      ov.coverPortrait = material
+    } else if (platformLibraryTarget.value.type === 'cover' && platformLibraryTarget.value.ratio === 'landscape') {
+      ov.coverLandscape = material
+    }
+    platformLibraryTarget.value = null
+    ElMessage.success('渠道覆写封面已设置')
+    return
+  }
+  // 账号覆写区 target
+  if (accountLibraryTarget.value) {
+    const ov = accountOverrides[selectedAccountId.value]
+    if (!ov) { accountLibraryTarget.value = null; return }
+    if (accountLibraryTarget.value.type === 'cover' && accountLibraryTarget.value.ratio === 'portrait') {
+      ov.coverPortrait = material
+    } else if (accountLibraryTarget.value.type === 'cover' && accountLibraryTarget.value.ratio === 'landscape') {
+      ov.coverLandscape = material
+    }
+    accountLibraryTarget.value = null
+    ElMessage.success('账号覆写封面已设置')
+    return
+  }
+  // 原有逻辑（写入 commonConfig）
   if (materialLibraryMode.value === 'cover') {
     if (materialLibraryCoverTarget.value === 'portrait') {
       commonConfig.coverPortrait = material

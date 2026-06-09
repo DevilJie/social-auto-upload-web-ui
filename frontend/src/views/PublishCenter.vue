@@ -570,7 +570,7 @@ const commonConfig = reactive({
 const platformOverrides = reactive({})         // { [platformKey]: { title, description, tags, coverPortrait, coverLandscape, videoPortrait, videoLandscape, ... } }
 const platformChecked = reactive({})           // { [platformKey]: boolean }
 
-// 账号级覆写（accountOverrides 已在下方 line 596 声明）
+// 账号级覆写（accountOverrides 已在下方 line 631 声明）
 const accountChecked = reactive({})            // { [accountId]: boolean }
 
 // 覆写区专用的封面/库编辑目标（覆盖区用同一对话框/库时区分目标）

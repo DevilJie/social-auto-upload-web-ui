@@ -158,7 +158,7 @@
                 使用个性化配置
               </el-checkbox>
             </div>
-            <div v-show="platformChecked[selectedPlatform]" class="override-body">
+            <div v-if="platformChecked[selectedPlatform] && platformOverrides[selectedPlatform]" class="override-body">
               <div class="form-field">
                 <div class="field-head"><span>渠道标题</span></div>
                 <el-input v-model="platformOverrides[selectedPlatform].title" placeholder="渠道标题" maxlength="100" />
@@ -213,7 +213,7 @@
                 @change="onAccountCheckChange"
               >使用个性化配置</el-checkbox>
             </div>
-            <div v-show="accountChecked[selectedAccountId]" class="override-body">
+            <div v-if="accountChecked[selectedAccountId] && accountOverrides[selectedAccountId]" class="override-body">
               <div class="form-field">
                 <div class="field-head"><span>账号标题</span></div>
                 <el-input v-model="accountOverrides[selectedAccountId].title" placeholder="账号标题" maxlength="100" />

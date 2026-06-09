@@ -903,13 +903,25 @@ async function publishAll() {
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
     // merged 出的 images / coverImage 走 commonData（panel 默认使用 commonData）
-    // title/description/tags 走 panel 自身的 merged（panel.getMergedConfig）
-    // platformConfig（aiContent/isOriginal 等）也走 panel 自身
+    // title/description/tags/platformConfig（aiContent/isOriginal 等）走 panel 自身 merged（panel.getMergedConfig）
     const commonData = { images: merged.images, coverImage: merged.coverImage }
 
     const panel = getPanel(groupKey)
     if (panel) {
-      await panel.publish(account.id, account.name, commonData, publishExtra)
+      // 备份 panel 原状态，把父组件 4 级合并结果注入 panel，再发布；发布后恢复原 panel 状态
+      const originalConfigs = panel.getConfigs()
+      panel.restoreConfigs(
+        merged,
+        { ...originalConfigs.accountOverrides, [account.id]: merged }
+      )
+      try {
+        await panel.publish(account.id, account.name, commonData, publishExtra)
+      } finally {
+        panel.restoreConfigs(
+          originalConfigs.platformConfig,
+          originalConfigs.accountOverrides
+        )
+      }
     }
   }
 

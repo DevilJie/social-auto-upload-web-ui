@@ -66,6 +66,7 @@ fi
 # 已有项目代码：强制更新
 if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
     cd "$PROJECT_ROOT"
+    git checkout "$MAIN_BRANCH" 2>/dev/null
     if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
         LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
         REMOTE=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "")
@@ -74,7 +75,6 @@ if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
             echo -e "${CYAN}发现新版本！是否更新？[Y/n]  更新将覆盖本地修改，未提交的代码将丢失${NC}"
             read -r answer
             if [[ ! "$answer" =~ ^[Nn]$ ]]; then
-                git checkout "$MAIN_BRANCH" 2>/dev/null
                 git reset --hard "origin/$MAIN_BRANCH"
                 echo -e "${CHECK} 更新完成，重新启动..."
                 exec bash "$PROJECT_ROOT/start.sh"

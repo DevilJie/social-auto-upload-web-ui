@@ -1475,23 +1475,11 @@ function cancelBatch() {
 }
 
 function handleOneClickFill(record) {
-  const histConfigs = record.account_configs || {}
-  // 新逻辑：直接用历史的全部平台配置（覆盖或新增），不再做交集
-  let filled = 0
-  for (const [key, cfg] of Object.entries(histConfigs)) {
-    if (cfg && typeof cfg === 'object') {
-      // 覆盖已有或新增（Vue 3 reactive 对象新增 key 也会触发响应式）
-      platformConfigs[key] = {
-        ...platformConfigs[key],
-        ...cfg,
-      }
-      filled++
-    }
-  }
-  // 复原账号选择：清空当前选中，按历史 channels 自动勾选对应平台下的所有账号
+  const histConfig = record.account_configs || {}
+  const channels = record.channels || []
+  // 1. 复原账号选择：清空当前选中，按历史 channels 自动勾选对应平台下的所有账号
   publishAccountIds.clear()
   let selectedAccounts = 0
-  const channels = record.channels || []
   for (const ch of channels) {
     const group = accountGroups.value.find(g => g.name === ch.platform)
     if (!group) continue
@@ -1501,6 +1489,15 @@ function handleOneClickFill(record) {
         selectedAccounts++
       }
     }
+  }
+  // 2. 把历史的单份配置应用到所有涉及的平台（覆盖现有平台配置）
+  let filled = 0
+  for (const ch of channels) {
+    platformConfigs[ch.platform] = {
+      ...platformConfigs[ch.platform],
+      ...histConfig,
+    }
+    filled++
   }
   if (filled > 0) {
     ElMessage.success(`已从历史填充 ${filled} 个平台配置${selectedAccounts > 0 ? `，已选中 ${selectedAccounts} 个账号` : ''}`)

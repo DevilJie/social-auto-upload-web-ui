@@ -60,7 +60,7 @@ if [[ ! -d "$BACKEND_DIR" ]]; then
     git checkout -f "$MAIN_BRANCH"
     echo -e "${CHECK} 项目代码拉取完成"
     echo ""
-    exec bash "$PROJECT_ROOT/start.sh"
+    exec bash "$PROJECT_ROOT/start-beta.sh"
 fi
 
 # 已有项目代码：强制更新
@@ -77,7 +77,7 @@ if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
             if [[ ! "$answer" =~ ^[Nn]$ ]]; then
                 git reset --hard "origin/$MAIN_BRANCH"
                 echo -e "${CHECK} 更新完成，重新启动..."
-                exec bash "$PROJECT_ROOT/start.sh"
+                exec bash "$PROJECT_ROOT/start-beta.sh"
             fi
         fi
     fi

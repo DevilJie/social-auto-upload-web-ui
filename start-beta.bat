@@ -58,7 +58,7 @@ if not exist "%BACKEND_DIR%" (
     git checkout -f "%MAIN_BRANCH%"
     echo   √ 项目代码拉取完成
     echo.
-    call "%PROJECT_ROOT%\start.bat"
+    call "%PROJECT_ROOT%\start-beta.bat"
     exit /b
 )
 

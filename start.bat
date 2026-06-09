@@ -62,7 +62,7 @@ if not exist "%BACKEND_DIR%" (
     exit /b
 )
 
-:: 已有项目代码：检查 beta 分支是否有更新
+:: 已有项目代码：检查 master 分支是否有更新
 if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
@@ -80,7 +80,7 @@ if exist "%PROJECT_ROOT%\.git" (
                     if /i not "!UPDATE_ANS!"=="n" (
                         git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
                         echo   √ 更新完成，重新启动...
-                        call "%PROJECT_ROOT%\start-beta.bat"
+                        call "%PROJECT_ROOT%\start.bat"
                         exit /b
                     )
                 )

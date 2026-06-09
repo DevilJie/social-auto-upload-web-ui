@@ -312,6 +312,10 @@ export const platformNameToId = Object.fromEntries(
   platformList.map(p => [p.name, p.id])
 )
 
+export const platformNameToKey = Object.fromEntries(
+  platformList.map(p => [p.name, p.key])
+)
+
 export const platformCssMap = Object.fromEntries(
   platformList.map(p => [p.name, p.cssClass])
 )

@@ -501,7 +501,7 @@ import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
 import { http } from '@/utils/request'
 import { accountApi } from '@/api/account'
-import { platformList, getPlatformByKey, platformKeyToId } from '@/config/platforms'
+import { platformList, getPlatformByKey, platformKeyToId, platformNameToKey } from '@/config/platforms'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
@@ -1491,10 +1491,13 @@ function handleOneClickFill(record) {
     }
   }
   // 2. 把历史的单份配置应用到所有涉及的平台（覆盖现有平台配置）
+  // 注意：channels[].platform 是中文名（如 "抖音"），platformConfigs 的 key 是英文（如 "douyin"）
   let filled = 0
   for (const ch of channels) {
-    platformConfigs[ch.platform] = {
-      ...platformConfigs[ch.platform],
+    const key = platformNameToKey[ch.platform]
+    if (!key) continue
+    platformConfigs[key] = {
+      ...platformConfigs[key],
       ...histConfig,
     }
     filled++

@@ -38,7 +38,7 @@ fi
 
 # --- 项目代码管理（git clone / update）---
 REPO_URL="https://github.com/DevilJie/social-auto-upload-web-ui.git"
-MAIN_BRANCH="master"
+MAIN_BRANCH="beta"
 
 if [[ ! -d "$BACKEND_DIR" ]]; then
     # 首次使用：没有项目代码，从 GitHub 克隆
@@ -67,7 +67,7 @@ fi
 if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
     cd "$PROJECT_ROOT"
     if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
-        LOCAL=$(git rev-parse "$MAIN_BRANCH" 2>/dev/null || echo "")
+        LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
         REMOTE=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "")
         if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
             echo ""

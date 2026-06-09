@@ -566,6 +566,41 @@ const commonConfig = reactive({
   coverPortrait: null,
 })
 
+// 平台级覆写（spec §3.3）
+const platformOverrides = reactive({})         // { [platformKey]: { title, description, tags, coverPortrait, coverLandscape, videoPortrait, videoLandscape, ... } }
+const platformChecked = reactive({})           // { [platformKey]: boolean }
+
+// 账号级覆写（accountOverrides 已在下方 line 596 声明）
+const accountChecked = reactive({})            // { [accountId]: boolean }
+
+// 覆写区专用的封面/库编辑目标（覆盖区用同一对话框/库时区分目标）
+const platformCoverEditorTarget = ref(null)    // 'portrait' | 'landscape' | null
+const platformLibraryTarget = ref(null)        // { type: 'cover', ratio: 'portrait' | 'landscape' } | null
+const accountCoverEditorTarget = ref(null)
+const accountLibraryTarget = ref(null)
+
+function hasPlatformOverrideContent(platformKey) {
+  const ov = platformOverrides[platformKey]
+  if (!ov) return false
+  return !!(
+    ov.title || ov.description ||
+    (ov.tags && ov.tags.length > 0) ||
+    ov.coverPortrait || ov.coverLandscape ||
+    ov.videoPortrait  || ov.videoLandscape
+  )
+}
+
+function hasAccountOverrideContent(accountId) {
+  const ov = accountOverrides[accountId]
+  if (!ov) return false
+  return !!(
+    ov.title || ov.description ||
+    (ov.tags && ov.tags.length > 0) ||
+    ov.coverPortrait || ov.coverLandscape ||
+    ov.videoPortrait  || ov.videoLandscape
+  )
+}
+
 // Cover editor
 const coverEditorRef = ref(null)
 const landscapeFrames = ref([])

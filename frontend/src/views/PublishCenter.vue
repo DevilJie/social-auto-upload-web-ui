@@ -618,7 +618,7 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     videoLandscape: accountOv?.videoLandscape ?? platformOv?.videoLandscape ?? common.videoLandscape,
     videoPortrait:  accountOv?.videoPortrait  ?? platformOv?.videoPortrait  ?? common.videoPortrait,
     // 平台特有字段走 platformDefault 兜底
-    videoFormat: accountOv?.videoFormat ?? platformOv?.videoFormat ?? platformDefault?.videoFormat ?? 'portrait',
+    videoFormat: accountOv?.videoFormat ?? platformOv?.videoFormat ?? platformDefault?.videoFormat ?? '',
     enableTimer: accountOv?.enableTimer ?? platformOv?.enableTimer ?? platformDefault?.enableTimer ?? 0,
     scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
     aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',

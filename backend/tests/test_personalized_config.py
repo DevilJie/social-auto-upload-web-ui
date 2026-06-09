@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS publish_details (
     finished_at TIMESTAMP,
     FOREIGN KEY (batch_id) REFERENCES publish_batches(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS materials (
+    id TEXT PRIMARY KEY,
+    stored_path TEXT DEFAULT ''
+);
 """
 
 
@@ -209,6 +213,67 @@ class TestPostVideoPassthrough(unittest.TestCase):
         self.assertIn("scheduleTime", cfg)
         self.assertEqual(cfg["scheduleTime"], "")
         self.assertEqual(cfg["enableTimer"], 0)
+
+
+class TestImagePublishPersistsOverrides(unittest.TestCase):
+    def setUp(self):
+        _setup_db()
+        # image_publish_bp 用模块级 DB_PATH 常量，注入到 test DB
+        # 镜像 test_image_publish_endpoint.py:85 的模式
+        from blueprints import image_publish_bp as _img_bp_mod
+        _img_bp_mod.DB_PATH = DB_PATH
+
+    def tearDown(self):
+        # 清空 test DB 的 publish_batches/publish_details，避免跨测试污染
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute("DELETE FROM publish_details")
+            conn.execute("DELETE FROM publish_batches")
+            conn.commit()
+
+    def test_publish_images_stores_images_and_cover_in_account_configs(self):
+        """图文发布的 account_configs 应包含 images 列表和 coverImage 对象"""
+        from app import app
+        client = app.test_client()
+        payload = {
+            "image_ids": ["img-1", "img-2"],
+            "batchId": "batch-img-1",
+            "account_configs": {
+                "platform": "抖音",
+                "account_id": 10,
+                "account_name": "账号A",
+                "title": "图文标题",
+                "description": "图文描述",
+                "tags": ["#t1"],
+                "filePath": "/tmp/cookie.json",
+                "images": [
+                    {"id": "img-1", "stored_path": "uploads/1.jpg", "name": "1.jpg"},
+                    {"id": "img-2", "stored_path": "uploads/2.jpg", "name": "2.jpg"},
+                ],
+                "coverImage": {"id": "img-1", "stored_path": "uploads/1.jpg"},
+                "enableTimer": 0,
+                "scheduleTime": "",
+            },
+        }
+
+        with patch('impl.registry.get_platform') as mock_get_platform:
+            mock_platform = MagicMock()
+            mock_platform.publish_image = MagicMock(return_value={"code": 200, "status": "success"})
+            mock_get_platform.return_value = mock_platform
+
+            r = client.post('/api/image-publish/publish', json=payload)
+            self.assertEqual(r.status_code, 200, r.json)
+
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            row = conn.execute(
+                "SELECT account_configs FROM publish_details ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        cfg = json.loads(row[0])
+        self.assertEqual(len(cfg["images"]), 2)
+        self.assertEqual(cfg["images"][0]["id"], "img-1")
+        self.assertEqual(cfg["coverImage"]["id"], "img-1")
+        self.assertEqual(cfg["title"], "图文标题")
+        # filePath 已在 publish_details.account_id 体现，不重复持久化
+        self.assertNotIn("filePath", cfg)
 
 
 if __name__ == "__main__":

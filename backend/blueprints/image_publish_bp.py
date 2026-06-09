@@ -104,7 +104,7 @@ def publish_images():
     description = config.get('description', '')
 
     # account_configs JSON：除了封面字段外的所有配置
-    excluded = {'landscapeCoverMaterialId', 'portraitCoverMaterialId'}
+    excluded = {'landscapeCoverMaterialId', 'portraitCoverMaterialId', 'filePath'}
     account_configs = {k: v for k, v in config.items() if k not in excluded}
 
     try:

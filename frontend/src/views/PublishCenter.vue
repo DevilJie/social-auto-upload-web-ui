@@ -1404,7 +1404,10 @@ async function saveDraft() {
           : null,
       },
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
+      platformOverrides: JSON.parse(JSON.stringify(platformOverrides)),
       accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
+      platformChecked: { ...platformChecked },
+      accountChecked: { ...accountChecked },
       publishAccountIds: [...publishAccountIds],
       selectedPlatform: selectedPlatform.value,
       selectedAccountId: selectedAccountId.value,
@@ -1504,6 +1507,21 @@ async function restoreDraft(draftId) {
     if (dd.accountOverrides) {
       Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
       Object.assign(accountOverrides, dd.accountOverrides)
+    }
+
+    if (dd.platformOverrides) {
+      Object.keys(platformOverrides).forEach(k => delete platformOverrides[k])
+      Object.assign(platformOverrides, dd.platformOverrides)
+    }
+
+    if (dd.platformChecked) {
+      Object.keys(platformChecked).forEach(k => delete platformChecked[k])
+      Object.assign(platformChecked, dd.platformChecked)
+    }
+
+    if (dd.accountChecked) {
+      Object.keys(accountChecked).forEach(k => delete accountChecked[k])
+      Object.assign(accountChecked, dd.accountChecked)
     }
 
     if (dd.publishAccountIds) {

@@ -103,6 +103,12 @@ def publish_images():
     title = config.get('title', '')
     description = config.get('description', '')
 
+    # [DEBUG 2026-06-10] 详细日志：把整个请求体关键字段打印
+    images_dbg = config.get('images') or []
+    image_ids_dbg = [(img.get('id') if isinstance(img, dict) else None) for img in images_dbg]
+    cover_id_dbg = (config.get('coverImage') or {}).get('id') if isinstance(config.get('coverImage'), dict) else None
+    print(f"[image-publish REQUEST] batchId={batch_id} account={account_name} platform={platform} title={title} image_ids={image_ids[:5]}...({len(image_ids)} total) images_in_config={image_ids_dbg[:3]} coverImage_id={cover_id_dbg} creationDeclaration={config.get('creationDeclaration','')} aiContent={config.get('aiContent','')}", flush=True)
+
     # account_configs JSON：除了封面字段外的所有配置
     excluded = {'landscapeCoverMaterialId', 'portraitCoverMaterialId', 'filePath'}
     account_configs = {k: v for k, v in config.items() if k not in excluded}

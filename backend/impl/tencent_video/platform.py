@@ -319,7 +319,17 @@ class TencentVideoPlatform(BasePlatform):
                 input_count = await page.locator('input[type="file"]').count()
                 logger.info("Found %d file input(s) on page", input_count)
                 if input_count == 0:
+                    # [DEBUG 2026-06-10] 把 page state 全 dump 出来排查
+                    current_url = page.url
+                    page_title = await page.title()
+                    body_text = (await page.locator('body').text_content() or '')[:500]
                     logger.error("No file input found, cannot upload video")
+                    logger.error("[DEBUG] current_url=%s page_title=%s body_excerpt=%s", current_url, page_title, body_text)
+                    try:
+                        html_excerpt = (await page.content())[:2000]
+                        logger.error("[DEBUG] html_excerpt=%s", html_excerpt)
+                    except Exception as e:
+                        logger.error("[DEBUG] failed to get html: %s", e)
                     raise Exception("未找到视频上传入口")
                 await file_input.set_input_files(file_path)
                 logger.info("Video file set, waiting for upload to complete...")

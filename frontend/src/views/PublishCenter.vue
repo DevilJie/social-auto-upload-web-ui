@@ -1516,6 +1516,8 @@ async function publishAll() {
         videoPortrait: merged.videoPortrait,
       }
 
+      // [DEBUG 2026-06-10] 详细日志：把要发的 publishData 关键字段打印
+      console.log('[PublishCenter.publish] account=' + account.name + ' platform=' + group.key + ' fileList=' + JSON.stringify(publishData.fileList) + ' videoLandscape.id=' + (publishData.videoLandscape && publishData.videoLandscape.id) + ' videoPortrait.id=' + (publishData.videoPortrait && publishData.videoPortrait.id) + ' coverLandscape.id=' + (publishData.coverLandscape && publishData.coverLandscape.id) + ' coverPortrait.id=' + (publishData.coverPortrait && publishData.coverPortrait.id) + ' creationDeclaration=' + publishData.creationDeclaration + ' aiContent=' + publishData.aiContent)
       await http.post('/postVideo', publishData)
       publishResults.value.push({
         label: account.name,

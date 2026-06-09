@@ -752,6 +752,21 @@ def _before_publish():
             account_path = account_list[0]
             account_name = data.get('accountName') or Path(account_path).stem or account_path
 
+        # [DEBUG 2026-06-10] 详细日志：把整个请求 body 的关键字段打印出来
+        logger.info(
+            "[/postVideo REQUEST] batchId=%s account=%s type=%s title=%s fileList=%s videoLandscape.id=%s videoPortrait.id=%s coverLandscape.id=%s coverPortrait.id=%s creationDeclaration=%s aiContent=%s isOriginal=%s",
+            batch_id, account_name, platform_type,
+            data.get('title', ''),
+            file_list,
+            (data.get('videoLandscape') or {}).get('id') if isinstance(data.get('videoLandscape'), dict) else data.get('videoLandscape'),
+            (data.get('videoPortrait') or {}).get('id') if isinstance(data.get('videoPortrait'), dict) else data.get('videoPortrait'),
+            (data.get('coverLandscape') or {}).get('id') if isinstance(data.get('coverLandscape'), dict) else data.get('coverLandscape'),
+            (data.get('coverPortrait') or {}).get('id') if isinstance(data.get('coverPortrait'), dict) else data.get('coverPortrait'),
+            data.get('creationDeclaration', ''),
+            data.get('aiContent', ''),
+            data.get('isOriginal', ''),
+        )
+
         # account_configs 存：除了 fileList/accountList/type/thumbnail/batchId/accountId/accountName 之外的所有字段
         # 注意：videoMaterialId/landscapeCoverMaterialId/portraitCoverMaterialId 既写 batch 列，也写进 JSON（让 JSON 自包含）
         # 注意：thumbnailLandscape/thumbnailPortrait（抽帧封面路径）也存进 JSON，

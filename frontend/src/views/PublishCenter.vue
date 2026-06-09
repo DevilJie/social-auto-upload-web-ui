@@ -1012,11 +1012,23 @@ async function handleVideoUpload(options) {
       ElMessage.success('视频上传成功')
       if (appStore.autoFillTitle) {
         const title = file.name.replace(/\.[^.]+$/, '')
-        for (const key of Object.keys(platformConfigs)) {
-          platformConfigs[key].title = title
-        }
-        if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
-          form.title = platformConfigs[selectedPlatform.value].title
+        if (selectedAccountId.value && accountChecked[selectedAccountId.value]) {
+          // 账号级别：只更新 form.title（form watcher 会把 diff 写到 accountOverrides）
+          form.title = title
+        } else if (selectedPlatform.value && platformChecked[selectedPlatform.value]) {
+          // 渠道级别：只更新当前渠道的 title
+          if (platformConfigs[selectedPlatform.value]) {
+            platformConfigs[selectedPlatform.value].title = title
+            form.title = title
+          }
+        } else {
+          // 公共：同步所有渠道（原逻辑）
+          for (const key of Object.keys(platformConfigs)) {
+            platformConfigs[key].title = title
+          }
+          if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
+            form.title = platformConfigs[selectedPlatform.value].title
+          }
         }
       }
       triggerFrameExtraction(videoData, videoUploadTarget.value)
@@ -1063,11 +1075,23 @@ function onMaterialSelect(material) {
     ElMessage.success('视频已设置')
     if (appStore.autoFillTitle) {
       const title = material.name.replace(/\.[^.]+$/, '')
-      for (const key of Object.keys(platformConfigs)) {
-        platformConfigs[key].title = title
-      }
-      if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
-        form.title = platformConfigs[selectedPlatform.value].title
+      if (selectedAccountId.value && accountChecked[selectedAccountId.value]) {
+        // 账号级别：只更新 form.title（form watcher 会写到 accountOverrides）
+        form.title = title
+      } else if (selectedPlatform.value && platformChecked[selectedPlatform.value]) {
+        // 渠道级别：只更新当前渠道
+        if (platformConfigs[selectedPlatform.value]) {
+          platformConfigs[selectedPlatform.value].title = title
+          form.title = title
+        }
+      } else {
+        // 公共：同步所有渠道
+        for (const key of Object.keys(platformConfigs)) {
+          platformConfigs[key].title = title
+        }
+        if (selectedPlatform.value && platformConfigs[selectedPlatform.value]) {
+          form.title = platformConfigs[selectedPlatform.value].title
+        }
       }
     }
     triggerFrameExtraction(material, materialLibraryVideoTarget.value)

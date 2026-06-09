@@ -11,6 +11,7 @@ node_modules/
 data/db/*.db
 data/videoFile/*
 data/cookiesFile/*
+data/s3_video_cache/
 !data/**/.gitkeep
 .DS_Store
 Thumbs.db

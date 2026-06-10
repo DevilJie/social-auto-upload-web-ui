@@ -67,7 +67,7 @@ if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
         cd /d "%PROJECT_ROOT%"
-        git fetch origin "%MAIN_BRANCH%" >nul 2>&1
+        git fetch
         git checkout -f "%MAIN_BRANCH%"
         if !errorlevel! equ 0 (
             for /f "tokens=*" %%l in ('git rev-parse "%MAIN_BRANCH%" 2^>nul') do set "LOCAL_HASH=%%l"

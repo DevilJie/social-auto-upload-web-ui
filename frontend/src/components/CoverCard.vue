@@ -27,55 +27,30 @@
       </div>
 
       <!-- No cover yet -->
-      <div v-else class="cover-empty" @click="uploaderVisible = true">
+      <div v-else :class="['cover-empty', { disabled }]" @click="!disabled && $emit('edit')">
         <div class="cover-empty-icon">
           <el-icon :size="28"><Picture /></el-icon>
         </div>
         <span class="cover-empty-title">上传{{ label }}</span>
-        <span class="cover-empty-desc">支持 JPG、PNG 格式</span>
+        <span class="cover-empty-desc">点击打开封面编辑器</span>
       </div>
     </div>
   </div>
-
-  <MaterialUploader
-    v-model="uploaderVisible"
-    accept="image/*"
-    :max-size="10"
-    :multiple="false"
-    :title="`上传${label}`"
-    tip="支持 JPG、PNG、WebP 格式，单文件不超过 10MB"
-    @uploaded="onUploaded"
-  />
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { Picture, Edit, Delete } from '@element-plus/icons-vue'
 import { getFileUrl } from '@/utils/storage'
-import MaterialUploader from '@/components/MaterialUploader.vue'
 
 const props = defineProps({
   label: { type: String, default: '横版封面' },
   ratioLabel: { type: String, default: '16:9' },
   modelValue: { type: Object, default: null },
   hasVideo: { type: Boolean, default: false },
+  disabled: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:modelValue', 'edit', 'open-library'])
-const uploaderVisible = ref(false)
-
-function onUploaded(d) {
-  emit('update:modelValue', {
-    id: d.id,                                                       // 修复：与视频上传保持一致，带上 id（之前漏了导致草稿恢复后 id 丢失，腾讯视频等平台需要 id 定位封面）
-    name: d.original_filename,
-    url: getFileUrl(d.stored_path),
-    stored_path: d.stored_path,
-    size: d.file_size,
-    type: d.mime_type,
-  })
-  ElMessage.success('封面上传成功')
-}
+defineEmits(['update:modelValue', 'edit', 'open-library'])
 </script>
 
 <style scoped lang="scss">
@@ -98,7 +73,6 @@ function onUploaded(d) {
   }
 }
 
-// ===== Header =====
 .cover-header {
   display: flex;
   align-items: center;
@@ -123,7 +97,6 @@ function onUploaded(d) {
   background: $gradient-brand;
 }
 
-// ===== Body =====
 .cover-body {
   min-height: 160px;
 }
@@ -241,5 +214,4 @@ function onUploaded(d) {
   font-size: 11px;
   color: $text-muted;
 }
-
 </style>

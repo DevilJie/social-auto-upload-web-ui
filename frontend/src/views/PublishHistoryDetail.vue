@@ -227,11 +227,10 @@ function getCfgField(item, field) {
 function getCoverUrl(item) {
   if (!item) return ''
   const cfg = item.account_configs || {}
-  const stored = cfg.coverLandscape?.stored_path || cfg.coverPortrait?.stored_path
-  if (stored) {
-    const cleaned = stored.replace(/^uploads\//, '')
-    return `http://${window.location.hostname}:5409/uploads/${cleaned}`
-  }
+  // 优先用 per-account cover 自带的 .url 字段（后端已构造为绝对 URL）
+  if (cfg.coverLandscape?.url) return cfg.coverLandscape.url
+  if (cfg.coverPortrait?.url) return cfg.coverPortrait.url
+  // 兜底：batch 级 cover_url
   return batch.value?.cover_url || ''
 }
 

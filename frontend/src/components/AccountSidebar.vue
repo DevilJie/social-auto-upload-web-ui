@@ -20,13 +20,13 @@
             <template v-else>{{ group.letter }}</template>
           </span>
           <span class="group-name">{{ group.name }}</span>
-          <span class="group-count">{{ group.accounts.filter(a => publishAccountIds.has(a.id)).length }}</span>
+          <span class="group-count">{{ mode === 'readonly' ? group.accounts.length : group.accounts.filter(a => publishAccountIds.has(a.id)).length }}</span>
         </div>
 
         <transition name="slide">
           <div v-show="expandedGroups.has(group.key)" class="group-accounts">
             <div
-              v-for="account in group.accounts.filter(a => publishAccountIds.has(a.id))"
+              v-for="account in group.accounts.filter(a => mode === 'readonly' ? true : publishAccountIds.has(a.id))"
               :key="account.id"
               :class="['account-item cursor-pointer', {
                 active: selectedAccountId === account.id,
@@ -39,16 +39,16 @@
               </div>
               <span class="account-name">{{ account.name }}</span>
               <span :class="['dot', account.status === '正常' ? 'on' : 'off']"></span>
-              <el-icon v-if="hasAccountOverride(account.id)" class="override-icon" title="已自定义配置"><StarFilled /></el-icon>
-              <el-icon class="account-remove" @click.stop="$emit('remove-account', account.id)"><Close /></el-icon>
+              <el-icon v-if="hasAccountOverride(account.id) && mode === 'edit'" class="override-icon" title="已自定义配置"><StarFilled /></el-icon>
+              <el-icon v-if="mode === 'edit'" class="account-remove" @click.stop="$emit('remove-account', account.id)"><Close /></el-icon>
             </div>
-            <div v-if="group.accounts.filter(a => publishAccountIds.has(a.id)).length === 0" class="no-accounts">暂无账号</div>
+            <div v-if="(mode === 'readonly' ? group.accounts : group.accounts.filter(a => publishAccountIds.has(a.id))).length === 0" class="no-accounts">暂无账号</div>
           </div>
         </transition>
       </div>
     </div>
 
-    <div class="sidebar-footer">
+    <div v-if="mode === 'edit'" class="sidebar-footer">
       <div class="add-btn cursor-pointer" @click="$emit('open-account-dialog')">+ 添加账号</div>
     </div>
   </aside>
@@ -58,6 +58,11 @@
 import { ArrowDown, ArrowRight, StarFilled, Close } from '@element-plus/icons-vue'
 
 defineProps({
+  mode: {
+    type: String,
+    default: 'edit',
+    validator: v => ['edit', 'readonly'].includes(v),
+  },
   accountGroups: { type: Array, required: true },
   totalCount: { type: Number, required: true },
   selectedPlatform: { type: String, default: null },

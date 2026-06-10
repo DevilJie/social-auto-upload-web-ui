@@ -606,13 +606,13 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
     aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
-    // 平台作品声明 / 风险提示 / 活动等（来自 platformConfigs 渠道默认，覆写区不覆盖）
-    creationDeclaration: platformDefault?.creationDeclaration,
-    riskWarning: platformDefault?.riskWarning,
-    enableCashActivity: platformDefault?.enableCashActivity,
-    supplementaryDeclaration: platformDefault?.supplementaryDeclaration,
-    audience: platformDefault?.audience,
-    alteredContent: platformDefault?.alteredContent,
+    // 平台特有字段：4 级合并（账号 > 渠道 > 平台默认），与视频/封面一致
+    creationDeclaration: accountOv?.creationDeclaration ?? platformOv?.creationDeclaration ?? platformDefault?.creationDeclaration,
+    riskWarning: accountOv?.riskWarning ?? platformOv?.riskWarning ?? platformDefault?.riskWarning,
+    enableCashActivity: accountOv?.enableCashActivity ?? platformOv?.enableCashActivity ?? platformDefault?.enableCashActivity,
+    supplementaryDeclaration: accountOv?.supplementaryDeclaration ?? platformOv?.supplementaryDeclaration ?? platformDefault?.supplementaryDeclaration,
+    audience: accountOv?.audience ?? platformOv?.audience ?? platformDefault?.audience,
+    alteredContent: accountOv?.alteredContent ?? platformOv?.alteredContent ?? platformDefault?.alteredContent,
   }
 }
 

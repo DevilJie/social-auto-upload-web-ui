@@ -31,7 +31,7 @@ if exist "%PROJECT_ROOT%\dependency\cloakbrowser\chrome.exe" (
 )
 :: --- 项目代码管理（git clone / update）---
 set "REPO_URL=https://github.com/DevilJie/social-auto-upload-web-ui.git"
-set "MAIN_BRANCH=master"
+set "MAIN_BRANCH=beta"
 
 if not exist "%BACKEND_DIR%" (
     rem 首次使用：没有项目代码，从 GitHub 克隆
@@ -58,11 +58,11 @@ if not exist "%BACKEND_DIR%" (
     git checkout -f "%MAIN_BRANCH%"
     echo   √ 项目代码拉取完成
     echo.
-    call "%PROJECT_ROOT%\start.bat"
+    call "%PROJECT_ROOT%\start-beta.bat"
     exit /b
 )
 
-:: 已有项目代码：检查 master 分支是否有更新
+:: 已有项目代码：检查 beta 分支是否有更新
 if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
@@ -80,7 +80,7 @@ if exist "%PROJECT_ROOT%\.git" (
                     if /i not "!UPDATE_ANS!"=="n" (
                         git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
                         echo   √ 更新完成，重新启动...
-                        call "%PROJECT_ROOT%\start.bat"
+                        call "%PROJECT_ROOT%\start-beta.bat"
                         exit /b
                     )
                 )

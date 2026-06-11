@@ -434,7 +434,7 @@
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
 import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { materialsApi } from '@/api/materials'
@@ -1281,6 +1281,10 @@ async function publishAll() {
     return
   }
 
+  // ===== Collect ALL errors first (collect-all-then-show-one) =====
+  const errors = []  // [{ type: '作品声明', accounts: ['账号A(B站)', ...] }, ...]
+
+  // 1. 封面校验（扫 3 个源）
   const hasAnyCover = (() => {
     if (commonConfig.coverLandscape || commonConfig.coverPortrait) return true
     for (const aid of publishAccountIds) {
@@ -1293,13 +1297,15 @@ async function publishAll() {
     }
     return false
   })()
-
   if (!hasAnyCover) {
-    ElMessage.error('请先设置封面图片（公共区域、渠道个性化或账号个性化任一处）')
-    return
+    errors.push({ type: '封面', accounts: ['所有账号都缺封面，请上传至少一张'] })
   }
 
+  // 2. 作品声明 + 标题 + 视频格式 + 封面 per-account
   const accountsWithoutDeclaration = []
+  const accountsWithoutTitle = []
+  const accountsWithoutCover = []  // 格式: '账号X(平台Y)' 或 '账号X(平台Y) 缺竖版封面'
+  const accountsWithoutVideoFormat = []
   const DECLARATION_PLATFORMS = {
     xiaohongshu: 'aiContent',
     douyin: 'aiContent',
@@ -1317,55 +1323,67 @@ async function publishAll() {
       if (!publishAccountIds.has(account.id)) continue
       const merged = resolveAccountConfig(group.key, account.id)
       const platformKey = group.key
+
+      // 2a. 作品声明
       const declFields = DECLARATION_PLATFORMS[platformKey]
-      if (!declFields) continue
-      const fields = Array.isArray(declFields) ? declFields : [declFields]
-      for (const field of fields) {
-        const value = merged[field]
-        const isEmpty = Array.isArray(value)
-          ? value.length === 0
-          : (typeof value === 'boolean' ? value === null || value === undefined : (!value && value !== 0))
-        if (isEmpty) {
-          accountsWithoutDeclaration.push(`${account.name}(${group.name})`)
-          break
+      if (declFields) {
+        const fields = Array.isArray(declFields) ? declFields : [declFields]
+        for (const field of fields) {
+          const value = merged[field]
+          const isEmpty = Array.isArray(value)
+            ? value.length === 0
+            : (typeof value === 'boolean' ? value === null || value === undefined : (!value && value !== 0))
+          if (isEmpty) {
+            accountsWithoutDeclaration.push(`${account.name}(${group.name})`)
+            break
+          }
         }
       }
-    }
-  }
-  if (accountsWithoutDeclaration.length > 0) {
-    ElMessage.error(`以下账号未设置作品声明：${accountsWithoutDeclaration.join('、')}`)
-    return
-  }
 
-  const accountsWithoutTitle = []
-  for (const group of accountGroups.value) {
-    if (group.accounts.length === 0) continue
-    for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig(group.key, account.id)
+      // 2b. 标题
       if (!merged.title || !merged.title.trim()) {
         accountsWithoutTitle.push(`${account.name}(${group.name})`)
       }
-    }
-  }
-  if (accountsWithoutTitle.length > 0) {
-    ElMessage.error(`以下账号未设置标题：${accountsWithoutTitle.join('、')}`)
-    return
-  }
 
-  const accountsWithoutVideoFormat = []
-  for (const group of accountGroups.value) {
-    if (group.accounts.length === 0) continue
-    for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig(group.key, account.id)
+      // 2c. 视频格式
       if (!merged.videoFormat) {
         accountsWithoutVideoFormat.push(`${account.name}(${group.name})`)
       }
+
+      // 2d. 封面 per-account
+      const videoFormat = merged.videoFormat || ''
+      if (!merged.coverLandscape && !merged.coverPortrait) {
+        accountsWithoutCover.push(`${account.name}(${group.name})`)
+      } else if (videoFormat === 'portrait' && !merged.coverPortrait) {
+        accountsWithoutCover.push(`${account.name}(${group.name}) 缺竖版封面`)
+      } else if (videoFormat === 'landscape' && !merged.coverLandscape) {
+        accountsWithoutCover.push(`${account.name}(${group.name}) 缺横版封面`)
+      }
     }
   }
-  if (accountsWithoutVideoFormat.length > 0) {
-    ElMessage.error(`以下账号未选择视频格式：${accountsWithoutVideoFormat.join('、')}`)
+
+  if (accountsWithoutDeclaration.length > 0) errors.push({ type: '作品声明', accounts: accountsWithoutDeclaration })
+  if (accountsWithoutTitle.length > 0) errors.push({ type: '标题', accounts: accountsWithoutTitle })
+  if (accountsWithoutVideoFormat.length > 0) errors.push({ type: '视频格式', accounts: accountsWithoutVideoFormat })
+  if (accountsWithoutCover.length > 0) errors.push({ type: '封面', accounts: accountsWithoutCover })
+
+  if (errors.length > 0) {
+    const maxShow = 3
+    const body = errors.map(e => {
+      const list = e.accounts
+      const shown = list.length > maxShow
+        ? list.slice(0, maxShow).join('、') + ` 等 ${list.length} 个账号`
+        : list.join('、')
+      return `<div style="margin-bottom:6px;"><b style="color:#f56c6c">未设置${e.type}：</b>${shown}</div>`
+    }).join('')
+    ElNotification({
+      title: '发布前检查未通过',
+      message: body,
+      type: 'error',
+      dangerouslyUseHTMLString: true,
+      duration: 0,  // 不自动关，让用户看清楚
+      customClass: 'publish-precheck-error',
+    })
     return
   }
 
@@ -1450,18 +1468,9 @@ async function publishAll() {
       }
 
     // 封面走 4 级合并（merged.coverLandscape/Portrait），common 兜底
+    // 封面缺失校验已在 publishAll 顶部 collect-all 阶段完成，这里不再重复
     const thumbnailLandscapeMaterial = merged.coverLandscape || commonConfig.coverLandscape
     const thumbnailPortraitMaterial = merged.coverPortrait || commonConfig.coverPortrait
-
-    // 校验每个账号的 merged 封面是否齐
-    if (!thumbnailLandscapeMaterial && !thumbnailPortraitMaterial) {
-      publishResults.value.push({
-        label: account.name,
-        status: 'error',
-        message: `缺少封面（${videoFormat === 'portrait' ? '竖版' : '横版'}），请在公共区域或账号个性化处上传`,
-      })
-      continue
-    }
 
     try {
       const tags = merged.tags || []

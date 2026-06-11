@@ -607,12 +607,15 @@ function showPrecheckError(body) {
     }
   }
 
+  // 首次启动 5s 关闭（无论 DOM 是否就绪）
+  startTimer()
+
+  // 尝试挂 hover 监听（挂不上也不影响基础自动关闭）
   nextTick(() => {
     const el = instance.$el
     if (!el) return
     el.addEventListener('mouseenter', clearTimer)
     el.addEventListener('mouseleave', startTimer)
-    startTimer()  // 首次出现 5s 后自动关
   })
 
   return instance

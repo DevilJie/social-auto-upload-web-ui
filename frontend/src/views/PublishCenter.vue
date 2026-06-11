@@ -582,6 +582,42 @@ function onAccountCheckChange(checked) {
 
 // ========== 4 级优先级合并（spec §3.3） ==========
 // accountOv > platformOv > platformDefault > common
+function showPrecheckError(body) {
+  const instance = ElNotification({
+    title: '发布前检查未通过',
+    message: body,
+    type: 'error',
+    dangerouslyUseHTMLString: true,
+    duration: 0,  // 我们自己管理关闭
+    customClass: 'publish-precheck-error publish-precheck-notif',
+  })
+
+  const AUTO_CLOSE_MS = 5000
+  let timer = null
+
+  const startTimer = () => {
+    clearTimer()
+    timer = setTimeout(() => instance.close(), AUTO_CLOSE_MS)
+  }
+
+  const clearTimer = () => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
+  nextTick(() => {
+    const el = instance.$el
+    if (!el) return
+    el.addEventListener('mouseenter', clearTimer)
+    el.addEventListener('mouseleave', startTimer)
+    startTimer()  // 首次出现 5s 后自动关
+  })
+
+  return instance
+}
+
 function resolveAccountConfig(platformKey, accountId) {
   const accountOv = accountOverrides[accountId] || null
   const platformOv = platformOverrides[platformKey] || null
@@ -1376,14 +1412,7 @@ async function publishAll() {
         : list.join('、')
       return `<div style="margin-bottom:6px;"><b style="color:#f56c6c">未设置${e.type}：</b>${shown}</div>`
     }).join('')
-    ElNotification({
-      title: '发布前检查未通过',
-      message: body,
-      type: 'error',
-      dangerouslyUseHTMLString: true,
-      duration: 0,  // 不自动关，让用户看清楚
-      customClass: 'publish-precheck-error',
-    })
+    showPrecheckError(body)
     return
   }
 

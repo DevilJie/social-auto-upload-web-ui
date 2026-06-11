@@ -591,10 +591,10 @@ function resolveAccountConfig(platformKey, accountId) {
 
 function mergeConfig(common, platformDefault, platformOv, accountOv) {
   return {
-    // 文本字段仅从 platformDefault 取（覆写区不再含 title/desc/tags）
-    title: platformDefault?.title ?? '',
-    description: platformDefault?.description ?? '',
-    tags: platformDefault?.tags ?? [],
+    // 文本字段 4 级合并（账号 > 渠道 > 平台默认），与视频/封面/平台特有字段一致
+    title: accountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
+    description: accountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
+    tags: accountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
     // 视频/封面走 4 级合并 → commonConfig 兜底
     coverLandscape: accountOv?.coverLandscape ?? platformOv?.coverLandscape ?? common.coverLandscape,
     coverPortrait:  accountOv?.coverPortrait  ?? platformOv?.coverPortrait  ?? common.coverPortrait,

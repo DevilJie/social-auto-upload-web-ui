@@ -469,6 +469,12 @@ def postVideo():
         thumbnail_landscape = _resolve_material_path(data.get('thumbnailLandscape', ''))
         thumbnail_portrait = _resolve_material_path(data.get('thumbnailPortrait', ''))
 
+        # 兜底：只上传了横版或竖版之一时，另一个用同图（保证 2 个封面都有内容）
+        if thumbnail_landscape and not thumbnail_portrait:
+            thumbnail_portrait = thumbnail_landscape
+        elif thumbnail_portrait and not thumbnail_landscape:
+            thumbnail_landscape = thumbnail_portrait
+
         # Some platforms have sync publish_video, others async.
         # asyncio.run() only works with coroutines — calling it on a
         # sync function that already uses asyncio.run() internally

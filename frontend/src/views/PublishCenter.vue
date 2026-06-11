@@ -615,6 +615,21 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     alteredContent: accountOv?.alteredContent ?? platformOv?.alteredContent ?? platformDefault?.alteredContent,
     // 修：zone 字段也走 4 级合并（B 站分区），账号级填的 zone 才能进 publishData
     zone: accountOv?.zone ?? platformOv?.zone ?? platformDefault?.zone ?? '',
+    // 平台特有字段 4 级合并（账号 > 渠道 > 平台默认）—— 补回漏的
+    // 抖音
+    activityId: accountOv?.activityId ?? platformOv?.activityId ?? platformDefault?.activityId ?? [],
+    hotspotId: accountOv?.hotspotId ?? platformOv?.hotspotId ?? platformDefault?.hotspotId ?? '',
+    hotspotData: accountOv?.hotspotData ?? platformOv?.hotspotData ?? platformDefault?.hotspotData ?? null,
+    selectedTag: accountOv?.selectedTag ?? platformOv?.selectedTag ?? platformDefault?.selectedTag ?? null,
+    tagType: accountOv?.tagType ?? platformOv?.tagType ?? platformDefault?.tagType ?? '',
+    tagValue: accountOv?.tagValue ?? platformOv?.tagValue ?? platformDefault?.tagValue ?? '',
+    mixId: accountOv?.mixId ?? platformOv?.mixId ?? platformDefault?.mixId ?? '',
+    mixData: accountOv?.mixData ?? platformOv?.mixData ?? platformDefault?.mixData ?? null,
+    // B 站
+    topic: accountOv?.topic ?? platformOv?.topic ?? platformDefault?.topic ?? '',
+    // 视频号
+    isDraft: accountOv?.isDraft ?? platformOv?.isDraft ?? platformDefault?.isDraft ?? false,
+    location: accountOv?.location ?? platformOv?.location ?? platformDefault?.location ?? '',
   }
 }
 
@@ -1412,7 +1427,8 @@ async function publishAll() {
       if (!publishAccountIds.has(account.id)) continue
       // 4 级优先级合并：accountOv > platformOv > platformDefault > common
       const merged = resolveAccountConfig(group.key, account.id)
-      // 平台特有字段（mergeConfig 未覆盖的）仍取 platformConfigs 兜底
+      // 修：平台特有字段都从 merged.xxx 取（mergeConfig 已 4 级合并）。
+      // 之前用 platformSettings.xxx（只读渠道默认），账号级填的值进不来。
       const pSettings = platformConfigs[group.key] || {}
       allTasks.push({ account, group, merged, platformSettings: pSettings })
     }
@@ -1481,7 +1497,7 @@ async function publishAll() {
         title: merged.title,
         description: merged.description || '',
         tags: tags,
-        activities: platformSettings.activityId || [],
+        activities: merged.activityId || [],
         fileList: [selectedVideo.stored_path],
         videoFormat: videoFormat,
         accountList: [account.filePath],
@@ -1494,14 +1510,14 @@ async function publishAll() {
         startDays: 0,
         // 修：账号级填的 zone 才能进 publishData
         category: merged.zone || (merged.isOriginal ? 1 : 0),
-        // Douyin-specific fields
-        hotspot: platformSettings.hotspotId || '',
-        tag_type: platformSettings.tagType || '',
-        tag_value: platformSettings.tagValue || '',
-        mini_link: platformSettings.selectedTag?.type === 'miniapp' ? (platformSettings.selectedTag._searchKeyword || '') : '',
-        mix_id: platformSettings.mixId || '',
-        // Other platform fields
-        isDraft: platformSettings.isDraft || false,
+        // 修：账号级填的字段用 merged.xxx（mergeConfig 已 4 级合并）
+        hotspot: merged.hotspotId || '',
+        tag_type: merged.tagType || '',
+        tag_value: merged.tagValue || '',
+        mini_link: merged.selectedTag?.type === 'miniapp' ? (merged.selectedTag._searchKeyword || '') : '',
+        mix_id: merged.mixId || '',
+        // Other platform fields (修：channels isDraft 同)
+        isDraft: merged.isDraft || false,
         aiContent: merged.aiContent || '',
         // creationDeclaration 走 merged（已含 platformDefault 兜底）
         creationDeclaration: Array.isArray(merged.creationDeclaration)

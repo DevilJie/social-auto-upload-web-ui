@@ -692,10 +692,16 @@ class BilibiliPlatform(BasePlatform):
             log_dir.mkdir(parents=True, exist_ok=True)
 
             # Click select-controller to open dropdown
-            select_controller = page.locator(".select-controller").first
+            # 关键：B 站页面有多个 .select-controller（视频类型/分区/标签/是否原创等），
+            # 必须先按"分区"section 定位，再在该 section 内找 .select-controller
+            partition_section = (
+                page.get_by_text("分区", exact=True)
+                    .locator("xpath=ancestor::div[2]")
+            )
+            select_controller = partition_section.locator(".select-controller").first
             await select_controller.wait_for(state="visible", timeout=10000)
             await select_controller.click()
-            logger.info("[bilibili] clicked select-controller")
+            logger.info("[bilibili] clicked select-controller (in 分区 section)")
             await asyncio.sleep(1)
 
             # Click target partition in dropdown

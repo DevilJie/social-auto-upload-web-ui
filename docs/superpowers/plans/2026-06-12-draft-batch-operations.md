@@ -4,7 +4,7 @@
 
 **Goal:** 草稿箱支持多选 + 批量删除 + 批量发布。批量发布走独立路径（不修改 PublishCenter/ImagePublish/已有单条发布端点），复用后端 task_queue 异步执行，自动写 publish_batches/publish_details 历史。
 
-**Architecture:** 后端新增 `services/draft_merge.py` 独立实现 4 级合并 + 校验 + payload 适配（merged → platform.publish_video kwargs）。扩展 `PublishTask` 加 `payload/draft_id/source/account_id/detail_id` 字段，扩展 worker 让它在 `task.payload` 非空时 splat 进 `platform.publish_video(**payload)`。扩 `publish_batches` 表加 `source/draft_id` 列、扩 `publish_tasks` 加 `payload` 列做溯源。3 个新端点（视频批量发布 / 图文批量发布 / 视频批量删除）。前端 DraftBox 加多选 + 工具栏 + 新组件 `BatchPublishDialog.vue`。
+**Architecture:** 后端新增 `services/draft_merge.py` 独立实现 4 级合并 + 校验 + payload 适配（merged → platform.publish_video kwargs）。扩展 `PublishTask` 加 `payload/draft_id/source/account_id/detail_id` 字段（**payload 是 in-memory 字段，不持久化；publish_tasks 表早被删除**——见 Open Question 1），扩展 worker 让它在 `task.payload` 非空时 splat 进 `platform.publish_video(**payload)`。扩 `publish_batches` 表加 `source/draft_id` 列做溯源。3 个新端点（视频批量发布 / 图文批量发布 / 视频批量删除）。前端 DraftBox 加多选 + 工具栏 + 新组件 `BatchPublishDialog.vue`。
 
 **Tech Stack:** Python 3 + Flask + sqlite3 + pytest（项目已有栈）、Vue 3 + Element Plus + axios
 
@@ -81,13 +81,9 @@ try:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_batches_draft ON publish_batches(source, draft_id)")
 except sqlite3.OperationalError:
     pass
-
-# task_queue 扩展用：worker splat payload 时用
-try:
-    cursor.execute("ALTER TABLE publish_tasks ADD COLUMN payload TEXT NOT NULL DEFAULT '{}'")
-except sqlite3.OperationalError:
-    pass
 ```
+
+（**注意**：原 plan 还含 `ALTER TABLE publish_tasks ADD COLUMN payload` 段，但 `publish_tasks` 表在 commit 71898c0 已被删除。`PublishTask.payload` 是 in-memory 字段，task 完成/取消后即丢弃；持久化走 `publish_details.account_configs` JSON 字段（已存在，由 `_build_account_configs(task)` 填充）。**不要加 publish_tasks 那段。**）
 
 - [ ] **Step 3: 验证迁移**
 
@@ -104,20 +100,18 @@ python3 -c "
 import sqlite3
 conn = sqlite3.connect('../data/db/database.db')
 batches_cols = [r[1] for r in conn.execute('PRAGMA table_info(publish_batches)').fetchall()]
-tasks_cols = [r[1] for r in conn.execute('PRAGMA table_info(publish_tasks)').fetchall()]
 print('publish_batches has source:', 'source' in batches_cols)
 print('publish_batches has draft_id:', 'draft_id' in batches_cols)
-print('publish_tasks has payload:', 'payload' in tasks_cols)
 "
 ```
 
-Expected: 全部 `True`。
+Expected: 两个都 `True`。
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add backend/init_db.py
-git commit -m "feat(backend): 数据库迁移加 publish_batches.source/draft_id 与 publish_tasks.payload"
+git commit -m "feat(backend): 数据库迁移加 publish_batches.source/draft_id 列与索引"
 ```
 
 ---
@@ -1605,7 +1599,13 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 
 def _setup_db(tmp_db):
-    """建测试数据库（含 drafts + user_info + publish_batches/publish_details/publish_tasks）。"""
+    """建测试数据库（含 drafts + user_info + publish_batches/publish_details）。
+
+    注意：legacy `publish_tasks` 表已删除（commit 71898c0）。`PublishTask` 持久化走
+    `publish_details.account_configs` JSON（由 `_build_account_configs(task)` 填充）。
+    本 fixture 只需建 `publish_batches` + `publish_details` 即可，因为 Task 12 测试用
+    `monkeypatch` mock 了 `add_task`，不会触发真实 `_insert_db`。
+    """
     conn = sqlite3.connect(str(tmp_db))
     conn.executescript("""
         CREATE TABLE user_info (
@@ -1663,32 +1663,6 @@ def _setup_db(tmp_db):
             started_at TIMESTAMP,
             finished_at TIMESTAMP,
             FOREIGN KEY (batch_id) REFERENCES publish_batches(id) ON DELETE CASCADE
-        );
-        CREATE TABLE publish_tasks (
-            id TEXT PRIMARY KEY,
-            batch_id TEXT NOT NULL DEFAULT '',
-            platform TEXT NOT NULL DEFAULT '',
-            platform_type INTEGER NOT NULL DEFAULT 0,
-            account_name TEXT NOT NULL DEFAULT '',
-            account_cookie_path TEXT NOT NULL DEFAULT '',
-            video_path TEXT NOT NULL DEFAULT '',
-            title TEXT NOT NULL DEFAULT '',
-            description TEXT NOT NULL DEFAULT '',
-            thumbnail_path TEXT NOT NULL DEFAULT '',
-            tags TEXT NOT NULL DEFAULT '[]',
-            status TEXT NOT NULL DEFAULT 'pending',
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            max_retries INTEGER NOT NULL DEFAULT 3,
-            error_message TEXT NOT NULL DEFAULT '',
-            publish_url TEXT NOT NULL DEFAULT '',
-            source TEXT NOT NULL DEFAULT '',
-            draft_id INTEGER NOT NULL DEFAULT 0,
-            account_id INTEGER NOT NULL DEFAULT 0,
-            detail_id TEXT NOT NULL DEFAULT '',
-            payload TEXT NOT NULL DEFAULT '{}',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            started_at TIMESTAMP,
-            finished_at TIMESTAMP
         );
     """)
     conn.commit()

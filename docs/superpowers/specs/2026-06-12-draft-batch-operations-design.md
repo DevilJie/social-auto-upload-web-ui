@@ -124,6 +124,8 @@ ALTER TABLE publish_batches ADD COLUMN draft_id INTEGER NOT NULL DEFAULT 0;
 
 The Task Center's "filter by source" UI and the draft box's "view tasks for this draft" link rely on these columns.
 
+> **Important — no `publish_tasks` table exists.** The legacy `publish_tasks` / `publish_logs` / `image_publish_tasks` / `image_publish_logs` tables were dropped in commit `71898c0` ("refactor(db): 合并发布历史为 publish_batches + publish_details 两表"). `PublishTask` is an in-memory dataclass; its persistent state goes to `publish_details.account_configs` (a JSON column already populated by `task_queue._insert_db` via `_build_account_configs(task)`). **`PublishTask.payload` is in-memory only** — used to splat into `platform.publish_video(**payload)` at execution time, then discarded. It does NOT need a DB column.
+
 ---
 
 ## Backend API
@@ -329,7 +331,7 @@ class PublishTask:
     # For pre-existing flow, payload is empty and the existing positional path still works.
 ```
 
-`to_dict()` and `from_row()` need updates to JSON-encode / -decode `payload`. The DB schema for the `publish_tasks` table also needs to add a `payload TEXT DEFAULT '{}'` column (extend via `migrate_database()`).
+`to_dict()` and `from_row()` need updates to JSON-encode / -decode `payload`. **`PublishTask.payload` is in-memory only** (see the `publish_batches` extension note above) — no DB column is added.
 
 ### Extension 2: extend the worker
 
@@ -493,7 +495,7 @@ A separate test (`backend/tests/test_task_queue_extended.py`) verifies the worke
 - `backend/ext_api/__init__.py` — add `POST /api/v2/drafts/batch-publish` and `DELETE /api/v2/drafts/batch` route handlers
 - `backend/blueprints/image_publish_bp.py` — add `POST /api/image-publish/drafts/batch-publish` route handler
 - `backend/ext_api/task_queue.py` — add `PublishTask.source` / `draft_id` / `account_id` / `payload` / `detail_id` fields; extend `_execute` to splat `payload` into `platform.publish_video(**payload)` when present
-- `backend/init_db.py` — extend `migrate_database()` to add `publish_batches.source` / `draft_id` columns (with index) and `publish_tasks.payload` column
+- `backend/init_db.py` — extend `migrate_database()` to add `publish_batches.source` / `draft_id` columns (with index). **No `publish_tasks` table changes** — that table was dropped in commit `71898c0`; `PublishTask.payload` is in-memory only.
 - `frontend/src/views/DraftBox.vue` — add multi-select state, toolbar, dialog trigger
 - `frontend/src/api/draft.js` — add `batchPublishVideoDrafts`, `batchDeleteDrafts`
 

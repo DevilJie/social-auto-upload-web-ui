@@ -251,6 +251,103 @@ def validate_image_draft_for_publish(draft):
     return errors
 
 
+def _resolve_stored_path(material):
+    """从素材对象取 stored_path；None/空返回 ''。"""
+    if not material:
+        return ''
+    if isinstance(material, dict):
+        return material.get('stored_path', '') or ''
+    return ''
+
+
 def build_platform_kwargs(merged, common, account):
-    """merged dict → platform.publish_video kwargs dict。"""
-    raise NotImplementedError
+    """merged dict → platform.publish_video kwargs dict。
+    common 兜底素材；account 提供 cookie 路径。"""
+    merged = merged or {}
+    common = common or {}
+
+    video_format = merged.get('videoFormat') or ''
+
+    # 视频文件路径（按 videoFormat 选）
+    if video_format == 'portrait':
+        selected_video = _resolve_stored_path(merged.get('videoPortrait')) \
+            or _resolve_stored_path(common.get('videoPortrait'))
+    elif video_format == 'landscape':
+        selected_video = _resolve_stored_path(merged.get('videoLandscape')) \
+            or _resolve_stored_path(common.get('videoLandscape'))
+    else:
+        # 无 videoFormat：先后再竖
+        selected_video = _resolve_stored_path(merged.get('videoLandscape')) \
+            or _resolve_stored_path(common.get('videoLandscape')) \
+            or _resolve_stored_path(merged.get('videoPortrait')) \
+            or _resolve_stored_path(common.get('videoPortrait'))
+
+    # 封面路径
+    cover_landscape = _resolve_stored_path(merged.get('coverLandscape')) \
+        or _resolve_stored_path(common.get('coverLandscape'))
+    cover_portrait = _resolve_stored_path(merged.get('coverPortrait')) \
+        or _resolve_stored_path(common.get('coverPortrait'))
+
+    # 通用 thumbnail（仅 portrait 缺时用 landscape 兜底，反之亦然；否则两者都有）
+    generic_thumbnail = cover_portrait or cover_landscape
+
+    # creationDeclaration list → 逗号 join；None → ''
+    creation_decl = merged.get('creationDeclaration')
+    if isinstance(creation_decl, list):
+        creation_declaration = ','.join(creation_decl)
+    elif creation_decl:
+        creation_declaration = str(creation_decl)
+    else:
+        creation_declaration = ''
+
+    # category: zone 优先（B 站），否则 isOriginal ? 1 : 0
+    zone = merged.get('zone') or ''
+    is_original = merged.get('isOriginal')
+    if zone:
+        category = zone
+    else:
+        category = 1 if is_original else 0
+
+    # schedule_time
+    schedule_time_str = merged.get('scheduleTime') or ''
+    enable_timer = 1 if schedule_time_str else 0
+
+    # mini_link: 仅 selectedTag.type === 'miniapp'
+    selected_tag = merged.get('selectedTag') or {}
+    if isinstance(selected_tag, dict) and selected_tag.get('type') == 'miniapp':
+        mini_link = selected_tag.get('_searchKeyword') or ''
+    else:
+        mini_link = ''
+
+    return {
+        'title': merged.get('title', '') or '',
+        'desc': merged.get('description', '') or '',
+        'tags': merged.get('tags') or [],
+        'activities': merged.get('activityId') or [],
+        'files': [selected_video] if selected_video else [],
+        'account_file': [account.file_path] if account and getattr(account, 'file_path', None) else [],
+        'category': category,
+        'enableTimer': enable_timer,
+        'videos_per_day': 1,
+        'daily_times': ['10:00'],
+        'start_days': 0,
+        'thumbnail_path': generic_thumbnail,
+        'thumbnail_landscape_path': cover_landscape,
+        'thumbnail_portrait_path': cover_portrait,
+        'productLink': merged.get('productLink', '') or '',
+        'productTitle': merged.get('productTitle', '') or '',
+        'schedule_time_str': schedule_time_str,
+        'ai_content': merged.get('aiContent', '') or '',
+        'creation_declaration': creation_declaration,
+        'risk_warning': merged.get('riskWarning', '') or '',
+        'enable_cash_activity': bool(merged.get('enableCashActivity')),
+        'supplementary_declaration': merged.get('supplementaryDeclaration', '') or '',
+        'is_draft': bool(merged.get('isDraft')),
+        'audience': merged.get('audience') or 'not_kids',
+        'altered_content': bool(merged.get('alteredContent')),
+        'hotspot': merged.get('hotspotId', '') or '',
+        'tag_type': merged.get('tagType', '') or '',
+        'tag_value': merged.get('tagValue', '') or '',
+        'mini_link': mini_link,
+        'mix_id': merged.get('mixId', '') or '',
+    }

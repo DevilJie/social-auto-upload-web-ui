@@ -1143,6 +1143,49 @@ def batch_publish_drafts():
     return jsonify({"code": 200, "task_ids": task_ids, "failed": failed}), 200
 
 
+# ========== 视频草稿批量删除 ==========
+
+@ext_api.route('/drafts/batch', methods=['DELETE'])
+def batch_delete_drafts():
+    """视频草稿批量删除。
+
+    Body: {"draft_ids": [int, ...]}  (1-30 个草稿 id)
+    Response 200: {"code": 200, "deleted": [...], "failed": [{draft_id, reason}, ...]}
+    Response 400: draft_ids 缺失/非列表/为空/超过 30
+    """
+    from flask import request
+    data = request.get_json() or {}
+    draft_ids = data.get('draft_ids') or []
+    if not isinstance(draft_ids, list) or not draft_ids or len(draft_ids) > 30:
+        return jsonify({"code": 400, "msg": "draft_ids 数量必须 1-30"}), 400
+
+    from app import _get_db_path
+    db_path = _get_db_path()
+    conn = sqlite3.connect(str(db_path))
+    placeholders = ','.join('?' * len(draft_ids))
+
+    existing = {r[0] for r in conn.execute(
+        f"SELECT id FROM drafts WHERE id IN ({placeholders})", draft_ids
+    ).fetchall()}
+
+    deleted = []
+    failed = []
+    for did in draft_ids:
+        if did in existing:
+            try:
+                conn.execute("DELETE FROM drafts WHERE id = ?", (did,))
+                deleted.append(did)
+            except Exception as e:
+                failed.append({'draft_id': did, 'reason': str(e)})
+        else:
+            failed.append({'draft_id': did, 'reason': '草稿不存在'})
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"code": 200, "deleted": deleted, "failed": failed}), 200
+
+
 # ========== 测试用 Flask app ==========
 # 测试代码（test_publish_templates.py）通过 `ext_api.app.test_request_context()` 推请求上下文调用
 # 路由函数。这个独立 Flask app 让 Blueprint 可独立测试，不污染 backend/app.py 的主 app。

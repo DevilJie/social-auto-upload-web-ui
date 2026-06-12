@@ -557,3 +557,68 @@ def execute_publish():
     if success:
         return jsonify({"code": 200, "msg": "发布任务已执行", "data": {"batch_id": batch_id, "detail_id": detail_id}})
     return jsonify({"code": 500, "msg": f"发布失败: {err}"}), 500
+
+
+@image_publish_bp.route('/drafts/batch-publish', methods=['POST'])
+def batch_publish_image_drafts():
+    """图文草稿批量发布：每个 draft 调一次 publish_images 走单账号链路。"""
+    import json
+    import sqlite3
+    from flask import request, jsonify, current_app
+    from services.draft_merge import validate_image_draft_for_publish
+
+    data = request.get_json() or {}
+    draft_ids = data.get('draft_ids') or []
+    if not isinstance(draft_ids, list) or not draft_ids or len(draft_ids) > 30:
+        return jsonify({"code": 400, "msg": "draft_ids 数量必须 1-30"}), 400
+
+    from app import _get_db_path
+    db_path = _get_db_path()
+    conn = sqlite3.connect(str(db_path))
+    placeholders = ','.join('?' * len(draft_ids))
+    rows = conn.execute(
+        f"SELECT id, image_ids, account_configs FROM image_drafts WHERE id IN ({placeholders})",
+        draft_ids
+    ).fetchall()
+    conn.close()
+
+    found_ids = {r[0] for r in rows}
+    missing_ids = [i for i in draft_ids if i not in found_ids]
+    if missing_ids:
+        return jsonify({"code": 404, "msg": "图文草稿不存在", "missing_ids": missing_ids}), 404
+
+    succeeded = []
+    failed = []
+    for r in rows:
+        draft = {
+            'id': r[0],
+            'image_ids': json.loads(r[1] or '[]'),
+            'account_configs': json.loads(r[2] or '{}'),
+        }
+        errs = validate_image_draft_for_publish(draft)
+        if errs:
+            failed.append({'draft_id': r[0], 'reason': '; '.join(errs)})
+            continue
+
+        # 调一次 publish_images：构造 data 让它走原来的单账号链路
+        config = draft['account_configs']
+        try:
+            with current_app.test_request_context(
+                '/api/image-publish/publish',
+                method='POST',
+                json={
+                    'image_ids': draft['image_ids'],
+                    'account_configs': config,
+                    'landscapeCoverMaterialId': '',
+                    'portraitCoverMaterialId': '',
+                },
+            ):
+                resp = publish_images()
+                if resp[1] == 200:
+                    succeeded.append(r[0])
+                else:
+                    failed.append({'draft_id': r[0], 'reason': str(resp[0].get_json())})
+        except Exception as e:
+            failed.append({'draft_id': r[0], 'reason': f'发布失败: {e}'})
+
+    return jsonify({"code": 200, "succeeded": succeeded, "failed": failed}), 200

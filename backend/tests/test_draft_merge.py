@@ -369,3 +369,146 @@ def test_validate_image_draft_happy_path():
     })
     errs = validate_image_draft_for_publish(draft)
     assert errs == []
+
+
+# ===== build_platform_kwargs =====
+
+class FakeAccountForBuild:
+    def __init__(self, file_path='/cookies/x1'):
+        self.file_path = file_path
+
+
+def test_build_kwargs_title_and_desc_renamed():
+    """merged.title → title, merged.description → desc。"""
+    merged = {'title': 'T', 'description': 'D', 'tags': ['t1']}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['title'] == 'T'
+    assert kw['desc'] == 'D'
+    assert kw['tags'] == ['t1']
+
+
+def test_build_kwargs_cover_renames_to_landscape_portrait():
+    """merged.coverLandscape/Portrait → thumbnail_landscape_path/portrait_path。"""
+    merged = {'coverLandscape': {'stored_path': '/abs/land.jpg'},
+              'coverPortrait': {'stored_path': '/abs/port.jpg'}}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['thumbnail_landscape_path'] == '/abs/land.jpg'
+    assert kw['thumbnail_portrait_path'] == '/abs/port.jpg'
+
+
+def test_build_kwargs_video_chosen_by_videoformat():
+    """videoFormat=portrait 选 coverPortrait 视频，landscape 选 coverLandscape。"""
+    merged = {'videoFormat': 'portrait',
+              'videoPortrait': {'stored_path': '/abs/port.mp4'},
+              'videoLandscape': {'stored_path': '/abs/land.mp4'}}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['files'] == ['/abs/port.mp4']
+
+
+def test_build_kwargs_video_falls_to_common():
+    """merged 没视频时，common.videoPortrait/landscape 兜底。"""
+    merged = {'videoFormat': 'portrait', 'videoPortrait': None, 'videoLandscape': None}
+    common = {'videoPortrait': {'stored_path': '/abs/common.mp4'}}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['files'] == ['/abs/common.mp4']
+
+
+def test_build_kwargs_schedule_time_translations():
+    """merged.scheduleTime → enableTimer + schedule_time_str。"""
+    merged = {'scheduleTime': '2026-06-19 10:00:00'}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['enableTimer'] == 1
+    assert kw['schedule_time_str'] == '2026-06-19 10:00:00'
+
+
+def test_build_kwargs_empty_schedule_time_means_no_timer():
+    merged = {'scheduleTime': ''}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['enableTimer'] == 0
+    assert kw['schedule_time_str'] == ''
+
+
+def test_build_kwargs_ai_content_renamed():
+    merged = {'aiContent': '内容由AI生成'}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['ai_content'] == '内容由AI生成'
+
+
+def test_build_kwargs_creation_declaration_list_joined():
+    """merged.creationDeclaration 是 list → 用逗号 join。"""
+    merged = {'creationDeclaration': ['剧情演绎,仅供娱乐', '取材网络,谨慎甄别']}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['creation_declaration'] == '剧情演绎,仅供娱乐,取材网络,谨慎甄别'
+
+
+def test_build_kwargs_creation_declaration_none_to_empty():
+    merged = {'creationDeclaration': None}
+    common = {}
+    account = FakeAccountForBuild()
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['creation_declaration'] == ''
+
+
+def test_build_kwargs_category_uses_zone_or_isoriginal():
+    """merged.zone（B 站）或 is_original 决定 category。"""
+    # B 站
+    merged = {'zone': '影视', 'isOriginal': True}
+    kw = build_platform_kwargs(merged, {}, FakeAccountForBuild())
+    assert kw['category'] == '影视'
+    # 非 B 站
+    merged = {'zone': '', 'isOriginal': True}
+    kw = build_platform_kwargs(merged, {}, FakeAccountForBuild())
+    assert kw['category'] == 1
+    # 默认
+    merged = {'zone': '', 'isOriginal': False}
+    kw = build_platform_kwargs(merged, {}, FakeAccountForBuild())
+    assert kw['category'] == 0
+
+
+def test_build_kwargs_account_file():
+    merged = {}
+    common = {}
+    account = FakeAccountForBuild(file_path='/cookies/x1')
+    kw = build_platform_kwargs(merged, common, account)
+    assert kw['account_file'] == ['/cookies/x1']
+
+
+def test_build_kwargs_selected_tag_miniapp_link():
+    merged = {'selectedTag': {'type': 'miniapp', '_searchKeyword': 'foo'}}
+    kw = build_platform_kwargs(merged, {}, FakeAccountForBuild())
+    assert kw['mini_link'] == 'foo'
+
+
+def test_build_kwargs_selected_tag_non_miniapp_empty_link():
+    merged = {'selectedTag': {'type': 'topic', '_searchKeyword': 'foo'}}
+    kw = build_platform_kwargs(merged, {}, FakeAccountForBuild())
+    assert kw['mini_link'] == ''
+
+
+def test_build_kwargs_defaults():
+    """videos_per_day / daily_times / start_days 默认值。"""
+    kw = build_platform_kwargs({}, {}, FakeAccountForBuild())
+    assert kw['videos_per_day'] == 1
+    assert kw['daily_times'] == ['10:00']
+    assert kw['start_days'] == 0
+
+
+def test_build_kwargs_audience_default():
+    kw = build_platform_kwargs({}, {}, FakeAccountForBuild())
+    assert kw['audience'] == 'not_kids'
+    assert kw['altered_content'] is False

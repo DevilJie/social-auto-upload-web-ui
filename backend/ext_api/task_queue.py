@@ -357,14 +357,18 @@ class TaskQueue:
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
                 # batch 插一次，多次同 batch_id 跳过
+                # 草稿批量发布时填 source='draft' + draft_id 溯源到草稿
                 conn.execute(
                     """INSERT OR IGNORE INTO publish_batches
                        (id, type, title, description, video_material_id,
                         landscape_cover_material_id, portrait_cover_material_id,
-                        account_count, status, created_at, updated_at)
-                       VALUES (?, 'video', ?, ?, '', '', '', 0, 'pending', ?, ?)""",
+                        account_count, status, created_at, updated_at,
+                        source, draft_id)
+                       VALUES (?, 'video', ?, ?, '', '', '', 0, 'pending', ?, ?,
+                               ?, ?)""",
                     (task.batch_id or task.id, task.title, task.description,
-                     task.created_at, task.created_at)
+                     task.created_at, task.created_at,
+                     task.source or '', task.draft_id or 0)
                 )
                 # account_configs：把 task 字段打包成 JSON
                 cfg = _build_account_configs(task)
@@ -372,8 +376,9 @@ class TaskQueue:
                     """INSERT INTO publish_details
                        (id, batch_id, account_id, account_name, platform, account_configs,
                         status, created_at)
-                       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)""",
-                    (task.id, task.batch_id or task.id, task.account_name, task.platform,
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (task.id, task.batch_id or task.id, task.account_id or None,
+                     task.account_name, task.platform,
                      json.dumps(cfg, ensure_ascii=False), task.status, task.created_at)
                 )
         except Exception as e:

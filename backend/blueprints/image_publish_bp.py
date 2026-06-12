@@ -614,10 +614,17 @@ def batch_publish_image_drafts():
                 },
             ):
                 resp = publish_images()
-                if resp[1] == 200:
+                # 兼容 2 种返回：(Response, status) tuple（mocked） 或 Response 对象（视图调用）
+                if isinstance(resp, tuple):
+                    body = resp[0].get_json() if hasattr(resp[0], 'get_json') else {}
+                    status = resp[1]
+                else:
+                    body = resp.get_json() or {}
+                    status = resp.status_code
+                if status == 200 and body.get('code') == 200:
                     succeeded.append(r[0])
                 else:
-                    failed.append({'draft_id': r[0], 'reason': str(resp[0].get_json())})
+                    failed.append({'draft_id': r[0], 'reason': body.get('msg') or f'HTTP {status}'})
         except Exception as e:
             failed.append({'draft_id': r[0], 'reason': f'发布失败: {e}'})
 

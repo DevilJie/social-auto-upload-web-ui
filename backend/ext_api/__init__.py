@@ -1060,6 +1060,8 @@ def batch_publish_drafts():
     task_queue = _tq.get_task_queue()
     task_ids = []
     failed = []
+    # draft_id → batch_id 映射，让同一 draft 的多个 detail 共享一个 batch
+    task_batch_id_by_draft = {}
 
     for r in rows:
         draft = {
@@ -1116,8 +1118,13 @@ def batch_publish_drafts():
                     continue
 
                 task_id = str(uuid.uuid4())
+                # 草稿批量发布：每个 (draft, account) 一个 detail，但同一 draft 的所有 detail 共享一个 batch_id
+                # （task.batch_id 第一次循环时初始化，后续同 draft 共享；这里每个 draft_id 只一次循环无问题）
+                if not task_batch_id_by_draft.get(r['id']):
+                    task_batch_id_by_draft[r['id']] = str(uuid.uuid4())
                 task = PublishTask(
                     id=task_id,
+                    batch_id=task_batch_id_by_draft[r['id']],
                     platform=account_platform,
                     platform_type=ptype,
                     account_name=acc_row['userName'] or '',

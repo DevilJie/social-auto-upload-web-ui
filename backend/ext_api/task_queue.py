@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from conf import BASE_DIR
 from util._logger import get_channel_logger
+from impl.registry import get_platform
 
 logger = get_channel_logger("task_queue")
 
@@ -214,7 +215,25 @@ class TaskQueue:
                 self.queue.task_done()
 
     async def _execute(self, task: PublishTask):
-        """调用上游 uploader 执行上传"""
+        """调用上游 uploader 执行上传。
+
+        新逻辑：当 task.payload 非空时，调 platform.publish_video(**payload)（splat）。
+        旧逻辑（task.payload 为空时）：保留原 myUtils.postVideo 模块函数调用（向后兼容）。
+        """
+        # 新逻辑：payload 透传到 platform.publish_video
+        if task.payload:
+            platform = get_platform(task.platform_type)
+            if not platform:
+                raise ValueError(f"不支持的平台类型: {task.platform_type}")
+            publish_fn = platform.publish_video
+            if asyncio.iscoroutinefunction(publish_fn):
+                return await publish_fn(**task.payload)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None, lambda: publish_fn(**task.payload)
+            )
+
+        # 旧逻辑：保留原代码不动
         from myUtils.postVideo import (
             post_video_DouYin, post_video_ks,
             post_video_tencent, post_video_xhs,

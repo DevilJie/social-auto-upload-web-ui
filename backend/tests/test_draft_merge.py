@@ -124,3 +124,166 @@ def test_merge_creation_declaration_no_common_fallback():
     ao = {}
     m = merge_config(common, pd, po, ao)
     assert m['creationDeclaration'] is None or m['creationDeclaration'] == ''
+
+
+# ===== validate_draft_for_publish =====
+
+class FakeAccount:
+    def __init__(self, id, platform, file_path):
+        self.id = id
+        self.platform = platform
+        self.file_path = file_path
+
+
+def _user_info_lookup_patch(monkeypatch, accounts):
+    """monkeypatch services.draft_merge._get_account_by_id 返回 accounts 列表。"""
+    def _lookup(account_id):
+        for a in accounts:
+            if a.id == account_id:
+                return a
+        return None
+    monkeypatch.setattr('services.draft_merge._get_account_by_id', _lookup)
+
+
+def _video_draft(draft_data, draft_id=1):
+    return {'id': draft_id, 'type': 'video', 'draft_data': draft_data}
+
+
+def test_validate_draft_missing_video():
+    """commonConfig 视频文件都没有 → 报错。"""
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': None, 'videoPortrait': None,
+                         'coverLandscape': {'id': 'c'}, 'coverPortrait': None},
+        'platformConfigs': {'bilibili': {'title': 'T', 'videoFormat': 'portrait',
+                                          'creationDeclaration': 'cd'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait'}},
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('视频' in e for e in errs)
+
+
+def test_validate_draft_missing_publish_account_ids():
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': {'id': 'v'}, 'videoPortrait': None,
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {},
+        'platformOverrides': {},
+        'accountOverrides': {},
+        'publishAccountIds': [],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('账号' in e or 'publishAccountIds' in e or '未选择' in e for e in errs)
+
+
+def test_validate_draft_account_not_found(monkeypatch):
+    _user_info_lookup_patch(monkeypatch, [])  # 账号表为空
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': {'id': 'v'}, 'videoPortrait': None,
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {'bilibili': {}},
+        'platformOverrides': {},
+        'accountOverrides': {},
+        'publishAccountIds': [999],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('999' in e and ('不存在' in e or '账号' in e) for e in errs)
+
+
+def test_validate_draft_bilibili_missing_creation_declaration(monkeypatch):
+    """B 站账号层缺 creationDeclaration → 报错。"""
+    _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'bilibili', '/cookies/b1')])
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': {'id': 'v'}, 'videoPortrait': None,
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {'bilibili': {'title': 'T', 'videoFormat': 'portrait'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait'}},  # 没填 creationDeclaration
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('creationDeclaration' in e for e in errs)
+
+
+def test_validate_draft_xiaohongshu_missing_ai_content(monkeypatch):
+    """小红书账号层缺 aiContent → 报错。"""
+    _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'xiaohongshu', '/cookies/x1')])
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': {'id': 'v'}, 'videoPortrait': None,
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {'xiaohongshu': {'title': 'T', 'videoFormat': 'portrait'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait'}},  # 没 aiContent
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('aiContent' in e for e in errs)
+
+
+def test_validate_draft_youtube_missing_audience_or_altered(monkeypatch):
+    """YouTube 缺 audience 或 alteredContent → 报错。"""
+    _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'youtube', '/cookies/y1')])
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': {'id': 'v'}, 'videoPortrait': None,
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {'youtube': {'title': 'T', 'videoFormat': 'portrait'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait'}},  # 缺 audience/alteredContent
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('audience' in e or 'alteredContent' in e for e in errs)
+
+
+def test_validate_draft_portrait_without_portrait_cover(monkeypatch):
+    """videoFormat=portrait 但缺竖版封面 → 报错。"""
+    _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'xiaohongshu', '/cookies/x1')])
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': {'id': 'v'}, 'videoPortrait': None,
+                         'coverLandscape': {'id': 'cl'}, 'coverPortrait': None},  # 只横版
+        'platformConfigs': {'xiaohongshu': {'title': 'T', 'videoFormat': 'portrait',
+                                            'aiContent': '内容由AI生成'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait',
+                                    'aiContent': '内容由AI生成'}},
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('竖版封面' in e or 'portrait' in e.lower() or 'cover' in e.lower() for e in errs)
+
+
+def test_validate_draft_douyin_activity_tags_cap(monkeypatch):
+    """抖音活动+标签 > 5 → 报错。"""
+    _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'douyin', '/cookies/d1')])
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': None, 'videoPortrait': {'id': 'v'},
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {'douyin': {'title': 'T', 'videoFormat': 'portrait',
+                                        'aiContent': '内容由AI生成'}},
+        'platformOverrides': {},
+        'accountOverrides': {
+            '1': {'title': 'T', 'videoFormat': 'portrait', 'aiContent': '内容由AI生成',
+                  'activityId': ['a', 'b', 'c'], 'tags': ['t1', 't2', 't3']},  # 3+3=6 > 5
+        },
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert any('5' in e or '活动' in e or '标签' in e for e in errs)
+
+
+def test_validate_draft_happy_path(monkeypatch):
+    """完整合法草稿 → 错误列表为空。"""
+    _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'xiaohongshu', '/cookies/x1')])
+    draft = _video_draft({
+        'commonConfig': {'videoLandscape': None, 'videoPortrait': {'id': 'v'},
+                         'coverLandscape': None, 'coverPortrait': {'id': 'c'}},
+        'platformConfigs': {'xiaohongshu': {'title': 'T', 'videoFormat': 'portrait',
+                                            'aiContent': '内容由AI生成'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait',
+                                    'aiContent': '内容由AI生成'}},
+        'publishAccountIds': [1],
+    })
+    errs = validate_draft_for_publish(draft)
+    assert errs == []

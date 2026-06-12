@@ -1,138 +1,98 @@
 <template>
   <el-dialog
-    :model-value="visible"
-    title="批量发布预览"
-    width="640px"
-    @update:model-value="$emit('update:visible', $event)"
+    :model-value="modelValue"
+    title="批量发布进度"
+    width="500px"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    :show-close="false"
+    class="batch-progress-dialog"
+    @update:model-value="$emit('update:modelValue', $event)"
   >
-    <div v-if="drafts.length === 0" class="empty">未选中任何草稿</div>
-    <div v-else>
-      <el-table
-        ref="tableRef"
-        :data="tableData"
-        @selection-change="onSelectionChange"
-        :max-height="400"
-      >
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="title" label="标题" />
-        <el-table-column prop="platforms" label="目标平台" width="180" />
-        <el-table-column prop="status" label="状态" width="160">
-          <template #default="{ row }">
-            <el-tag v-if="row.status === 'ok'" type="success" size="small">通过</el-tag>
-            <el-tooltip v-else :content="row.reason" placement="top">
-              <el-tag type="danger" size="small">失败</el-tag>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-      </el-table>
+    <div class="publish-progress">
+      <el-progress
+        :percentage="progress"
+        :status="progress === 100 ? 'success' : ''"
+      />
+      <div v-if="currentAccount" class="current-publishing">
+        正在发布：{{ currentAccount }}
+      </div>
 
-      <div class="summary">
-        已选 <b>{{ selectedIds.length }}</b> / {{ drafts.length }} 项
+      <div class="publish-results" v-if="results.length > 0">
+        <div
+          v-for="(result, index) in results"
+          :key="index"
+          :class="['result-item', result.status]"
+        >
+          <el-icon v-if="result.status === 'success'"><Check /></el-icon>
+          <el-icon v-else-if="result.status === 'error'"><Close /></el-icon>
+          <el-icon v-else><InfoFilled /></el-icon>
+          <span class="result-label">{{ result.label }}</span>
+          <span class="result-message">{{ result.message }}</span>
+        </div>
       </div>
     </div>
 
     <template #footer>
-      <el-button @click="$emit('update:visible', false)">取消</el-button>
-      <el-button
-        type="primary"
-        :disabled="selectedIds.length === 0"
-        :loading="submitting"
-        @click="onConfirm"
-      >
-        确认发布 {{ selectedIds.length }} 项
-      </el-button>
+      <div class="dialog-footer-right">
+        <el-button @click="$emit('cancel')" :disabled="progress === 100">取消发布</el-button>
+        <el-button type="primary" @click="$emit('update:modelValue', false)" v-if="progress === 100">关闭</el-button>
+      </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { Check, Close, InfoFilled } from '@element-plus/icons-vue'
 
-const props = defineProps({
-  visible: { type: Boolean, default: false },
-  drafts: { type: Array, default: () => [] },        // [{id, type, title, platforms}]
-  failures: { type: Array, default: () => [] },      // [{draft_id, reason}]
+defineProps({
+  modelValue: { type: Boolean, required: true },
+  progress: { type: Number, default: 0 },
+  results: { type: Array, default: () => [] },
+  currentAccount: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:visible', 'confirm'])
-
-const tableRef = ref(null)
-const submitting = ref(false)
-const selectedIds = ref([])
-
-// 失败集合（draft_id → reason）
-const failureMap = computed(() => {
-  const m = new Map()
-  for (const f of props.failures) m.set(f.draft_id, f.reason)
-  return m
-})
-
-// 表格数据：每条草稿带 status/reason/platforms
-const tableData = computed(() =>
-  props.drafts.map((d) => {
-    const reason = failureMap.value.get(d.id)
-    return {
-      id: d.id,
-      title: d.title || `草稿 #${d.id}`,
-      platforms: (d.platforms || []).join('、') || '—',
-      status: reason ? 'fail' : 'ok',
-      reason: reason || '',
-    }
-  })
-)
-
-// 默认勾选：仅未失败的
-watch(
-  () => [props.visible, props.drafts],
-  ([vis]) => {
-    if (vis) {
-      selectedIds.value = tableData.value
-        .filter((r) => r.status === 'ok')
-        .map((r) => r.id)
-      // 同步 el-table 选中状态
-      nextTick(() => {
-        if (tableRef.value) {
-          tableRef.value.clearSelection()
-          for (const row of tableData.value) {
-            if (selectedIds.value.includes(row.id)) {
-              tableRef.value.toggleRowSelection(row, true)
-            }
-          }
-        }
-      })
-    }
-  },
-  { immediate: true }
-)
-
-function onSelectionChange(rows) {
-  selectedIds.value = rows.map((r) => r.id)
-}
-
-async function onConfirm() {
-  if (selectedIds.value.length === 0) return
-  submitting.value = true
-  emit('confirm', selectedIds.value)
-}
-
-// 父组件拿到响应后调 resetSubmitting()
-function resetSubmitting() {
-  submitting.value = false
-}
-defineExpose({ resetSubmitting })
+defineEmits(['update:modelValue', 'cancel'])
 </script>
 
-<style scoped>
-.empty {
-  text-align: center;
-  color: #909399;
-  padding: 40px 0;
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
+
+.batch-progress-dialog {
+  .publish-progress {
+    padding: 12px 0;
+
+    .current-publishing {
+      margin: 16px 0;
+      text-align: center;
+      color: $text-secondary;
+      font-size: 14px;
+    }
+
+    .publish-results {
+      margin-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 16px;
+      max-height: 300px;
+      overflow-y: auto;
+
+      .result-item {
+        display: flex;
+        align-items: center;
+        padding: 8px 0;
+        color: $text-secondary;
+
+        .el-icon { margin-right: 8px; }
+        .result-label { margin-right: 10px; font-weight: 600; color: #f8fafc; }
+        .result-message { color: $text-muted; font-size: 13px; }
+
+        &.success { .el-icon, .result-label { color: $success-color; } }
+        &.error { .el-icon, .result-label { color: $danger-color; } }
+        &.cancelled { color: $text-muted; .result-label { color: $text-muted; } }
+      }
+    }
+  }
 }
-.summary {
-  margin-top: 12px;
-  text-align: right;
-  color: #606266;
-}
+
+.dialog-footer-right { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

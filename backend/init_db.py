@@ -188,6 +188,23 @@ def migrate_database():
     except sqlite3.OperationalError:
         pass  # 列已存在
 
+    # 草稿批量发布用：溯源到草稿
+    try:
+        cursor.execute("ALTER TABLE publish_batches ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+        logger.info("已添加 publish_batches.source 列")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+    try:
+        cursor.execute("ALTER TABLE publish_batches ADD COLUMN draft_id INTEGER NOT NULL DEFAULT 0")
+        logger.info("已添加 publish_batches.draft_id 列")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+    try:
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_batches_draft ON publish_batches(source, draft_id)")
+        logger.info("已创建 idx_publish_batches_draft 索引")
+    except sqlite3.OperationalError:
+        pass  # 索引已存在
+
     conn.commit()
     conn.close()
 

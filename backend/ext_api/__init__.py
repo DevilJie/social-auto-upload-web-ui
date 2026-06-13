@@ -316,13 +316,14 @@ def _serialize_batch_with_items(b, items):
             d_item.get('account_configs') or {}, b
         )
     # 兜底：当 batch 列上的 material_id 都为空（封面是从视频抽帧得到的，没有 materials.id）时，
-    # 从第一个 detail 的 account_configs 里取 thumbnailLandscape / thumbnailPortrait。
+    # 从第一个 detail 的 account_configs 里取 coverLandscape / coverPortrait / thumbnail_path。
     fallback_cover_url = ''
     if items:
         first_cfg = items[0].get('account_configs') or {}
         fallback_cover_url = (
-            _resolve_cover_from_path(first_cfg.get('thumbnailLandscape', ''))
-            or _resolve_cover_from_path(first_cfg.get('thumbnailPortrait', ''))
+            _resolve_cover_from_path(first_cfg.get('coverLandscape', ''))
+            or _resolve_cover_from_path(first_cfg.get('coverPortrait', ''))
+            or _resolve_cover_from_path(first_cfg.get('thumbnail_path', ''))
         )
     return {
         'id': b['id'],

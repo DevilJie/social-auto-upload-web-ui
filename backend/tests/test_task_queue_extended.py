@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from ext_api.task_queue import PublishTask, TaskStatus, TaskQueue
+from ext_api.task_queue import PublishTask, TaskStatus, TaskQueue, aggregate_batch_status
 
 
 def test_publish_task_default_new_fields():
@@ -337,3 +337,57 @@ def test_worker_no_double_task_done():
     assert real_queue._unfinished_tasks == 0, (
         f"queue unfinished_tasks should be 0, got {real_queue._unfinished_tasks}"
     )
+
+
+# ---------- aggregate_batch_status 聚合逻辑测试 ----------
+
+def test_aggregate_batch_status_total_zero_is_pending():
+    """total=0 时返回 pending（理论上不会出现，仅防御）。"""
+    assert aggregate_batch_status(succ=0, fail=0, in_flight=0, total=0) == 'pending'
+
+
+def test_aggregate_batch_status_all_success():
+    """全部成功 → success。"""
+    assert aggregate_batch_status(succ=3, fail=0, in_flight=0, total=3) == 'success'
+
+
+def test_aggregate_batch_status_all_failed():
+    """全部失败 → failed。"""
+    assert aggregate_batch_status(succ=0, fail=3, in_flight=0, total=3) == 'failed'
+
+
+def test_aggregate_batch_status_mixed_partial():
+    """混合（有成功有失败，无 in-flight）→ partial。"""
+    assert aggregate_batch_status(succ=2, fail=1, in_flight=0, total=3) == 'partial'
+
+
+def test_aggregate_batch_status_in_flight_with_only_success_returns_running():
+    """回归测试：3 success + 0 failed + 2 in-flight → 必须是 running（不是 success）。
+
+    修复前旧逻辑会因 fail==0 直接返回 'success'，导致详情仍处于 queued/running 时
+    batch 已显示"全部成功"。
+    """
+    assert aggregate_batch_status(succ=3, fail=0, in_flight=2, total=5) == 'running'
+
+
+def test_aggregate_batch_status_in_flight_with_mixed_returns_running():
+    """回归测试：1 success + 1 failed + 1 queued → 必须是 running（不是 partial）。
+
+    即便已有 failed/成功，只要仍有 in-flight detail，batch 不应判定为终态。
+    """
+    assert aggregate_batch_status(succ=1, fail=1, in_flight=1, total=3) == 'running'
+
+
+def test_aggregate_batch_status_in_flight_priority_over_fail_zero():
+    """in-flight 检查必须在 fail==0 分支之前：哪怕 fail=0，有 in-flight 也应 running。"""
+    assert aggregate_batch_status(succ=0, fail=0, in_flight=1, total=1) == 'running'
+
+
+def test_aggregate_batch_status_in_flight_with_queued_only():
+    """单条 queued 详情（in_flight=1）→ running。"""
+    assert aggregate_batch_status(succ=0, fail=0, in_flight=1, total=1) == 'running'
+
+
+def test_aggregate_batch_status_single_running_detail():
+    """单条 running 详情 → running。"""
+    assert aggregate_batch_status(succ=0, fail=0, in_flight=1, total=1) == 'running'

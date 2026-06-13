@@ -34,6 +34,27 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+def aggregate_batch_status(*, succ: int, fail: int, in_flight: int, total: int) -> str:
+    """根据 detail 状态聚合 batch 状态。
+
+    优先级：
+      1. total == 0            -> 'pending'    （无 detail，理论不该发生）
+      2. in_flight > 0         -> 'running'    （仍有 queued/running detail 未结束）
+      3. fail == 0             -> 'success'    （全部成功）
+      4. succ == 0             -> 'failed'     （全部失败）
+      5. 其余                  -> 'partial'    （混合成功+失败）
+    """
+    if total == 0:
+        return 'pending'
+    if in_flight > 0:
+        return 'running'
+    if fail == 0:
+        return 'success'
+    if succ == 0:
+        return 'failed'
+    return 'partial'
+
+
 @dataclass
 class PublishTask:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -405,15 +426,13 @@ class TaskQueue:
                 counts = conn.execute(
                     """SELECT COUNT(*),
                               SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
-                              SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END)
+                              SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),
+                              SUM(CASE WHEN status IN ('running', 'queued') THEN 1 ELSE 0 END)
                        FROM publish_details WHERE batch_id=?""",
                     (batch_id,)
                 ).fetchone()
-                total, succ, fail = counts[0], counts[1] or 0, counts[2] or 0
-                if total == 0: bs = 'pending'
-                elif fail == 0: bs = 'success'
-                elif succ == 0: bs = 'failed'
-                else: bs = 'partial'
+                total, succ, fail, in_flight = counts[0], counts[1] or 0, counts[2] or 0, counts[3] or 0
+                bs = aggregate_batch_status(succ=succ, fail=fail, in_flight=in_flight, total=total)
                 now = datetime.now().isoformat()
                 conn.execute(
                     """UPDATE publish_batches

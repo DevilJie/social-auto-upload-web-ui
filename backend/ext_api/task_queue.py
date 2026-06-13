@@ -191,6 +191,10 @@ class TaskQueue:
                     await self.queue.put(task)
                     if task.id in self.running:
                         del self.running[task.id]
+                    # 通知但不 task_done（任务仍在队列里）
+                    self._update_db(task)
+                    self._notify_status(task)
+                    # 唯一一次 task_done（在重试入队后）
                     self.queue.task_done()
                     continue
                 else:
@@ -205,7 +209,10 @@ class TaskQueue:
                     self.completed.append(task)
                 self._update_db(task)
                 self._notify_status(task)
-                self.queue.task_done()
+                # 只有非 retry 路径才 task_done
+                # retry 路径已经 task_done() 并 continue 跳到下一轮
+                if task.status != TaskStatus.PENDING:
+                    self.queue.task_done()
 
     async def _execute(self, task: PublishTask):
         """调用上游 uploader 执行上传。

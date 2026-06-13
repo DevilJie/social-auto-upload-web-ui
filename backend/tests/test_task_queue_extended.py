@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from ext_api.task_queue import PublishTask
+from ext_api.task_queue import PublishTask, TaskStatus, TaskQueue
 
 
 def test_publish_task_default_new_fields():
@@ -107,3 +107,233 @@ def test_execute_async_publish_video():
         result = asyncio.run(queue._execute(t))
 
     assert result is True
+
+
+def _make_test_queue():
+    """构造一个 TaskQueue 实例但不启动后台线程/事件循环。"""
+    q = TaskQueue(max_concurrent=1)
+    return q
+
+
+def _run_worker_through_tasks(worker, tasks_and_outcomes):
+    """驱动 _worker 跑完一组任务场景，最后用 CancelledError 退出循环。
+
+    tasks_and_outcomes: list of (PublishTask, outcome) where outcome in
+        {'success', 'fail-retry', 'fail-permanent'}
+
+    'fail-retry' 任务会在第一次处理时入队（retry_count 1 <= max_retries 1），
+    第二次处理时 retry_count 2 > max_retries 1，进入永久失败分支。
+
+    实现细节：用 asyncio.CancelledError 作为"无更多任务"的 sentinel，
+    协程最外层的 `await self.queue.get()` 在 try/except 之外，会传播到 asyncio.run。
+    我们在外层捕获这个 CancelledError 视为正常的"测试结束"信号。
+    """
+    task_done_calls = []
+
+    queue = MagicMock()
+    iter_state = {'idx': 0}
+    queued_tasks = []
+
+    def compute_remaining():
+        return iter_state['idx'] < len(tasks_and_outcomes) or queued_tasks
+
+    async def fake_get():
+        if queued_tasks:
+            return queued_tasks.pop(0)
+        if compute_remaining():
+            idx = iter_state['idx']
+            iter_state['idx'] += 1
+            return tasks_and_outcomes[idx][0]
+        # sentinel: 抛 CancelledError 让 worker 协程从最外层 get() 退出
+        raise asyncio.CancelledError("no more tasks")
+
+    def fake_task_done():
+        task_done_calls.append(iter_state['idx'])
+
+    queue.get = fake_get
+    async def fake_put(t):
+        queued_tasks.append(t)
+    queue.put = fake_put
+    queue.task_done = fake_task_done
+
+    worker.queue = queue
+    worker.running = {}
+    worker.completed = []
+    worker._update_db = MagicMock()
+    worker._notify_status = MagicMock()
+
+    exec_idx = {'n': 0}
+
+    async def fake_execute(task):
+        outcome = tasks_and_outcomes[exec_idx['n']][1]
+        if outcome == 'fail-retry':
+            exec_idx['n'] += 1
+            raise RuntimeError("simulated failure")
+        elif outcome == 'fail-permanent':
+            exec_idx['n'] += 1
+            raise RuntimeError("simulated permanent failure")
+        else:
+            exec_idx['n'] += 1
+            return True
+
+    worker._execute = fake_execute
+
+    for task, _ in tasks_and_outcomes:
+        task.max_retries = 1
+
+    # Patch asyncio.sleep 让重试退避不实际等待
+    real_sleep = asyncio.sleep
+    async def fast_sleep(_):
+        await real_sleep(0)
+    with patch('ext_api.task_queue.asyncio.sleep', side_effect=fast_sleep):
+        try:
+            asyncio.run(worker._worker("test-worker"))
+        except asyncio.CancelledError:
+            pass  # expected: sentinel triggers worker exit
+
+    return task_done_calls
+
+
+def _run_worker_through_tasks_cancellable(worker, tasks_and_outcomes):
+    """驱动 _worker 跑完一组任务场景，捕获 CancelledError 用于退出循环。"""
+    task_done_calls = []
+
+    queue = MagicMock()
+    iter_state = {'idx': 0}
+    queued_tasks = []
+
+    def compute_remaining():
+        return iter_state['idx'] < len(tasks_and_outcomes) or queued_tasks
+
+    async def fake_get_v2():
+        if queued_tasks:
+            return queued_tasks.pop(0)
+        if compute_remaining():
+            idx = iter_state['idx']
+            iter_state['idx'] += 1
+            return tasks_and_outcomes[idx][0]
+        # 用 CancelledError 退出 worker 协程
+        raise asyncio.CancelledError("no more tasks")
+
+    def fake_task_done():
+        task_done_calls.append(iter_state['idx'])
+
+    queue.get = fake_get_v2
+    queue.put = lambda t: queued_tasks.append(t)
+    queue.task_done = fake_task_done
+
+    worker.queue = queue
+    worker.running = {}
+    worker.completed = []
+    worker._update_db = MagicMock()
+    worker._notify_status = MagicMock()
+
+    exec_idx = {'n': 0}
+
+    async def fake_execute(task):
+        outcome = tasks_and_outcomes[exec_idx['n']][1]
+        if outcome == 'fail-retry':
+            exec_idx['n'] += 1
+            raise RuntimeError("simulated failure")
+        elif outcome == 'fail-permanent':
+            exec_idx['n'] += 1
+            raise RuntimeError("simulated permanent failure")
+        else:
+            exec_idx['n'] += 1
+            return True
+
+    worker._execute = fake_execute
+
+    for task, _ in tasks_and_outcomes:
+        task.max_retries = 1
+
+    # 跑 worker 协程，期望其以 CancelledError 退出
+    try:
+        asyncio.run(worker._worker("test-worker"))
+    except asyncio.CancelledError:
+        pass  # expected: sentinel 触发 worker 退出
+
+    return task_done_calls
+
+
+def test_worker_task_done_called_once_on_success():
+    """成功路径：task_done() 在 finally 中调用 1 次。"""
+    worker = _make_test_queue()
+    t = PublishTask(platform='xiaohongshu', platform_type=1, account_name='a1')
+    calls = _run_worker_through_tasks(worker, [(t, 'success')])
+    assert len(calls) == 1, f"expected exactly one task_done call, got {len(calls)}: {calls}"
+    assert t.status == TaskStatus.SUCCESS
+
+
+def test_worker_task_done_called_once_after_retry():
+    """失败重试路径：第一次 task_done() 在 retry 路径，第二次（永久失败）在 finally。共 2 次，无 ValueError。"""
+    worker = _make_test_queue()
+    t = PublishTask(platform='douyin', platform_type=3, account_name='a1')
+    t.max_retries = 1
+    # 用 fail-retry：第一次失败触发 retry（re-queue），第二次再失败（max_retries 耗尽）
+    calls = _run_worker_through_tasks(worker, [(t, 'fail-retry')])
+    # 两次循环（一次 retry 重入队，一次最终失败）应该恰好 2 次 task_done
+    assert len(calls) == 2, f"expected 2 task_done calls (retry + permanent), got {len(calls)}: {calls}"
+    assert t.status == TaskStatus.FAILED
+
+
+def test_worker_no_double_task_done():
+    """回归测试：连续重试后 worker 不应触发 'task_done() called too many times'。
+
+    在 asyncio.Queue 中，重复 task_done() 会抛 ValueError。这里通过一个
+    使用真实 asyncio.Queue 的版本验证：worker 跑完后 unfinished_tasks 应等于 0
+    （每次 get 都有对应 task_done），并且 worker 不抛 ValueError。
+
+    通过在 task_done 上 wrap 计数 + 主动关闭 queue 模拟 sentinel 退出。
+    """
+    q = TaskQueue(max_concurrent=1)
+    real_queue = asyncio.Queue()
+    real_queue.put_nowait(PublishTask(
+        platform='bilibili', platform_type=5, account_name='a1', max_retries=1
+    ))
+    q.queue = real_queue
+    q.running = {}
+    q.completed = []
+    q._update_db = MagicMock()
+    q._notify_status = MagicMock()
+
+    call_count = {'n': 0}
+
+    async def always_fail(task):
+        call_count['n'] += 1
+        raise RuntimeError("always fail")
+
+    q._execute = always_fail
+
+    # Wrap 真实 queue.task_done 计数
+    real_task_done = real_queue.task_done
+    task_done_count = {'n': 0}
+    def counting_task_done():
+        task_done_count['n'] += 1
+        real_task_done()
+    real_queue.task_done = counting_task_done
+
+    # Patch asyncio.sleep 让重试退避不实际等待
+    real_sleep = asyncio.sleep
+    async def fast_sleep(_):
+        await real_sleep(0)
+    with patch('ext_api.task_queue.asyncio.sleep', side_effect=fast_sleep):
+        # 启动 worker，超时打断无限循环
+        async def main():
+            try:
+                await asyncio.wait_for(q._worker("test"), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
+        asyncio.run(main())
+
+    # worker 处理了 2 次（一次 retry 一次 permanent fail）→ 2 次 task_done
+    # 在真实 asyncio.Queue 上，2 次 get + 2 次 task_done = 内部 counter 一致
+    # 如果有 bug（double task_done），第二次 task_done 会抛 ValueError
+    assert call_count['n'] == 2, f"execute should run 2 times, ran {call_count['n']}"
+    assert task_done_count['n'] == 2, (
+        f"task_done should be called 2 times, was called {task_done_count['n']} times"
+    )
+    # 验证 queue 内部 unfinished_tasks 已归零（说明 task_done 配对正确）
+    assert real_queue._unfinished_tasks == 0, (
+        f"queue unfinished_tasks should be 0, got {real_queue._unfinished_tasks}"
+    )

@@ -547,21 +547,23 @@ class TiktokPlatform(BasePlatform):
         No-op if the modal is not present.
         """
         try:
-            modal = page.locator(
-                'div.TUXModal.common-modal:has(.common-modal-header:has-text("继续发布？"))'
-            ).first
-            if not await modal.is_visible(timeout=2_000):
-                return
-            publish_now_btn = modal.locator(
-                'div.common-modal-footer '
-                'button:has-text("立即发布")'
+            # 等待 modal 出现(最多 3 秒) - 用更具体的 common-modal-confirm-modal
+            # class 而不是 :has-text,可避免 Playwright 选择器不稳定的问题
+            await page.wait_for_selector(
+                'div.TUXModal.common-modal-confirm-modal',
+                state="visible",
+                timeout=3_000,
+            )
+            # 点击"立即发布"按钮(直接查整个页面,因为只有一个 confirm modal)
+            publish_now_btn = page.locator(
+                'div.common-modal-footer button:has-text("立即发布")'
             ).first
             await publish_now_btn.wait_for(state="visible", timeout=3_000)
             await publish_now_btn.click()
             logger.info("[tiktok] Dismissed '继续发布？' modal (立即发布)")
-        except Exception:
+        except Exception as e:
             # Modal not shown — fine
-            pass
+            logger.info(f"[tiktok] _dismiss_publish_confirm_modal: {e!r}")
 
     @staticmethod
     async def _add_title_tags(page, title: str, tags: list) -> None:

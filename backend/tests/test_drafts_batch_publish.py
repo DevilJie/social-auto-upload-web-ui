@@ -304,3 +304,117 @@ def test_batch_publish_empty(tmp_path, monkeypatch):
     client = app.test_client()
     resp = client.post('/api/v2/drafts/batch-publish', json={'draft_ids': []})
     assert resp.status_code == 400
+
+
+def test_batch_publish_resolves_video_path_to_absolute(tmp_path, monkeypatch):
+    """验证 stored_path 相对路径被解析成绝对路径传给 worker。
+
+    背景：DraftMerge.build_platform_kwargs 返回 payload['files']=[stored_path]，
+    stored_path 是相对路径（如 materials/2026/06/11/uuid.mp4）。批量发布端点必须
+    把它解析成本地绝对路径再传 PublishTask，否则 worker 的 set_input_files 会
+    找不到文件，触发 3 次重试。
+    """
+    db_path = tmp_path / "test.db"
+    _setup_db(db_path)
+    monkeypatch.setattr('services.draft_merge.DB_PATH', db_path)
+
+    # draft 用相对路径 stored_path（生产场景）
+    draft_data = {
+        'commonConfig': {'videoPortrait': {'stored_path': 'materials/2026/06/11/test.mp4'},
+                         'coverPortrait': {'stored_path': 'materials/2026/06/11/test.jpg'}},
+        'platformConfigs': {'xiaohongshu': {'title': 'T', 'videoFormat': 'portrait',
+                                            'aiContent': '内容由AI生成'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait',
+                                    'aiContent': '内容由AI生成'}},
+        'publishAccountIds': [1],
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        _insert_user(conn, 1, 'xiaohongshu', '/cookies/x1')
+        _insert_video_draft(conn, 1, draft_data)
+
+    # mock add_task 捕获 PublishTask
+    added_tasks = []
+    def fake_add_task(task):
+        added_tasks.append(task)
+        return 'task-1'
+
+    from ext_api import task_queue as tq
+    monkeypatch.setattr(tq, 'get_task_queue', lambda: MagicMock(add_task=fake_add_task))
+    monkeypatch.setattr('app._get_db_path', lambda: db_path)
+    monkeypatch.setattr('app._ensure_db', lambda: None)
+
+    # mock storage.resolve_material_path：相对路径 → 已知绝对路径
+    # 端点内用 `from storage import resolve_material_path`，所以 patch 必须在 storage 模块上
+    ABS_VIDEO = '/tmp/test_resolved_video.mp4'
+    ABS_THUMB = '/tmp/test_resolved_thumb.jpg'
+
+    def fake_resolve(p):
+        if not p:
+            return p
+        if 'test.mp4' in p:
+            return ABS_VIDEO
+        if 'test.jpg' in p:
+            return ABS_THUMB
+        return p  # 绝对路径保持原样
+
+    monkeypatch.setattr('storage.resolve_material_path', fake_resolve)
+
+    from app import app
+    client = app.test_client()
+    resp = client.post('/api/v2/drafts/batch-publish', json={'draft_ids': [1]})
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['failed'] == [], f"unexpected failures: {data['failed']}"
+    assert len(added_tasks) == 1
+    # 关键断言：video_path 必须已经是绝对路径
+    assert added_tasks[0].video_path == ABS_VIDEO
+    assert added_tasks[0].thumbnail_path == ABS_THUMB
+
+
+def test_batch_publish_missing_video_marks_failed_without_enqueue(tmp_path, monkeypatch):
+    """视频文件解析失败时，直接标记 failed 不入队，避免 worker 重试 3 次。"""
+    db_path = tmp_path / "test.db"
+    _setup_db(db_path)
+    monkeypatch.setattr('services.draft_merge.DB_PATH', db_path)
+
+    draft_data = {
+        'commonConfig': {'videoPortrait': {'stored_path': 'materials/2026/06/11/missing.mp4'},
+                         'coverPortrait': {'stored_path': '/abs/c.jpg'}},
+        'platformConfigs': {'xiaohongshu': {'title': 'T', 'videoFormat': 'portrait',
+                                            'aiContent': '内容由AI生成'}},
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': 'T', 'videoFormat': 'portrait',
+                                    'aiContent': '内容由AI生成'}},
+        'publishAccountIds': [1],
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        _insert_user(conn, 1, 'xiaohongshu', '/cookies/x1')
+        _insert_video_draft(conn, 1, draft_data)
+
+    added_tasks = []
+    def fake_add_task(task):
+        added_tasks.append(task)
+        return 'task-1'
+
+    from ext_api import task_queue as tq
+    monkeypatch.setattr(tq, 'get_task_queue', lambda: MagicMock(add_task=fake_add_task))
+    monkeypatch.setattr('app._get_db_path', lambda: db_path)
+    monkeypatch.setattr('app._ensure_db', lambda: None)
+
+    # mock resolve_material_path：返回 None 模拟文件不存在
+    monkeypatch.setattr('storage.resolve_material_path',
+                        lambda p: None if p and 'missing.mp4' in p else p)
+
+    from app import app
+    client = app.test_client()
+    resp = client.post('/api/v2/drafts/batch-publish', json={'draft_ids': [1]})
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['task_ids'] == []
+    assert len(data['failed']) == 1
+    assert data['failed'][0]['draft_id'] == 1
+    assert 'missing.mp4' in data['failed'][0]['reason']
+    assert added_tasks == []  # 不入队

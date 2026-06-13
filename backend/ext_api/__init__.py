@@ -1122,6 +1122,21 @@ def batch_publish_drafts():
                 # （task.batch_id 第一次循环时初始化，后续同 draft 共享；这里每个 draft_id 只一次循环无问题）
                 if not task_batch_id_by_draft.get(r['id']):
                     task_batch_id_by_draft[r['id']] = str(uuid.uuid4())
+                # 把 stored_path 相对路径转成绝对路径（与 postVideo 的 _resolve_material_path 一致）
+                # 否则 worker 拿相对路径去 set_input_files，Playwright 找不到文件，会触发 3 次重试。
+                from storage import resolve_material_path
+                raw_video = (payload.get('files') or [''])[0]
+                raw_thumbnail = payload.get('thumbnail_path', '') or ''
+                resolved_video = resolve_material_path(raw_video)
+                resolved_thumbnail = resolve_material_path(raw_thumbnail)
+                if not resolved_video:
+                    # 文件解析失败（草稿里引用了已被用户从磁盘删除的文件），直接标记失败，
+                    # 避免 worker 重复开浏览器重试 3 次。
+                    failed.append({
+                        'draft_id': r['id'],
+                        'reason': f'账号 {account_id} 视频文件不存在: {raw_video}',
+                    })
+                    continue
                 task = PublishTask(
                     id=task_id,
                     batch_id=task_batch_id_by_draft[r['id']],
@@ -1129,10 +1144,10 @@ def batch_publish_drafts():
                     platform_type=ptype,
                     account_name=acc_row['userName'] or '',
                     account_cookie_path=acc_row['filePath'] or '',
-                    video_path=(payload.get('files') or [''])[0],
+                    video_path=resolved_video,
                     title=payload.get('title', ''),
                     description=payload.get('desc', ''),
-                    thumbnail_path=payload.get('thumbnail_path', ''),
+                    thumbnail_path=resolved_thumbnail,
                     tags=payload.get('tags') or [],
                     source='draft',
                     draft_id=r['id'],

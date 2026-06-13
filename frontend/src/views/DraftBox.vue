@@ -388,34 +388,26 @@ async function onDialogConfirm(confirmedIds) {
 
   isPublishing.value = true
   const isImage = activeTab.value === 'image'
-  console.log('[batch-publish] start, isImage=', isImage, 'ids=', confirmedIds)
   try {
     // 根据当前 tab 调不同的批量发布端点
     const resp = isImage
       ? await imagePublishApi.batchPublishImageDrafts(confirmedIds)
       : await draftApi.batchPublishVideoDrafts(confirmedIds)
-    console.log('[batch-publish] resp=', resp)
     const { task_ids = [], failed = [] } = resp || {}
     if (task_ids.length) {
-      ElMessage.success(
-        `已入队 ${task_ids.length} 个任务，去任务中心查看 →`,
-        { duration: 4000 },
-      )
+      ElMessage.success({
+        message: `已入队 ${task_ids.length} 个任务，去任务中心查看 →`,
+        duration: 4000,
+      })
     }
     if (failed.length) {
-      ElMessage.warning(
-        `${failed.length} 个草稿发布失败：${failed.map((f) => f.reason).join('; ')}`,
-      )
+      ElMessage.warning({
+        message: `${failed.length} 个草稿发布失败：${failed.map((f) => f.reason).join('; ')}`,
+      })
     }
     selection.value = new Set()
   } catch (e) {
-    // 诊断：打印完整 error 详情
-    console.error('[batch-publish] caught error:', e)
-    console.error('[batch-publish] e.constructor:', e?.constructor?.name)
-    console.error('[batch-publish] e.message:', e?.message)
-    console.error('[batch-publish] e.stack:', e?.stack)
-    console.error('[batch-publish] e keys:', e ? Object.keys(e) : 'null')
-    ElMessage.error(`批量发布失败：${e?.message || e}`)
+    ElMessage.error({ message: `批量发布失败：${e?.message || e}` })
   } finally {
     isPublishing.value = false
   }

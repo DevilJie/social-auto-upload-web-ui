@@ -4,6 +4,7 @@
 字段集与 PublishCenter.vue:592-637 保持同步。
 """
 
+import os
 import sqlite3
 from pathlib import Path
 import sys
@@ -252,11 +253,24 @@ def validate_image_draft_for_publish(draft):
 
 
 def _resolve_stored_path(material):
-    """从素材对象取 stored_path；None/空返回 ''。"""
+    """从素材对象取 stored_path，再解析为本地绝对路径。
+
+    相对路径（materials/2026/06/...）走 storage.resolve_material_path 解析；
+    绝对路径原样返回（避免被 base_dir 拼接覆盖）。
+    """
     if not material:
         return ''
     if isinstance(material, dict):
-        return material.get('stored_path', '') or ''
+        stored = material.get('stored_path', '') or ''
+        if not stored:
+            return ''
+        if os.path.isabs(stored):
+            return stored
+        try:
+            from storage import resolve_material_path
+            return resolve_material_path(stored) or stored
+        except Exception:
+            return stored
     return ''
 
 

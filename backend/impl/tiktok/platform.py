@@ -543,26 +543,34 @@ class TiktokPlatform(BasePlatform):
         """Dismiss the "继续发布？" copyright-check warning modal.
 
         Appears after clicking 发布 if TikTok's copyright/content
-        check is still running.  Click "立即发布" to force-publish.
+        check is still running. Click "立即发布" to force-publish.
         No-op if the modal is not present.
+
+        The modal may be inside an iframe (TikTok's upload page uses
+        ``iframe[data-tt="Upload_index_iframe"]``), so we iterate through
+        all frames — main + iframes — to find the clickable button.
         """
         try:
-            # 等待 modal 出现(最多 3 秒) - 用更具体的 common-modal-confirm-modal
-            # class 而不是 :has-text,可避免 Playwright 选择器不稳定的问题
-            await page.wait_for_selector(
-                'div.TUXModal.common-modal-confirm-modal',
-                state="visible",
-                timeout=3_000,
-            )
-            # 点击"立即发布"按钮(直接查整个页面,因为只有一个 confirm modal)
-            publish_now_btn = page.locator(
-                'div.common-modal-footer button:has-text("立即发布")'
-            ).first
-            await publish_now_btn.wait_for(state="visible", timeout=3_000)
-            await publish_now_btn.click()
-            logger.info("[tiktok] Dismissed '继续发布？' modal (立即发布)")
+            frames = [page] + list(page.frames)
+            for frame in frames:
+                try:
+                    btn = frame.locator(
+                        'div.TUXModal.common-modal-confirm-modal '
+                        'div.common-modal-footer '
+                        'button:has-text("立即发布")'
+                    ).first
+                    if await btn.is_visible(timeout=1_000):
+                        await btn.click(timeout=2_000)
+                        logger.info(
+                            f"[tiktok] Dismissed '继续发布？' modal "
+                            f"in frame url={frame.url[:60]!r}"
+                        )
+                        return
+                except Exception:
+                    # Frame 不可访问或 button 不在,try next frame
+                    continue
+            logger.info("[tiktok] _dismiss_publish_confirm_modal: button not found in any frame")
         except Exception as e:
-            # Modal not shown — fine
             logger.info(f"[tiktok] _dismiss_publish_confirm_modal: {e!r}")
 
     @staticmethod

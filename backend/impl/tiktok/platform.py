@@ -399,7 +399,7 @@ class TiktokPlatform(BasePlatform):
                 logger.info("[tiktok] Using main page file input")
 
             try:
-                await file_input.set_input_files(file_path)
+                await file_input.set_input_files(file_path, timeout=60_000)
                 logger.info(f"[tiktok] Video file set: {file_path}")
             except Exception as e:
                 logger.info(f"[tiktok] set_input_files FAILED: {e!r}")
@@ -822,8 +822,19 @@ class TiktokPlatform(BasePlatform):
         Button text is "发布" for immediate publish, "预约发布" for
         scheduled — both share ``data-e2e="post_video_button"``.  We
         poll the click until the URL changes to ``/tiktokstudio/content``.
+
+        Guarded by ``page.is_closed()`` so the loop exits cleanly when
+        the user (or TikTok's own navigation) closes the page — without
+        this, a closed-page ``TargetClosedError`` re-enters the loop and
+        Playwright throws ``Object prototype may only be an Object or
+        null: undefined`` on the next locator call.
         """
-        while True:
+        max_attempts = 60  # 60 * 0.5s = 30s upper bound on the loop
+        for _ in range(max_attempts):
+            # 如果 page 已关闭（用户关浏览器 / TikTok 跳页关闭），直接退出循环
+            if page.is_closed():
+                logger.info("[tiktok] Page closed, exit _click_publish loop")
+                return
             try:
                 publish_btn = page.locator(
                     'button[data-e2e="post_video_button"]'
@@ -845,10 +856,11 @@ class TiktokPlatform(BasePlatform):
                     timeout=10_000,
                 )
                 logger.info("[tiktok] Video published successfully")
-                break
+                return
             except Exception as e:
                 logger.info(f"[tiktok] Waiting for publish... ({e.__class__.__name__})")
                 await asyncio.sleep(0.5)
+        logger.info(f"[tiktok] _click_publish loop exhausted {max_attempts} attempts")
 
     @staticmethod
     async def _get_last_video_id(page):

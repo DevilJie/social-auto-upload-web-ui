@@ -292,6 +292,10 @@ class TiktokPlatform(BasePlatform):
                 else publish_datetimes
             )
             for cookie_path in cookie_paths:
+                logger.info(
+                    f"[tiktok] === _upload_all 调用 _upload_single "
+                    f"(cookie={cookie_path!r}, file={file_path!r}, title={title!r}) ==="
+                )
                 await self._upload_single(
                     title=title,
                     file_path=file_path,
@@ -318,6 +322,41 @@ class TiktokPlatform(BasePlatform):
     ) -> None:
         """Upload one video to one TikTok account using CloakBrowser.
         """
+        # === 诊断日志：打印所有接收到的参数 + 关键验证 ===
+        import os
+        logger.info(f"[tiktok] === _upload_single 接收参数 ===")
+        logger.info(f"[tiktok]   title={title!r}")
+        logger.info(f"[tiktok]   file_path={file_path!r}")
+        logger.info(
+            f"[tiktok]   file_path 是否存在="
+            f"{os.path.exists(file_path) if file_path else 'N/A (empty)'}"
+        )
+        if file_path and not os.path.exists(file_path):
+            # 列举父目录看实际有什么
+            parent = os.path.dirname(file_path)
+            if os.path.isdir(parent):
+                siblings = os.listdir(parent)[:10]
+                logger.info(
+                    f"[tiktok]   父目录 {parent!r} 存在，样本: {siblings}"
+                )
+            else:
+                logger.info(f"[tiktok]   父目录 {parent!r} 不存在！")
+        logger.info(f"[tiktok]   tags={tags!r}")
+        logger.info(f"[tiktok]   publish_date={publish_date!r}")
+        logger.info(f"[tiktok]   account_file={account_file!r}")
+        logger.info(
+            f"[tiktok]   account_file 是否存在="
+            f"{os.path.exists(account_file) if account_file else 'N/A'}"
+        )
+        logger.info(f"[tiktok]   thumbnail_path={thumbnail_path!r}")
+        if thumbnail_path:
+            logger.info(
+                f"[tiktok]   thumbnail_path 是否存在="
+                f"{os.path.exists(thumbnail_path)}"
+            )
+        logger.info(f"[tiktok]   ai_content={ai_content!r}")
+        logger.info(f"[tiktok] === 参数打印完毕 ===")
+
         browser = await self.create_browser(
             headless=False,
         )

@@ -111,9 +111,13 @@ function onSelectionChange(rows) {
 }
 
 function onConfirm() {
-  if (selectedIds.value.length === 0) return
-  submitting.value = true
-  emit('confirm', selectedIds.value)
+  try {
+    if (selectedIds.value.length === 0) return
+    submitting.value = true
+    emit('confirm', selectedIds.value)
+  } catch (e) {
+    console.error('[dialog onConfirm] error:', e)
+  }
 }
 
 // 父组件拿到响应后调 resetSubmitting()

@@ -105,17 +105,29 @@ def _resolve_cover_url(material_id: str) -> str:
         return ''
 
 
-def _resolve_cover_from_path(stored_path: str) -> str:
-    """直接用 stored_path 构造 /api/materials/file/{path} URL。空串返回空。
+def _resolve_cover_from_path(stored_path) -> str:
+    """直接用 stored_path 构造 /api/materials/file/{path} URL。空串/无法解析返回空。
 
-    stored_path 可能是绝对路径（thumbnail_path 来自 _resolve_material_path，
-    例如 /home/czy/workspace/.../data/materials/2026/06/13/uuid.jpg），
-    也可能是相对路径（含 materials/ 前缀）。要构造 storage API 的 file 路由
-    URL，relative_path 必须等于 materials 表的 stored_path 列。
+    stored_path 可能是:
+    - 字符串:绝对路径(/home/.../data/materials/2026/06/13/uuid.jpg)
+      或相对路径(含 materials/ 前缀)
+    - dict:某些路径(草稿批量发布等)会把 task.cover_landscape(dict)
+      原样写进 account_configs,结构可能是 {stored_path|path|url: ...}
+    - None / 空:返回空串
+
+    任意输入都不应抛异常。
     """
-    if not stored_path:
+    if isinstance(stored_path, dict):
+        for key in ('stored_path', 'path', 'url', 'storedPath'):
+            v = stored_path.get(key)
+            if v:
+                stored_path = v
+                break
+        else:
+            return ''
+    if not stored_path or not isinstance(stored_path, str):
         return ''
-    # 绝对路径：剥掉 BASE_DIR（data 目录）的父前缀，保留 materials/ 之后的部分
+    # 绝对路径:剥掉 BASE_DIR(data 目录)的父前缀,保留 materials/ 之后的部分
     import re
     m = re.search(r'(?:^|/)data/(materials/.+)$', stored_path)
     if m:
@@ -123,7 +135,7 @@ def _resolve_cover_from_path(stored_path: str) -> str:
     elif stored_path.startswith('materials/'):
         relative = stored_path
     else:
-        # 兜底：取 basename
+        # 兜底:取 basename
         import os
         relative = os.path.basename(stored_path)
     return f"/api/materials/file/{urllib.parse.quote(relative, safe='')}"

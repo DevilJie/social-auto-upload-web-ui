@@ -124,6 +124,46 @@ class TestHistoryEndpoint(unittest.TestCase):
         for field in ('id', 'account_name', 'platform', 'status'):
             self.assertIn(field, first_item)
 
+    def test_history_when_account_configs_cover_is_dict(self):
+        """account_configs.coverLandscape/coverPortrait 是 dict 时不应 500。
+
+        场景:草稿批量发布等路径把 task.cover_landscape(dict | None)原样
+        写进 account_configs。当 batch 没有物质 ID(封面来自抽帧)时,
+        _serialize_batch_with_items 会走 fallback_cover_url 分支,把 dict
+        传给 _resolve_cover_from_path,触发 re.search 报
+        "expected string or bytes-like object, got 'dict'"。
+        """
+        with sqlite3.connect(str(self.DB_PATH)) as conn:
+            conn.execute(
+                "INSERT INTO publish_batches (id, type, title, status, account_count, success_count, failed_count, created_at) "
+                "VALUES ('b3', 'video', 'cover-as-dict', 'success', 1, 1, 0, '2026-06-03 10:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO publish_details (id, batch_id, account_name, platform, account_configs, status) "
+                "VALUES ('d6', 'b3', '账号F', '抖音', ?, 'success')",
+                (json.dumps({
+                    'title': 'cover-as-dict',
+                    'coverLandscape': {'stored_path': '/data/materials/2026/06/13/abc.jpg', 'url': ''},
+                    'coverPortrait': {'path': '/data/materials/2026/06/13/xyz.jpg'},
+                    'thumbnail_path': '/data/materials/2026/06/13/thumb.jpg',
+                }),)
+            )
+            conn.commit()
+
+        try:
+            resp = self.client.get('/api/v2/history?type=video')
+            self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+            data = resp.get_json()
+            self.assertEqual(data['code'], 200)
+            target = next((b for b in data['data']['items'] if b['id'] == 'b3'), None)
+            self.assertIsNotNone(target)
+            self.assertIn('cover_url', target)
+        finally:
+            with sqlite3.connect(str(self.DB_PATH)) as conn:
+                conn.execute("DELETE FROM publish_details WHERE id = 'd6'")
+                conn.execute("DELETE FROM publish_batches WHERE id = 'b3'")
+                conn.commit()
+
 
 if __name__ == '__main__':
     unittest.main()

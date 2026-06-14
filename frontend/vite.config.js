@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
+const backendTarget = process.env.VITE_API_BASE_URL || 'http://localhost:5409'
+const frontendPort = Number(process.env.VITE_FRONTEND_PORT || 5173)
+const shouldOpenDevServer = process.env.VITE_DEV_OPEN !== 'false'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
@@ -18,89 +22,89 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
-    open: true,
+    port: frontendPort,
+    open: shouldOpenDevServer,
     proxy: {
       '/login': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
         timeout: 120000,
         proxyTimeout: 120000,
       },
       '/upload': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/uploadSave': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/getFiles': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/getFile': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/deleteFile': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/getAccounts': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/getValidAccounts': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/deleteAccount': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/postVideo': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
         timeout: 120000,
         proxyTimeout: 120000,
       },
       '/postVideoBatch': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
         timeout: 120000,
         proxyTimeout: 120000,
       },
       '/updateUserinfo': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/uploadCookie': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/downloadCookie': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/syncProfile': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
         timeout: 120000,
         proxyTimeout: 120000,
       },
       '/openCreatorCenter': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/checkAccount': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
         timeout: 120000,
         proxyTimeout: 120000,
       },
       '/api': {
-        target: 'http://localhost:5409',
+        target: backendTarget,
         changeOrigin: true,
       },
     }

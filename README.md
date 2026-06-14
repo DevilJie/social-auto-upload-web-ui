@@ -43,7 +43,28 @@ A modern **Web-UI interface** for multi-platform social media content auto-publi
 
 ### Local Development Setup
 
-#### 1. Backend
+#### One-click local start (recommended)
+
+```bash
+bash start.sh
+```
+
+Defaults:
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend: `http://127.0.0.1:17409`
+
+You can override ports when needed:
+
+```bash
+SAU_PORT=17410 FRONTEND_PORT=17573 bash start.sh
+```
+
+The script creates `backend/venv` when missing, installs backend/frontend dependencies when needed, starts both services, and stops them together on `Ctrl+C`.
+
+#### Manual start
+
+##### 1. Backend
 
 ```bash
 cd backend
@@ -60,23 +81,23 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Start backend server (http://localhost:8000)
-python app.py
+# Start backend server
+SAU_PORT=17409 python app.py
 ```
 
-#### 2. Frontend
+##### 2. Frontend
 
 ```bash
 cd frontend
 
 npm install
 
-npm run dev
+VITE_API_BASE_URL=http://127.0.0.1:17409 npm run dev
 ```
 
-#### 3. Access
+##### 3. Access
 
-Open **http://localhost:5173** in your browser.
+Open **http://127.0.0.1:5173** in your browser.
 
 ### Building Desktop App (Windows)
 
@@ -169,7 +190,28 @@ Output in `frontend/dist/`, deployable to any web server.
 
 ### 本地启动
 
-#### 1. 后端
+#### 一键本地启动（推荐）
+
+```bash
+bash start.sh
+```
+
+默认端口：
+
+- 前端：`http://127.0.0.1:5173`
+- 后端：`http://127.0.0.1:17409`
+
+如需临时换端口：
+
+```bash
+SAU_PORT=17410 FRONTEND_PORT=17573 bash start.sh
+```
+
+脚本会在缺失时创建 `backend/venv`，按需安装后端/前端依赖，同时启动两个服务，并在 `Ctrl+C` 时一起停止。
+
+#### 手动启动
+
+##### 1. 后端
 
 ```bash
 cd backend
@@ -186,23 +228,23 @@ source venv/bin/activate
 # 安装依赖
 pip install -r requirements.txt
 
-# 启动后端服务 (http://localhost:8000)
-python app.py
+# 启动后端服务
+SAU_PORT=17409 python app.py
 ```
 
-#### 2. 前端
+##### 2. 前端
 
 ```bash
 cd frontend
 
 npm install
 
-npm run dev
+VITE_API_BASE_URL=http://127.0.0.1:17409 npm run dev
 ```
 
-#### 3. 访问应用
+##### 3. 访问应用
 
-打开浏览器访问：**http://localhost:5173**
+打开浏览器访问：**http://127.0.0.1:5173**
 
 ### 打包桌面应用（Windows）
 

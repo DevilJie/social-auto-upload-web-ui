@@ -318,6 +318,8 @@ QianFan Sync 离线依赖包 ($PLATFORM)
   │   ├── git/              Git 完整安装
   │   ├── node/             Node.js 完整安装
   │   └── cloakbrowser/     CloakBrowser 浏览器
+  ├── scripts/
+  │   └── start-local.sh    本地启动逻辑
   ├── start.sh              Linux/macOS 启动脚本
   └── start.bat             Windows 启动脚本
 
@@ -326,7 +328,7 @@ QianFan Sync 离线依赖包 ($PLATFORM)
   2. 进入 QianFan Sync 目录
   3. 运行 start.sh (Linux/macOS) 或 start.bat (Windows)
   4. 首次运行会自动从 GitHub 拉取项目代码
-  5. 后续运行会检查并提示更新
+  5. 已有项目代码时不会覆盖本地修改
 
 平台: $PLATFORM
 打包时间: $(date '+%Y-%m-%d %H:%M:%S')
@@ -343,9 +345,12 @@ echo "  打包中..."
 PACK_DIR="$PROJECT_ROOT/_pack_qianfan"
 rm -rf "$PACK_DIR"
 mkdir -p "$PACK_DIR/QianFan Sync"
+mkdir -p "$PACK_DIR/QianFan Sync/scripts"
 mv "$DEP_DIR" "$PACK_DIR/QianFan Sync/dependency"
 cp "$PROJECT_ROOT/start.sh" "$PACK_DIR/QianFan Sync/start.sh"
+cp "$PROJECT_ROOT/scripts/start-local.sh" "$PACK_DIR/QianFan Sync/scripts/start-local.sh"
 cp "$PROJECT_ROOT/start.bat" "$PACK_DIR/QianFan Sync/start.bat"
+chmod +x "$PACK_DIR/QianFan Sync/start.sh" "$PACK_DIR/QianFan Sync/scripts/start-local.sh"
 
 cd "$PACK_DIR"
 if [[ "$PLATFORM_OS" == "win" ]]; then

@@ -82,11 +82,23 @@ app.config['MAX_CONTENT_LENGTH'] = None
 active_queues: dict[str, Queue] = {}
 
 
+def _is_terminal_login_sse_message(message: str) -> bool:
+    if message in {"200", "500"}:
+        return True
+    try:
+        payload = json.loads(message)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    return str(payload.get("status", "")).lower() in {"200", "500", "0", "error"}
+
+
 def sse_stream(status_queue):
     while True:
         if not status_queue.empty():
             msg = status_queue.get()
             yield f"data: {msg}\n\n"
+            if _is_terminal_login_sse_message(msg):
+                break
         else:
             time.sleep(0.1)
 

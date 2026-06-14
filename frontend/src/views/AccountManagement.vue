@@ -536,8 +536,8 @@ const connectSSE = (platform, accountId) => {
       const result = JSON.parse(data)
       if (result.status === '200') {
         loginStatus.value = '200'
+        closeSSEConnection()
         setTimeout(() => {
-          closeSSEConnection()
           setTimeout(() => {
             dialogVisible.value = false
             sseConnecting.value = false
@@ -557,6 +557,15 @@ const connectSSE = (platform, accountId) => {
         setTimeout(() => { loginStatus.value = '' }, 2000)
         return
       }
+      if (result.status === '0' || result.status === 'error') {
+        loginStatus.value = '500'
+        closeSSEConnection()
+        sseConnecting.value = false
+        qrCodeData.value = ''
+        ElMessage.error(result.msg || result.error || '登录已取消')
+        setTimeout(() => { loginStatus.value = '' }, 2000)
+        return
+      }
     } catch (e) {}
 
     if (data === '500') {
@@ -571,8 +580,8 @@ const connectSSE = (platform, accountId) => {
     } else if (data === '200') {
       // 兼容旧格式
       loginStatus.value = '200'
+      closeSSEConnection()
       setTimeout(() => {
-        closeSSEConnection()
         setTimeout(() => {
           dialogVisible.value = false
           sseConnecting.value = false

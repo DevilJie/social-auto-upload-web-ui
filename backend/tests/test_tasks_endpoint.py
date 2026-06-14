@@ -15,8 +15,11 @@ DB_PATH = Path(_tmpdir) / "db" / "database.db"
 
 def _setup():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    from init_db import init_database
+    import init_db as init_db_module
+    init_db_module.DB_PATH = DB_PATH
+    from init_db import init_database, migrate_database
     init_database()
+    migrate_database()
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("INSERT INTO publish_batches (id, type, title, status, account_count, created_at) VALUES ('tb1', 'video', 'batch', 'running', 2, '2026-06-01')")
     conn.execute("INSERT INTO publish_details (id, batch_id, account_name, platform, account_configs, status) VALUES ('td1', 'tb1', '账号A', '抖音', '{}', 'running')")
@@ -31,6 +34,8 @@ class TestTasksEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         _setup()
+        import ext_api
+        ext_api.DB_PATH = DB_PATH
         from ext_api import app
         cls.client = app.test_client()
 

@@ -167,7 +167,7 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
           thumbnail: resolvedThumbnail,
           thumbnailLandscape: resolvedLandscape,
           thumbnailPortrait: resolvedPortrait,
-        });
+        }, 600000);
 
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
@@ -272,7 +272,7 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
         const response = await client.post('/api/image-publish/publish', {
           ...rest,
           account_configs,
-        });
+        }, 600000);
 
         return {
           content: [{

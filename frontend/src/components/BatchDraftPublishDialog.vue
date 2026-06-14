@@ -9,12 +9,25 @@
     <div v-if="drafts.length === 0" class="empty">未选中任何草稿</div>
     <div v-else>
       <el-table
-        ref="tableRef"
         :data="tableData"
-        @selection-change="onSelectionChange"
         :max-height="400"
       >
-        <el-table-column type="selection" width="50" />
+        <el-table-column width="50">
+          <template #header>
+            <el-checkbox
+              :model-value="allChecked"
+              :indeterminate="someChecked"
+              @change="toggleAll"
+            />
+          </template>
+          <template #default="{ row }">
+            <el-checkbox
+              :model-value="selectedIds.includes(row.id)"
+              :disabled="row.status !== 'ok'"
+              @change="(val) => toggleRow(row.id, val)"
+            />
+          </template>
+        </el-table-column>
         <el-table-column prop="title" label="标题" />
         <el-table-column prop="platforms" label="目标平台" width="180" />
         <el-table-column prop="status" label="状态" width="160">
@@ -47,7 +60,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -57,7 +70,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'confirm'])
 
-const tableRef = ref(null)
 const submitting = ref(false)
 const selectedIds = ref([])
 
@@ -82,32 +94,34 @@ const tableData = computed(() =>
   })
 )
 
-// 默认勾选：仅未失败的
+// 默认勾选：所有"通过"状态的草稿（dialog 每次打开重新计算）
 watch(
-  () => [props.visible, props.drafts],
-  ([vis]) => {
+  () => props.visible,
+  (vis) => {
     if (vis) {
       selectedIds.value = tableData.value
         .filter((r) => r.status === 'ok')
         .map((r) => r.id)
-      // 同步 el-table 选中状态
-      nextTick(() => {
-        if (tableRef.value) {
-          tableRef.value.clearSelection()
-          for (const row of tableData.value) {
-            if (selectedIds.value.includes(row.id)) {
-              tableRef.value.toggleRowSelection(row, true)
-            }
-          }
-        }
-      })
     }
   },
   { immediate: true }
 )
 
-function onSelectionChange(rows) {
-  selectedIds.value = rows.map((r) => r.id)
+// 头部 checkbox 三态
+const okIds = computed(() => tableData.value.filter((r) => r.status === 'ok').map((r) => r.id))
+const allChecked = computed(() => okIds.value.length > 0 && okIds.value.every((id) => selectedIds.value.includes(id)))
+const someChecked = computed(() => !allChecked.value && selectedIds.value.length > 0)
+
+function toggleRow(id, checked) {
+  if (checked) {
+    if (!selectedIds.value.includes(id)) selectedIds.value.push(id)
+  } else {
+    selectedIds.value = selectedIds.value.filter((i) => i !== id)
+  }
+}
+
+function toggleAll(checked) {
+  selectedIds.value = checked ? [...okIds.value] : []
 }
 
 function onConfirm() {

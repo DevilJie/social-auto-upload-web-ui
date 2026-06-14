@@ -339,6 +339,50 @@ def test_worker_no_double_task_done():
     )
 
 
+def test_worker_max_retries_zero_fails_without_retry():
+    """max_retries=0:失败立即标记 FAILED,不重新入队。
+
+    场景:草稿批量发布的 task 必须失败即结束,避免 worker 反复打开浏览器重试。
+    验证:_execute 只被调用 1 次,task 进入 completed,queue 已归零。
+    """
+    q = TaskQueue(max_concurrent=1)
+    real_queue = asyncio.Queue()
+    real_queue.put_nowait(PublishTask(
+        platform='xiaohongshu', platform_type=1, account_name='a1', max_retries=0
+    ))
+    q.queue = real_queue
+    q.running = {}
+    q.completed = []
+    q._update_db = MagicMock()
+    q._notify_status = MagicMock()
+
+    call_count = {'n': 0}
+
+    async def always_fail(task):
+        call_count['n'] += 1
+        raise RuntimeError("always fail")
+
+    q._execute = always_fail
+
+    real_sleep = asyncio.sleep
+    async def fast_sleep(_):
+        await real_sleep(0)
+    with patch('ext_api.task_queue.asyncio.sleep', side_effect=fast_sleep):
+        async def main():
+            try:
+                await asyncio.wait_for(q._worker("test"), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
+        asyncio.run(main())
+
+    # execute 只被调用 1 次(无重试),task 进入 completed 且状态 FAILED
+    assert call_count['n'] == 1, f"max_retries=0 应只执行 1 次,实际 {call_count['n']}"
+    assert len(q.completed) == 1
+    assert q.completed[0].status == TaskStatus.FAILED
+    assert q.completed[0].retry_count == 1
+    assert real_queue._unfinished_tasks == 0
+
+
 # ---------- aggregate_batch_status 聚合逻辑测试 ----------
 
 def test_aggregate_batch_status_total_zero_is_pending():

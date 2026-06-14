@@ -14,7 +14,7 @@ export class BackendClient {
   constructor(baseUrl: string) {
     this.http = axios.create({
       baseURL: baseUrl,
-      timeout: 60000,
+      timeout: 300000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -137,8 +137,9 @@ export class BackendClient {
     });
   }
 
-  async post<T = any>(path: string, data?: any): Promise<ApiResponse<T>> {
-    const response: AxiosResponse<ApiResponse<T>> = await this.http.post(path, data);
+  async post<T = any>(path: string, data?: any, timeout?: number): Promise<ApiResponse<T>> {
+    const config = timeout ? { timeout } : undefined;
+    const response: AxiosResponse<ApiResponse<T>> = await this.http.post(path, data, config);
     return response.data;
   }
 

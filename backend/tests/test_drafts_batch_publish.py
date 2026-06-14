@@ -167,6 +167,8 @@ def test_batch_publish_happy_path(tmp_path, monkeypatch):
     assert added_tasks[0].platform_type == 1   # xiaohongshu = 1
     assert added_tasks[0].payload['title'] == 'T'
     assert added_tasks[0].payload['ai_content'] == '内容由AI生成'
+    # 草稿批量发布:失败立即标记 FAILED,不重试(用户需求)
+    assert added_tasks[0].max_retries == 0
 
 
 def test_batch_publish_multi_account_yields_multi_tasks(tmp_path, monkeypatch):

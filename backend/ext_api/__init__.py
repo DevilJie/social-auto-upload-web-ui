@@ -1175,6 +1175,8 @@ def batch_publish_drafts():
                     draft_id=r['id'],
                     account_id=account_id,
                     payload=payload,
+                    # 草稿批量发布:失败立即标记 FAILED,不重试(用户需求)
+                    max_retries=0,
                 )
                 try:
                     task_queue.add_task(task)

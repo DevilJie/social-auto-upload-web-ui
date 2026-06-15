@@ -77,8 +77,10 @@ class WeiboPlatform(BasePlatform):
                 # may take as long as needed; browser close → task cancel
                 # (handled by login_mode=True in _browser.py).
                 # 等待登录成功标志（无限等）：浏览器关闭由 login_mode=True 处理
+                # 必须限定到顶部导航栏 .woo-tab-nav，否则未登录态主页面有热门博主
+                # 链接（同样 a[href^="/u/"] img[src*="sinaimg.cn"]）会误判已登录
                 await page.locator(
-                    'a[href^="/u/"] img[src*="sinaimg.cn"]'
+                    '.woo-tab-nav a[href^="/u/"] img[src*="sinaimg.cn"]'
                 ).first.wait_for(timeout=999999999)
                 logger.info("[weibo] login detected (profile link in top nav)")
 

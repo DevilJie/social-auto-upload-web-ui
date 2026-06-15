@@ -409,11 +409,12 @@ async def scrape_weibo_profile(page):
 
         result = await page.evaluate("""() => {
             let name = '', avatar = '';
-            const link = document.querySelector('a[href^="/u/"]');
+            // 必须限定到顶部导航栏 .woo-tab-nav，否则未登录态主页面
+            // 热门博主链接也是 a[href^="/u/"] img[src*="sinaimg.cn"]
+            const link = document.querySelector('.woo-tab-nav a[href^="/u/"]');
             if (link) {
                 name = link.getAttribute('title') || '';
-                // 优先找 link 内的 img，再兜底全局找带 avatar class 的 img
-                const img = link.querySelector('img') || document.querySelector('img[class*="avatar"]');
+                const img = link.querySelector('img');
                 if (img) avatar = img.src || '';
             }
             return { name, avatar };

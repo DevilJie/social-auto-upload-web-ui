@@ -66,17 +66,20 @@ class WeiboPlatform(BasePlatform):
                 await page.evaluate("window.scrollTo(0, 200)")
                 await asyncio.sleep(0.5)
 
-                # Click the "登录" link by text (robust against hash class changes)
-                login_link = page.get_by_role("link", name="登录").first
-                await login_link.click()
+                # Click the "登录" link by text (robust against hash class changes).
+                # NB: <a> 不带 href 在现代浏览器中没有 link role，所以不能用
+                # get_by_role("link", ...)。get_by_text 匹配文本节点，不依赖角色。
+                login_link = page.get_by_text("登录").first
+                await login_link.click(timeout=15000)
                 logger.info("[weibo] login link clicked, waiting for user to complete login")
 
                 # Wait indefinitely for the post-login profile link. The user
                 # may take as long as needed; browser close → task cancel
                 # (handled by login_mode=True in _browser.py).
-                await page.wait_for_selector(
+                # 等待登录成功标志（无限等）：浏览器关闭由 login_mode=True 处理
+                await page.locator(
                     'a[href^="/u/"] img[src*="sinaimg.cn"]'
-                )
+                ).first.wait_for(timeout=999999999)
                 logger.info("[weibo] login detected (profile link in top nav)")
 
                 # Give the page a moment to render authenticated content

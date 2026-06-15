@@ -391,7 +391,7 @@ async def scrape_weibo_profile(page):
 
     抓取依据：微博创作中心顶部导航栏登录后会出现
     ``a[href^=\"/u/\"]``（最后一个 tab，带 ``title`` 属性和头像 img）。
-    这是已知最稳定的锚点（与 login 检测用同一选择器）。
+    直接跑 JS eval 取属性，避免 locator API 链的兼容问题。
 
     1. 昵称：``a[href^=\"/u/\"]`` 的 ``title`` 属性
     2. 头像：``a[href^=\"/u/\"] img[src*=\"sinaimg.cn\"]`` 的 ``src`` 属性
@@ -407,12 +407,16 @@ async def scrape_weibo_profile(page):
         await page.wait_for_load_state("domcontentloaded", timeout=5000)
         await asyncio.sleep(2)
 
-        profile_link = page.locator('a[href^="/u/"]').first
-        if await profile_link.count():
-            name = (await profile_link.get_attribute("title") or "").strip()
-            avatar_img = profile_link.locator('img[src*="sinaimg.cn"]').first
-            if await avatar_img.count():
-                avatar = (await avatar_img.get_attribute("src") or "").strip()
+        result = await page.evaluate("""() => {
+            const link = document.querySelector('a[href^="/u/"]');
+            if (!link) return { name: '', avatar: '' };
+            const name = link.getAttribute('title') || '';
+            const img = link.querySelector('img[src*="sinaimg.cn"]');
+            const avatar = img ? (img.getAttribute('src') || '') : '';
+            return { name, avatar };
+        }""")
+        name = (result.get("name") or "").strip()
+        avatar = (result.get("avatar") or "").strip()
         logger.info(f"[weibo] profile scraped - name={name!r} avatar={avatar[:50] if avatar else 'None'}")
     except Exception as e:
         logger.info(f"[weibo] profile scrape error: {e}")

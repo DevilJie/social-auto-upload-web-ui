@@ -408,16 +408,19 @@ async def scrape_weibo_profile(page):
         await asyncio.sleep(2)
 
         result = await page.evaluate("""() => {
+            let name = '', avatar = '';
             const link = document.querySelector('a[href^="/u/"]');
-            if (!link) return { name: '', avatar: '' };
-            const name = link.getAttribute('title') || '';
-            const img = link.querySelector('img[src*="sinaimg.cn"]');
-            const avatar = img ? (img.getAttribute('src') || '') : '';
+            if (link) {
+                name = link.getAttribute('title') || '';
+                // 优先找 link 内的 img，再兜底全局找带 avatar class 的 img
+                const img = link.querySelector('img') || document.querySelector('img[class*="avatar"]');
+                if (img) avatar = img.src || '';
+            }
             return { name, avatar };
         }""")
         name = (result.get("name") or "").strip()
         avatar = (result.get("avatar") or "").strip()
-        logger.info(f"[weibo] profile scraped - name={name!r} avatar={avatar[:50] if avatar else 'None'}")
+        logger.info(f"[weibo] profile scraped - name={name!r} avatar={avatar[:80] if avatar else 'None'} (result={result})")
     except Exception as e:
         logger.info(f"[weibo] profile scrape error: {e}")
 

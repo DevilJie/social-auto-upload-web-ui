@@ -350,7 +350,7 @@ class WeiboPlatform(BasePlatform):
                 # 上传视频文件
                 await self._upload_video_file(page, file_path)
 
-                # 等待视频真正上传完成(类型 radio 可见 = 表单可交互)
+                # 等待视频真正上传完成(「上传中」spinner DOM 消失 = 上传完成)
                 await self._wait_for_upload_form(page)
 
                 # 类型(原创/二创/转载)
@@ -558,27 +558,63 @@ class WeiboPlatform(BasePlatform):
     async def _wait_for_upload_form(page, timeout_s: int = 3600):
         """等待视频上传完成、表单可交互。
 
-        **权威锚点**: 类型 radio「原创」可见且可点(2026-06-16 前一直用这个,
-        验证可用)。早期版本用 textarea (placeholder 含「有什么新鲜事」)
-        作为锚点,但 textarea 在微博页面**初始就渲染**,上传过程中也可见,
-        不能代表上传完成。类型 radio 才是上传完成后才完全可交互的元素。
+        **权威锚点**(2026-06-17 调整): 两个信号中任一为真即返回。
+
+        1. 「上传中」spinner DOM 消失 — 直接信号(per 用户要求)
+        2. 「原创」type radio 可见 — 表单可交互信号(兜底)
+
+        用 OR 不用 AND 的原因: 2026-06-17 实测发现,weibo 在文件传输
+        完成(``check.json`` 200)后,「上传中」spinner DOM 仍会持续存在
+        较长时间(可能用于转码阶段,实测 7+ 分钟仍未消失),仅看 spinner
+        会导致函数长时间挂起,所有后续表单操作全部阻塞。OR 逻辑下
+        一旦 radio 可见就放行,避免误判。
+
+        DOM 结构(spinner):
+        ```html
+        <div class="woo-box-flex woo-box-alignCenter _info_xxx_135">
+            <svg class="woo-spinner-main">...</svg>
+            <span>上传中</span>
+            <span>3.01MB/14.33MB</span>
+            <a>暂停</a><a>删除</a>
+        </div>
+        ```
+
+        class 名是 CSS-modules 生成、会随构建变化 — 用「上传中」文本
+        (exact match) 检测这个 DOM 是否还在。
 
         上传未完成之前,所有后续表单设置操作(_set_video_type /
         _set_title / _set_cover / _set_category / _set_description /
         _set_content_statement / _click_publish) 全部阻塞在此函数,
-        等 radio 可见才继续。
+        等任一信号命中才继续。
 
         **超时默认 60 分钟**(3600s):大视频 + 慢网络上 100MB 视频需要
         10~30min,留足余量。
         """
+        # 检测「上传中」spinner DOM 是否还存在 + 「原创」radio 是否可见
+        uploading_locator = page.get_by_text("上传中", exact=True)
         radio = page.get_by_role("radio", name="原创", exact=True).first
         deadline = asyncio.get_event_loop().time() + timeout_s
 
         while asyncio.get_event_loop().time() < deadline:
-            # 1. 类型 radio 可见 → 表单 ready
+            # 1. 「上传中」DOM 消失 或 「原创」radio 可见 → 任一命中即返回
             try:
-                if await radio.is_visible():
-                    logger.info("[weibo] 类型 radio 可见,上传完成、表单可交互")
+                uploading_gone = await uploading_locator.count() == 0
+                radio_visible = await radio.is_visible()
+                if uploading_gone or radio_visible:
+                    if uploading_gone and radio_visible:
+                        logger.info(
+                            "[weibo] 「上传中」DOM 已消失且「原创」radio 可见,"
+                            "上传完成、表单可交互"
+                        )
+                    elif uploading_gone:
+                        logger.info(
+                            "[weibo] 「上传中」DOM 已消失,上传完成"
+                        )
+                    else:
+                        logger.info(
+                            "[weibo] 「上传中」DOM 仍存在,但「原创」radio 可见,"
+                            "视为上传完成、表单可交互(转码阶段 spinner 暂未消失)"
+                        )
                     return
             except Exception:
                 pass
@@ -596,14 +632,13 @@ class WeiboPlatform(BasePlatform):
 
             # 3. 进度旁证(每 30s 一次,避免刷屏)
             try:
-                uploading = await page.get_by_text("上传中", exact=True).count()
-                done = await page.get_by_text("上传完成", exact=True).count()
                 remaining = int(deadline - asyncio.get_event_loop().time())
                 if remaining % 60 < 5 or remaining < 60:
+                    uploading_count = await uploading_locator.count()
                     logger.info(
-                        "[weibo] 等待上传完成... 上传中=%d 上传完成=%d "
-                        "(剩余 %ds)",
-                        uploading, done, remaining,
+                        "[weibo] 等待「上传中」消失或 radio 可见... "
+                        "上传中=%d (剩余 %ds)",
+                        uploading_count, remaining,
                     )
             except Exception:
                 pass
@@ -617,7 +652,7 @@ class WeiboPlatform(BasePlatform):
             url = "(unknown)"
         raise RuntimeError(
             f"[weibo] 等待视频上传完成超时({timeout_s}s = "
-            f"{timeout_s // 60}min),类型 radio 始终不可见。"
+            f"{timeout_s // 60}min),两个信号都未满足。"
             f"当前 URL: {url}"
         )
 
@@ -678,11 +713,11 @@ class WeiboPlatform(BasePlatform):
     ):
         """上传封面。
 
-        流程(spec):
+        流程(spec ~/1.txt:12-19):
         1. 点击「上传封面」链接(spec 说这会自动打开系统原生文件选择器)
-        2. 立即按 ESC 关闭原生选择器
-        3. 等待「编辑封面」弹层出现,找到 ``input[type=file]._file_1mhd8_65``
-        4. set_input_files 上传图片
+        2. 按 ESC 关闭原生选择器
+        3. 等待「编辑封面」弹层出现
+        4. 找到弹层内的隐藏 ``input[type=file]`` 上传图片
         5. 点击「完成」按钮
 
         优先使用横版封面;若只传了竖版,用竖版。
@@ -702,9 +737,9 @@ class WeiboPlatform(BasePlatform):
 
         # 2. 点击 + 立即 ESC 关掉原生选择器(spec 强调此坑)
         await upload_cover_link.click()
-        await asyncio.sleep(0.3)
-        await page.keyboard.press("Escape")
         await asyncio.sleep(0.5)
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.8)
         logger.info("[weibo] 已点击上传封面并 ESC 关闭原生选择器")
 
         # 3. 等待「编辑封面」弹层出现
@@ -718,23 +753,31 @@ class WeiboPlatform(BasePlatform):
             return
 
         # 4. 找到隐藏 input[type=file] 上传
-        # spec: <input type="file" class="_file_1mhd8_65" accept=".jpg, .jpeg, ...">
-        # 该弹层里有两个 file input,取第一个可用的
-        file_inputs = page.locator("input[type='file'][accept*='jpg']")
+        # spec 弹层里有两个 file input,accept 都是 ".jpg, .jpeg, .bmp, ..."
+        # 关键: **不能** 用 [accept*='jpg'] — 微博正文区也有一个 image
+        # 上传 input,accept 是 "image/*, .jpg, .jpeg, ..."(以 image/*
+        # 开头),会被一起匹配,导致 .first 选错。
+        # 用 [accept^='.jpg'] 严格匹配"以 .jpg 开头",只命中封面弹层。
+        file_inputs = page.locator("input[type='file'][accept^='.jpg']")
         count = await file_inputs.count()
         if not count:
-            logger.warning("[weibo] 封面弹层未找到 input[type=file]")
+            logger.warning("[weibo] 封面弹层未找到 input[type=file][accept^='.jpg']")
             return
+        logger.info("[weibo] 找到 %d 个封面 file input", count)
         await file_inputs.first.set_input_files(cover_path)
         logger.info("[weibo] 已上传封面文件: %s", os.path.basename(cover_path))
-        await asyncio.sleep(2)
+        # 等图片处理完(上传到 weibo + 裁剪器加载预览)。2s 实测不够,
+        # 经常「完成」点了之后弹层关掉但封面没存上(2026-06-17)。
+        await asyncio.sleep(4)
 
         # 5. 点击「完成」按钮 (封面编辑弹层右下角)
         # 用 role+name 定位,避免 class 哈希漂移
         done_btn = page.get_by_role("button", name="完成", exact=True).first
         try:
             await done_btn.wait_for(state="visible", timeout=5000)
-            await done_btn.click()
+            # force=True 兜底:封面弹层是 fixed 定位,偶尔有透明遮罩
+            # 拦截 pointer events,导致普通 click 一直 retry(2026-06-17 实测)
+            await done_btn.click(force=True)
             logger.info("[weibo] 已点击封面完成按钮")
         except Exception as e:
             logger.warning("[weibo] 点击封面完成按钮失败: %s", e)
@@ -864,6 +907,7 @@ class WeiboPlatform(BasePlatform):
         await textarea.click()
         await asyncio.sleep(0.2)
         await page.keyboard.type(text, delay=30)
+        await page.keyboard.press("Space")
         logger.info("[weibo] 已填正文(长度=%d)", len(text))
 
     # ------------------------------------------------------------------
@@ -882,6 +926,9 @@ class WeiboPlatform(BasePlatform):
             return
 
         # trigger 是「内容声明」文本节点,click 冒泡到父级 woo-pop-ctrl
+        # 但父级 <span class="woo-pop-ctrl"> 在 actionability 检查里
+        # 会被判为「intercept pointer events」(2026-06-17 实测:50+ 次
+        # retry → 页面上下弹),必须 force=True 跳过这个检查。
         trigger = page.get_by_text("内容声明", exact=True).first
         try:
             await trigger.wait_for(state="visible", timeout=5000)
@@ -889,7 +936,7 @@ class WeiboPlatform(BasePlatform):
             logger.warning("[weibo] 未找到内容声明入口: %s", e)
             return
 
-        await trigger.click()
+        await trigger.click(force=True)
         await asyncio.sleep(0.5)
 
         # 弹窗里的选项是 button,文本就是选项值

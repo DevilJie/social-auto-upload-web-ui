@@ -315,6 +315,17 @@
                     size="small"
                     class="cursor-pointer"
                   />
+                  <el-cascader
+                    v-else-if="field.type === 'cascader'"
+                    v-model="form[field.key]"
+                    :options="field.options || []"
+                    :placeholder="field.placeholder"
+                    :props="field.props || { expandTrigger: 'hover' }"
+                    size="small"
+                    clearable
+                    filterable
+                    class="cursor-pointer weibo-cascader"
+                  />
                 </div>
               </template>
             </template>
@@ -633,6 +644,10 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 平台特有字段 4 级合并（账号 > 渠道 > 平台默认）—— 补回 xiaohongshu 漏的
     collection: accountOv?.collection ?? platformOv?.collection ?? platformDefault?.collection ?? '',
     groupChat: accountOv?.groupChat ?? platformOv?.groupChat ?? platformDefault?.groupChat ?? '',
+    // 微博
+    videoType: accountOv?.videoType ?? platformOv?.videoType ?? platformDefault?.videoType ?? '',
+    weiboCategory: accountOv?.weiboCategory ?? platformOv?.weiboCategory ?? platformDefault?.weiboCategory ?? [],
+    contentStatement: accountOv?.contentStatement ?? platformOv?.contentStatement ?? platformDefault?.contentStatement ?? '',
   }
 }
 
@@ -679,6 +694,7 @@ const platformConfigs = reactive({
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '', tags: [] },
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '', tags: [] },
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '', tags: [] },
+  weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -758,6 +774,9 @@ watch([selectedPlatform, selectedAccountId], () => {
     const fields = platform.settingsFields || []
     for (const field of fields) {
       if (field.type === 'multiSelect' && !Array.isArray(form[field.key])) {
+        form[field.key] = []
+      }
+      if (field.type === 'cascader' && !Array.isArray(form[field.key])) {
         form[field.key] = []
       }
     }
@@ -1512,8 +1531,16 @@ async function publishAll() {
         dailyTimes: ['10:00'],
         startDays: 0,
         // 修：账号级填的 zone 才能进 publishData
-        category: merged.zone || (merged.isOriginal ? 1 : 0),
-        // 修：账号级填的字段用 merged.xxx（mergeConfig 已 4 级合并）
+        // 微博分类走 cascader(数组 [channel_name, sub_name]);其他平台用 zone 或数值
+        category: group.key === 'weibo'
+          ? (Array.isArray(merged.weiboCategory) ? merged.weiboCategory : [])
+          : (merged.zone || (merged.isOriginal ? 1 : 0)),
+        // 微博的「类型」(原创/二创/转载)走 aiContent 字段透传给后端
+        aiContent: group.key === 'weibo'
+          ? (merged.videoType || '')
+          : (merged.aiContent || ''),
+        // 微博「内容声明」单独透传
+        contentStatement: group.key === 'weibo' ? (merged.contentStatement || '') : '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',
@@ -1521,7 +1548,6 @@ async function publishAll() {
         mix_id: merged.mixId || '',
         // Other platform fields (修：channels isDraft 同)
         isDraft: merged.isDraft || false,
-        aiContent: merged.aiContent || '',
         // creationDeclaration 走 merged（已含 platformDefault 兜底）
         creationDeclaration: Array.isArray(merged.creationDeclaration)
           ? merged.creationDeclaration.join(',')

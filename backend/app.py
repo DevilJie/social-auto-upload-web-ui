@@ -557,6 +557,7 @@ def postVideo():
                 tag_value=tag_value,
                 mini_link=mini_link,
                 mix_id=mix_id,
+                content_statement=data.get('contentStatement', ''),
             ))
         else:
             result = publish_fn(
@@ -590,6 +591,7 @@ def postVideo():
                 tag_value=tag_value,
                 mini_link=mini_link,
                 mix_id=mix_id,
+                content_statement=data.get('contentStatement', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

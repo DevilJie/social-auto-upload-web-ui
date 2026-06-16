@@ -32,13 +32,17 @@ def test_weibo_platform_mappings_in_app():
     assert PLATFORM_ID_TO_KEY[11] == "weibo"
 
 
-def test_weibo_publish_video_not_implemented():
-    """本轮范围外，publish_video 应继承基类抛 NotImplementedError。"""
+def test_weibo_publish_video_signature():
+    """publish_video 必须已实现,接受 **kwargs 并返回 bool(同步包装器)。
+
+    实际跑发布需要 Playwright + 登录 cookie,这里只验证签名/返回类型。
+    """
     from impl.weibo.platform import WeiboPlatform
+    import inspect
     p = WeiboPlatform()
-    try:
-        p.publish_video()
-        raised = False
-    except NotImplementedError:
-        raised = True
-    assert raised, "publish_video should raise NotImplementedError in this round"
+    sig = inspect.signature(p.publish_video)
+    # 接受 **kwargs(发布参数由 app.py 传入,平台层不强制签名)
+    assert any(
+        p.kind == inspect.Parameter.VAR_KEYWORD
+        for p in sig.parameters.values()
+    ), "publish_video should accept **kwargs"

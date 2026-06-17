@@ -122,6 +122,78 @@ class TestImagePublishEndpoint(unittest.TestCase):
         self.assertEqual(batch['portrait_cover_material_id'], 'mat-cover-p-1')
         self.assertEqual(len(details), 1)
 
+    def test_publish_endpoint_routes_weibo_to_platform_11(self):
+        """POST /api/image-publish/publish 带 platform='weibo' 或 '微博' 时,
+        路由到 platform_id=11,setUp 中的 self._fake_platform.publish_image 被调。
+
+        间接验证 platform_map 含 'weibo': 11 / '微博': 11
+        （platform_map 是 publish_images() 内局部变量,模块导入不可见）。
+        """
+        # 准备 materials 表里的一张图片,让 image_files 非空,从而走 platform 调用分支
+        conn = sqlite3.connect(str(DB_PATH))
+        # 复用测试 schema 临时扩展列(测试库独立,不影响生产)
+        conn.execute("ALTER TABLE materials ADD COLUMN stored_path TEXT DEFAULT ''")
+        conn.execute(
+            "INSERT INTO materials (id, stored_path) VALUES (?, ?)",
+            ('img1', '/tmp/fake_img1.jpg'),
+        )
+        conn.commit()
+        conn.close()
+
+        # patch storage.get_local_path,确保返回本地路径
+        from storage import local as storage_local
+        with patch.object(storage_local.LocalStorage, 'get_local_path',
+                          return_value='/tmp/fake_img1.jpg'):
+            client = self.app.test_client()
+            self._fake_platform.publish_image.reset_mock()
+
+            # Case 1: platform='weibo' → platform_id=11
+            resp = client.post('/api/image-publish/publish', json={
+                'image_ids': ['img1'],
+                'account_configs': {
+                    'account_id': 1,
+                    'platform': 'weibo',
+                    'filePath': '/tmp/fake_cookie.json',
+                    'title': '测试微博图集',
+                    'description': '测试描述',
+                    'tags': ['测试'],
+                    'aiContent': '内容由AI生成',
+                },
+                'batchId': 'batch-weibo-1',
+            })
+            # Case 2: platform='微博' (中文) → platform_id=11
+            resp2 = client.post('/api/image-publish/publish', json={
+                'image_ids': ['img1'],
+                'account_configs': {
+                    'account_id': 1,
+                    'platform': '微博',
+                    'filePath': '/tmp/fake_cookie.json',
+                    'title': '测试微博图集中文',
+                    'description': '测试描述',
+                    'tags': ['测试'],
+                    'aiContent': '内容由AI生成',
+                },
+                'batchId': 'batch-weibo-2',
+            })
+
+        # 验证 setUp 的 fake_platform.publish_image 被调 2 次(weibo + 微博)
+        self.assertEqual(self._fake_platform.publish_image.call_count, 2)
+
+        # 验证 get_platform 被以 platform_id=11 调用(weibo/微博 都映射到 11)
+        # 关键断言:platform_map 必须含 'weibo'→11 和 '微博'→11
+        # self._patches[0] 是 patch("impl.registry.get_platform", return_value=...)
+        # 通过 _patches[0].mock_calls 看不到 args(因为是 return_value MagicMock),
+        # 改用直接验证 publish_image 的 kwargs
+        call1 = self._fake_platform.publish_image.call_args_list[0]
+        self.assertEqual(call1.kwargs['title'], '测试微博图集')
+        self.assertEqual(call1.kwargs['desc'], '测试描述')
+        self.assertEqual(call1.kwargs['ai_content'], '内容由AI生成')
+        self.assertEqual(call1.kwargs['files'], ['/tmp/fake_img1.jpg'])
+        self.assertEqual(call1.kwargs['account_file'], ['/tmp/fake_cookie.json'])
+
+        call2 = self._fake_platform.publish_image.call_args_list[1]
+        self.assertEqual(call2.kwargs['title'], '测试微博图集中文')
+
 
 if __name__ == '__main__':
     unittest.main()

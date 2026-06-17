@@ -523,6 +523,73 @@ class WeiboPlatform(BasePlatform):
         raise RuntimeError("[weibo] 5 分钟内图片未上传完成(发送按钮未启用)")
 
     # ------------------------------------------------------------------
+    # Helper: click 发送 button
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _click_send(page):
+        """点击「发送」按钮(图集版,视频版是「发布」)。
+
+        与 video 版 _click_publish 同构,只是 button name 不同。
+        初始 disabled,表单就绪后启用 — 轮询 disabled 属性(最长 60s)。
+        """
+        send_btn = page.get_by_role("button", name="发送", exact=True).first
+        try:
+            await send_btn.wait_for(state="visible", timeout=10000)
+        except Exception as e:
+            raise RuntimeError(f"[weibo] 未找到「发送」按钮: {e}")
+
+        # 轮询 disabled(最长 60s)
+        for _ in range(60):
+            disabled = await send_btn.get_attribute("disabled")
+            if disabled is None:
+                break
+            await asyncio.sleep(1)
+        else:
+            raise RuntimeError("[weibo] 「发送」按钮一直 disabled,表单未就绪")
+
+        await send_btn.click()
+        logger.info("[weibo] 已点击「发送」按钮")
+
+    # ------------------------------------------------------------------
+    # Helper: wait for image publish success signal
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _wait_for_image_publish_success(page, timeout_s: int = 60):
+        """等待图集发布完成。
+
+        微博图集发送后**无明显 toast**(与 video 版的「视频已上传成功」
+        不同)。判定成功靠 2 个条件 OR:
+        1. textarea 内容清空
+        2. 创作卡片回到初始态(「发送」按钮重新 disabled)
+
+        60s 内任一命中即视为成功。
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        textarea = page.locator("textarea[placeholder*='有什么新鲜事']").first
+        send_btn = page.get_by_role("button", name="发送", exact=True).first
+
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                # 条件 1: textarea 清空
+                textarea_empty = await textarea.input_value() == ""
+                # 条件 2: 发送按钮重新 disabled
+                disabled = await send_btn.get_attribute("disabled")
+                send_disabled = disabled is not None
+                if textarea_empty or send_disabled:
+                    logger.info("[weibo] 图集发布成功(textarea 空=%s, send 禁用=%s)",
+                                textarea_empty, send_disabled)
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+        raise RuntimeError(
+            f"[weibo] 等待图集发布完成超时({timeout_s}s)"
+        )
+
+    # ------------------------------------------------------------------
     # Internal: orchestrate all file × account uploads
     # ------------------------------------------------------------------
 

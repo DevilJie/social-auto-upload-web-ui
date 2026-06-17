@@ -2,12 +2,12 @@
   <el-dialog
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    title="批量设置"
+    :title="title"
     width="720px"
     top="8vh"
     :close-on-click-modal="false"
   >
-    <el-form label-width="60px" label-position="top">
+    <el-form label-position="top">
       <el-form-item label="标题">
         <el-input
           v-model="formTitle"
@@ -55,7 +55,13 @@
               'is-checked': checkedKeys.has(p.key),
               'is-disabled': p.count === 0
             }]"
+            role="checkbox"
+            :aria-checked="checkedKeys.has(p.key)"
+            :aria-disabled="p.count === 0"
+            :tabindex="p.count === 0 ? -1 : 0"
             @click="toggleKey(p)"
+            @keydown.enter.prevent="toggleKey(p)"
+            @keydown.space.prevent="toggleKey(p)"
           >
             <img v-if="p.logo" :src="p.logo" :alt="p.name" class="channel-logo" />
             <div v-else class="channel-logo channel-logo-fallback">{{ p.name?.charAt(0) }}</div>
@@ -83,10 +89,14 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { Check } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+
+const MAX_TAGS = 10
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
   platforms: { type: Array, required: true },
+  title: { type: String, default: '批量设置' },
 })
 
 const emit = defineEmits(['update:modelValue', 'apply'])
@@ -125,6 +135,10 @@ function toggleKey(p) {
 function addTag() {
   const v = (tagInput.value || '').trim()
   if (!v) return
+  if (formTags.value.length >= MAX_TAGS) {
+    ElMessage.warning(`最多 ${MAX_TAGS} 个标签`)
+    return
+  }
   if (formTags.value.includes(v)) {
     tagInput.value = ''
     return

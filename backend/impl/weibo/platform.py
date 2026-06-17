@@ -913,19 +913,21 @@ class WeiboPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _wait_for_upload_form(page, timeout_s: int = 3600):
+    async def _wait_for_upload_form(page, timeout_s: int = 14400):
         """等待视频上传完成、表单可交互。
 
         **权威锚点**(2026-06-17 调整): 两个信号中任一为真即返回。
 
-        1. 「上传中」spinner DOM 消失 — 直接信号(per 用户要求)
-        2. 「原创」type radio 可见 — 表单可交互信号(兜底)
+        1. 「上传中」spinner DOM 消失 — 直接信号
+        2. 发布按钮文字从「自动发布」变成「发布」 — 上传中按钮文案是
+           「自动发布」,上传完成后变为「发布」。检测 ``button[name=发布]``
+           可见即视为上传完成。
 
-        用 OR 不用 AND 的原因: 2026-06-17 实测发现,weibo 在文件传输
-        完成(``check.json`` 200)后,「上传中」spinner DOM 仍会持续存在
-        较长时间(可能用于转码阶段,实测 7+ 分钟仍未消失),仅看 spinner
-        会导致函数长时间挂起,所有后续表单操作全部阻塞。OR 逻辑下
-        一旦 radio 可见就放行,避免误判。
+        用 OR 不用 AND 的原因: weibo 在文件传输完成(``check.json`` 200)
+        后,「上传中」spinner DOM 仍会持续存在较长时间(可能用于转码阶段,
+        实测 7+ 分钟仍未消失),仅看 spinner 会导致函数长时间挂起,所有
+        后续表单操作全部阻塞。OR 逻辑下一旦发布按钮文字变更为「发布」
+        就放行,避免误判。
 
         DOM 结构(spinner):
         ```html
@@ -945,23 +947,23 @@ class WeiboPlatform(BasePlatform):
         _set_content_statement / _click_publish) 全部阻塞在此函数,
         等任一信号命中才继续。
 
-        **超时默认 60 分钟**(3600s):大视频 + 慢网络上 100MB 视频需要
-        10~30min,留足余量。
+        **超时默认 4 小时**(14400s):大视频(几 GB)+ 慢网络上传可能
+        需要 1 小时甚至更久,留足余量。
         """
-        # 检测「上传中」spinner DOM 是否还存在 + 「原创」radio 是否可见
+        # 检测「上传中」spinner DOM 是否还存在 + 发布按钮文字是否变成「发布」
         uploading_locator = page.get_by_text("上传中", exact=True)
-        radio = page.get_by_role("radio", name="原创", exact=True).first
+        publish_btn = page.get_by_role("button", name="发布", exact=True).first
         deadline = asyncio.get_event_loop().time() + timeout_s
 
         while asyncio.get_event_loop().time() < deadline:
-            # 1. 「上传中」DOM 消失 或 「原创」radio 可见 → 任一命中即返回
+            # 1. 「上传中」DOM 消失 或 发布按钮可见(文字已从「自动发布」变成「发布」)
             try:
                 uploading_gone = await uploading_locator.count() == 0
-                radio_visible = await radio.is_visible()
-                if uploading_gone or radio_visible:
-                    if uploading_gone and radio_visible:
+                publish_visible = await publish_btn.is_visible()
+                if uploading_gone or publish_visible:
+                    if uploading_gone and publish_visible:
                         logger.info(
-                            "[weibo] 「上传中」DOM 已消失且「原创」radio 可见,"
+                            "[weibo] 「上传中」DOM 已消失且「发布」按钮可见,"
                             "上传完成、表单可交互"
                         )
                     elif uploading_gone:
@@ -970,7 +972,7 @@ class WeiboPlatform(BasePlatform):
                         )
                     else:
                         logger.info(
-                            "[weibo] 「上传中」DOM 仍存在,但「原创」radio 可见,"
+                            "[weibo] 「上传中」DOM 仍存在,但「发布」按钮已可见,"
                             "视为上传完成、表单可交互(转码阶段 spinner 暂未消失)"
                         )
                     return
@@ -994,7 +996,7 @@ class WeiboPlatform(BasePlatform):
                 if remaining % 60 < 5 or remaining < 60:
                     uploading_count = await uploading_locator.count()
                     logger.info(
-                        "[weibo] 等待「上传中」消失或 radio 可见... "
+                        "[weibo] 等待「上传中」消失或「发布」按钮可见... "
                         "上传中=%d (剩余 %ds)",
                         uploading_count, remaining,
                     )
@@ -1010,7 +1012,7 @@ class WeiboPlatform(BasePlatform):
             url = "(unknown)"
         raise RuntimeError(
             f"[weibo] 等待视频上传完成超时({timeout_s}s = "
-            f"{timeout_s // 60}min),两个信号都未满足。"
+            f"{timeout_s // 60}min),「上传中」未消失且「发布」按钮未可见。"
             f"当前 URL: {url}"
         )
 

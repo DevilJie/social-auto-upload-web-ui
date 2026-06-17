@@ -96,7 +96,18 @@ try:
         # 关键: 走主页而不是 /upload/channel
         await page.goto("https://weibo.com", timeout=60000)
         await page.wait_for_load_state("domcontentloaded", timeout=30000)
-        await asyncio.sleep(2)  # 等创作卡片稳定
+
+        # 关键: 等创作卡片渲染,否则 cookie 失效/慢网络会假性成功
+        # 发送按钮是"创作卡片就绪"的最强信号(初始 disabled 但可见)
+        try:
+            await page.get_by_role(
+                "button", name="发送", exact=True
+            ).first.wait_for(state="attached", timeout=15000)
+        except Exception as e:
+            raise RuntimeError(
+                f"[weibo] 创作卡片未渲染(cookie 失效/未登录?): {e}"
+            )
+        await asyncio.sleep(2)  # 给图片工具图标、声明 trigger 等完全渲染留余量
 
         # 1. 上传图片
         await self._upload_images(page, file_path_list)
@@ -124,10 +135,12 @@ finally:
 
 策略：直接找 `input[type=file][multiple][accept^='image/']`，一次 `set_input_files(files)`。
 
+**注意 input 隐藏状态**：用户提供的 DOM 中 input 祖父是 `style="display: none"`，只在点「图片」trigger 时显示。Playwright `set_input_files` **不要求 visible**（只要求 attached + enabled），所以**无需先点 trigger 直接 set 即可**。若 set 失败，回退到「点 trigger → expect_file_chooser」路径。
+
 **关键 selector（按用户提供的 DOM）**：
 - 触发器文本：`图片`（在 `<div class="woo-pop-wrap">` 内）
 - 文件 input：`<input type="file" accept="image/*, .jpg, .jpeg, .bmp, .gif, .png, .heif, .heic, video/mp4, video/x-m4v, video/*, .mkv, .flv" multiple="">`
-- 选择器：`input[type='file'][accept^='image/'][multiple]`（避开微博正文区另一个 `accept^='.jpg'` 的 input，参见 video 版的修复 commit `4f9648f`）
+- 选择器：`input[type='file'][accept^='image/'][multiple]`（避开微博正文区另一个 `accept^='.jpg'` 的 input，selector 思路来自 video 版 `_set_cover` 用 `accept^='.jpg'` 严格匹配）
 
 **多重兜底**（与 video 版 `_upload_video_file` 思路一致）：
 1. 直接 `set_input_files(files)` 命中 input
@@ -270,7 +283,7 @@ watch(() => form.description, (v) => { form.title = v || '' })
 
 ## 草稿兼容性
 
-旧草稿 `platformConfigs` 不含 `weibo` key → `loadDraft` 时 `if (panel && val)` 守卫，skip 即可，**无破坏**。
+旧草稿 `platformConfigs` 不含 `weibo` key → `loadDraft` 时 `Object.entries(dd.platformConfigs)` 自然不遍历缺失 key，skip 即可（`if (panel && val)` 守卫只是顺便防 `val` 为空），**无破坏**。
 
 新草稿首次保存会写入 `platformConfigs.weibo = { title:'', description:'', tags:[], aiContent:'', ... }`。
 
@@ -322,7 +335,7 @@ watch(() => form.description, (v) => { form.title = v || '' })
 5. `backend/services/draft_merge.py` — 注释/logger 重命名
 6. `backend/storage/__init__.py` — 注释重命名
 7. `backend/tests/test_image_publish_endpoint.py` — 新增 case
-8. `frontend/src/views/ImagePublish.vue` — 加 weibo panel + 4 处数组 + page title
+8. `frontend/src/views/ImagePublish.vue` — 加 weibo panel + 3 处 hardcoded 数组 + getPanel map 加 weibo 键 + page title
 9. `frontend/src/App.vue` — 菜单 title
 10. `frontend/src/router/index.js` — 路由 meta title
 11. `frontend/src/views/DraftBox.vue` — tab/按钮/兜底文案

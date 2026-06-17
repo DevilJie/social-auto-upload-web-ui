@@ -11,19 +11,22 @@ export function useImageBatchSetApply({ panels }) {
     const tagsCopy = Array.isArray(tags) ? [...tags] : []
     for (const pk of checkedPlatformKeys) {
       const panel = panels.get?.(pk) || panels[pk]
-      if (!panel?.publicApi) continue
+      // panel 组件用 defineExpose(publicApi) 直接展开方法,所以方法在 panel 上而非 panel.publicApi 下
+      // 但保留 panel.publicApi 兼容 (未来如果 wrap 一下)
+      const api = panel?.publicApi || panel
+      if (!api?.setPlatformConfig) continue
 
       // 1. 写 panel 内的 platformConfig（覆盖）
-      panel.publicApi.setPlatformConfig({
+      api.setPlatformConfig({
         title,
         description,
         tags: tagsCopy,
       })
 
       // 2. 写该 panel 下已个性化账号（覆盖）
-      const checkedIds = panel.publicApi.getCheckedAccountIds?.() || []
+      const checkedIds = api.getCheckedAccountIds?.() || []
       for (const aid of checkedIds) {
-        panel.publicApi.setAccountOverride(aid, {
+        api.setAccountOverride(aid, {
           title,
           description,
           tags: tagsCopy,

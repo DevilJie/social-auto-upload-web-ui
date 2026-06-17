@@ -306,8 +306,69 @@ class WeiboPlatform(BasePlatform):
         desc: str = "",
         ai_content: str = "",
     ):
-        """Upload one image album to one Weibo account (待 Task 4 完整实现)."""
-        raise NotImplementedError("[weibo] _upload_one_image 待实现")
+        """Upload one image album to one Weibo account.
+
+        流程:
+        1. 创建 browser + context + 走 weibo.com 主页(不是 /upload/channel)
+        2. wait_for 创作卡片(发送按钮) — cookie 失效检测
+        3. _upload_images 上传多图
+        4. _set_description 填正文 + 标签(复用 video 版)
+        5. _set_content_statement 选 5 选项内容声明(复用 video 版)
+        6. _click_send 点击发送
+        7. _wait_for_image_publish_success 等成功信号
+        8. 保存 cookie
+        """
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(
+                browser,
+                storage_state=account_file,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/127.0.4324.150 Safari/537.36"
+                ),
+            )
+            try:
+                page = await context.new_page()
+                # 关键: 走主页而不是 /upload/channel
+                await page.goto("https://weibo.com", timeout=60000)
+                await page.wait_for_load_state("domcontentloaded", timeout=30000)
+
+                # 关键: wait_for 创作卡片(发送按钮) — cookie 失效/未登录会抛
+                try:
+                    await page.get_by_role(
+                        "button", name="发送", exact=True
+                    ).first.wait_for(state="attached", timeout=15000)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"[weibo] 创作卡片未渲染(cookie 失效/未登录?): {e}"
+                    )
+                await asyncio.sleep(2)  # 等图片工具/声明 trigger 完全渲染
+
+                # 1. 上传图片
+                await self._upload_images(page, file_path_list)
+
+                # 2. 填正文 + 标签
+                await self._set_description(page, desc, title, tags)
+
+                # 3. 内容声明 (复用 video 版)
+                await self._set_content_statement(page, ai_content)
+
+                # 4. 发送
+                await self._click_send(page)
+
+                # 5. 等成功信号
+                await self._wait_for_image_publish_success(page)
+
+                # 6. 保存 cookie
+                await context.storage_state(path=account_file)
+                logger.info("[weibo] cookie 已更新")
+                await asyncio.sleep(2)
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
 
     # ------------------------------------------------------------------
     # Internal: orchestrate all file × account uploads

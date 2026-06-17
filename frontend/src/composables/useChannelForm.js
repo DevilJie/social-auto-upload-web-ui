@@ -151,6 +151,39 @@ export function useChannelForm(defaults, { props, emit }, { publishFn, validateF
       return { valid: errors.length === 0, errors }
     },
 
+    setPlatformConfig(partial) {
+      for (const [k, v] of Object.entries(partial)) {
+        if (v === undefined) continue
+        platformConfig[k] = Array.isArray(v) ? [...v] : v
+        form[k] = Array.isArray(v) ? [...v] : v
+      }
+      emit('config-changed')
+    },
+
+    setAccountOverride(accountId, partial) {
+      const existing = accountOverrides[accountId] || {}
+      const next = { ...existing }
+      for (const [k, v] of Object.entries(partial)) {
+        if (v === undefined) continue
+        next[k] = Array.isArray(v) ? [...v] : v
+      }
+      if (Object.values(next).some(hasValues)) {
+        accountOverrides[accountId] = next
+      } else {
+        delete accountOverrides[accountId]
+      }
+      if (accountId === props.accountId) {
+        applyToForm(getMergedConfig(accountId))
+      }
+      emit('config-changed')
+    },
+
+    getCheckedAccountIds() {
+      return Object.entries(accountOverrides)
+        .filter(([_, v]) => hasMeaningfulOverride(v))
+        .map(([id]) => Number(id))
+    },
+
     hasAccountOverride,
   }
 

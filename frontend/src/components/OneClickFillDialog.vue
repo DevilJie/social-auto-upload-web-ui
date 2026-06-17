@@ -9,7 +9,7 @@
     <div v-loading="loading" class="grid">
       <el-empty
         v-if="!loading && list.length === 0"
-        :description="`还没有可用的历史记录，去 ${type === 'video' ? '视频发布' : '图文发布'} 试试？`"
+        :description="`还没有可用的历史记录，去 ${type === 'video' ? '视频发布' : '图集发布'} 试试？`"
       />
       <div v-for="record in list" :key="record.id" class="card" @click="handlePick(record)">
         <div class="card-cover">

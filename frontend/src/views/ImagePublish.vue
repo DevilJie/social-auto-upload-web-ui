@@ -23,7 +23,7 @@
       <!-- Top bar -->
       <div class="main-header">
         <div class="header-left">
-          <span class="page-title">图文发布</span>
+          <span class="page-title">图集发布</span>
           <span
             v-if="currentPlatformConfig"
             class="platform-tag"
@@ -33,16 +33,18 @@
           </span>
         </div>
         <div class="header-right">
-          <button class="draft-btn" @click="saveDraft">
-            <el-icon><Document /></el-icon>
+          <el-button :icon="Document" @click="saveDraft" class="header-btn">
             {{ currentDraftId ? '更新草稿' : '保存草稿' }}
-          </button>
-          <el-button :icon="MagicStick" @click="oneClickDialogOpen = true" :disabled="publishAccountIds.size === 0">
+          </el-button>
+          <el-button :icon="MagicStick" @click="oneClickDialogOpen = true" :disabled="publishAccountIds.size === 0" class="header-btn">
             一键填写
           </el-button>
-          <button class="publish-btn" @click="publishAll" :disabled="publishing">
+          <el-button :icon="Setting" @click="batchSetDialogOpen = true" :disabled="publishAccountIds.size === 0" class="header-btn">
+            批量设置
+          </el-button>
+          <el-button type="primary" :icon="Promotion" @click="publishAll" :disabled="publishing" class="header-btn header-btn--primary">
             {{ publishing ? '发布中...' : '一键发布' }}
-          </button>
+          </el-button>
         </div>
       </div>
 
@@ -129,6 +131,14 @@
             :account-id="selectedPlatform === 'kuaishou' ? selectedAccountId : null"
             :disabled="publishing"
             v-show="selectedPlatform === 'kuaishou'"
+            @config-changed="onChannelConfigChanged"
+            @publish-result="onPublishResult"
+          />
+          <WeiboImagePublishPanel
+            ref="weiboPanelRef"
+            :account-id="selectedPlatform === 'weibo' ? selectedAccountId : null"
+            :disabled="publishing"
+            v-show="selectedPlatform === 'weibo'"
             @config-changed="onChannelConfigChanged"
             @publish-result="onPublishResult"
           />
@@ -233,6 +243,13 @@
       type="image"
       @pick="handleOneClickFill"
     />
+
+    <!-- Batch Set Dialog -->
+    <BatchSetDialog
+      v-model="batchSetDialogOpen"
+      :platforms="batchSetPlatforms"
+      @apply="onBatchSetApply"
+    />
   </div>
 </template>
 
@@ -240,7 +257,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Upload, Picture, PictureFilled,
-  Document, FullScreen, MagicStick
+  Document, FullScreen, MagicStick, Setting, Promotion
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -261,11 +278,14 @@ import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
 import ImageCoverUpload from '@/components/ImageCoverUpload.vue'
 import OneClickFillDialog from '@/components/OneClickFillDialog.vue'
+import BatchSetDialog from '@/components/BatchSetDialog.vue'
+import { useImageBatchSetApply } from '@/composables/useImageBatchSetApply'
 import { useAutoSave } from '@/composables/useAutoSave'
 
 import DouyinImagePublishPanel from '@/components/douyin/ImagePublishPanel.vue'
 import XiaohongshuImagePublishPanel from '@/components/xiaohongshu/ImagePublishPanel.vue'
 import KuaishouImagePublishPanel from '@/components/kuaishou/ImagePublishPanel.vue'
+import WeiboImagePublishPanel from '@/components/weibo/ImagePublishPanel.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -274,7 +294,7 @@ appStore.loadAutoFillTitle()
 appStore.loadAutoSaveSettings()
 const route = useRoute()
 
-const IMAGE_PLATFORM_KEYS = ['xiaohongshu', 'douyin', 'kuaishou']
+const IMAGE_PLATFORM_KEYS = ['xiaohongshu', 'douyin', 'kuaishou', 'weibo']
 const IMAGE_PLATFORMS = platformList.filter(p => IMAGE_PLATFORM_KEYS.includes(p.key))
 
 // ========== Left Sidebar State ==========
@@ -361,9 +381,10 @@ const { hasChanges, startAutoSaveTimer } = useAutoSave(() => saveDraft())
 const douyinPanelRef = ref(null)
 const xiaohongshuPanelRef = ref(null)
 const kuaishouPanelRef = ref(null)
+const weiboPanelRef = ref(null)
 
 function getPanel(key) {
-  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef }
+  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef, weibo: weiboPanelRef }
   return map[key]?.value
 }
 
@@ -383,7 +404,7 @@ function onPublishResult({ accountName, status, message }) {
 function hasAccountOverride(accountId) {
   // Task 10：新增覆写层勾选 + panel 内部 accountOverrides 任一为真都算
   if (accountChecked[accountId] && hasAccountOverrideContent(accountId)) return true
-  for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+  for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
     const panel = getPanel(key)
     if (panel && panel.hasAccountOverride(accountId)) return true
   }
@@ -463,6 +484,28 @@ if (firstGroup) {
 const accountDialogVisible = ref(false)
 const batchPublishDialogVisible = ref(false)
 const oneClickDialogOpen = ref(false)
+const batchSetDialogOpen = ref(false)
+
+// 构造 panelKey → panel 引用值的映射,供 useImageBatchSetApply 按 key 索引;
+// 传入 reactive proxy,使其属性访问时返回当前 panel 引用值 (component instance)
+const panelsProxy = reactive({
+  get douyin() { return douyinPanelRef.value },
+  get xiaohongshu() { return xiaohongshuPanelRef.value },
+  get kuaishou() { return kuaishouPanelRef.value },
+  get weibo() { return weiboPanelRef.value },
+})
+const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
+const batchSetPlatforms = computed(() => {
+  return IMAGE_PLATFORMS.map(p => {
+    const panelAccounts = accountStore.accounts.filter(a => a.platform === p.name)
+    const selectedCount = panelAccounts.filter(a => publishAccountIds.has(a.id)).length
+    return { key: p.key, name: p.name, logo: p.logo, count: selectedCount }
+  })
+})
+function onBatchSetApply(checkedKeys, payload) {
+  applyImageBatchSet(checkedKeys, payload)
+  ElMessage.success(`已批量设置到 ${checkedKeys.length} 个渠道`)
+}
 
 // Refs
 const imageUploaderRef = ref(null)
@@ -584,7 +627,7 @@ async function saveDraft() {
   try {
     const allPlatformConfigs = {}
     const panelAccountOverrides = {}
-    for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
       const panel = getPanel(key)
       if (panel) {
         const configs = panel.getConfigs()
@@ -835,7 +878,7 @@ function handleOneClickFill(record) {
 // ========== Old Draft Migration ==========
 function migrateOldDraftFormat(dd) {
   if (dd.commonConfig?.topics && Array.isArray(dd.commonConfig.topics)) {
-    for (const key of ['douyin', 'xiaohongshu', 'kuaishou']) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
       if (dd.platformConfigs?.[key]) {
         dd.platformConfigs[key].tags = [...dd.commonConfig.topics]
       }
@@ -1066,52 +1109,34 @@ onMounted(async () => {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 
-    .publish-btn {
-      display: inline-flex;
-      align-items: center;
-      padding: 10px 32px;
-      border: none;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #8b5cf6, #6366f1);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      outline: none;
-      font-family: inherit;
-      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
-      letter-spacing: 0.04em;
-
-      &:hover {
-        box-shadow: 0 6px 28px rgba(139, 92, 246, 0.5);
-        transform: translateY(-1px);
+    .header-btn {
+      // el-button 默认 padding 8px 15px / font-size 14px / height 32px
+      // 想要更紧凑一点,小分辨率下自动缩
+      @media (max-width: 1280px) {
+        padding: 6px 12px !important;
+        font-size: 12px !important;
       }
-      &:active { transform: translateY(0) scale(0.98); }
-      &:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
     }
 
-    .draft-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 20px;
-      height: 40px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.04);
-      color: $text-secondary;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
+    .header-btn--primary {
+      // 一键发布: 保留项目渐变 + 阴影
+      background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
+      border: none !important;
+      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35) !important;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 10px 24px !important;
 
       &:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.18);
-        color: $text-primary;
+        box-shadow: 0 6px 28px rgba(139, 92, 246, 0.5) !important;
+        transform: translateY(-1px);
+        opacity: 1 !important;
       }
+      &:active { transform: translateY(0) scale(0.98); }
+      &:disabled { opacity: 0.5 !important; cursor: not-allowed; transform: none; box-shadow: none !important; }
     }
   }
 }

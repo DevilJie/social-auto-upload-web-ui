@@ -232,6 +232,364 @@ class WeiboPlatform(BasePlatform):
         return True
 
     # ------------------------------------------------------------------
+    # publish_image -- full Weibo image-album pipeline (sync entry point)
+    # ------------------------------------------------------------------
+
+    def publish_image(self, **kwargs) -> bool:
+        """Publish an image album to Weibo (sync wrapper).
+
+        入口仅做 kwargs 解包 + dry-run 早返回 + 调 _upload_all_images。
+        实际浏览器操作在 _upload_one_image。
+        """
+        dry_run = kwargs.get("dry_run", False)
+        if dry_run:
+            logger.info("[weibo] dry-run skip (publish_image)")
+            return True
+        asyncio.run(self._upload_all_images(**kwargs))
+        return True
+
+    # ------------------------------------------------------------------
+    # Internal: orchestrate all account uploads (one batch per account)
+    # ------------------------------------------------------------------
+
+    async def _upload_all_images(self, **kwargs):
+        """Create a browser per account, upload all images in the batch.
+
+        与 video 版 _upload_all 的关键区别:**单层账号循环** (图集是一账号
+        一次发完所有图),不是 files × accounts 笛卡尔积。
+        """
+        files = kwargs.get("files", []) or []
+        account_file = kwargs.get("account_file", []) or []
+        title = kwargs.get("title", "")
+        tags = kwargs.get("tags", []) or []
+        desc = kwargs.get("desc", "") or ""
+        ai_content = kwargs.get("ai_content", "") or ""
+        # 忽略字段(微博图集不支持)
+        # is_original / enableTimer / schedule_time_str / cover_path
+        _ = kwargs.get("is_original")  # noqa
+        _ = kwargs.get("enableTimer")  # noqa
+        _ = kwargs.get("schedule_time_str")  # noqa
+        _ = kwargs.get("cover_path")  # noqa
+
+        # 入口校验:微博图集服务端硬上限 18 张
+        if len(files) > 18:
+            raise ValueError(
+                f"[weibo] 图集最多 18 张,当前 {len(files)} 张"
+            )
+
+        file_path_list = [str(f) for f in files]
+        account_paths = [
+            str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
+        ]
+
+        # 单层账号循环(不是笛卡尔积!)
+        for cookie_path in account_paths:
+            await self._upload_one_image(
+                title=title,
+                file_path_list=file_path_list,
+                tags=tags,
+                account_file=cookie_path,
+                desc=desc,
+                ai_content=ai_content,
+            )
+
+    # ------------------------------------------------------------------
+    # Internal: upload one image album to one account
+    # ------------------------------------------------------------------
+
+    async def _upload_one_image(
+        self,
+        title: str,
+        file_path_list: list,
+        tags: list,
+        account_file: str,
+        desc: str = "",
+        ai_content: str = "",
+    ):
+        """Upload one image album to one Weibo account.
+
+        流程:
+        1. 创建 browser + context + 走 weibo.com 主页(不是 /upload/channel)
+        2. wait_for 创作卡片(发送按钮) — cookie 失效检测
+        3. _upload_images 上传多图
+        4. _set_description 填正文 + 标签(复用 video 版)
+        5. _set_content_statement 选 5 选项内容声明(复用 video 版)
+        6. _click_send 点击发送
+        7. _wait_for_image_publish_success 等成功信号
+        8. 保存 cookie
+        """
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(
+                browser,
+                storage_state=account_file,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/127.0.4324.150 Safari/537.36"
+                ),
+            )
+            try:
+                page = await context.new_page()
+                # 关键: 走主页而不是 /upload/channel
+                await page.goto("https://weibo.com", timeout=60000)
+                await page.wait_for_load_state("domcontentloaded", timeout=30000)
+
+                # 关键: wait_for 创作卡片(发送按钮) — cookie 失效/未登录会抛
+                try:
+                    await page.get_by_role(
+                        "button", name="发送", exact=True
+                    ).first.wait_for(state="attached", timeout=15000)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"[weibo] 创作卡片未渲染(cookie 失效/未登录?): {e}"
+                    )
+                await asyncio.sleep(2)  # 等图片工具/声明 trigger 完全渲染
+
+                # 1. 上传图片
+                await self._upload_images(page, file_path_list)
+
+                # 2. 填正文 + 标签
+                await self._set_description(page, desc, title, tags)
+
+                # 3. 内容声明 (复用 video 版)
+                await self._set_content_statement(page, ai_content)
+
+                # 4. 发送
+                await self._click_send(page)
+
+                # 5. 等成功信号
+                await self._wait_for_image_publish_success(page)
+
+                # 6. 保存 cookie
+                await context.storage_state(path=account_file)
+                logger.info("[weibo] cookie 已更新")
+                await asyncio.sleep(2)
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+
+    # ------------------------------------------------------------------
+    # Helper: upload image files via hidden input[type=file]
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _upload_images(page, files: list):
+        """上传图集多张图 — 多重兜底(2026-06-17 v1)。
+
+        selector 策略:input[type=file][accept^='image/'][multiple]
+        (用户提供的 DOM 行 9-10:accept 以 image/* 开头,且带 multiple)
+        注意:input 祖父是 display:none,但 Playwright set_input_files 不要求
+        visible,只要求 attached + enabled。
+
+        多重兜底:
+        1. 直接 set_input_files(files) 命中 input
+        2. 失败则 expect_file_chooser + 点击「图片」trigger
+        3. 再失败则 patch click/dispatchEvent/showPicker + MutationObserver
+
+        等待完成:轮询「发送」按钮的 disabled 属性为 None(上传+表单就绪
+        → 启用);最多 5 分钟。
+        """
+        if not files:
+            logger.warning("[weibo] 无图片可上传")
+            return
+
+        logger.info("[weibo] 准备上传 %d 张图片", len(files))
+
+        # 0. 安装 MutationObserver 兜底(参考 video 版 _upload_video_file)
+        await page.evaluate(r"""() => {
+            if (window.__weiboImgObserverInstalled) return;
+            window.__weiboImgObserverInstalled = true;
+            window.__weiboImgInitialInputCount =
+                document.querySelectorAll('input[type="file"]').length;
+            const observer = new MutationObserver(() => {
+                const inputs = document.querySelectorAll('input[type="file"]');
+                if (inputs.length > window.__weiboImgInitialInputCount) {
+                    for (let i = window.__weiboImgInitialInputCount;
+                         i < inputs.length; i++) {
+                        inputs[i].setAttribute('data-weibo-img-new', '1');
+                    }
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }""")
+
+        # 1. Patch 三个入口(参考 video 版)
+        patch_status = await page.evaluate(r"""() => {
+            if (window.__weiboImgAllPatched) return 'already-patched';
+            window.__weiboImgAllPatched = true;
+            const markInput = function (input) {
+                try {
+                    input.setAttribute('data-weibo-img-upload', '1');
+                    if (!input.isConnected) {
+                        input.style.display = 'none';
+                        document.body.appendChild(input);
+                    }
+                } catch (e) {}
+            };
+            const origClick = HTMLInputElement.prototype.click;
+            HTMLInputElement.prototype.click = function () {
+                if (this && this.type === 'file') {
+                    markInput(this);
+                } else {
+                    return origClick.apply(this, arguments);
+                }
+            };
+            const origDispatch = EventTarget.prototype.dispatchEvent;
+            EventTarget.prototype.dispatchEvent = function (event) {
+                if (this && this.type === 'file' && event &&
+                    event.type === 'click' && event instanceof MouseEvent) {
+                    markInput(this);
+                    return true;
+                }
+                return origDispatch.apply(this, arguments);
+            };
+            if (HTMLInputElement.prototype.showPicker) {
+                const origShow = HTMLInputElement.prototype.showPicker;
+                HTMLInputElement.prototype.showPicker = function () {
+                    if (this && this.type === 'file') {
+                        markInput(this);
+                    } else {
+                        return origShow.apply(this, arguments);
+                    }
+                };
+            }
+            return 'patched';
+        }""")
+        logger.info("[weibo] img patch status: %s", patch_status)
+
+        # 2. 找「图片」trigger
+        # selector:文本 "图片" 在 woo-pop-wrap 内,且 sibling 包含 image upload input
+        img_trigger = page.get_by_text("图片", exact=True).first
+        if await img_trigger.count() == 0:
+            raise RuntimeError("[weibo] 未找到「图片」工具图标")
+
+        # 3. 优先直接 set_input_files(接受 hidden input)
+        target_input_sel = (
+            "input[type='file'][accept^='image/'][multiple]"
+        )
+        try:
+            target_input = page.locator(target_input_sel).first
+            await target_input.wait_for(state="attached", timeout=10000)
+            await target_input.set_input_files(files)
+            logger.info("[weibo] 已通过 set_input_files 提交 %d 张图", len(files))
+        except Exception as e:
+            logger.info("[weibo] 直接 set_input_files 失败: %s", e)
+
+            # 兜底 1: expect_file_chooser + 点击 trigger
+            try:
+                async with page.expect_file_chooser(timeout=5000) as fc_info:
+                    await img_trigger.click(force=True)
+                fc = await fc_info.value
+                await fc.set_files(files)
+                logger.info("[weibo] 已通过 expect_file_chooser 提交")
+            except Exception as e2:
+                logger.info("[weibo] expect_file_chooser 失败: %s", e2)
+                # 兜底 2: 等带标记的 input 出现(patch 命中)
+                marked_sel = (
+                    "input[type='file'][data-weibo-img-upload='1'],"
+                    "input[type='file'][data-weibo-img-new='1']"
+                )
+                deadline = asyncio.get_event_loop().time() + 30
+                found = None
+                while asyncio.get_event_loop().time() < deadline:
+                    count = await page.locator(marked_sel).count()
+                    if count > 0:
+                        found = page.locator(marked_sel).first
+                        break
+                    await asyncio.sleep(0.5)
+                if found is not None:
+                    await found.set_input_files(files)
+                    logger.info("[weibo] 已通过 patched input 提交")
+                else:
+                    raise RuntimeError(
+                        f"[weibo] 30s 内未找到可用的 file input"
+                    )
+
+        # 4. 等待上传完成 — 轮询「发送」按钮 enabled(最稳判定)
+        send_btn = page.get_by_role("button", name="发送", exact=True).first
+        deadline = asyncio.get_event_loop().time() + 300  # 5 分钟
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                disabled = await send_btn.get_attribute("disabled")
+                if disabled is None:
+                    logger.info("[weibo] 图片已上传,发送按钮已启用")
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+        raise RuntimeError("[weibo] 5 分钟内图片未上传完成(发送按钮未启用)")
+
+    # ------------------------------------------------------------------
+    # Helper: click 发送 button
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _click_send(page):
+        """点击「发送」按钮(图集版,视频版是「发布」)。
+
+        与 video 版 _click_publish 同构,只是 button name 不同。
+        初始 disabled,表单就绪后启用 — 轮询 disabled 属性(最长 60s)。
+        """
+        send_btn = page.get_by_role("button", name="发送", exact=True).first
+        try:
+            await send_btn.wait_for(state="visible", timeout=10000)
+        except Exception as e:
+            raise RuntimeError(f"[weibo] 未找到「发送」按钮: {e}")
+
+        # 轮询 disabled(最长 60s)
+        for _ in range(60):
+            disabled = await send_btn.get_attribute("disabled")
+            if disabled is None:
+                break
+            await asyncio.sleep(1)
+        else:
+            raise RuntimeError("[weibo] 「发送」按钮一直 disabled,表单未就绪")
+
+        await send_btn.click()
+        logger.info("[weibo] 已点击「发送」按钮")
+
+    # ------------------------------------------------------------------
+    # Helper: wait for image publish success signal
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _wait_for_image_publish_success(page, timeout_s: int = 60):
+        """等待图集发布完成。
+
+        微博图集发送后**无明显 toast**(与 video 版的「视频已上传成功」
+        不同)。判定成功靠 2 个条件 OR:
+        1. textarea 内容清空
+        2. 创作卡片回到初始态(「发送」按钮重新 disabled)
+
+        60s 内任一命中即视为成功。
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        textarea = page.locator("textarea[placeholder*='有什么新鲜事']").first
+        send_btn = page.get_by_role("button", name="发送", exact=True).first
+
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                # 条件 1: textarea 清空
+                textarea_empty = await textarea.input_value() == ""
+                # 条件 2: 发送按钮重新 disabled
+                disabled = await send_btn.get_attribute("disabled")
+                send_disabled = disabled is not None
+                if textarea_empty or send_disabled:
+                    logger.info("[weibo] 图集发布成功(textarea 空=%s, send 禁用=%s)",
+                                textarea_empty, send_disabled)
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+        raise RuntimeError(
+            f"[weibo] 等待图集发布完成超时({timeout_s}s)"
+        )
+
+    # ------------------------------------------------------------------
     # Internal: orchestrate all file × account uploads
     # ------------------------------------------------------------------
 
@@ -350,7 +708,7 @@ class WeiboPlatform(BasePlatform):
                 # 上传视频文件
                 await self._upload_video_file(page, file_path)
 
-                # 等待视频真正上传完成(类型 radio 可见 = 表单可交互)
+                # 等待视频真正上传完成(「上传中」spinner DOM 消失 = 上传完成)
                 await self._wait_for_upload_form(page)
 
                 # 类型(原创/二创/转载)
@@ -558,27 +916,63 @@ class WeiboPlatform(BasePlatform):
     async def _wait_for_upload_form(page, timeout_s: int = 3600):
         """等待视频上传完成、表单可交互。
 
-        **权威锚点**: 类型 radio「原创」可见且可点(2026-06-16 前一直用这个,
-        验证可用)。早期版本用 textarea (placeholder 含「有什么新鲜事」)
-        作为锚点,但 textarea 在微博页面**初始就渲染**,上传过程中也可见,
-        不能代表上传完成。类型 radio 才是上传完成后才完全可交互的元素。
+        **权威锚点**(2026-06-17 调整): 两个信号中任一为真即返回。
+
+        1. 「上传中」spinner DOM 消失 — 直接信号(per 用户要求)
+        2. 「原创」type radio 可见 — 表单可交互信号(兜底)
+
+        用 OR 不用 AND 的原因: 2026-06-17 实测发现,weibo 在文件传输
+        完成(``check.json`` 200)后,「上传中」spinner DOM 仍会持续存在
+        较长时间(可能用于转码阶段,实测 7+ 分钟仍未消失),仅看 spinner
+        会导致函数长时间挂起,所有后续表单操作全部阻塞。OR 逻辑下
+        一旦 radio 可见就放行,避免误判。
+
+        DOM 结构(spinner):
+        ```html
+        <div class="woo-box-flex woo-box-alignCenter _info_xxx_135">
+            <svg class="woo-spinner-main">...</svg>
+            <span>上传中</span>
+            <span>3.01MB/14.33MB</span>
+            <a>暂停</a><a>删除</a>
+        </div>
+        ```
+
+        class 名是 CSS-modules 生成、会随构建变化 — 用「上传中」文本
+        (exact match) 检测这个 DOM 是否还在。
 
         上传未完成之前,所有后续表单设置操作(_set_video_type /
         _set_title / _set_cover / _set_category / _set_description /
         _set_content_statement / _click_publish) 全部阻塞在此函数,
-        等 radio 可见才继续。
+        等任一信号命中才继续。
 
         **超时默认 60 分钟**(3600s):大视频 + 慢网络上 100MB 视频需要
         10~30min,留足余量。
         """
+        # 检测「上传中」spinner DOM 是否还存在 + 「原创」radio 是否可见
+        uploading_locator = page.get_by_text("上传中", exact=True)
         radio = page.get_by_role("radio", name="原创", exact=True).first
         deadline = asyncio.get_event_loop().time() + timeout_s
 
         while asyncio.get_event_loop().time() < deadline:
-            # 1. 类型 radio 可见 → 表单 ready
+            # 1. 「上传中」DOM 消失 或 「原创」radio 可见 → 任一命中即返回
             try:
-                if await radio.is_visible():
-                    logger.info("[weibo] 类型 radio 可见,上传完成、表单可交互")
+                uploading_gone = await uploading_locator.count() == 0
+                radio_visible = await radio.is_visible()
+                if uploading_gone or radio_visible:
+                    if uploading_gone and radio_visible:
+                        logger.info(
+                            "[weibo] 「上传中」DOM 已消失且「原创」radio 可见,"
+                            "上传完成、表单可交互"
+                        )
+                    elif uploading_gone:
+                        logger.info(
+                            "[weibo] 「上传中」DOM 已消失,上传完成"
+                        )
+                    else:
+                        logger.info(
+                            "[weibo] 「上传中」DOM 仍存在,但「原创」radio 可见,"
+                            "视为上传完成、表单可交互(转码阶段 spinner 暂未消失)"
+                        )
                     return
             except Exception:
                 pass
@@ -596,14 +990,13 @@ class WeiboPlatform(BasePlatform):
 
             # 3. 进度旁证(每 30s 一次,避免刷屏)
             try:
-                uploading = await page.get_by_text("上传中", exact=True).count()
-                done = await page.get_by_text("上传完成", exact=True).count()
                 remaining = int(deadline - asyncio.get_event_loop().time())
                 if remaining % 60 < 5 or remaining < 60:
+                    uploading_count = await uploading_locator.count()
                     logger.info(
-                        "[weibo] 等待上传完成... 上传中=%d 上传完成=%d "
-                        "(剩余 %ds)",
-                        uploading, done, remaining,
+                        "[weibo] 等待「上传中」消失或 radio 可见... "
+                        "上传中=%d (剩余 %ds)",
+                        uploading_count, remaining,
                     )
             except Exception:
                 pass
@@ -617,7 +1010,7 @@ class WeiboPlatform(BasePlatform):
             url = "(unknown)"
         raise RuntimeError(
             f"[weibo] 等待视频上传完成超时({timeout_s}s = "
-            f"{timeout_s // 60}min),类型 radio 始终不可见。"
+            f"{timeout_s // 60}min),两个信号都未满足。"
             f"当前 URL: {url}"
         )
 
@@ -667,6 +1060,151 @@ class WeiboPlatform(BasePlatform):
         logger.info("[weibo] 已填标题: %s", truncated)
 
     # ------------------------------------------------------------------
+    # Helper: 根据页面封面区域宽高比选横版/竖版封面
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _pick_cover_by_aspect(
+        page,
+        landscape_path=None,
+        portrait_path=None,
+    ):
+        """根据当前页面封面框的宽高比,选横版还是竖版封面。
+
+        微博封面框用 ``<div style="padding-bottom: X%;"></div>`` 实现
+        宽高比(X = height/width × 100):
+        - X < 100 → 横版(landscape),16:9 时 X=56.25
+        - X > 100 → 竖版(portrait),9:16 时 X≈177.78
+        - X == 100 → 正方形(本函数按横版走)
+
+        实现思路:从「上传封面」/「裁剪封面」链接反向查找,沿祖先
+        找包含 ``div[style*="padding-bottom"]`` 的容器 — 该容器就是
+        当前实际的封面框,里面的 aspect div 给出宽高比。读不到(还没
+        渲染 / 解析失败)默认横版,向后兼容。
+
+        注意:检测时机必须在表单渲染完成之后,否则 cover 区域 DOM
+        不完整(2026-06-17 实测)。这里先 wait_for 「上传封面」链接
+        attached 再跑 JS。
+        """
+        # 先等封面区域 DOM 完整 — 2026-06-17 实测:链接先于 picture 出现,
+        # walk-up 14 层都找不到 aspect div(整个页面 totalAspects=0)。
+        # 关键等待:link 所在 inner 容器(link 的祖父)里出现 <img>,这才是
+        # picture 真正渲染好的直接信号,比等 abstract 的 "div[style*=
+        # padding-bottom]" 可靠(后者会假阳性命中 padding-bottom:0 的
+        # 无关 div)。
+        try:
+            await page.get_by_text("上传封面").first.wait_for(
+                state="attached", timeout=10000,
+            )
+        except Exception as e:
+            logger.warning("[weibo] 等「上传封面」链接超时: %s", e)
+
+        try:
+            # link 的 xpath=../.. 是 inner 容器
+            # (_box_1ant3_2 / _a5lt_1gx9k_203),内含 picture + 链接区
+            inner = page.get_by_text("上传封面", exact=True).first.locator(
+                "xpath=../.."
+            )
+            await inner.locator("img").first.wait_for(
+                state="attached", timeout=10000,
+            )
+        except Exception as e:
+            logger.warning("[weibo] 等封面 picture(img) 超时: %s", e)
+
+        try:
+            aspect, debug = await page.evaluate(r"""() => {
+                // 反向:从「上传封面」/「裁剪封面」链接向上找含 aspect div 的祖先
+                // aspect div 选择器收紧到要带 %,避开 padding-bottom:0 的假阳性
+                const ASPECT_SEL = 'div[style*="padding-bottom"][style*="%"]';
+                const links = document.querySelectorAll('a');
+                let coverLink = null;
+                for (const a of links) {
+                    const t = (a.textContent || '').trim();
+                    if (t === '上传封面' || t === '裁剪封面') {
+                        coverLink = a;
+                        break;
+                    }
+                }
+                if (!coverLink) {
+                    return [null, {
+                        reason: 'no cover link found',
+                        allLinkTexts: Array.from(links)
+                            .map(a => (a.textContent || '').trim())
+                            .filter(s => s.length > 0 && s.length < 20)
+                            .slice(0, 30),
+                    }];
+                }
+
+                // 调试:aspect div 全局统计 + 第一个 aspect div 的 style
+                const allAspects = document.querySelectorAll(ASPECT_SEL);
+                const debug = {
+                    totalAspects: allAspects.length,
+                    firstAspectStyle: allAspects[0]
+                        ? allAspects[0].getAttribute('style')
+                        : null,
+                    linkParentTag: coverLink.parentElement
+                        ? coverLink.parentElement.tagName
+                        : null,
+                    linkParentClass: coverLink.parentElement
+                        ? (coverLink.parentElement.className || '').substring(0, 80)
+                        : null,
+                    ancestorChain: [],
+                };
+
+                let p = coverLink.parentElement;
+                let depth = 0;
+                while (p && p !== document.body && depth < 20) {
+                    const aspectDiv = p.querySelector(ASPECT_SEL);
+                    const hasAspect = aspectDiv !== null;
+                    debug.ancestorChain.push({
+                        depth,
+                        tag: p.tagName,
+                        className: (p.className || '').substring(0, 80),
+                        hasAspect,
+                    });
+                    if (hasAspect) {
+                        const m = (
+                            aspectDiv.getAttribute('style') || ''
+                        ).match(
+                            /padding-bottom:\s*([0-9.]+)\s*%/i
+                        );
+                        if (m) {
+                            debug.matchedAt = depth;
+                            debug.matchedStyle = aspectDiv.getAttribute('style');
+                            return [parseFloat(m[1]), null];
+                        }
+                    }
+                    p = p.parentElement;
+                    depth++;
+                }
+                return [null, { reason: 'aspect div not found in ancestors', ...debug }];
+            }""")
+        except Exception as e:
+            logger.warning("[weibo] 读取封面区域宽高比失败: %s", e)
+            aspect = None
+            debug = None
+
+        if debug:
+            logger.info("[weibo] 封面宽高比调试: %s", debug)
+
+        if aspect is None:
+            logger.info("[weibo] 读不到封面框宽高比,默认横版")
+            return landscape_path or portrait_path
+
+        if aspect < 100:
+            logger.info(
+                "[weibo] 封面框为横版(padding-bottom=%.2f%%),用横版封面",
+                aspect,
+            )
+            return landscape_path or portrait_path
+        else:
+            logger.info(
+                "[weibo] 封面框为竖版(padding-bottom=%.2f%%),用竖版封面",
+                aspect,
+            )
+            return portrait_path or landscape_path
+
+    # ------------------------------------------------------------------
     # Helper: upload cover (click 上传封面 → ESC → hidden file input → 完成)
     # ------------------------------------------------------------------
 
@@ -678,16 +1216,20 @@ class WeiboPlatform(BasePlatform):
     ):
         """上传封面。
 
-        流程(spec):
-        1. 点击「上传封面」链接(spec 说这会自动打开系统原生文件选择器)
-        2. 立即按 ESC 关闭原生选择器
-        3. 等待「编辑封面」弹层出现,找到 ``input[type=file]._file_1mhd8_65``
-        4. set_input_files 上传图片
-        5. 点击「完成」按钮
-
-        优先使用横版封面;若只传了竖版,用竖版。
+        流程(spec ~/1.txt:12-19):
+        1. 根据页面封面框宽高比选横版/竖版封面
+           (见 ``_pick_cover_by_aspect``)
+        2. 点击「上传封面」链接(自动打开系统原生文件选择器)
+        3. 按 ESC 关闭原生选择器
+        4. 等待「编辑封面」弹层出现
+        5. 找到弹层内的隐藏 ``input[type=file]`` 上传图片
+        6. 点击「完成」按钮
         """
-        cover_path = thumbnail_landscape_path or thumbnail_portrait_path
+        cover_path = await WeiboPlatform._pick_cover_by_aspect(
+            page,
+            landscape_path=thumbnail_landscape_path,
+            portrait_path=thumbnail_portrait_path,
+        )
         if not cover_path or not os.path.exists(cover_path):
             logger.info("[weibo] 无封面文件,跳过封面上传")
             return
@@ -702,9 +1244,9 @@ class WeiboPlatform(BasePlatform):
 
         # 2. 点击 + 立即 ESC 关掉原生选择器(spec 强调此坑)
         await upload_cover_link.click()
-        await asyncio.sleep(0.3)
-        await page.keyboard.press("Escape")
         await asyncio.sleep(0.5)
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.8)
         logger.info("[weibo] 已点击上传封面并 ESC 关闭原生选择器")
 
         # 3. 等待「编辑封面」弹层出现
@@ -718,23 +1260,31 @@ class WeiboPlatform(BasePlatform):
             return
 
         # 4. 找到隐藏 input[type=file] 上传
-        # spec: <input type="file" class="_file_1mhd8_65" accept=".jpg, .jpeg, ...">
-        # 该弹层里有两个 file input,取第一个可用的
-        file_inputs = page.locator("input[type='file'][accept*='jpg']")
+        # spec 弹层里有两个 file input,accept 都是 ".jpg, .jpeg, .bmp, ..."
+        # 关键: **不能** 用 [accept*='jpg'] — 微博正文区也有一个 image
+        # 上传 input,accept 是 "image/*, .jpg, .jpeg, ..."(以 image/*
+        # 开头),会被一起匹配,导致 .first 选错。
+        # 用 [accept^='.jpg'] 严格匹配"以 .jpg 开头",只命中封面弹层。
+        file_inputs = page.locator("input[type='file'][accept^='.jpg']")
         count = await file_inputs.count()
         if not count:
-            logger.warning("[weibo] 封面弹层未找到 input[type=file]")
+            logger.warning("[weibo] 封面弹层未找到 input[type=file][accept^='.jpg']")
             return
+        logger.info("[weibo] 找到 %d 个封面 file input", count)
         await file_inputs.first.set_input_files(cover_path)
         logger.info("[weibo] 已上传封面文件: %s", os.path.basename(cover_path))
-        await asyncio.sleep(2)
+        # 等图片处理完(上传到 weibo + 裁剪器加载预览)。2s 实测不够,
+        # 经常「完成」点了之后弹层关掉但封面没存上(2026-06-17)。
+        await asyncio.sleep(4)
 
         # 5. 点击「完成」按钮 (封面编辑弹层右下角)
         # 用 role+name 定位,避免 class 哈希漂移
         done_btn = page.get_by_role("button", name="完成", exact=True).first
         try:
             await done_btn.wait_for(state="visible", timeout=5000)
-            await done_btn.click()
+            # force=True 兜底:封面弹层是 fixed 定位,偶尔有透明遮罩
+            # 拦截 pointer events,导致普通 click 一直 retry(2026-06-17 实测)
+            await done_btn.click(force=True)
             logger.info("[weibo] 已点击封面完成按钮")
         except Exception as e:
             logger.warning("[weibo] 点击封面完成按钮失败: %s", e)
@@ -794,16 +1344,22 @@ class WeiboPlatform(BasePlatform):
             )
 
         # 级联下拉触发器: 初始有「请选择合适的频道」占位文本
-        # 注意: click 事件会冒泡,直接点文本即可触发父级 trigger 的 click handler
+        # 2026-06-17 实测:占位文本所在 inner div(woo-box-item-flex)
+        # 被 Playwright 判 hidden(24× retry → timeout),不能直接点它,
+        # 也不要用 wait_for(state="visible")。改用:
+        # 1. wait_for(state="attached") — 只要在 DOM 里就行
+        # 2. 点父级 trigger (wbpro-select 元素)
+        # 3. force=True 绕过任何拦截检查
         trigger_text = page.get_by_text("请选择合适的频道", exact=True)
         try:
-            await trigger_text.first.wait_for(state="visible", timeout=10000)
+            await trigger_text.first.wait_for(state="attached", timeout=10000)
         except Exception as e:
             logger.warning("[weibo] 未找到分类下拉触发器(占位文本): %s", e)
             return
 
-        # 1. 点开下拉(点文本即可,click 冒泡到父级)
-        await trigger_text.first.click()
+        # 1. 点开下拉 — 点父级 trigger (xpath=.. 是 Playwright 的"父节点"语法)
+        trigger = trigger_text.first.locator("xpath=..")
+        await trigger.click(force=True)
         await asyncio.sleep(0.5)
 
         # 下拉面板有两列: 左=频道,右=子分类。左列在 DOM 中先渲染,
@@ -864,6 +1420,7 @@ class WeiboPlatform(BasePlatform):
         await textarea.click()
         await asyncio.sleep(0.2)
         await page.keyboard.type(text, delay=30)
+        await page.keyboard.press("Space")
         logger.info("[weibo] 已填正文(长度=%d)", len(text))
 
     # ------------------------------------------------------------------
@@ -882,6 +1439,9 @@ class WeiboPlatform(BasePlatform):
             return
 
         # trigger 是「内容声明」文本节点,click 冒泡到父级 woo-pop-ctrl
+        # 但父级 <span class="woo-pop-ctrl"> 在 actionability 检查里
+        # 会被判为「intercept pointer events」(2026-06-17 实测:50+ 次
+        # retry → 页面上下弹),必须 force=True 跳过这个检查。
         trigger = page.get_by_text("内容声明", exact=True).first
         try:
             await trigger.wait_for(state="visible", timeout=5000)
@@ -889,7 +1449,7 @@ class WeiboPlatform(BasePlatform):
             logger.warning("[weibo] 未找到内容声明入口: %s", e)
             return
 
-        await trigger.click()
+        await trigger.click(force=True)
         await asyncio.sleep(0.5)
 
         # 弹窗里的选项是 button,文本就是选项值

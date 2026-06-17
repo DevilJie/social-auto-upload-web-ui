@@ -6,7 +6,7 @@
         <el-tab-pane label="视频草稿" name="video">
           <span class="draft-count">{{ videoDrafts.length }} 个草稿</span>
         </el-tab-pane>
-        <el-tab-pane label="图文草稿" name="image">
+        <el-tab-pane label="图集草稿" name="image">
           <span class="draft-count">{{ imageDrafts.length }} 个草稿</span>
         </el-tab-pane>
       </el-tabs>
@@ -155,8 +155,8 @@
     <!-- Image Drafts -->
     <template v-if="activeTab === 'image'">
       <div v-if="!loading && imageDrafts.length === 0" class="empty-state">
-        <el-empty description="还没有保存的图文草稿">
-          <el-button type="primary" @click="router.push('/image-publish')">去发布图文</el-button>
+        <el-empty description="还没有保存的图集草稿">
+          <el-button type="primary" @click="router.push('/image-publish')">去发布图集</el-button>
         </el-empty>
       </div>
 
@@ -332,7 +332,7 @@ function isOverflow(draftId) {
 }
 
 async function confirmDelete(id, type) {
-  const typeName = type === 'video' ? '视频' : '图文'
+  const typeName = type === 'video' ? '视频' : '图集'
   try {
     await ElMessageBox.confirm(`确定删除这个${typeName}草稿吗？`, '删除确认', {
       confirmButtonText: '删除',

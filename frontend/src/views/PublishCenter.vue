@@ -34,16 +34,18 @@
           </span>
         </div>
         <div class="header-right">
-          <button class="draft-btn" @click="saveDraft">
-            <el-icon><Document /></el-icon>
+          <el-button :icon="Document" @click="saveDraft" class="header-btn">
             {{ currentDraftId ? '更新草稿' : '保存草稿' }}
-          </button>
-          <el-button :icon="MagicStick" @click="oneClickDialogOpen = true">
+          </el-button>
+          <el-button :icon="MagicStick" @click="oneClickDialogOpen = true" class="header-btn">
             一键填写
           </el-button>
-          <button class="publish-btn" @click="publishAll" :disabled="publishing">
+          <el-button :icon="Setting" @click="batchSetDialogOpen = true" :disabled="publishAccountIds.size === 0" class="header-btn">
+            批量设置
+          </el-button>
+          <el-button type="primary" :icon="Promotion" @click="publishAll" :disabled="publishing" class="header-btn header-btn--primary">
             {{ publishing ? '发布中...' : '一键发布' }}
-          </button>
+          </el-button>
         </div>
       </div>
 
@@ -439,12 +441,18 @@
       type="video"
       @pick="handleOneClickFill"
     />
+
+    <BatchSetDialog
+      v-model="batchSetDialogOpen"
+      :platforms="batchSetPlatforms"
+      @apply="onBatchSetApply"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
-import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick } from '@element-plus/icons-vue'
+import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -457,6 +465,7 @@ import { platformList, getPlatformByKey, platformKeyToId, platformNameToKey } fr
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
 import BatchPublishDialog from '@/components/BatchPublishDialog.vue'
+import BatchSetDialog from '@/components/BatchSetDialog.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
@@ -467,6 +476,7 @@ import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
 import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
 import { draftApi } from '@/api/draft'
 import { useRoute } from 'vue-router'
@@ -918,6 +928,38 @@ const materialLibraryCoverTarget = ref('landscape')
 const oneClickDialogOpen = ref(false)
 const materialLibraryVideoTarget = ref('landscape')
 const batchPublishDialogVisible = ref(false)
+
+// ========== 批量设 (Batch Set) ==========
+const batchSetDialogOpen = ref(false)
+const { applyBatchSet } = useBatchSetApply({
+  platformConfigs,
+  accountOverrides,
+  accountChecked,
+  accountStore,
+})
+const batchSetPlatforms = computed(() => {
+  return platformList.map(p => {
+    const platformAccounts = accountStore.accounts.filter(a => a.platform === p.name)
+    const selectedCount = platformAccounts.filter(a => publishAccountIds.has(a.id)).length
+    return { key: p.key, name: p.name, logo: p.logo, count: selectedCount }
+  })
+})
+function onBatchSetApply(checkedKeys, payload) {
+  applyBatchSet(checkedKeys, payload)
+  // 如果当前查看的渠道在批量设范围内,强制刷新 form (watch [selectedPlatform,...] 不会自动触发)
+  if (selectedPlatform.value && checkedKeys.includes(selectedPlatform.value)) {
+    const merged = getMergedSettings()
+    for (const key of Object.keys(merged)) {
+      form[key] = merged[key]
+    }
+    for (const key of Object.keys(form)) {
+      if (!(key in merged)) {
+        delete form[key]
+      }
+    }
+  }
+  ElMessage.success(`已批量设置到 ${checkedKeys.length} 个渠道`)
+}
 
 // Batch publish state
 const publishing = ref(false)
@@ -1726,67 +1768,35 @@ function formatSize(bytes) {
   .header-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 
-    .text-btn {
-      font-size: 14px;
-      color: $text-secondary;
-      transition: $transition-base;
-
-      &:hover {
-        color: $brand-start;
+    .header-btn {
+      // el-button 默认 padding 8px 15px / font-size 14px / height 32px
+      // 想要更紧凑一点,小分辨率下自动缩
+      @media (max-width: 1280px) {
+        padding: 6px 12px !important;
+        font-size: 12px !important;
       }
     }
 
-    .publish-btn {
-      display: inline-flex;
-      align-items: center;
-      padding: 8px 24px;
-      border: 1px solid transparent;
-      border-radius: $radius-sm;
-      background: $gradient-brand;
-      color: #fff;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: $transition-base;
-      outline: none;
-      font-family: inherit;
+    .header-btn--primary {
+      // 一键发布: 保留项目渐变 + 阴影
+      background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
+      border: none !important;
+      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35) !important;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 10px 24px !important;
 
       &:hover {
-        opacity: 0.9;
+        box-shadow: 0 6px 28px rgba(139, 92, 246, 0.5) !important;
+        transform: translateY(-1px);
+        opacity: 1 !important;
       }
-
-      &:active {
-        transform: scale(0.97);
-      }
-
-      &:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-    }
-
-    .draft-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 16px;
-      height: 36px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: $radius-base;
-      background: rgba(255, 255, 255, 0.06);
-      color: $text-secondary;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: $transition-base;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.25);
-        color: $text-primary;
-      }
+      &:active { transform: translateY(0) scale(0.98); }
+      &:disabled { opacity: 0.5 !important; cursor: not-allowed; transform: none; box-shadow: none !important; }
     }
   }
 }

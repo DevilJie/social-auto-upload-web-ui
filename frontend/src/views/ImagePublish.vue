@@ -40,6 +40,9 @@
           <el-button :icon="MagicStick" @click="oneClickDialogOpen = true" :disabled="publishAccountIds.size === 0">
             一键填写
           </el-button>
+          <el-button :icon="Setting" @click="batchSetDialogOpen = true" :disabled="publishAccountIds.size === 0">
+            批量设
+          </el-button>
           <button class="publish-btn" @click="publishAll" :disabled="publishing">
             {{ publishing ? '发布中...' : '一键发布' }}
           </button>
@@ -241,6 +244,13 @@
       type="image"
       @pick="handleOneClickFill"
     />
+
+    <!-- Batch Set Dialog -->
+    <BatchSetDialog
+      v-model="batchSetDialogOpen"
+      :platforms="batchSetPlatforms"
+      @apply="onBatchSetApply"
+    />
   </div>
 </template>
 
@@ -248,7 +258,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Upload, Picture, PictureFilled,
-  Document, FullScreen, MagicStick
+  Document, FullScreen, MagicStick, Setting
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -269,6 +279,8 @@ import ImagePreviewDialog from '@/components/ImagePreviewDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
 import ImageCoverUpload from '@/components/ImageCoverUpload.vue'
 import OneClickFillDialog from '@/components/OneClickFillDialog.vue'
+import BatchSetDialog from '@/components/BatchSetDialog.vue'
+import { useImageBatchSetApply } from '@/composables/useImageBatchSetApply'
 import { useAutoSave } from '@/composables/useAutoSave'
 
 import DouyinImagePublishPanel from '@/components/douyin/ImagePublishPanel.vue'
@@ -473,6 +485,28 @@ if (firstGroup) {
 const accountDialogVisible = ref(false)
 const batchPublishDialogVisible = ref(false)
 const oneClickDialogOpen = ref(false)
+const batchSetDialogOpen = ref(false)
+
+// 构造 panelKey → panel 引用值的映射,供 useImageBatchSetApply 按 key 索引;
+// 传入 reactive proxy,使其属性访问时返回当前 panel 引用值 (component instance)
+const panelsProxy = reactive({
+  get douyin() { return douyinPanelRef.value },
+  get xiaohongshu() { return xiaohongshuPanelRef.value },
+  get kuaishou() { return kuaishouPanelRef.value },
+  get weibo() { return weiboPanelRef.value },
+})
+const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
+const batchSetPlatforms = computed(() => {
+  return IMAGE_PLATFORMS.map(p => {
+    const panelAccounts = accountStore.accounts.filter(a => a.platform === p.name)
+    const selectedCount = panelAccounts.filter(a => publishAccountIds.has(a.id)).length
+    return { key: p.key, name: p.name, logo: p.logo, count: selectedCount }
+  })
+})
+function onBatchSetApply(checkedKeys, payload) {
+  applyImageBatchSet(checkedKeys, payload)
+  ElMessage.success(`已批量设置到 ${checkedKeys.length} 个渠道`)
+}
 
 // Refs
 const imageUploaderRef = ref(null)

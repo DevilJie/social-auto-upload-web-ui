@@ -702,6 +702,113 @@ class WeiboPlatform(BasePlatform):
         logger.info("[weibo] 已填标题: %s", truncated)
 
     # ------------------------------------------------------------------
+    # Helper: 根据页面封面区域宽高比选横版/竖版封面
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _pick_cover_by_aspect(
+        page,
+        landscape_path=None,
+        portrait_path=None,
+    ):
+        """根据当前页面封面框的宽高比,选横版还是竖版封面。
+
+        微博封面框用 ``<div style="padding-bottom: X%;"></div>`` 实现
+        宽高比(X = height/width × 100):
+        - X < 100 → 横版(landscape),16:9 时 X=56.25
+        - X > 100 → 竖版(portrait),9:16 时 X≈177.78
+        - X == 100 → 正方形(本函数按横版走)
+
+        实现思路:从「上传封面」/「裁剪封面」链接反向查找,沿祖先
+        找包含 ``div[style*="padding-bottom"]`` 的容器 — 该容器就是
+        当前实际的封面框,里面的 aspect div 给出宽高比。读不到(还没
+        渲染 / 解析失败)默认横版,向后兼容。
+
+        注意:检测时机必须在表单渲染完成之后,否则 cover 区域 DOM
+        不完整(2026-06-17 实测)。这里先 wait_for 「上传封面」链接
+        attached 再跑 JS。
+        """
+        # 先等封面区域 DOM 完整(「上传封面」/「裁剪封面」链接 attached)
+        try:
+            await page.get_by_text("上传封面").first.wait_for(
+                state="attached", timeout=10000,
+            )
+        except Exception as e:
+            logger.warning("[weibo] 等「上传封面」链接超时: %s", e)
+
+        try:
+            aspect, debug = await page.evaluate(r"""() => {
+                // 反向:从「上传封面」/「裁剪封面」链接向上找含 aspect div 的祖先
+                const links = document.querySelectorAll('a');
+                let coverLink = null;
+                for (const a of links) {
+                    const t = (a.textContent || '').trim();
+                    if (t === '上传封面' || t === '裁剪封面') {
+                        coverLink = a;
+                        break;
+                    }
+                }
+                if (!coverLink) {
+                    return [null, {
+                        reason: 'no cover link found',
+                        allLinkTexts: Array.from(links)
+                            .map(a => (a.textContent || '').trim())
+                            .filter(s => s.length > 0 && s.length < 20)
+                            .slice(0, 30),
+                    }];
+                }
+
+                let p = coverLink.parentElement;
+                let depth = 0;
+                while (p && p !== document.body) {
+                    const aspectDiv = p.querySelector(
+                        'div[style*="padding-bottom"]'
+                    );
+                    if (aspectDiv) {
+                        const m = (
+                            aspectDiv.getAttribute('style') || ''
+                        ).match(
+                            /padding-bottom:\s*([0-9.]+)\s*%/i
+                        );
+                        if (m) {
+                            return [parseFloat(m[1]), null];
+                        }
+                    }
+                    p = p.parentElement;
+                    depth++;
+                }
+                return [null, {
+                    reason: 'aspect div not found in ancestors',
+                    coverLinkText: (coverLink.textContent || '').trim(),
+                    walkedDepth: depth,
+                }];
+            }""")
+        except Exception as e:
+            logger.warning("[weibo] 读取封面区域宽高比失败: %s", e)
+            aspect = None
+            debug = None
+
+        if debug:
+            logger.info("[weibo] 封面宽高比调试: %s", debug)
+
+        if aspect is None:
+            logger.info("[weibo] 读不到封面框宽高比,默认横版")
+            return landscape_path or portrait_path
+
+        if aspect < 100:
+            logger.info(
+                "[weibo] 封面框为横版(padding-bottom=%.2f%%),用横版封面",
+                aspect,
+            )
+            return landscape_path or portrait_path
+        else:
+            logger.info(
+                "[weibo] 封面框为竖版(padding-bottom=%.2f%%),用竖版封面",
+                aspect,
+            )
+            return portrait_path or landscape_path
+
+    # ------------------------------------------------------------------
     # Helper: upload cover (click 上传封面 → ESC → hidden file input → 完成)
     # ------------------------------------------------------------------
 
@@ -714,15 +821,19 @@ class WeiboPlatform(BasePlatform):
         """上传封面。
 
         流程(spec ~/1.txt:12-19):
-        1. 点击「上传封面」链接(spec 说这会自动打开系统原生文件选择器)
-        2. 按 ESC 关闭原生选择器
-        3. 等待「编辑封面」弹层出现
-        4. 找到弹层内的隐藏 ``input[type=file]`` 上传图片
-        5. 点击「完成」按钮
-
-        优先使用横版封面;若只传了竖版,用竖版。
+        1. 根据页面封面框宽高比选横版/竖版封面
+           (见 ``_pick_cover_by_aspect``)
+        2. 点击「上传封面」链接(自动打开系统原生文件选择器)
+        3. 按 ESC 关闭原生选择器
+        4. 等待「编辑封面」弹层出现
+        5. 找到弹层内的隐藏 ``input[type=file]`` 上传图片
+        6. 点击「完成」按钮
         """
-        cover_path = thumbnail_landscape_path or thumbnail_portrait_path
+        cover_path = await WeiboPlatform._pick_cover_by_aspect(
+            page,
+            landscape_path=thumbnail_landscape_path,
+            portrait_path=thumbnail_portrait_path,
+        )
         if not cover_path or not os.path.exists(cover_path):
             logger.info("[weibo] 无封面文件,跳过封面上传")
             return
@@ -837,16 +948,22 @@ class WeiboPlatform(BasePlatform):
             )
 
         # 级联下拉触发器: 初始有「请选择合适的频道」占位文本
-        # 注意: click 事件会冒泡,直接点文本即可触发父级 trigger 的 click handler
+        # 2026-06-17 实测:占位文本所在 inner div(woo-box-item-flex)
+        # 被 Playwright 判 hidden(24× retry → timeout),不能直接点它,
+        # 也不要用 wait_for(state="visible")。改用:
+        # 1. wait_for(state="attached") — 只要在 DOM 里就行
+        # 2. 点父级 trigger (wbpro-select 元素)
+        # 3. force=True 绕过任何拦截检查
         trigger_text = page.get_by_text("请选择合适的频道", exact=True)
         try:
-            await trigger_text.first.wait_for(state="visible", timeout=10000)
+            await trigger_text.first.wait_for(state="attached", timeout=10000)
         except Exception as e:
             logger.warning("[weibo] 未找到分类下拉触发器(占位文本): %s", e)
             return
 
-        # 1. 点开下拉(点文本即可,click 冒泡到父级)
-        await trigger_text.first.click()
+        # 1. 点开下拉 — 点父级 trigger (xpath=.. 是 Playwright 的"父节点"语法)
+        trigger = trigger_text.first.locator("xpath=..")
+        await trigger.click(force=True)
         await asyncio.sleep(0.5)
 
         # 下拉面板有两列: 左=频道,右=子分类。左列在 DOM 中先渲染,
@@ -963,6 +1080,12 @@ class WeiboPlatform(BasePlatform):
         """点击页面右下角「发布」按钮。
 
         初始 disabled,表单填好后启用。用 role+name 定位避免 class 哈希漂移。
+
+        [调试模式 2026-06-17] 实际 ``publish_btn.click()`` 已注释掉,只打印
+        「模拟发布成功」日志,用于核对表单内容(标题/封面/正文/内容声明
+        等)是否准确。还原时把下面 ``=== 调试模式 ===`` 块里的
+        ``await publish_btn.click()`` 取消注释、并把调试日志改回原来的
+        ``[weibo] 已点击发布按钮`` 即可。
         """
         # get_by_role 只匹配可访问性树里的元素,hidden 元素(如未来 toast 的
         # 「再发一条视频」按钮)默认被排除,所以 .first 就是当前可见的发布按钮
@@ -981,8 +1104,14 @@ class WeiboPlatform(BasePlatform):
         else:
             raise RuntimeError("[weibo] 发布按钮一直 disabled,表单未就绪")
 
-        await publish_btn.click()
-        logger.info("[weibo] 已点击发布按钮")
+        # === 调试模式 START: 不实际点击,只打印模拟发布成功日志 ===
+        # await publish_btn.click()
+        # logger.info("[weibo] 已点击发布按钮")
+        logger.info(
+            "[weibo] [调试模式] 模拟发布成功 — 表单已就绪,发布按钮 enabled,"
+            "未实际点击。打开浏览器核对表单内容(标题/封面/正文/内容声明等)"
+        )
+        # === 调试模式 END ===
 
     # ------------------------------------------------------------------
     # Helper: wait for publish success signal

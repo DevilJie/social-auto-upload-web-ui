@@ -66,7 +66,7 @@
             <img v-if="p.logo" :src="p.logo" :alt="p.name" class="channel-logo" />
             <div v-else class="channel-logo channel-logo-fallback">{{ p.name?.charAt(0) }}</div>
             <div class="channel-name">{{ p.name }}</div>
-            <div class="channel-count">{{ p.count }} 账号</div>
+            <div class="channel-count">{{ p.count }}</div>
             <el-icon v-if="checkedKeys.has(p.key) && p.count > 0" class="check-icon"><Check /></el-icon>
           </div>
         </div>
@@ -166,24 +166,24 @@ function handleApply() {
 
 .channel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
   width: 100%;
 }
 
 .channel-card {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 12px 8px;
-  border: 1.5px solid $border;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid $border;
+  border-radius: 8px;
   background: $bg-elevated;
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
+  min-height: 36px;
 
   &:hover:not(.is-disabled) {
     border-color: $brand-start;
@@ -202,10 +202,11 @@ function handleApply() {
   }
 
   .channel-logo {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
     object-fit: contain;
+    flex-shrink: 0;
   }
   .channel-logo-fallback {
     display: flex;
@@ -213,28 +214,36 @@ function handleApply() {
     justify-content: center;
     background: $bg-surface;
     color: $text-muted;
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 700;
+    flex-shrink: 0;
   }
 
   .channel-name {
-    font-size: 13px;
-    font-weight: 600;
+    flex: 1;
+    font-size: 12px;
+    font-weight: 500;
     color: $text-primary;
-    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .channel-count {
     font-size: 11px;
     color: $text-muted;
+    flex-shrink: 0;
+    background: $bg-surface;
+    padding: 1px 6px;
+    border-radius: 8px;
   }
 
   .check-icon {
     position: absolute;
-    top: 4px;
-    right: 4px;
+    top: 2px;
+    right: 2px;
     color: $brand-start;
-    font-size: 14px;
+    font-size: 12px;
   }
 }
 

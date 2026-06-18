@@ -206,6 +206,15 @@ def getAccounts():
             cursor.execute('SELECT * FROM user_info')
             rows = cursor.fetchall()
             rows_list = [list(row) for row in rows]
+
+            for row in rows_list:
+                tags = conn.execute('''
+                    SELECT t.id, t.name, t.color FROM tags t
+                    JOIN account_tags at ON t.id = at.tag_id
+                    WHERE at.account_id = ?
+                ''', (row[0],)).fetchall()
+                row.append([dict(t) for t in tags])
+
         return jsonify({"code": 200, "msg": None, "data": rows_list}), 200
     except Exception as e:
         return jsonify({"code": 500, "msg": f"获取账号列表失败: {str(e)}", "data": None}), 500
@@ -233,6 +242,15 @@ def getValidAccounts():
                 row[4] = new_status
                 with sqlite3.connect(str(DB_PATH)) as conn:
                     conn.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, row[0]))
+
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            for row in rows_list:
+                tags = conn.execute('''
+                    SELECT t.id, t.name, t.color FROM tags t
+                    JOIN account_tags at ON t.id = at.tag_id
+                    WHERE at.account_id = ?
+                ''', (row[0],)).fetchall()
+                row.append([dict(t) for t in tags])
 
         return jsonify({"code": 200, "msg": None, "data": rows_list}), 200
     except Exception as e:
@@ -289,6 +307,80 @@ def updateUserinfo():
         return jsonify({"code": 200, "msg": "account update successfully", "data": None}), 200
     except Exception as e:
         return jsonify({"code": 500, "msg": "update failed!", "data": None}), 500
+
+
+# ── Tag management ────────────────────────────────────────
+
+@app.route('/api/tags', methods=['GET'])
+def get_tags():
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('SELECT * FROM tags ORDER BY name').fetchall()
+        return jsonify({"code": 200, "data": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/tags', methods=['POST'])
+def create_tag():
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    color = data.get('color') or '#8b5cf6'
+    if not name:
+        return jsonify({"code": 400, "msg": "标签名不能为空"}), 400
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute('INSERT INTO tags (name, color) VALUES (?, ?)', (name, color))
+            tag_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            conn.commit()
+        return jsonify({"code": 200, "data": {"id": tag_id, "name": name, "color": color}})
+    except sqlite3.IntegrityError:
+        return jsonify({"code": 409, "msg": "标签名已存在"}), 409
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
+def delete_tag(tag_id):
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute('DELETE FROM tags WHERE id = ?', (tag_id,))
+            conn.commit()
+        return jsonify({"code": 200})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/accounts/<int:account_id>/tags', methods=['PUT'])
+def set_account_tags(account_id):
+    data = request.get_json()
+    tag_ids = data.get('tag_ids', [])
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute('DELETE FROM account_tags WHERE account_id = ?', (account_id,))
+            for tid in tag_ids:
+                conn.execute('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)', (account_id, tid))
+            conn.commit()
+        return jsonify({"code": 200})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/accounts/<int:account_id>/tags', methods=['GET'])
+def get_account_tags(account_id):
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('''
+                SELECT t.* FROM tags t
+                JOIN account_tags at ON t.id = at.tag_id
+                WHERE at.account_id = ?
+                ORDER BY t.name
+            ''', (account_id,)).fetchall()
+        return jsonify({"code": 200, "data": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
 
 
 # ── Cookie file management ──────────────────────────────────

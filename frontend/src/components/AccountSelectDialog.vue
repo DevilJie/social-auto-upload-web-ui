@@ -27,6 +27,22 @@
               {{ p.name }}
             </div>
           </template>
+          <div v-if="accountStore.allTags.length > 0" class="dialog-tag-section">
+            <div class="dialog-tag-title">标签筛选</div>
+            <div
+              :class="['dialog-platform-item', 'cursor-pointer', { active: !accountFilterTag }]"
+              @click="accountFilterTag = null"
+            >全部标签</div>
+            <div
+              v-for="tag in accountStore.allTags"
+              :key="tag.id"
+              :class="['dialog-platform-item', 'cursor-pointer', { active: accountFilterTag === tag.id }]"
+              @click="accountFilterTag = accountFilterTag === tag.id ? null : tag.id"
+            >
+              <span class="tag-dot" :style="{ background: tag.color }"></span>
+              {{ tag.name }}
+            </div>
+          </div>
         </div>
 
         <div class="dialog-account-list">
@@ -88,6 +104,7 @@ const emit = defineEmits(['update:modelValue', 'confirm'])
 const accountStore = useAccountStore()
 const appStore = useAppStore()
 const accountFilterPlatform = ref('')
+const accountFilterTag = ref(null)
 const tempSelectedAccounts = ref([])
 
 const isPlatformDisabled = (platformName) => {
@@ -103,6 +120,9 @@ const filteredAccounts = computed(() => {
   let list = accountStore.accounts.filter(a => platformNames.value.includes(a.platform))
   if (accountFilterPlatform.value) {
     list = list.filter(a => a.platform === accountFilterPlatform.value)
+  }
+  if (accountFilterTag.value) {
+    list = list.filter(a => a.tags?.some(t => t.id === accountFilterTag.value))
   }
   list = list.filter(a => !isPlatformDisabled(a.platform))
   return list
@@ -204,6 +224,27 @@ watch(() => props.modelValue, async (visible) => {
           overflow: hidden;
 
           .dialog-platform-badge-img { width: 22px; height: 22px; object-fit: contain; }
+        }
+      }
+
+      .dialog-tag-section {
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        margin-top: 8px;
+        padding-top: 8px;
+
+        .dialog-tag-title {
+          padding: 8px 16px 4px;
+          font-size: 11px;
+          color: $text-muted;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .tag-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          flex-shrink: 0;
         }
       }
     }

@@ -45,6 +45,23 @@
       </el-button>
     </div>
 
+    <!-- 标签筛选 -->
+    <div v-if="tagFilterOptions.length > 0" class="tag-filter-bar">
+      <button
+        :class="['tag-filter-item', { active: !activeTagId }]"
+        @click="activeTagId = null"
+      >全部标签</button>
+      <button
+        v-for="tag in tagFilterOptions"
+        :key="tag.id"
+        :class="['tag-filter-item', { active: activeTagId === tag.id }]"
+        @click="activeTagId = activeTagId === tag.id ? null : tag.id"
+      >
+        <span class="tag-dot" :style="{ background: tag.color }"></span>
+        {{ tag.name }}
+      </button>
+    </div>
+
     <!-- 账号卡片列表 -->
     <div v-if="filteredAccounts.length > 0" class="account-grid">
       <div
@@ -72,6 +89,23 @@
                 <span class="status-dot"></span>
                 {{ account.status }}
               </span>
+              <span
+                v-for="tag in account.tags"
+                :key="tag.id"
+                class="account-tag"
+                :style="{ borderColor: tag.color, color: tag.color }"
+              >{{ tag.name }}</span>
+              <TagPopover
+                :visible="tagPopoverVisible && tagPopoverAccountId === account.id"
+                :account-id="account.id"
+                :selected-tags="account.tags || []"
+                @update:visible="tagPopoverVisible = $event"
+                @changed="onTagChanged"
+              >
+                <button class="tag-add-btn" @click.stop="openTagPopover(account.id)">
+                  <el-icon><Plus /></el-icon>
+                </button>
+              </TagPopover>
             </div>
           </div>
           <div class="platform-logo">
@@ -169,6 +203,7 @@ import { useAppStore } from '@/stores/app'
 import { http } from '@/utils/request'
 import { platformList, platformNameToId, platformNameToKey, platformCssMap, getPlatformByName } from '@/config/platforms'
 import LoginDialog from '@/components/LoginDialog.vue'
+import TagPopover from '@/components/TagPopover.vue'
 
 const accountStore = useAccountStore()
 const appStore = useAppStore()
@@ -177,6 +212,21 @@ const appStore = useAppStore()
 const isAccountDisabled = (account) => {
   const key = platformNameToKey[account.platform]
   return !!(key && appStore.isPlatformDisabled(key))
+}
+
+const activeTagId = ref(null)
+const tagPopoverVisible = ref(false)
+const tagPopoverAccountId = ref(null)
+
+const tagFilterOptions = computed(() => accountStore.allTags)
+
+function openTagPopover(accountId) {
+  tagPopoverAccountId.value = accountId
+  tagPopoverVisible.value = true
+}
+
+async function onTagChanged() {
+  await fetchAccountsQuick()
 }
 
 const activeTab = ref('all')
@@ -230,6 +280,7 @@ const fetchAccounts = async () => {
 
 onMounted(() => {
   fetchAccountsQuick()
+  accountStore.loadTags()
 })
 
 const getPlatformClass = (platform) => {
@@ -278,6 +329,9 @@ const filteredAccounts = computed(() => {
   let accounts = accountStore.accounts
   if (activeTab.value !== 'all') {
     accounts = accounts.filter(a => a.platform === activeTab.value)
+  }
+  if (activeTagId.value) {
+    accounts = accounts.filter(a => a.tags?.some(t => t.id === activeTagId.value))
   }
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
@@ -637,6 +691,40 @@ const submitAccountForm = () => {
     }
   }
 
+  .tag-filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+
+    .tag-filter-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: $bg-surface;
+      border: 1px solid $border;
+      border-radius: 8px;
+      font-size: 13px;
+      color: $text-secondary;
+      cursor: pointer;
+      transition: all $transition-base;
+
+      &:hover { background: rgba($brand-start, 0.1); }
+      &.active {
+        background: rgba($brand-start, 0.15);
+        border-color: $brand-start;
+        color: #fff;
+      }
+
+      .tag-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+    }
+  }
+
   // Account grid
   .account-grid {
     display: grid;
@@ -799,6 +887,38 @@ const submitAccountForm = () => {
           font-size: 20px;
           font-weight: 700;
         }
+      }
+    }
+
+    .account-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      border: 1px solid;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 16px;
+    }
+
+    .tag-add-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px dashed rgba(255,255,255,0.2);
+      border-radius: 4px;
+      background: transparent;
+      color: $text-muted;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all $transition-base;
+
+      &:hover {
+        border-color: $brand-start;
+        color: $brand-start;
+        background: rgba($brand-start, 0.1);
       }
     }
 

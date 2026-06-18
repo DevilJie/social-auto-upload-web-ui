@@ -26,8 +26,8 @@
             @click="account.status === '正常' && toggleAccount(account.id)"
           >
             <div class="batch-account-avatar">
-              <img v-if="account.avatar" :src="account.avatar" :alt="account.name">
-              <span v-else>{{ (account.name || '?').charAt(0) }}</span>
+              <img v-if="account.avatar" :src="proxyAvatar(account.avatar)" :alt="account.name">
+              <img v-else :src="getDefaultAvatar(account.name)" :alt="account.name">
             </div>
             <div class="batch-account-info">
               <div class="batch-account-name" :title="account.name">{{ account.name }}</div>
@@ -112,6 +112,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Close } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { accountApi } from '@/api/account'
+import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true }

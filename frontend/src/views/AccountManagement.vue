@@ -235,6 +235,7 @@ import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { http } from '@/utils/request'
 import { platformList, platformNameToId, platformNameToKey, platformCssMap, getPlatformByName } from '@/config/platforms'
+import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
 import LoginDialog from '@/components/LoginDialog.vue'
 import TagPopover from '@/components/TagPopover.vue'
 import BatchTagDialog from '@/components/BatchTagDialog.vue'
@@ -578,15 +579,7 @@ const handleSyncProfile = async (row) => {
   }
 }
 
-const getDefaultAvatar = (name) => {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
-}
-
-/** 头像代理：sinaimg.cn 防盗链，走后端代理绕过 */
-const proxyAvatar = (url) => {
-  const api = window.__AVATAR_PROXY_API__ || '/api/image-proxy'
-  return url && url.includes('sinaimg.cn') ? `${api}?url=${encodeURIComponent(url)}` : url
-}
+// getDefaultAvatar / proxyAvatar 已抽到 @/utils/avatar
 
 const handleOpenCreatorCenter = async (row) => {
   try {

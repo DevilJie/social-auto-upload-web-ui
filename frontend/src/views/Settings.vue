@@ -326,7 +326,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ChatDotRound, Plus, Close, Warning } from '@element-plus/icons-vue'
 import { settingsApi } from '@/api/v2'
-import { platformList, PLATFORMS } from '@/config/platforms'
+import { platformList, getPlatformByKey } from '@/config/platforms'
 import { http } from '@/utils/request'
 import { useAppStore } from '@/stores/app'
 import PlatformBlacklistDialog from '@/components/PlatformBlacklistDialog.vue'
@@ -334,9 +334,11 @@ import PlatformBlacklistDialog from '@/components/PlatformBlacklistDialog.vue'
 const appStore = useAppStore()
 
 // 已拉黑渠道的平台对象数组(filter(Boolean) 容错,防止后端返回不存在的 key)
+// 注意: store 中存的是小写 platform key (如 'xiaohongshu'),
+// 不能用 PLATFORMS[<uppercase>] 直接查,要用 getPlatformByKey
 const disabledPlatformObjects = computed(() =>
   appStore.disabledPlatforms
-    .map(k => PLATFORMS[k])
+    .map(k => getPlatformByKey(k))
     .filter(Boolean)
 )
 

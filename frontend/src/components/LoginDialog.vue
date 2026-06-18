@@ -99,7 +99,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading, Select, CloseBold } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
-import { platformList, getPlatformByName } from '@/config/platforms'
+import { platformList, getPlatformByName, getPlatformByKey } from '@/config/platforms'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -160,14 +160,87 @@ function initCardStates() {
 }
 
 function handleClose() {
-  // 清理所有 SSE 连接
+  // 清理所有 SSE 连接(el-dialog 关闭时已经会通过 @update:model-value 通知父组件)
   for (const key of eventSources.keys()) closeSSE(key)
-  emit('update:modelValue', false)
 }
 
-// ===== SSE 逻辑在 Task 12 实现 =====
+// ===== SSE 逻辑 =====
 function startLogin(platformKey, accountId = null) {
-  // 占位,Task 12 实现
+  const platform = getPlatformByKey(platformKey)
+  if (!platform) return
+
+  const type = platform.id  // 1-10
+  const tempId = crypto.randomUUID()
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
+  let url = `${baseUrl}/login?type=${type}&id=${encodeURIComponent(tempId)}`
+  if (accountId) {
+    url += `&account_id=${encodeURIComponent(accountId)}`
+  }
+
+  setCardStatus(platformKey, 'logging')
+  // 若是 relogin 模式,由 startRelogin 单独处理 reloginStatus
+  if (props.mode === 'relogin' && reloginKey.value === platformKey) {
+    reloginStatus.value = 'logging'
+  }
+
+  const es = new EventSource(url)
+  eventSources.set(platformKey, es)
+
+  es.onmessage = (event) => {
+    let result
+    try {
+      result = JSON.parse(event.data)
+    } catch (e) {
+      // 非 JSON,忽略(本场景不应出现二维码)
+      return
+    }
+
+    if (result.status === '200') {
+      setCardStatus(platformKey, 'success')
+      closeSSE(platformKey)
+      if (props.mode === 'relogin' && reloginKey.value === platformKey) {
+        reloginStatus.value = 'success'
+      }
+      emit('success', { platform: platformKey, accountId: accountId || undefined })
+      ElMessage.success(`${platform.name} 登录成功`)
+      // relogin 模式: 1.5s 后自动关闭弹窗
+      if (props.mode === 'relogin') {
+        setTimeout(() => {
+          emit('update:modelValue', false)
+        }, 1500)
+      }
+      return
+    }
+
+    if (result.status === '500' || result.status === '0' || result.status === 'error') {
+      const errMsg = result.msg || result.error || '登录失败'
+      setCardStatus(platformKey, 'fail', errMsg)
+      closeSSE(platformKey)
+      if (props.mode === 'relogin' && reloginKey.value === platformKey) {
+        reloginStatus.value = 'fail'
+        reloginErrMsg.value = errMsg
+      }
+      emit('fail', { platform: platformKey, errMsg })
+      return
+    }
+
+    // status === '1' 或其他: 等待中,保持 logging
+  }
+
+  es.onerror = () => {
+    // 成功后 closeSSE 也会触发 onerror,需检查状态防误判
+    if (cardStates[platformKey]?.status === 'success') return
+    if (props.mode === 'relogin' && reloginStatus.value === 'success') return
+
+    const errMsg = '连接断开,请检查后端服务'
+    setCardStatus(platformKey, 'fail', errMsg)
+    closeSSE(platformKey)
+    if (props.mode === 'relogin' && reloginKey.value === platformKey) {
+      reloginStatus.value = 'fail'
+      reloginErrMsg.value = errMsg
+    }
+    emit('fail', { platform: platformKey, errMsg })
+  }
 }
 
 function closeSSE(platformKey) {
@@ -197,9 +270,8 @@ function retryLogin(platformKey) {
 
 function startRelogin() {
   if (!reloginKey.value || !props.account) return
-  reloginStatus.value = 'logging'
-  reloginErrMsg.value = ''
-  // Task 12 中实现 startLogin(reloginKey.value, props.account.id) + 监听 status 更新 reloginStatus
+  closeSSE(reloginKey.value)  // 清旧连接
+  startLogin(reloginKey.value, props.account.id)
 }
 
 function cancelRelogin() {

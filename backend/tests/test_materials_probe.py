@@ -5,12 +5,16 @@ import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-_tmpdir = tempfile.mkdtemp()
+_tmpdir = tempfile.mkdtemp(prefix="probe_test_")
 os.environ['SAU_DATA_DIR'] = _tmpdir
-DB_PATH = os.path.join(_tmpdir, "db", "database.db")
+
+# Use real BASE_DIR (so materials_bp._get_db() resolves to our tmpdir)
+from conf import BASE_DIR  # noqa: E402
+DB_PATH = BASE_DIR / "db" / "database.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS materials (
@@ -31,15 +35,15 @@ CREATE TABLE IF NOT EXISTS materials (
 
 
 def _setup_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.executescript(_SCHEMA)
     conn.commit()
     conn.close()
 
 
 def _insert_material(mid, file_type="video", duration=0, file_size=0, stored_path="fake.mp4"):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.execute(
         """INSERT INTO materials (id, original_filename, stored_path, file_type, file_size, duration)
            VALUES (?, ?, ?, ?, ?, ?)""",
@@ -58,7 +62,7 @@ class TestProbe(unittest.TestCase):
 
     def setUp(self):
         self.client = self.app.test_client()
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(str(DB_PATH))
         conn.execute("DELETE FROM materials")
         conn.commit()
         conn.close()

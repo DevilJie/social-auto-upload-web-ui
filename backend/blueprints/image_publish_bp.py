@@ -1,5 +1,5 @@
 """
-图文发布 Blueprint
+图集发布 Blueprint
 处理图片上传、发布、草稿管理等功能
 """
 
@@ -78,7 +78,7 @@ def _update_image_publish_detail(detail_id, status, error_message=""):
 
 @image_publish_bp.route('/publish', methods=['POST'])
 def publish_images():
-    """发布图文内容到各平台（单账号 + batchId 模式，前端循环调用）"""
+    """发布图集内容到各平台（单账号 + batchId 模式，前端循环调用）"""
     import asyncio
     from impl.registry import get_platform
 
@@ -173,6 +173,7 @@ def publish_images():
                 '小红书': 1,
                 'kuaishou': 4,
                 '快手': 4,
+                'weibo': 11, '微博': 11,   # 新增
             }
             platform_id = platform_map.get(platform_type)
             if not platform_id:
@@ -244,7 +245,7 @@ def publish_images():
 
 @image_publish_bp.route('/drafts', methods=['GET'])
 def get_drafts():
-    """获取图文草稿列表（重定向到统一接口）"""
+    """获取图集草稿列表（重定向到统一接口）"""
     import asyncio
     from ext_api import get_drafts as v2_get_drafts
     # 直接调用 v2 接口，传递 type=image 参数
@@ -257,7 +258,7 @@ def get_drafts():
 
 @image_publish_bp.route('/drafts', methods=['POST'])
 def save_draft():
-    """保存图文草稿（重定向到统一接口）"""
+    """保存图集草稿（重定向到统一接口）"""
     data = request.get_json()
     if not data:
         return jsonify({"code": 400, "msg": "请求数据不能为空"}), 400
@@ -319,7 +320,7 @@ def save_draft():
 
 
 def _extract_image_draft_title(draft_data):
-    """从图文草稿数据中提取标题"""
+    """从图集草稿数据中提取标题"""
     # 优先从 accountOverrides 中获取第一个非空标题（账号级配置）
     account_overrides = draft_data.get('accountOverrides', {})
     for account_id, override in account_overrides.items():
@@ -338,7 +339,7 @@ def _extract_image_draft_title(draft_data):
 
 
 def _extract_image_draft_cover(draft_data):
-    """从图文草稿数据中提取封面路径"""
+    """从图集草稿数据中提取封面路径"""
     common_config = draft_data.get('commonConfig', {})
 
     # 优先使用用户选择的封面
@@ -367,7 +368,7 @@ def _extract_image_draft_cover(draft_data):
 
 
 def _extract_image_channels_summary(draft_data):
-    """从图文草稿数据中提取渠道摘要"""
+    """从图集草稿数据中提取渠道摘要"""
     publish_account_ids = draft_data.get('publishAccountIds', [])
     if not publish_account_ids:
         return []
@@ -380,6 +381,7 @@ def _extract_image_channels_summary(draft_data):
         4: ('kuaishou', '快手'),
         5: ('bilibili', 'B站'),
         6: ('baijiahao', '百家号'),
+        11: ('weibo', '微博'),   # 新增
     }
 
     try:
@@ -408,7 +410,7 @@ def _extract_image_channels_summary(draft_data):
 
 @image_publish_bp.route('/drafts/<draft_id>', methods=['DELETE'])
 def delete_draft(draft_id):
-    """删除图文草稿"""
+    """删除图集草稿"""
     try:
         conn = _get_db()
         changes = conn.execute("DELETE FROM drafts WHERE id = ? AND type='image'", (draft_id,)).rowcount
@@ -428,7 +430,7 @@ def delete_draft(draft_id):
 
 @image_publish_bp.route('/execute-publish', methods=['POST'])
 def execute_publish():
-    """执行图文发布任务 - 调用平台API（单账号 + batchId 模式）"""
+    """执行图集发布任务 - 调用平台API（单账号 + batchId 模式）"""
     import asyncio
     from impl.registry import get_platform
 
@@ -456,7 +458,8 @@ def execute_publish():
 
     # 平台名映射（与 /publish 一致，用于在 publish_details.platform 存可读名）
     platform_name_map = {1: '小红书', 2: '视频号', 3: '抖音', 4: '快手', 5: 'B站',
-                         6: '百家号', 7: 'TikTok', 8: 'YouTube', 9: '腾讯视频', 10: '爱奇艺'}
+                         6: '百家号', 7: 'TikTok', 8: 'YouTube', 9: '腾讯视频', 10: '爱奇艺',
+                         11: '微博'}  # 新增
     platform_label = platform_name_map.get(int(platform_type), str(platform_type))
 
     now = datetime.now().isoformat()
@@ -561,7 +564,7 @@ def execute_publish():
 
 @image_publish_bp.route('/drafts/batch-publish', methods=['POST'])
 def batch_publish_image_drafts():
-    """图文草稿批量发布：每个 draft 调一次 publish_images 走单账号链路。"""
+    """图集草稿批量发布：每个 draft 调一次 publish_images 走单账号链路。"""
     import json
     import sqlite3
     from flask import request, jsonify, current_app
@@ -585,7 +588,7 @@ def batch_publish_image_drafts():
     found_ids = {r[0] for r in rows}
     missing_ids = [i for i in draft_ids if i not in found_ids]
     if missing_ids:
-        return jsonify({"code": 404, "msg": "图文草稿不存在", "missing_ids": missing_ids}), 404
+        return jsonify({"code": 404, "msg": "图集草稿不存在", "missing_ids": missing_ids}), 404
 
     succeeded = []
     failed = []

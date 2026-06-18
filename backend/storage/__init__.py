@@ -76,7 +76,7 @@ def reset_storage():
 def resolve_material_path(path_or_stored_path):
     """统一素材路径解析：stored_path → 本地绝对路径。
 
-    视频发布、图文发布、抽帧、封面……所有需要把素材表的
+    视频发布、图集发布、抽帧、封面……所有需要把素材表的
     stored_path 转成本地可读路径的地方都应使用此函数，避免
     重复实现和分散逻辑。
 

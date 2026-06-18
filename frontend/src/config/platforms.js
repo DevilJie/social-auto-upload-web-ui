@@ -15,6 +15,9 @@ import logoBaijiahao from '@/assets/logos/baijiahao.png'
 import logoYoutube from '@/assets/logos/youtube.png'
 import logoTencentVideo from '@/assets/logos/tengxunshipin.png'
 import logoIqiyi from '@/assets/logos/aiqiyi.png'
+import logoWeibo from '@/assets/logos/weibo.png'
+
+import { WEIBO_CATEGORIES } from './weibo-categories'
 
 export const PLATFORMS = {
   XIAOHONGSHU: {
@@ -298,6 +301,39 @@ export const PLATFORMS = {
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '' },
+  },
+  WEIBO: {
+    id: 11,
+    key: 'weibo',
+    name: '微博',
+    shortName: 'WB',
+    letter: 'W',
+    logo: logoWeibo,
+    color: '#E6162D',
+    bgColor: 'rgba(230, 22, 45, 0.15)',
+    cssClass: 'weibo',
+    creatorUrl: 'https://weibo.com/set/index',
+    settingsFields: [
+      { key: 'videoType', label: '类型', type: 'radio', options: [
+        { label: '原创', value: '原创' },
+        { label: '二创', value: '二创' },
+        { label: '转载', value: '转载' },
+      ] },
+      { key: 'weiboCategory', label: '分类', type: 'cascader',
+        placeholder: '选择频道 / 子分类',
+        options: WEIBO_CATEGORIES,
+        props: { expandTrigger: 'hover' } },
+      { key: 'contentStatement', label: '内容声明', type: 'select',
+        placeholder: '请选择内容声明（可选）',
+        options: [
+          { label: '无', value: '' },
+          { label: '内容为自主创作', value: '内容为自主创作' },
+          { label: '内容为转载', value: '内容为转载' },
+          { label: '内容由AI生成', value: '内容由AI生成' },
+          { label: '内容为虚构演绎', value: '内容为虚构演绎' },
+        ] },
+    ],
+    defaultSettings: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '' },
   },
 }
 

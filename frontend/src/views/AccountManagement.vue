@@ -54,7 +54,7 @@
       >
         <!-- 卡片主体：头像 + 用户信息 -->
         <div class="card-body">
-          <el-avatar :src="account.avatar || getDefaultAvatar(account.name)" :size="48" class="user-avatar" />
+          <img :src="proxyAvatar(account.avatar) || getDefaultAvatar(account.name)" class="user-avatar" />
           <div class="user-info">
             <span class="user-name">{{ account.name }}</span>
             <div class="platform-row">
@@ -491,6 +491,12 @@ const getDefaultAvatar = (name) => {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
 }
 
+/** 头像代理：sinaimg.cn 防盗链，走后端代理绕过 */
+const proxyAvatar = (url) => {
+  const api = window.__AVATAR_PROXY_API__ || '/api/image-proxy'
+  return url && url.includes('sinaimg.cn') ? `${api}?url=${encodeURIComponent(url)}` : url
+}
+
 const handleOpenCreatorCenter = async (row) => {
   try {
     const res = await http.post('/openCreatorCenter', { id: row.id })
@@ -846,6 +852,10 @@ onBeforeUnmount(() => { closeSSEConnection() })
       margin-bottom: 12px;
 
       .user-avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        object-fit: cover;
         border: 2px solid $border;
         flex-shrink: 0;
       }
@@ -942,15 +952,14 @@ onBeforeUnmount(() => { closeSSEConnection() })
       .card-actions {
         display: flex;
         align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
+        gap: 6px;
       }
 
       .action-btn {
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        padding: 6px 12px;
+        padding: 6px 8px;
         border: none;
         border-radius: 8px;
         font-size: 12px;

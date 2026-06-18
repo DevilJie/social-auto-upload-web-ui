@@ -172,10 +172,11 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
+    11: 'weibo',
 }
 
 
@@ -401,6 +402,30 @@ def sync_profile():
     return jsonify({"code": 200, "msg": "同步成功", "data": {"name": name, "avatar": avatar}})
 
 
+@app.route('/api/image-proxy')
+def image_proxy():
+    """头像代理：绕过 sinaimg.cn 防盗链。后端请求带 Referer=weibo.com。"""
+    url = request.args.get('url')
+    if not url:
+        return jsonify({"code": 400, "msg": "缺少 url 参数"}), 400
+    import httpx
+    try:
+        resp = httpx.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/135.0.0.0 Safari/537.36",
+                "Referer": "https://weibo.com/",
+            },
+            timeout=15,
+        )
+        return Response(resp.content, mimetype=resp.headers.get("content-type", "image/jpeg"))
+    except Exception as e:
+        logger.warning(f"[image-proxy] fetch failed: {e}")
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
 @app.route('/openCreatorCenter', methods=['POST'])
 def open_creator_center():
     account_id = request.json.get('id')
@@ -532,6 +557,7 @@ def postVideo():
                 tag_value=tag_value,
                 mini_link=mini_link,
                 mix_id=mix_id,
+                content_statement=data.get('contentStatement', ''),
             ))
         else:
             result = publish_fn(
@@ -565,6 +591,7 @@ def postVideo():
                 tag_value=tag_value,
                 mini_link=mini_link,
                 mix_id=mix_id,
+                content_statement=data.get('contentStatement', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

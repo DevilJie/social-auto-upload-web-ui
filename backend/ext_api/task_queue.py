@@ -204,36 +204,19 @@ class TaskQueue:
             except asyncio.CancelledError:
                 task.status = TaskStatus.CANCELLED
             except Exception as e:
-                task.retry_count += 1
-                if task.retry_count <= task.max_retries:
-                    wait_time = 2 ** task.retry_count
-                    await asyncio.sleep(wait_time)
-                    task.status = TaskStatus.PENDING
-                    await self.queue.put(task)
-                    if task.id in self.running:
-                        del self.running[task.id]
-                    # 通知但不 task_done（任务仍在队列里）
-                    self._update_db(task)
-                    self._notify_status(task)
-                    # 唯一一次 task_done（在重试入队后）
-                    self.queue.task_done()
-                    continue
-                else:
-                    task.status = TaskStatus.FAILED
-                    task.error_message = str(e)
+                # 重试逻辑已禁用 — 长耗时任务(如视频上传)失败立即标记 FAILED,
+                # 避免误触发「同一任务再次开浏览器重新上传」
+                task.status = TaskStatus.FAILED
+                task.error_message = str(e)
 
             finally:
                 task.finished_at = datetime.now().isoformat()
                 if task.id in self.running:
                     del self.running[task.id]
-                if task.status != TaskStatus.PENDING:
-                    self.completed.append(task)
+                self.completed.append(task)
                 self._update_db(task)
                 self._notify_status(task)
-                # 只有非 retry 路径才 task_done
-                # retry 路径已经 task_done() 并 continue 跳到下一轮
-                if task.status != TaskStatus.PENDING:
-                    self.queue.task_done()
+                self.queue.task_done()
 
     async def _execute(self, task: PublishTask):
         """调用上游 uploader 执行上传。

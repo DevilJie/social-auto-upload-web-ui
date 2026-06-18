@@ -66,7 +66,7 @@
           >
             <el-option label="全部" value="all" />
             <el-option label="视频" value="video" />
-            <el-option label="图文" value="image" />
+            <el-option label="图集" value="image" />
           </el-select>
 
           <el-select

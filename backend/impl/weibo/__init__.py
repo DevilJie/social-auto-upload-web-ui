@@ -1,0 +1,1 @@
+"""Weibo platform package."""

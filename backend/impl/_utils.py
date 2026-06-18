@@ -386,6 +386,48 @@ async def scrape_youtube_profile(page):
     return name, avatar
 
 
+async def scrape_weibo_profile(page):
+    """Weibo-specific scraper.
+
+    抓取依据：微博创作中心顶部导航栏登录后会出现
+    ``a[href^=\"/u/\"]``（最后一个 tab，带 ``title`` 属性和头像 img）。
+    直接跑 JS eval 取属性，避免 locator API 链的兼容问题。
+
+    1. 昵称：``a[href^=\"/u/\"]`` 的 ``title`` 属性
+    2. 头像：``a[href^=\"/u/\"] img[src*=\"sinaimg.cn\"]`` 的 ``src`` 属性
+
+    失败兜底：返回 ("", "")，由 save_login_result 兜底用户名。
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+        await asyncio.sleep(2)
+
+        result = await page.evaluate("""() => {
+            let name = '', avatar = '';
+            // 必须限定到顶部导航栏 .woo-tab-nav，否则未登录态主页面
+            // 热门博主链接也是 a[href^="/u/"] img[src*="sinaimg.cn"]
+            const link = document.querySelector('.woo-tab-nav a[href^="/u/"]');
+            if (link) {
+                name = link.getAttribute('title') || '';
+                const img = link.querySelector('img');
+                if (img) avatar = img.src || '';
+            }
+            return { name, avatar };
+        }""")
+        name = (result.get("name") or "").strip()
+        avatar = (result.get("avatar") or "").strip()
+        logger.info(f"[weibo] profile scraped - name={name!r} avatar={avatar[:80] if avatar else 'None'} (result={result})")
+    except Exception as e:
+        logger.info(f"[weibo] profile scrape error: {e}")
+
+    return name, avatar
+
+
 # ---------------------------------------------------------------------------
 # Schedule time parser
 # Source: original postVideo.py schedule parser
@@ -557,6 +599,7 @@ PLATFORM_SYNC_URLS = {
     8: "https://studio.youtube.com",
     9: "https://mp.v.qq.com/",
     10: "https://creator.iqiyi.com/",
+    11: "https://weibo.com/set/index",
 }
 
 
@@ -573,4 +616,5 @@ PLATFORM_SCRAPE_FNS = {
     6: scrape_baijiahao_profile,    # Baijiahao
     7: scrape_user_profile,         # TikTok
     8: scrape_youtube_profile,      # YouTube
+    11: scrape_weibo_profile,       # Weibo
 }

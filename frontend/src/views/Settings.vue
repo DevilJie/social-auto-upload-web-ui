@@ -311,6 +311,13 @@
         {{ saving ? '保存中...' : '保存设置' }}
       </button>
     </div>
+
+    <!-- 渠道黑名单添加弹窗 -->
+    <PlatformBlacklistDialog
+      v-model="blacklistDialogVisible"
+      :disabled-keys="appStore.disabledPlatforms"
+      @confirm="onBlacklistConfirm"
+    />
   </div>
 </template>
 
@@ -322,6 +329,7 @@ import { settingsApi } from '@/api/v2'
 import { platformList, PLATFORMS } from '@/config/platforms'
 import { http } from '@/utils/request'
 import { useAppStore } from '@/stores/app'
+import PlatformBlacklistDialog from '@/components/PlatformBlacklistDialog.vue'
 
 const appStore = useAppStore()
 
@@ -342,6 +350,16 @@ const removeFromBlacklist = async (key) => {
   } catch (e) {
     console.error('移除黑名单失败:', e)
     ElMessage.error('移除失败,请重试')
+  }
+}
+
+const onBlacklistConfirm = async (newKeys) => {
+  try {
+    await appStore.addDisabledPlatforms(newKeys)
+    ElMessage.success(`已添加 ${newKeys.length} 个渠道到黑名单`)
+  } catch (e) {
+    console.error('添加黑名单失败:', e)
+    ElMessage.error('添加失败,请重试')
   }
 }
 

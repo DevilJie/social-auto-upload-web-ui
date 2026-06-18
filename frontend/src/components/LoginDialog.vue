@@ -8,7 +8,7 @@
     @open="onDialogOpen"
     @close="handleClose"
   >
-    <!-- add 模式: 平台卡片网格 -->
+    <!-- add 模式: 平台卡片网格(扁平横向) -->
     <div v-if="mode === 'add'" class="login-dialog-body">
       <p class="dialog-hint">选择要登录的平台,点击卡片即开始登录</p>
       <div v-if="cardList.length === 0" class="empty-state">
@@ -25,37 +25,37 @@
           ]"
           @click="onCardClick(p)"
         >
-          <!-- idle 状态 -->
-          <template v-if="p.status === 'idle'">
-            <div class="platform-logo-wrap">
-              <img v-if="p.logo" :src="p.logo" :alt="p.name" class="platform-logo" />
-              <span v-else class="platform-letter">{{ p.letter }}</span>
+          <!-- logo/letter -->
+          <div class="platform-logo-wrap" :style="{ background: p.bgColor }">
+            <img v-if="p.logo" :src="p.logo" :alt="p.name" class="platform-logo" />
+            <span v-else class="platform-letter" :style="{ color: p.color }">{{ p.letter }}</span>
+          </div>
+
+          <!-- 名称 + 状态 -->
+          <div class="platform-text">
+            <div class="platform-name">{{ p.name }}</div>
+            <div v-if="p.status !== 'idle'" class="platform-status" :class="`is-${p.status}`">
+              <template v-if="p.status === 'logging'">
+                <el-icon class="is-loading"><Loading /></el-icon>
+                <span>登录中...</span>
+              </template>
+              <template v-else-if="p.status === 'success'">
+                <el-icon><Select /></el-icon>
+                <span>登录成功</span>
+              </template>
+              <template v-else-if="p.status === 'fail'">
+                <el-icon><CloseBold /></el-icon>
+                <span>登录失败</span>
+              </template>
             </div>
-            <div class="platform-name">{{ p.name }}</div>
-          </template>
+          </div>
 
-          <!-- logging 状态 -->
-          <template v-else-if="p.status === 'logging'">
-            <el-icon class="loading-icon is-loading"><Loading /></el-icon>
-            <div class="platform-name">{{ p.name }}</div>
-            <div class="status-text">登录中...</div>
-            <button class="cancel-btn" type="button" @click.stop="cancelLogin(p.key)">取消</button>
-          </template>
-
-          <!-- success 状态 -->
-          <template v-else-if="p.status === 'success'">
-            <el-icon class="success-icon"><Select /></el-icon>
-            <div class="platform-name">{{ p.name }}</div>
-            <div class="status-text">登录成功</div>
-          </template>
-
-          <!-- fail 状态 -->
-          <template v-else-if="p.status === 'fail'">
-            <el-icon class="fail-icon"><CloseBold /></el-icon>
-            <div class="platform-name">{{ p.name }}</div>
-            <div class="status-text fail-text">{{ p.errMsg || '登录失败' }}</div>
-            <button class="retry-btn" type="button" @click.stop="retryLogin(p.key)">重试</button>
-          </template>
+          <!-- 右侧操作 -->
+          <div class="platform-action">
+            <button v-if="p.status === 'logging'" class="mini-btn" type="button" @click.stop="cancelLogin(p.key)">取消</button>
+            <button v-else-if="p.status === 'fail'" class="mini-btn mini-btn-retry" type="button" @click.stop="retryLogin(p.key)">重试</button>
+            <el-icon v-else-if="p.status === 'success'" class="success-mark"><Select /></el-icon>
+          </div>
         </div>
       </div>
     </div>
@@ -281,139 +281,154 @@ function cancelRelogin() {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
+
 .login-dialog-body {
   padding: 0 4px;
 }
 
 .dialog-hint {
-  color: var(--el-text-color-secondary);
+  color: $text-secondary;
   font-size: 13px;
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0;
 }
 
 .platform-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
 }
 
+// ── 扁平横向卡片(参考 BatchTagDialog 账号卡风格) ──
 .platform-card {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 16px 8px;
-  min-height: 130px;
-  border: 2px solid var(--el-border-color);
-  border-radius: 10px;
+  gap: 10px;
+  padding: 10px 12px;
+  background: $bg-surface;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
   cursor: pointer;
-  transition: all 0.2s;
-  background: var(--el-bg-color);
+  transition: all $transition-fast;
   position: relative;
+  min-height: 52px;
 }
 
 .platform-card.is-idle:hover {
-  border-color: var(--el-color-primary);
-  transform: translateY(-2px);
+  background: rgba($brand-start, 0.06);
+  border-color: $border-active;
 }
 
 .platform-card.is-logging {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  border-color: $brand-start;
+  background: rgba($brand-start, 0.08);
   cursor: progress;
 }
 
 .platform-card.is-success {
-  border-color: var(--el-color-success);
-  background: var(--el-color-success-light-9);
+  border-color: rgba($success-color, 0.4);
+  background: rgba($success-color, 0.08);
   cursor: default;
 }
 
 .platform-card.is-fail {
-  border-color: var(--el-color-danger);
-  background: var(--el-color-danger-light-9);
+  border-color: rgba($danger-color, 0.4);
+  background: rgba($danger-color, 0.08);
 }
 
 .platform-logo-wrap {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 6px;
-}
-
-.platform-logo {
   width: 32px;
   height: 32px;
   border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.platform-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: contain;
 }
 
 .platform-letter {
-  font-size: 20px;
-  font-weight: bold;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.platform-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .platform-name {
   font-size: 13px;
-  color: var(--el-text-color-primary);
-  margin-bottom: 4px;
+  font-weight: 500;
+  color: $text-primary;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.status-text {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+.platform-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: $text-muted;
+
+  .el-icon { font-size: 11px; }
+
+  &.is-logging { color: $brand-start; }
+  &.is-success { color: $success-color; }
+  &.is-fail { color: $danger-color; }
 }
 
-.fail-text {
-  color: var(--el-color-danger);
-  max-width: 100%;
-  word-break: break-all;
-  text-align: center;
-  padding: 0 4px;
+.platform-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+
+  .success-mark {
+    color: $success-color;
+    font-size: 18px;
+  }
 }
 
-.loading-icon {
-  font-size: 28px;
-  color: var(--el-color-primary);
-  margin-bottom: 6px;
-}
-
-.success-icon {
-  font-size: 28px;
-  color: var(--el-color-success);
-  margin-bottom: 6px;
-}
-
-.fail-icon {
-  font-size: 28px;
-  color: var(--el-color-danger);
-  margin: 6px;
-}
-
-.cancel-btn,
-.retry-btn {
-  margin-top: 6px;
-  padding: 2px 10px;
-  border: 1px solid currentColor;
+.mini-btn {
+  padding: 3px 10px;
+  border: 1px solid $border;
   background: transparent;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
+  color: $text-secondary;
   cursor: pointer;
-}
+  transition: all $transition-fast;
 
-.cancel-btn {
-  color: var(--el-text-color-secondary);
-}
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: $text-primary;
+  }
 
-.retry-btn {
-  color: var(--el-color-danger);
+  &.mini-btn-retry {
+    color: $danger-color;
+    border-color: rgba($danger-color, 0.4);
+
+    &:hover {
+      background: rgba($danger-color, 0.12);
+    }
+  }
 }
 
 .empty-state {
   text-align: center;
-  color: var(--el-text-color-secondary);
+  color: $text-secondary;
   font-size: 13px;
   padding: 40px 20px;
 }
@@ -429,21 +444,21 @@ function cancelRelogin() {
   flex-direction: column;
   align-items: center;
   padding: 32px 24px;
-  border: 2px solid var(--el-border-color);
-  border-radius: 12px;
+  border: 1px solid $border;
+  border-radius: $radius-card;
   min-width: 280px;
 }
 
 .relogin-hint {
   margin-top: 16px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: $text-secondary;
   text-align: center;
 }
 
 @media (max-width: 640px) {
   .platform-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: 1fr;
   }
 }
 </style>

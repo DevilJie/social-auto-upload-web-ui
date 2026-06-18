@@ -605,6 +605,45 @@ def login():
     return response
 
 
+def _validate_publish_video(type_id, file_list):
+    """校验视频文件是否符合平台限制。
+
+    Returns:
+        (ok, error_msg). 通过时 error_msg 为空字符串。
+        材料缺失时跳过校验（兼容老路径直接上传）。
+    """
+    from util.video_limits import validate_video_for_platform
+
+    if not file_list:
+        return True, ""
+
+    platform = get_platform(type_id)
+    if platform is None or not hasattr(platform, "platform_key"):
+        return True, ""
+
+    platform_key = platform.platform_key
+
+    first_file = next((f for f in file_list if f), None)
+    if not first_file:
+        return True, ""
+
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT duration, file_size FROM materials WHERE stored_path = ?",
+            (first_file,),
+        ).fetchone()
+        conn.close()
+    except Exception:
+        return True, ""
+
+    if row is None:
+        return True, ""
+
+    return validate_video_for_platform(platform_key, row["duration"], row["file_size"])
+
+
 @app.route('/postVideo', methods=['POST'])
 def postVideo():
     data = request.get_json()
@@ -617,6 +656,12 @@ def postVideo():
     platform = get_platform(data.get('type'))
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    # 视频时长/大小校验（早于 publish_video，避免无效提交）
+    ok, err = _validate_publish_video(data.get('type'), data.get('fileList', []))
+    if not ok:
+        logger.info(f"发布视频校验失败: {err}")
+        return jsonify({"code": 400, "msg": err}), 400
 
     try:
         # Resolve file paths through storage abstraction
@@ -731,6 +776,12 @@ def postVideoBatch():
         platform = get_platform(data.get('type'))
         if not platform:
             failures.append({"index": idx, "reason": "不支持的平台类型"})
+            continue
+
+        # 视频时长/大小校验
+        ok, err = _validate_publish_video(data.get('type'), data.get('fileList', []))
+        if not ok:
+            failures.append({"index": idx, "reason": err})
             continue
 
         try:

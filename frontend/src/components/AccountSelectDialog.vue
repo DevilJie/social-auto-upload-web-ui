@@ -14,18 +14,19 @@
             :class="['dialog-platform-item', 'cursor-pointer', { active: !accountFilterPlatform }]"
             @click="accountFilterPlatform = ''"
           >全部平台</div>
-          <div
-            v-for="p in platforms"
-            :key="p.key"
-            :class="['dialog-platform-item', 'cursor-pointer', { active: accountFilterPlatform === p.name }]"
-            @click="accountFilterPlatform = p.name"
-          >
-            <span class="dialog-platform-badge">
-              <img v-if="p.logo" :src="p.logo" :alt="p.name" class="dialog-platform-badge-img">
-              <template v-else>{{ p.letter }}</template>
-            </span>
-            {{ p.name }}
-          </div>
+          <template v-for="p in platforms" :key="p.key">
+            <div
+              v-if="!isPlatformKeyDisabled(p.key)"
+              :class="['dialog-platform-item', 'cursor-pointer', { active: accountFilterPlatform === p.name }]"
+              @click="accountFilterPlatform = p.name"
+            >
+              <span class="dialog-platform-badge">
+                <img v-if="p.logo" :src="p.logo" :alt="p.name" class="dialog-platform-badge-img">
+                <template v-else>{{ p.letter }}</template>
+              </span>
+              {{ p.name }}
+            </div>
+          </template>
         </div>
 
         <div class="dialog-account-list">
@@ -72,6 +73,8 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useAccountStore } from '@/stores/account'
+import { useAppStore } from '@/stores/app'
+import { platformNameToKey } from '@/config/platforms'
 import { accountApi } from '@/api/account'
 
 const props = defineProps({
@@ -83,8 +86,16 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const accountStore = useAccountStore()
+const appStore = useAppStore()
 const accountFilterPlatform = ref('')
 const tempSelectedAccounts = ref([])
+
+const isPlatformDisabled = (platformName) => {
+  const key = platformNameToKey[platformName]
+  return !!(key && appStore.isPlatformDisabled(key))
+}
+
+const isPlatformKeyDisabled = (key) => appStore.isPlatformDisabled(key)
 
 const platformNames = computed(() => props.platforms.map(p => p.name))
 
@@ -93,6 +104,7 @@ const filteredAccounts = computed(() => {
   if (accountFilterPlatform.value) {
     list = list.filter(a => a.platform === accountFilterPlatform.value)
   }
+  list = list.filter(a => !isPlatformDisabled(a.platform))
   return list
 })
 

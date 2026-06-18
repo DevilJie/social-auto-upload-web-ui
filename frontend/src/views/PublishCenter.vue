@@ -1363,6 +1363,9 @@ onMounted(async () => {
     console.error('加载账号列表失败:', e)
   }
 
+  // 加载标签列表(确保「选择账号」弹窗内的标签筛选可用)
+  accountStore.loadTags()
+
   // 清理 publishAccountIds 中属于黑名单平台的账号（本地清理，不写后端）
   // Set 是发布页内存状态，重建一个新的 Set 来剔除被拉黑平台的账号
   const filteredIds = new Set()

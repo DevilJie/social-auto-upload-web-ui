@@ -345,6 +345,8 @@ def create_tag():
 def delete_tag(tag_id):
     try:
         with sqlite3.connect(str(DB_PATH)) as conn:
+            # SQLite 默认不强制外键,需要先清关联行
+            conn.execute('DELETE FROM account_tags WHERE tag_id = ?', (tag_id,))
             conn.execute('DELETE FROM tags WHERE id = ?', (tag_id,))
             conn.commit()
         return jsonify({"code": 200})
@@ -363,6 +365,25 @@ def set_account_tags(account_id):
                 conn.execute('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)', (account_id, tid))
             conn.commit()
         return jsonify({"code": 200})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/accounts/batch/tags', methods=['PUT'])
+def set_batch_account_tags():
+    """批量为多个账号添加相同的标签(追加模式:不清除已有标签)"""
+    data = request.get_json()
+    account_ids = data.get('account_ids', [])
+    tag_ids = data.get('tag_ids', [])
+    if not account_ids:
+        return jsonify({"code": 400, "msg": "请选择至少一个账号"}), 400
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            for account_id in account_ids:
+                for tid in tag_ids:
+                    conn.execute('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)', (account_id, tid))
+            conn.commit()
+        return jsonify({"code": 200, "data": {"updated": len(account_ids)}})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 

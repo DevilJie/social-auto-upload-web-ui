@@ -1042,6 +1042,9 @@ onMounted(async () => {
     }
   }
 
+  // 加载标签列表(确保「选择账号」弹窗内的标签筛选可用)
+  accountStore.loadTags()
+
   // 清理 publishAccountIds 中属于黑名单平台的账号（本地清理，不写后端）
   // publishAccountIds 是 reactive Set，用 clear + add 模式重建
   const filteredIds = new Set()

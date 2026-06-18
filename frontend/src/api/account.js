@@ -49,6 +49,13 @@ export const accountApi = {
     return http.put(`/api/accounts/${accountId}/tags`, { tag_ids: tagIds })
   },
 
+  setBatchAccountTags(accountIds, tagIds) {
+    return http.put('/api/accounts/batch/tags', {
+      account_ids: accountIds,
+      tag_ids: tagIds
+    })
+  },
+
   getAccountTags(accountId) {
     return http.get(`/api/accounts/${accountId}/tags`)
   }

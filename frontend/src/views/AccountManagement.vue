@@ -43,6 +43,10 @@
         <el-icon v-if="!appStore.isAccountRefreshing"><Loading /></el-icon>
         批量检查
       </el-button>
+      <el-button class="batch-tag-btn" @click="batchTagDialogVisible = true">
+        <el-icon><CollectionTag /></el-icon>
+        批量设置标签
+      </el-button>
     </div>
 
     <!-- 标签筛选 -->
@@ -67,6 +71,7 @@
       <div
         v-for="account in filteredAccounts"
         :key="account.id"
+        :data-account-id="account.id"
         :class="['account-card', `platform-${getPlatformClass(account.platform)}`]"
       >
         <!-- 卡片主体：头像 + 用户信息 -->
@@ -89,23 +94,6 @@
                 <span class="status-dot"></span>
                 {{ account.status }}
               </span>
-              <span
-                v-for="tag in account.tags"
-                :key="tag.id"
-                class="account-tag"
-                :style="{ borderColor: tag.color, color: tag.color }"
-              >{{ tag.name }}</span>
-              <TagPopover
-                :visible="tagPopoverVisible && tagPopoverAccountId === account.id"
-                :account-id="account.id"
-                :selected-tags="account.tags || []"
-                @update:visible="tagPopoverVisible = $event"
-                @changed="onTagChanged"
-              >
-                <button class="tag-add-btn" @click.stop="openTagPopover(account.id)">
-                  <el-icon><Plus /></el-icon>
-                </button>
-              </TagPopover>
             </div>
           </div>
           <div class="platform-logo">
@@ -114,6 +102,45 @@
               {{ getPlatformLetter(account.platform) }}
             </span>
           </div>
+        </div>
+
+        <!-- 标签行(独立一行,溢出跑马灯) -->
+        <div class="account-tags-row">
+          <span class="account-tags-label">标签:</span>
+          <div
+            v-if="account.tags && account.tags.length > 0"
+            :class="['account-tags-viewport', { 'is-overflow': tagOverflowMap[account.id] }]"
+          >
+            <div
+              class="account-tags-track"
+              :class="{ marquee: tagOverflowMap[account.id] }"
+            >
+              <span
+                v-for="tag in tagOverflowMap[account.id] ? [...account.tags, ...account.tags] : account.tags"
+                :key="tag.id + '-' + (tagOverflowMap[account.id] ? 'b' : 'a')"
+                class="account-tag"
+                :style="{ borderColor: tag.color, color: tag.color }"
+              >
+                {{ tag.name }}
+                <span
+                  class="account-tag-remove"
+                  title="从该账号移除此标签"
+                  @click.stop="handleRemoveAccountTag(account, tag)"
+                >×</span>
+              </span>
+            </div>
+          </div>
+          <TagPopover
+            :visible="tagPopoverVisible && tagPopoverAccountId === account.id"
+            :account-id="account.id"
+            :selected-tags="account.tags || []"
+            @update:visible="tagPopoverVisible = $event"
+            @changed="onTagChanged"
+          >
+            <button class="tag-add-btn" @click.stop="openTagPopover(account.id)">
+              <el-icon><Plus /></el-icon>
+            </button>
+          </TagPopover>
         </div>
 
         <!-- 卡片底部：操作按钮 -->
@@ -190,12 +217,18 @@
       @success="onLoginSuccess"
       @fail="onLoginFail"
     />
+
+    <!-- 批量设置标签对话框 -->
+    <BatchTagDialog
+      v-model="batchTagDialogVisible"
+      @done="onBatchTagDone"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key } from '@element-plus/icons-vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
@@ -204,6 +237,7 @@ import { http } from '@/utils/request'
 import { platformList, platformNameToId, platformNameToKey, platformCssMap, getPlatformByName } from '@/config/platforms'
 import LoginDialog from '@/components/LoginDialog.vue'
 import TagPopover from '@/components/TagPopover.vue'
+import BatchTagDialog from '@/components/BatchTagDialog.vue'
 
 const accountStore = useAccountStore()
 const appStore = useAppStore()
@@ -218,6 +252,9 @@ const activeTagId = ref(null)
 const tagPopoverVisible = ref(false)
 const tagPopoverAccountId = ref(null)
 
+// 哪些账号的标签溢出(决定是否跑马灯):key=accountId
+const tagOverflowMap = ref({})
+
 const tagFilterOptions = computed(() => accountStore.allTags)
 
 function openTagPopover(accountId) {
@@ -225,8 +262,61 @@ function openTagPopover(accountId) {
   tagPopoverVisible.value = true
 }
 
+// 检测每张卡片标签行是否溢出,溢出时启用跑马灯
+function checkTagOverflow() {
+  nextTick(() => {
+    const rows = document.querySelectorAll('.account-tags-viewport')
+    const next = {}
+    rows.forEach(viewport => {
+      const track = viewport.querySelector('.account-tags-track')
+      const card = viewport.closest('.account-card')
+      const id = Number(card?.dataset?.accountId)
+      if (id && track) {
+        next[id] = track.scrollWidth > viewport.clientWidth + 1
+      }
+    })
+    tagOverflowMap.value = next
+  })
+}
+
+watch(() => accountStore.accounts, () => {
+  checkTagOverflow()
+}, { deep: true })
+
+let tagResizeObserver = null
+
+onMounted(() => {
+  fetchAccountsQuick()
+  accountStore.loadTags()
+  nextTick(() => {
+    checkTagOverflow()
+    tagResizeObserver = new ResizeObserver(() => checkTagOverflow())
+    document.querySelectorAll('.account-tags-viewport').forEach(el => tagResizeObserver.observe(el))
+  })
+})
+
+onBeforeUnmount(() => {
+  tagResizeObserver?.disconnect()
+})
+
 async function onTagChanged() {
   await fetchAccountsQuick()
+}
+
+async function handleRemoveAccountTag(account, tag) {
+  const remaining = (account.tags || []).filter(t => t.id !== tag.id).map(t => t.id)
+  try {
+    const res = await accountApi.setAccountTags(account.id, remaining)
+    if (res.code === 200) {
+      await fetchAccountsQuick()
+      ElMessage.success(`已从「${account.name}」移除标签「${tag.name}」`)
+    } else {
+      ElMessage.error(res.msg || '移除失败')
+    }
+  } catch (e) {
+    console.error('移除标签失败:', e)
+    ElMessage.error('移除标签失败')
+  }
 }
 
 const activeTab = ref('all')
@@ -277,11 +367,6 @@ const fetchAccounts = async () => {
     appStore.setAccountRefreshing(false)
   }
 }
-
-onMounted(() => {
-  fetchAccountsQuick()
-  accountStore.loadTags()
-})
 
 const getPlatformClass = (platform) => {
   return platformCssMap[platform] || ''
@@ -526,6 +611,13 @@ const onLoginFail = ({ platform, errMsg }) => {
   console.warn(`登录失败 [${platform}]:`, errMsg)
 }
 
+// 批量设置标签
+const batchTagDialogVisible = ref(false)
+const onBatchTagDone = async () => {
+  await accountStore.loadTags()
+  await fetchAccountsQuick()
+}
+
 const submitAccountForm = () => {
   accountFormRef.value.validate(async (valid) => {
     if (valid) {
@@ -675,7 +767,7 @@ const submitAccountForm = () => {
       }
     }
 
-    .refresh-btn, .check-all-btn {
+    .refresh-btn, .check-all-btn, .batch-tag-btn {
       background: $bg-surface;
       border: 1px solid $border;
       border-radius: 10px;
@@ -890,15 +982,105 @@ const submitAccountForm = () => {
       }
     }
 
-    .account-tag {
+    // 标签行(独立一行,溢出跑马灯)
+    .account-tags-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      margin-bottom: 12px;
+      min-height: 22px;
+    }
+
+    .account-tags-label {
+      font-size: 12px;
+      color: $text-muted;
+      font-weight: 500;
+      flex: 0 0 auto;
+      user-select: none;
+    }
+
+    .account-tags-viewport {
+      // 按内容自适应,溢出时收缩并启用 mask + marquee
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      position: relative;
+
+      // 仅溢出时渐隐边缘(正常情况保持 chip 完整显示)
+      &.is-overflow {
+        mask-image: linear-gradient(to right, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+        -webkit-mask-image: linear-gradient(to right, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+      }
+    }
+
+    .account-tags-track {
       display: inline-flex;
       align-items: center;
-      padding: 1px 6px;
+      gap: 6px;
+      width: max-content;
+      padding-right: 6px;
+
+      &.marquee {
+        animation: tag-marquee 18s linear infinite;
+
+        &:hover { animation-play-state: paused; }
+      }
+    }
+
+    @keyframes tag-marquee {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    .account-tag {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px;
       border: 1px solid;
       border-radius: 4px;
       font-size: 11px;
       font-weight: 500;
       line-height: 16px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all $transition-fast;
+
+      &:hover {
+        .account-tag-remove {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+    }
+
+    .account-tag-remove {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: $danger-color;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0.6);
+      cursor: pointer;
+      transition: all $transition-fast;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      z-index: 1;
+
+      &:hover {
+        background: #dc2626;
+        transform: scale(1.1);
+      }
     }
 
     .tag-add-btn {
@@ -907,6 +1089,7 @@ const submitAccountForm = () => {
       justify-content: center;
       width: 18px;
       height: 18px;
+      flex: 0 0 auto;
       border: 1px dashed rgba(255,255,255,0.2);
       border-radius: 4px;
       background: transparent;

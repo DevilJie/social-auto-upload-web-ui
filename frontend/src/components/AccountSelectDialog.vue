@@ -10,6 +10,22 @@
     <div class="account-dialog-body">
       <div class="account-dialog-content">
         <div class="dialog-platform-list">
+          <div v-if="accountStore.allTags.length > 0" class="dialog-tag-section">
+            <div class="dialog-tag-title">标签筛选</div>
+            <div
+              :class="['dialog-tag-chip', { active: !accountFilterTag }]"
+              @click="accountFilterTag = null"
+            >全部标签</div>
+            <div
+              v-for="tag in accountStore.allTags"
+              :key="tag.id"
+              :class="['dialog-tag-chip', { active: accountFilterTag === tag.id }]"
+              @click="accountFilterTag = accountFilterTag === tag.id ? null : tag.id"
+            >
+              <span class="tag-dot" :style="{ background: tag.color }"></span>
+              {{ tag.name }}
+            </div>
+          </div>
           <div
             :class="['dialog-platform-item', 'cursor-pointer', { active: !accountFilterPlatform }]"
             @click="accountFilterPlatform = ''"
@@ -27,22 +43,6 @@
               {{ p.name }}
             </div>
           </template>
-          <div v-if="accountStore.allTags.length > 0" class="dialog-tag-section">
-            <div class="dialog-tag-title">标签筛选</div>
-            <div
-              :class="['dialog-platform-item', 'cursor-pointer', { active: !accountFilterTag }]"
-              @click="accountFilterTag = null"
-            >全部标签</div>
-            <div
-              v-for="tag in accountStore.allTags"
-              :key="tag.id"
-              :class="['dialog-platform-item', 'cursor-pointer', { active: accountFilterTag === tag.id }]"
-              @click="accountFilterTag = accountFilterTag === tag.id ? null : tag.id"
-            >
-              <span class="tag-dot" :style="{ background: tag.color }"></span>
-              {{ tag.name }}
-            </div>
-          </div>
         </div>
 
         <div class="dialog-account-list">
@@ -62,6 +62,12 @@
                   <div class="dialog-account-avatar">{{ account.name ? account.name.charAt(0) : '?' }}</div>
                   <span class="dialog-account-name">{{ account.name }}</span>
                   <span class="dialog-account-platform">{{ account.platform }}</span>
+                  <span
+                    v-for="tag in account.tags"
+                    :key="tag.id"
+                    class="dialog-account-tag"
+                    :style="{ borderColor: tag.color, color: tag.color }"
+                  >{{ tag.name }}</span>
                   <span :class="['dialog-account-status', account.status === '正常' ? 'ok' : 'err']">
                     {{ account.status === '正常' ? '正常' : '已失效' }}
                   </span>
@@ -228,12 +234,12 @@ watch(() => props.modelValue, async (visible) => {
       }
 
       .dialog-tag-section {
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
-        margin-top: 8px;
-        padding-top: 8px;
+        padding: 8px 12px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        margin-bottom: 4px;
 
         .dialog-tag-title {
-          padding: 8px 16px 4px;
+          padding: 4px 4px 8px;
           font-size: 11px;
           color: $text-muted;
           text-transform: uppercase;
@@ -245,6 +251,30 @@ watch(() => props.modelValue, async (visible) => {
           height: 8px;
           border-radius: 50%;
           flex-shrink: 0;
+        }
+
+        .dialog-tag-chip {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 10px;
+          margin: 2px 0;
+          font-size: 13px;
+          color: $text-secondary;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all $transition-fast;
+
+          &:hover {
+            background: rgba(255, 255, 255, 0.04);
+            color: $text-primary;
+          }
+
+          &.active {
+            background: rgba($brand-start, 0.15);
+            color: #f8fafc;
+            font-weight: 600;
+          }
         }
       }
     }
@@ -299,6 +329,18 @@ watch(() => props.modelValue, async (visible) => {
           margin-left: auto;
           &.ok { color: $success-color; }
           &.err { color: $danger-color; }
+        }
+
+        .dialog-account-tag {
+          display: inline-flex;
+          align-items: center;
+          padding: 1px 6px;
+          border: 1px solid;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 500;
+          line-height: 14px;
+          flex-shrink: 0;
         }
       }
     }

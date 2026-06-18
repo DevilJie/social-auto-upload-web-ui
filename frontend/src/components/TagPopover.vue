@@ -3,7 +3,6 @@
     :visible="visible"
     placement="bottom"
     :width="240"
-    trigger="click"
     @update:visible="$emit('update:visible', $event)"
   >
     <template #reference>

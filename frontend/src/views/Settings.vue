@@ -424,6 +424,21 @@ const fetchSettings = async () => {
         // 同步到 localStorage 让非设置页也能快速判断 email 是否已配置
         localStorage.setItem('global_user_email', settings.feedbackEmail || '')
       }
+      // 把 disabledPlatforms(JSON 字符串数组)同步到 app store
+      // 注意:后端 GET 不自动反序列化此字段,前端需手动 JSON.parse
+      if (res.data.disabledPlatforms !== undefined && res.data.disabledPlatforms !== null && res.data.disabledPlatforms !== '') {
+        try {
+          const parsed = typeof res.data.disabledPlatforms === 'string'
+            ? JSON.parse(res.data.disabledPlatforms)
+            : res.data.disabledPlatforms
+          appStore.disabledPlatforms = Array.isArray(parsed) ? parsed : []
+        } catch (e) {
+          console.warn('解析 disabledPlatforms 失败:', e)
+          appStore.disabledPlatforms = []
+        }
+      } else {
+        appStore.disabledPlatforms = []
+      }
     }
   } catch (e) {
     console.error(e)

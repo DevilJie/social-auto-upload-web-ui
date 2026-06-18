@@ -167,7 +167,7 @@ import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { http } from '@/utils/request'
-import { platformList, platformNameToId, platformNameToKey, platformCssMap, getPlatformByName, PLATFORMS } from '@/config/platforms'
+import { platformList, platformNameToId, platformNameToKey, platformCssMap, getPlatformByName } from '@/config/platforms'
 import LoginDialog from '@/components/LoginDialog.vue'
 
 const accountStore = useAccountStore()

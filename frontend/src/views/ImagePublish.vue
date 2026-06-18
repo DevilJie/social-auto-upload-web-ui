@@ -266,7 +266,7 @@ import { accountApi } from '@/api/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { draftApi } from '@/api/draft'
 import { getFileUrl } from '@/utils/storage'
-import { platformList, getPlatformByKey } from '@/config/platforms'
+import { platformList, getPlatformByKey, platformNameToKey } from '@/config/platforms'
 import { useRoute } from 'vue-router'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
@@ -495,8 +495,12 @@ const panelsProxy = reactive({
   get weibo() { return weiboPanelRef.value },
 })
 const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
+// 渠道个性化可见平台列表：过滤掉被拉黑的平台
+const visibleImagePlatformsForCustomize = computed(() =>
+  IMAGE_PLATFORMS.filter(p => !appStore.isPlatformDisabled(p.key))
+)
 const batchSetPlatforms = computed(() => {
-  return IMAGE_PLATFORMS.map(p => {
+  return visibleImagePlatformsForCustomize.value.map(p => {
     const panelAccounts = accountStore.accounts.filter(a => a.platform === p.name)
     const selectedCount = panelAccounts.filter(a => publishAccountIds.has(a.id)).length
     return { key: p.key, name: p.name, logo: p.logo, count: selectedCount }
@@ -1028,6 +1032,20 @@ onMounted(async () => {
       console.error('加载账号失败:', e)
     }
   }
+
+  // 清理 publishAccountIds 中属于黑名单平台的账号（本地清理，不写后端）
+  // publishAccountIds 是 reactive Set，用 clear + add 模式重建
+  const filteredIds = new Set()
+  for (const id of publishAccountIds) {
+    const acc = accountStore.accounts.find(a => a.id === id)
+    if (!acc) continue
+    const key = platformNameToKey[acc.platform]
+    if (key && !appStore.isPlatformDisabled(key)) {
+      filteredIds.add(id)
+    }
+  }
+  publishAccountIds.clear()
+  filteredIds.forEach(id => publishAccountIds.add(id))
 
   const draftId = route.query.draft
   if (draftId) {

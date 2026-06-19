@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { settingsApi } from '@/api/v2'
 
 export const useAppStore = defineStore('app', () => {
   // 是否是第一次进入账号管理页面
@@ -111,6 +112,43 @@ export const useAppStore = defineStore('app', () => {
     isAccountRefreshing.value = status
   }
 
+  // ========== 渠道黑名单 ==========
+  // 平台 key 数组,如 ['xiaohongshu', 'youtube']
+  const disabledPlatforms = ref([])
+
+  // 判断某平台 key 是否被拉黑
+  const isPlatformDisabled = (key) => disabledPlatforms.value.includes(key)
+
+  // 批量添加(单次 PUT)
+  const addDisabledPlatforms = async (keys) => {
+    const newKeys = keys.filter(k => !disabledPlatforms.value.includes(k))
+    if (newKeys.length === 0) return
+    const snapshot = [...disabledPlatforms.value]
+    disabledPlatforms.value = [...disabledPlatforms.value, ...newKeys]
+    try {
+      await settingsApi.updateSettings({
+        disabledPlatforms: disabledPlatforms.value
+      })
+    } catch (e) {
+      disabledPlatforms.value = snapshot  // 回滚
+      throw e
+    }
+  }
+
+  // 移除单个
+  const removeDisabledPlatform = async (key) => {
+    const snapshot = [...disabledPlatforms.value]
+    disabledPlatforms.value = disabledPlatforms.value.filter(k => k !== key)
+    try {
+      await settingsApi.updateSettings({
+        disabledPlatforms: disabledPlatforms.value
+      })
+    } catch (e) {
+      disabledPlatforms.value = snapshot
+      throw e
+    }
+  }
+
   return {
     isFirstTimeAccountManagement,
     isFirstTimeMaterialManagement,
@@ -134,6 +172,10 @@ export const useAppStore = defineStore('app', () => {
     resetVisitStatus,
     setMaterials,
     removeMaterial,
-    setAccountRefreshing
+    setAccountRefreshing,
+    disabledPlatforms,
+    isPlatformDisabled,
+    addDisabledPlatforms,
+    removeDisabledPlatform
   }
 })

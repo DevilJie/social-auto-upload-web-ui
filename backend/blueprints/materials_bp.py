@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify
+from services.ffmpeg_service import get_video_duration_safe
 
 materials_bp = Blueprint("materials", __name__, url_prefix="/api/materials")
 
@@ -100,6 +101,27 @@ def _async_extract_thumb(material_id: str, source_path: str):
         print(f"[materials] thumbnail extraction failed for {material_id}: {e}")
 
 
+def _async_probe_duration(material_id: str, source_path: str):
+    """后台异步识别视频时长并写库。失败不影响上传响应。"""
+    try:
+        from storage import resolve_material_path
+        local = resolve_material_path(source_path)
+        if not local or not os.path.isfile(local):
+            return
+        duration = get_video_duration_safe(local)
+        if duration <= 0:
+            return
+        conn = _get_db()
+        conn.execute(
+            "UPDATE materials SET duration = ? WHERE id = ?",
+            (duration, material_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[materials] duration probe failed for {material_id}: {e}")
+
+
 @materials_bp.route("/upload", methods=["POST"])
 def upload():
     """统一文件上传（流式：避免大文件 OOM）"""
@@ -155,6 +177,14 @@ def upload():
         if file_type == "video":
             threading.Thread(
                 target=_async_extract_thumb,
+                args=(file_id, relative_path),
+                daemon=True,
+            ).start()
+
+        # 视频素材后台识别 duration
+        if file_type == "video":
+            threading.Thread(
+                target=_async_probe_duration,
                 args=(file_id, relative_path),
                 daemon=True,
             ).start()
@@ -328,3 +358,51 @@ def test_s3_connection():
         return jsonify({"code": 200, "msg": "连接成功"})
     except Exception as e:
         return jsonify({"code": 400, "msg": f"连接失败: {str(e)}"})
+
+
+@materials_bp.route("/<material_id>/probe", methods=["POST"])
+def probe(material_id: str):
+    """识别存量视频的 duration 与 file_size 并写库，返回最新记录。
+
+    用于：素材库选中时同步补全元数据。
+    """
+    from storage import resolve_material_path, get_storage_by_type
+
+    conn = _get_db()
+    row = conn.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"code": 404, "msg": "素材不存在"}), 404
+    if row["file_type"] != "video":
+        conn.close()
+        return jsonify({"code": 400, "msg": "非视频素材无需识别"}), 400
+
+    abs_path = resolve_material_path(row["stored_path"])
+    if not abs_path or not os.path.isfile(abs_path):
+        conn.close()
+        return jsonify({"code": 400, "msg": "文件不存在，无法识别"}), 400
+
+    try:
+        duration = get_video_duration_safe(abs_path)
+        file_size = os.path.getsize(abs_path)
+    except Exception as exc:
+        conn.close()
+        return jsonify({"code": 500, "msg": f"识别失败: {exc}"}), 500
+
+    conn.execute(
+        "UPDATE materials SET duration = ?, file_size = ? WHERE id = ?",
+        (duration, file_size, material_id),
+    )
+    conn.commit()
+
+    # 返回最新记录
+    row = conn.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    item = dict(row)
+    item_storage = get_storage_by_type(item.get("storage_type", "local"))
+    item["url"] = item_storage.get_url(item["stored_path"])
+    item["thumbnail_url"] = (
+        item_storage.get_url(item["thumbnail_path"]) if item.get("thumbnail_path") else None
+    )
+    conn.close()
+
+    return jsonify({"code": 200, "msg": "识别成功", "data": item})

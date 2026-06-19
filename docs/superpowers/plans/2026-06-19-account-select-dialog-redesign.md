@@ -1,8 +1,44 @@
+# AccountSelectDialog 三栏改造 实现计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 把 `AccountSelectDialog.vue` 从左右两栏（单选渠道/标签混合 + el-checkbox 行）改造成左中右三栏（多选渠道 + 卡片网格 + 多选标签 OR 筛选），复用 BatchTagDialog 视觉风格，禁止创建新标签。
+
+**Architecture:**
+- 单一组件改造，props/emits 接口不变（PublishCenter.vue、ImagePublish.vue 调用方零修改）
+- 状态从 `accountFilterPlatform: string` + `accountFilterTag: number` 改为 `selectedPlatformNames: Set<string>` + `selectedTagIds: Set<number>`（OR 语义）
+- 卡片样式直接复用 BatchTagDialog 的 .batch-account-card（统一视觉）
+
+**Tech Stack:** Vue 3 + Element Plus + SCSS
+
+---
+
+## File Structure
+
+### 修改文件
+- `frontend/src/components/AccountSelectDialog.vue` — 主改造（状态、模板、样式）
+
+### 不变（向后兼容）
+- `frontend/src/views/PublishCenter.vue` — 调用方不变
+- `frontend/src/views/ImagePublish.vue` — 调用方不变
+
+---
+
+## Task 1: AccountSelectDialog 三栏改造
+
+**Files:**
+- Modify: `frontend/src/components/AccountSelectDialog.vue`（全文重写）
+
+- [ ] **Step 1: 改造 `<template>` 为三栏结构**
+
+完整替换 `<template>` 部分（约 line 1-93）为：
+
+```vue
 <template>
   <el-dialog
     :model-value="modelValue"
     title="选择账号"
-    width="80%"
+    width="960px"
     :close-on-click-modal="false"
     class="account-select-dialog"
     @update:model-value="$emit('update:modelValue', $event)"
@@ -38,8 +74,8 @@
       <div class="account-section accounts-section">
         <div class="account-section-header">
           <span class="account-section-title">账号</span>
-          <span class="account-section-count">已选 {{ tempSelectedAccounts.length }} / {{ accountStore.accounts.length }}</span>
-          <el-button size="small" type="primary" plain class="ml-auto" :disabled="validFilteredAccounts.length === 0" @click="toggleSelectAll">
+          <span class="account-section-count">已选 {{ tempSelectedAccounts.length }} / {{ accounts.length }}</span>
+          <el-button size="small" link type="primary" class="ml-auto" @click="toggleSelectAll">
             {{ isAllSelected ? '取消全选' : '一键全选' }}
           </el-button>
         </div>
@@ -122,13 +158,19 @@
         <span class="selected-count">已选择 {{ tempSelectedAccounts.length }} 个账号</span>
         <div class="dialog-footer-btns">
           <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-          <el-button type="primary" @click="confirmSelection">确认设置</el-button>
+          <el-button type="primary" @click="confirmSelection">确认添加</el-button>
         </div>
       </div>
     </template>
   </el-dialog>
 </template>
+```
 
+- [ ] **Step 2: 改造 `<script setup>` 状态和逻辑**
+
+完整替换 `<script setup>` 部分（约 line 95-176）为：
+
+```javascript
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { Check } from '@element-plus/icons-vue'
@@ -157,10 +199,13 @@ const isPlatformKeyDisabled = (key) => appStore.isPlatformDisabled(key)
 
 const filteredAccounts = computed(() => {
   let list = accountStore.accounts
+  // 黑名单过滤
   list = list.filter(a => !isPlatformKeyDisabled(platformKeyOf(a)))
+  // 渠道筛选（空集 = 不过滤）
   if (selectedPlatformNames.value.size > 0) {
     list = list.filter(a => selectedPlatformNames.value.has(a.platform))
   }
+  // 标签筛选（OR 语义）
   if (selectedTagIds.value.size > 0) {
     list = list.filter(a => a.tags?.some(t => selectedTagIds.value.has(t.id)))
   }
@@ -185,6 +230,7 @@ const isAllSelected = computed(() => {
 })
 
 function platformKeyOf(account) {
+  // a.platform 是 name（如 "小红书"）；查找对应 key（用于黑名单检查）
   const entry = props.platforms.find(p => p.name === account.platform)
   return entry?.key || ''
 }
@@ -250,7 +296,13 @@ watch(() => props.modelValue, async (visible) => {
   }
 })
 </script>
+```
 
+- [ ] **Step 3: 改造 `<style>` 三栏布局 + 卡片样式**
+
+完整替换 `<style lang="scss" scoped>` 部分（约 line 178-367）为：
+
+```scss
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
@@ -318,6 +370,7 @@ watch(() => props.modelValue, async (visible) => {
     }
   }
 
+  // ── 左:渠道列表 ──
   .platform-list {
     flex: 1;
     overflow-y: auto;
@@ -367,6 +420,7 @@ watch(() => props.modelValue, async (visible) => {
     }
   }
 
+  // ── 中:账号卡片网格（复用 BatchTagDialog 风格）──
   .account-grid {
     flex: 1;
     display: grid;
@@ -479,6 +533,7 @@ watch(() => props.modelValue, async (visible) => {
     }
   }
 
+  // ── 右:标签区 ──
   .tag-search {
     padding: 12px 12px 4px;
     flex-shrink: 0;
@@ -535,6 +590,7 @@ watch(() => props.modelValue, async (visible) => {
     font-size: 13px;
   }
 
+  // ── Footer ──
   .dialog-footer {
     display: flex;
     align-items: center;
@@ -547,3 +603,99 @@ watch(() => props.modelValue, async (visible) => {
 
 .cursor-pointer { cursor: pointer; }
 </style>
+```
+
+- [ ] **Step 4: Vite build 验证**
+
+```bash
+cd /home/czy/workspace/ai/social-auto-upload-web-ui/frontend && bunx vite build 2>&1 | tail -10
+```
+
+Expected: `✓ built in <N>s` 无错
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/czy/workspace/ai/social-auto-upload-web-ui
+git add frontend/src/components/AccountSelectDialog.vue
+git commit -m "refactor(account-select): 三栏改造 + 多选渠道/标签 + 卡片样式"
+```
+
+## Context
+
+This is **Task 1 of 1**. Plan at `/home/czy/workspace/ai/social-auto-upload-web-ui/docs/superpowers/plans/2026-06-19-account-select-dialog-redesign.md`. Spec at `docs/superpowers/specs/2026-06-19-account-select-dialog-redesign-design.md`.
+
+The改造涉及一个 367 行的 Vue 组件的全文替换。建议 implementer 一次性完成整个文件替换而非增量修改 — 模板/script/style 三部分都和现有版本差异显著，分步增量会产生大量中间态导致 review 困难。
+
+调用方不变（PublishCenter.vue、ImagePublish.vue），props/emits 接口保持向后兼容。
+
+## Important Constraints
+
+- **`@/utils/avatar` 已存在** — 提供 `getDefaultAvatar` 和 `proxyAvatar`，与 BatchTagDialog 一致
+- **`@element-plus/icons-vue` 已可用** — 导入 `Check` 图标
+- **`accountStore.setAccounts` 已存在** — 用现有方法写入
+- **`isPlatformKeyDisabled` 来自 appStore** — 保留现有黑名单过滤逻辑
+- **SCSS variables** 来自 `@/styles/variables.scss` — `$border`, `$text-primary`, `$brand-start` 等
+- **`platforms` props** 已经在调用方过滤黑名单，但 `accountStore.accounts` 可能含黑名单平台账号，需在 `filteredAccounts` 内再做一次防御
+
+## Before You Begin
+
+如果 `getDefaultAvatar` / `proxyAvatar` 在 `@/utils/avatar` 找不到，read 该文件确认函数签名。如果 `accountStore.setAccounts` 方法名不匹配，read `@/stores/account.js` 确认。
+
+## Self-Review
+
+- 三栏布局：左 flex:1 / 中 flex:2.2 / 右 flex:1 ✓
+- 多选渠道：`selectedPlatformNames: Set<string>` ✓
+- 多选标签：`selectedTagIds: Set<number>` OR 语义 ✓
+- 卡片复用 BatchTagDialog 风格（avatar + info + ✓）✓
+- 标签区无"新建"按钮 ✓
+- 标签区有"全不选"按钮（`clearAllTags`）✓
+- 一键全选作用于可见且有效的账号 ✓
+- 取消已选卡片 → `tempSelectedAccounts` 立即更新 ✓
+- 确认后 emit `confirm` + close ✓
+- props/emits 接口不变 ✓
+- vite build 通过 ✓
+
+## Report
+
+- Status: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+- Files changed
+- vite build 输出
+- Self-review findings
+
+---
+
+## Self-Review（已完成）
+
+**Spec coverage:**
+- 三栏布局 ✓ Step 1
+- 多选渠道 ✓ Step 2 (`selectedPlatformNames`)
+- 多选标签 OR ✓ Step 2 (`selectedTagIds`, `some()`)
+- 卡片样式复用 BatchTagDialog ✓ Step 1 + Step 3
+- 标签禁创建 ✓ Step 1（删除"新建"按钮 UI 和 handleCreate）
+- 标签"全不选" ✓ Step 2 (`clearAllTags`)
+- 一键全选 ✓ Step 2 (`toggleSelectAll`)
+- 已选账号高亮 ✓ Step 3 (.selected 样式)
+- 取消同步 ✓ Step 2 (`toggleAccount`)
+
+**No placeholder:** ✓ 每个 step 有完整代码
+
+**Type consistency:**
+- `selectedPlatformNames: Set<string>` 一致
+- `selectedTagIds: Set<number>` 一致
+- `tempSelectedAccounts: Array<number>` 一致
+- `togglePlatform(name: string)` 一致
+- `toggleTag(tagId: number)` 一致
+- `toggleAccount(id: number)` 一致
+
+**已知限制：**
+- Task 1 没拆分子任务（因为涉及同一文件三部分 — 模板/script/style — 高度耦合，拆分会增加 review 复杂度）
+- 不含 Playwright e2e（项目无 Playwright 配置）
+
+---
+
+## Execution Handoff
+
+Plan complete and saved to `docs/superpowers/plans/2026-06-19-account-select-dialog-redesign.md`。
+
+执行选择：**Subagent-Driven**（用户已要求"采用 sub-agent 开始实现"）。

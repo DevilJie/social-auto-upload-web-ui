@@ -8,9 +8,9 @@ Chromium) with automatic Playwright fallback.
 
 import asyncio
 import os
+from datetime import datetime
 
 from util._logger import get_channel_logger
-import random
 import threading
 from pathlib import Path
 from queue import Queue
@@ -561,86 +561,114 @@ class BaijiahaoPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def _set_schedule_publish(self, page, publish_date):
-        """Open the schedule dialog and set the time."""
-        while True:
-            schedule_element = (
-                page.locator(
-                    "div.op-btn-outter-content >> text=定时发布"
-                )
-                .locator("..")
-                .locator("button")
-            )
-            try:
-                await schedule_element.click()
-                await page.wait_for_selector(
-                    "div.select-wrap:visible", timeout=3000
-                )
-                await page.wait_for_timeout(2000)
-                logger.info("开始点击发布定时...")
-                await self._set_schedule_time(page, publish_date)
-                break
-            except Exception as e:
-                logger.error("定时发布失败: %s", e)
-                raise
+        """Open the schedule dialog and set the time.
 
-    @staticmethod
-    async def _set_schedule_time(page, publish_date):
-        """Set the schedule time in the dropdown selectors.
-
-        Selects the day, then a random hour, then clicks the confirm button.
+        Baijiahao only allows scheduled publish within the next 1 hour to 7 days.
+        If the target time is today, the selected hour must be strictly greater
+        than the current hour.
         """
-        publish_date_day = (
-            f"{publish_date.month}月{publish_date.day}日"
-            if publish_date.day > 9
-            else f"{publish_date.month}月0{publish_date.day}日"
+        now = datetime.now()
+        delta_days = (publish_date.date() - now.date()).days
+
+        if delta_days < 0:
+            raise ValueError(
+                f"定时发布失败: 发布时间 {publish_date} 已早于当前时间"
+            )
+        if delta_days > 7:
+            raise ValueError(
+                f"定时发布失败: 发布时间 {publish_date} 超出百家号 7 天限制"
+            )
+        if delta_days == 0 and publish_date.hour <= now.hour:
+            raise ValueError(
+                f"定时发布失败: 今天发布时小时({publish_date.hour})必须大于当前小时({now.hour})"
+            )
+
+        date_label = f"{publish_date.month}月{publish_date.day}日"
+        hour_label = f"{publish_date.hour}点"
+        minute_label = f"{publish_date.minute}分"
+
+        schedule_button = page.get_by_role(
+            "button", name="定时发布", exact=True
+        )
+        await schedule_button.click()
+        await page.wait_for_selector("#select-date", timeout=5000)
+        await page.wait_for_timeout(500)
+
+        await self._pick_schedule_option(page, "#select-date", date_label)
+        await self._pick_schedule_option(page, "#select-hour", hour_label)
+        await self._pick_schedule_option(page, "#select-minute", minute_label)
+
+        await page.wait_for_timeout(500)
+        # Confirm button is INSIDE the schedule dialog (not the page-level one)
+        await page.locator("div[role='dialog']").get_by_role(
+            "button", name="定时发布"
+        ).click()
+        logger.info(
+            "百家号定时发布设置完成: %s %s:%s",
+            date_label, publish_date.hour, publish_date.minute,
         )
 
-        # Open day selector
-        await page.wait_for_selector("div.select-wrap", timeout=5000)
-        for _ in range(3):
-            try:
-                await page.locator("div.select-wrap").nth(0).click()
-                await page.wait_for_selector(
-                    "div.rc-virtual-list  div.cheetah-select-item",
-                    timeout=5000,
-                )
-                break
-            except Exception:
-                await page.locator("div.select-wrap").nth(0).click()
+    @staticmethod
+    async def _pick_schedule_option(page, input_id: str, label: str) -> None:
+        """Open one of the schedule selects and pick the target option.
 
-        await page.wait_for_timeout(2000)
-        await page.locator(
-            f"div.rc-virtual-list  div.cheetah-select-item >> "
-            f"text={publish_date_day}"
-        ).click()
-        await page.wait_for_timeout(2000)
+        Force-clicks the hidden combobox input to open the dropdown, then
+        navigates from the currently-highlighted option (``aria-activedescendant``)
+        to the target using ArrowUp / ArrowDown keys, and confirms with Enter.
+        ``rc-virtual-list`` auto-scrolls to keep the active option in view,
+        so keyboard navigation drives the visible scroll.
 
-        # Open hour selector and pick a random hour
-        for _ in range(3):
-            try:
-                await page.locator("div.select-wrap").nth(1).click()
-                await page.wait_for_selector(
-                    "div.rc-virtual-list "
-                    "div.rc-virtual-list-holder-inner:visible",
-                    timeout=5000,
-                )
-                break
-            except Exception:
-                await page.locator("div.select-wrap").nth(1).click()
+        ``input_id`` must include the leading ``#``.
+        """
+        await page.locator(input_id).click(force=True)
+        try:
+            await page.wait_for_selector(
+                f"{input_id}[aria-expanded='true']", timeout=3000
+            )
+        except Exception:
+            await page.wait_for_timeout(500)
+        await page.wait_for_timeout(500)
 
-        await page.wait_for_timeout(2000)
-        current_choice_hour = await page.locator(
-            "div.rc-virtual-list:visible "
-            "div.cheetah-select-item-option"
-        ).count()
-        await page.wait_for_timeout(2000)
-        await page.locator(
-            "div.rc-virtual-list:visible "
-            "div.cheetah-select-item-option"
-        ).nth(random.randint(1, current_choice_hour - 3)).click()
+        # Read current highlighted index (format: select-{kind}_list_{n})
+        current_id = await page.evaluate(
+            """(selector) => {
+                const input = document.querySelector(selector);
+                return input ? input.getAttribute('aria-activedescendant') : null;
+            }""",
+            input_id,
+        )
+        current_num = 0
+        if current_id:
+            parts = current_id.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                current_num = int(parts[1])
 
-        await page.wait_for_timeout(2000)
-        await page.locator("button >> text=定时发布").click()
+        # Compute target list index from label
+        if "分" in label:
+            target_num = int(label.replace("分", ""))
+        elif "点" in label:
+            target_num = int(label.replace("点", ""))
+        elif "日" in label:
+            day = int(label.split("月")[1].replace("日", ""))
+            target_num = day - datetime.now().day
+            if target_num < 0 or target_num > 7:
+                target_num = 0
+        else:
+            target_num = 0
+
+        # Re-focus the combobox so key events are routed to its keydown handler
+        await page.locator(input_id).focus()
+        await page.wait_for_timeout(200)
+
+        diff = target_num - current_num
+        if diff != 0:
+            key = "ArrowDown" if diff > 0 else "ArrowUp"
+            for _ in range(abs(diff)):
+                await page.keyboard.press(key)
+                await page.wait_for_timeout(40)
+
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
 
     # ------------------------------------------------------------------
     # Helper: set custom cover images (landscape + portrait)

@@ -59,6 +59,7 @@ pub fn create_data_dirs(data_dir: &PathBuf) -> std::io::Result<()> {
     std::fs::create_dir_all(data_dir.join("cookiesFile"))?;
     std::fs::create_dir_all(data_dir.join("videoFile"))?;
     std::fs::create_dir_all(data_dir.join("data").join("logs"))?;
+    std::fs::create_dir_all(data_dir.join("upload_chunks"))?;
     Ok(())
 }
 

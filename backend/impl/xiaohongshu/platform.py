@@ -9,7 +9,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._browser import create_browser_sync, create_context_sync
+from .._browser import create_browser, create_context, create_browser_sync, create_context_sync
 from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
 
 from util._logger import get_channel_logger
@@ -396,9 +396,9 @@ async def _publish_single_video(
 ):
     """Upload and publish one video to Xiaohongshu using CloakBrowser."""
 
-    browser = await self.create_browser(headless=False)
+    browser = await create_browser(headless=False)
     try:
-        context = await self.create_context(browser, storage_state=account_file)
+        context = await create_context(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()
@@ -435,9 +435,9 @@ async def _publish_single_image(
     dry_run: bool = True,
 ) -> bool:
     """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
-    browser = await self.create_browser(headless=False)
+    browser = await create_browser(headless=False)
     try:
-        context = await self.create_context(browser, storage_state=account_file)
+        context = await create_context(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()
@@ -584,44 +584,55 @@ async def _upload_video_content(
         "div[class^='upload-content'] input[class='upload-input']"
     ).set_input_files(file_path)
 
-    # Poll for upload completion
-    while True:
-        try:
-            upload_input = await page.wait_for_selector(
-                "input.upload-input", timeout=3000
-            )
-            preview_new = await upload_input.query_selector(
-                'xpath=following-sibling::div[contains(@class, "preview-new")]'
-            )
-            if preview_new:
-                all_text = await preview_new.inner_text()
-                upload_success = any(
-                    kw in all_text
-                    for kw in [
-                        "上传成功", "分辨率", "重新上传",
-                        "编辑封面", "已上传", "已选择", "100%",
-                    ]
-                )
-                if not upload_success:
-                    stage_elements = await preview_new.query_selector_all("div.stage")
-                    for stage in stage_elements:
-                        text_content = await page.evaluate(
-                            "(element) => element.textContent", stage
-                        )
-                        if "上传成功" in text_content or "分辨率" in text_content:
-                            upload_success = True
-                            break
+    # Poll for upload completion:
+    #   - "上传中" 字样: div.uploading 在主 DOM 树，page.locator 可直接匹配
+    #   - 发布按钮 disabled: <button class="ce-btn bg-red"> 在 closed shadow DOM，
+    #     必须用 CDP DOM.getFlattenedDocument { pierce: true } 穿透读取
+    #     （与 _click_publish_button 同样的方法）
+    cdp = await page.context.new_cdp_session(page)
+    await cdp.send("DOM.enable")
+    try:
+        while True:
+            try:
+                uploading_count = await page.locator(
+                    'div.uploading:has-text("上传中")'
+                ).count()
 
-                if upload_success:
-                    logger.info("[xhs] video uploaded successfully")
+                flattened = await cdp.send("DOM.getFlattenedDocument", {
+                    "depth": -1,
+                    "pierce": True,
+                })
+                publish_disabled = True
+                for node in flattened.get("nodes", []):
+                    if node.get("localName") != "button":
+                        continue
+                    attrs = node.get("attributes") or []
+                    attr_dict = {}
+                    for i in range(0, len(attrs), 2):
+                        attr_dict[attrs[i]] = attrs[i + 1]
+                    cls = attr_dict.get("class") or ""
+                    if "ce-btn" in cls and "bg-red" in cls:
+                        publish_disabled = "disabled" in attr_dict
+                        break
+
+                if uploading_count == 0 and not publish_disabled:
+                    logger.info(
+                        "[xhs] video uploaded successfully "
+                        "(uploading gone, publish button enabled)"
+                    )
                     break
 
-                logger.info("[xhs] still uploading, waiting...")
-            else:
-                logger.info("[xhs] waiting for preview area...")
-        except Exception as e:
-            logger.info(f"[xhs] upload status check: {e}")
-        await asyncio.sleep(2)
+                logger.info(
+                    f"[xhs] still uploading "
+                    f"(uploading_nodes={uploading_count}, "
+                    f"publish_disabled={publish_disabled}), "
+                    f"waiting..."
+                )
+            except Exception as e:
+                logger.info(f"[xhs] upload status check: {e}")
+            await asyncio.sleep(2)
+    finally:
+        await cdp.detach()
 
     # --- Fill title (20 char limit) ---
     logger.info("[xhs] filling title, desc and tags")

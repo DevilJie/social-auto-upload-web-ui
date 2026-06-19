@@ -32,10 +32,7 @@ export const PLATFORMS = {
     cssClass: 'xiaohongshu',
     creatorUrl: 'https://creator.xiaohongshu.com/',
     settingsFields: [
-      { key: 'collection', label: '合集', type: 'select', placeholder: '请选择合集' },
-      { key: 'groupChat', label: '群聊', type: 'select', placeholder: '请选择群聊' },
-      { key: 'location', label: '位置', type: 'select', placeholder: '选择位置' },
-      { key: 'aiContent', label: '内容类型声明', type: 'select', placeholder: '添加内容类型声明', options: [
+      { key: 'aiContent', label: '内容类型声明', type: 'select', required: true, placeholder: '添加内容类型声明', options: [
         { label: '虚构演绎，仅供娱乐', value: '虚构演绎，仅供娱乐' },
         { label: '笔记含AI合成内容', value: '笔记含AI合成内容' },
         { label: '内容包含营销广告', value: '内容包含营销广告' },
@@ -45,7 +42,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', enableTimer: false },
+    defaultSettings: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', enableTimer: false },
   },
   CHANNELS: {
     id: 2,
@@ -59,13 +56,11 @@ export const PLATFORMS = {
     cssClass: 'channels',
     creatorUrl: 'https://channels.weixin.qq.com/',
     settingsFields: [
-      { key: 'isDraft', label: '草稿模式', type: 'switch', description: '仅保存草稿（用手机发布）' },
-      { key: 'location', label: '位置', type: 'select', placeholder: '选择位置' },
-      { key: 'aiContent', label: 'AI生成内容', type: 'switch' },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '' },
+    defaultSettings: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   DOUYIN: {
     id: 3,
@@ -79,7 +74,7 @@ export const PLATFORMS = {
     cssClass: 'douyin',
     creatorUrl: 'https://creator.douyin.com/',
     settingsFields: [
-      { key: 'aiContent', label: '自主声明', type: 'select', placeholder: '请选择自主声明', options: [
+      { key: 'aiContent', label: '自主声明', type: 'select', required: true, placeholder: '请选择自主声明', options: [
         { label: '内容由AI生成', value: '内容由AI生成' },
         { label: '内容为个人观点或见解', value: '内容为个人观点或见解' },
         { label: '内容为转载信息', value: '内容为转载信息' },
@@ -104,7 +99,7 @@ export const PLATFORMS = {
     cssClass: 'kuaishou',
     creatorUrl: 'https://k.kuaishou.com/',
     settingsFields: [
-      { key: 'aiContent', label: '作者声明', type: 'select', placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }] },
+      { key: 'aiContent', label: '作者声明', type: 'select', required: true, placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
@@ -155,8 +150,7 @@ export const PLATFORMS = {
         { label: '生活兴趣', value: '生活兴趣' },
         { label: '生活经验', value: '生活经验' },
       ] },
-      { key: 'topic', label: '话题', type: 'select', placeholder: '选择话题' },
-      { key: 'creationDeclaration', label: '创作声明', type: 'select', placeholder: '选择创作声明', options: [
+      { key: 'creationDeclaration', label: '创作声明', type: 'select', required: true, placeholder: '选择创作声明', options: [
         { label: '内容无需标注', value: '内容无需标注' },
         { label: '含AI生成内容', value: '含AI生成内容' },
         { label: '含虚构演绎内容', value: '含虚构演绎内容' },
@@ -168,7 +162,7 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', zone: '', topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', zone: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BAIJIAHAO: {
     id: 6,
@@ -182,9 +176,8 @@ export const PLATFORMS = {
     cssClass: 'baijiahao',
     creatorUrl: 'https://baijiahao.baidu.com/',
     settingsFields: [
-      { key: 'aiContent', label: 'AI生成内容', type: 'switch' },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
-      { key: 'creationDeclaration', label: '必选声明', type: 'select', placeholder: '选择必选声明', options: [
+      { key: 'creationDeclaration', label: '必选声明', type: 'select', required: true, placeholder: '选择必选声明', options: [
         { label: '无需声明', value: '无需声明' },
         { label: '含AI生成内容', value: '含AI生成内容' },
         { label: '内容为转载', value: '内容为转载' },
@@ -199,9 +192,40 @@ export const PLATFORMS = {
         { label: '请理性适度消费', value: '请理性适度消费' },
         { label: '未成年人请在监护人指导下浏览', value: '未成年人请在监护人指导下浏览' },
       ] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间',
+        disabledDate: (time) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const maxDate = new Date(today);
+          maxDate.setDate(maxDate.getDate() + 7);
+          return time.getTime() < today.getTime() || time.getTime() > maxDate.getTime();
+        },
+        disabledHours: (_role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (!isToday) return [];
+          return Array.from({ length: now.getHours() + 1 }, (_, i) => i);
+        },
+        disabledMinutes: (hour, _role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (isToday && hour === now.getHours()) {
+            return Array.from({ length: now.getMinutes() + 1 }, (_, i) => i);
+          }
+          return [];
+        },
+      },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', aiContent: false, isOriginal: false, creationDeclaration: '', supplementaryDeclaration: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', isOriginal: false, creationDeclaration: '', supplementaryDeclaration: '', scheduleTime: '', videoFormat: '' },
   },
   TIKTOK: {
     id: 7,
@@ -215,7 +239,7 @@ export const PLATFORMS = {
     cssClass: 'tiktok',
     creatorUrl: 'https://www.tiktok.com/tiktokstudio/upload?lang=en',
     settingsFields: [
-      { key: 'aiContent', label: 'AI生成内容', type: 'switch' },
+      { key: 'aiContent', label: 'AI生成内容', type: 'switch', required: true },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
@@ -234,10 +258,10 @@ export const PLATFORMS = {
     cssClass: 'youtube',
     creatorUrl: 'https://studio.youtube.com/',
     settingsFields: [
-      { key: 'audience', label: '观众', type: 'radio',
+      { key: 'audience', label: '观众', type: 'radio', required: true,
         description: '根据法律要求，无论你身在何处，都必须遵守《儿童在线隐私保护法》(COPPA) 和/或其他法律。你必须指明自己的视频是否为面向儿童的内容。\n面向儿童的视频不支持个性化广告和通知等功能。',
         options: [{ label: '是，内容是面向儿童的', value: 'kids' }, { label: '否，内容不是面向儿童的', value: 'not_kids' }] },
-      { key: 'alteredContent', label: '加工的内容', type: 'radio',
+      { key: 'alteredContent', label: '加工的内容', type: 'radio', required: true,
         description: '你的内容是否符合以下任何一项描述？\n• 呈现真实人物的言论或行为，但实际并非本人言行\n• 篡改有关真实事件或地点的视频片段\n• 生成逼真但与实情不符的场景\n\n按照 YouTube 的政策，如果你的内容看似真实，但实则经过加工或合成，则必须告知我们。其中包括使用 AI 或其他工具制作的逼真声音或画面。如果选择"是"，系统会为内容加上披露声明。',
         options: [{ label: '是', value: true }, { label: '否', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间',
@@ -258,7 +282,7 @@ export const PLATFORMS = {
     cssClass: 'tencent-video',
     creatorUrl: 'https://mp.v.qq.com/',
     settingsFields: [
-      { key: 'creationDeclaration', label: '创作声明', type: 'multiSelect', placeholder: '请选择创作声明（可多选）', options: [
+      { key: 'creationDeclaration', label: '创作声明', type: 'multiSelect', required: true, placeholder: '请选择创作声明（可多选）', options: [
         { label: '剧情演绎，仅供娱乐', value: '剧情演绎，仅供娱乐' },
         { label: '取材网络，谨慎甄别', value: '取材网络，谨慎甄别' },
         { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
@@ -282,7 +306,7 @@ export const PLATFORMS = {
     cssClass: 'iqiyi',
     creatorUrl: 'https://creator.iqiyi.com/',
     settingsFields: [
-      { key: 'creationDeclaration', label: '创作声明（必填）', type: 'select', placeholder: '请选择创作声明', options: [
+      { key: 'creationDeclaration', label: '创作声明（必填）', type: 'select', required: true, placeholder: '请选择创作声明', options: [
         { label: '含AI生成内容', value: '含AI生成内容' },
         { label: '含虚构演绎内容', value: '含虚构演绎内容' },
         { label: '内容含营销信息', value: '内容含营销信息' },
@@ -323,7 +347,7 @@ export const PLATFORMS = {
         placeholder: '选择频道 / 子分类',
         options: WEIBO_CATEGORIES,
         props: { expandTrigger: 'hover' } },
-      { key: 'contentStatement', label: '内容声明', type: 'select',
+      { key: 'contentStatement', label: '内容声明', type: 'select', required: true,
         placeholder: '请选择内容声明（可选）',
         options: [
           { label: '无', value: '' },

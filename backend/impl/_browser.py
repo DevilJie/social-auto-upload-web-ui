@@ -45,7 +45,10 @@ async def create_browser(
     if headless is None:
         headless = LOGIN_HEADLESS if login_mode else LOCAL_CHROME_HEADLESS
     from cloakbrowser import launch_async
-    browser = await launch_async(headless=headless)
+    browser = await launch_async(
+        headless=headless,
+        args=["--start-maximized"],
+    )
 
     if login_mode:
         task = asyncio.current_task()
@@ -83,7 +86,7 @@ async def create_persistent_context(
         user_data_dir,
         headless=headless,
         no_viewport=True,
-        args=["--window-size=1920,1080"],
+        args=["--window-size=1920,1080", "--start-maximized"],
     )
 
 

@@ -182,7 +182,7 @@
         </div>
         <div class="msd-footer-actions">
           <el-button @click="visible = false">取消</el-button>
-          <el-button type="primary" :disabled="!selectedId" @click="confirmSelect">
+          <el-button type="primary" :disabled="!selectedId" :loading="probing" @click="confirmSelect">
             确定
           </el-button>
         </div>
@@ -219,6 +219,7 @@ const emit = defineEmits(['select'])
 
 const visible = ref(false)
 const loading = ref(false)
+const probing = ref(false)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -349,10 +350,32 @@ async function loadPage() {
   }
 }
 
-function confirmSelect() {
+async function confirmSelect() {
   if (!selectedId.value) return
   const material = items.value.find((m) => m.id === selectedId.value)
   if (!material) return
+
+  // 视频且元数据缺失（duration=0）时,同步调用 /probe 补全元数据,
+  // 这样调用方在 publishAll 校验时拿到的 videoData 已含 duration
+  if (material.file_type === 'video' && (!material.duration || material.duration === 0)) {
+    try {
+      probing.value = true
+      const res = await materialsApi.probe(material.id)
+      if (res?.code === 200 && res.data) {
+        // 用后端返回的最新数据更新 material
+        Object.assign(material, {
+          duration: res.data.duration,
+          file_size: res.data.file_size,
+        })
+      }
+    } catch (err) {
+      console.warn('[MaterialSelectDialog] probe failed:', err)
+      // probe 失败也允许继续选,前端校验会兜底
+    } finally {
+      probing.value = false
+    }
+  }
+
   emit('select', {
     id: material.id,
     name: material.original_filename,
@@ -360,6 +383,7 @@ function confirmSelect() {
     stored_path: material.stored_path,
     size: material.file_size,
     type: material.mime_type,
+    duration: material.duration ?? 0,
   })
   visible.value = false
 }

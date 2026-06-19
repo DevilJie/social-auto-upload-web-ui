@@ -30,5 +30,33 @@ export const accountApi = {
   // 同步账号资料（头像+昵称）
   syncProfile(id) {
     return http.post('/syncProfile', { id })
+  },
+
+  // ── 标签管理 ──
+  getTags() {
+    return http.get('/api/tags')
+  },
+
+  createTag(data) {
+    return http.post('/api/tags', data)
+  },
+
+  deleteTag(id) {
+    return http.delete(`/api/tags/${id}`)
+  },
+
+  setAccountTags(accountId, tagIds) {
+    return http.put(`/api/accounts/${accountId}/tags`, { tag_ids: tagIds })
+  },
+
+  setBatchAccountTags(accountIds, tagIds) {
+    return http.put('/api/accounts/batch/tags', {
+      account_ids: accountIds,
+      tag_ids: tagIds
+    })
+  },
+
+  getAccountTags(accountId) {
+    return http.get(`/api/accounts/${accountId}/tags`)
   }
 }

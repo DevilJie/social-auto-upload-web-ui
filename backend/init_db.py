@@ -14,7 +14,7 @@ DB_PATH = DB_DIR / "database.db"
 
 def init_database():
     # 确保 data/ 下的所有必要子目录存在
-    for subdir in ["db", "logs", "cookies", "cookiesFile", "uploads", "thumbnails"]:
+    for subdir in ["db", "logs", "cookies", "cookiesFile", "uploads", "thumbnails", "upload_chunks"]:
         (BASE_DIR / subdir).mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(str(DB_PATH))
@@ -157,6 +157,60 @@ def init_database():
     )
     """)
 
+    # 分片上传会话表（用于大文件分片上传 + 断点续传）
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS upload_sessions (
+        upload_id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        mime_type TEXT,
+        file_type TEXT,
+        chunk_size INTEGER NOT NULL,
+        total_chunks INTEGER NOT NULL,
+        uploaded_chunks INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'uploading',
+        material_id TEXT,
+        error_message TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS upload_chunks (
+        upload_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk_size INTEGER NOT NULL,
+        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (upload_id, chunk_index),
+        FOREIGN KEY (upload_id) REFERENCES upload_sessions(upload_id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_upload_sessions_status
+    ON upload_sessions(status, updated_at)
+    """)
+
+    # 标签表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT DEFAULT '#8b5cf6',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 账号-标签关联表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS account_tags (
+        account_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (account_id, tag_id),
+        FOREIGN KEY (account_id) REFERENCES user_info(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    )
+    """)
+
     conn.commit()
     conn.close()
     logger.info(f"Database initialized at {DB_PATH}")
@@ -204,6 +258,25 @@ def migrate_database():
         logger.info("已创建 idx_publish_batches_draft 索引")
     except sqlite3.OperationalError:
         pass  # 索引已存在
+
+    # 确保 tags 表存在（幂等）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            color TEXT DEFAULT '#8b5cf6',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS account_tags (
+            account_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            PRIMARY KEY (account_id, tag_id),
+            FOREIGN KEY (account_id) REFERENCES user_info(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )
+    """)
 
     conn.commit()
     conn.close()

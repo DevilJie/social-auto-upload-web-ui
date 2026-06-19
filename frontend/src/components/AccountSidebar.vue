@@ -6,8 +6,14 @@
     </div>
 
     <div class="group-list">
+      <!-- 空态:edit 模式下没有已选账号时,显示提示 -->
+      <div v-if="mode === 'edit' && visibleAccountGroups.length === 0" class="empty-hint">
+        <p>暂无选中账号</p>
+        <p class="empty-sub">点击下方「账号设置」开始</p>
+      </div>
+
       <div
-        v-for="group in accountGroups"
+        v-for="group in visibleAccountGroups"
         :key="group.key"
         :class="['group-wrap', { 'is-selected': selectedPlatform === group.key }]"
       >
@@ -35,7 +41,8 @@
               @click="$emit('select-account', account, group)"
             >
               <div class="account-avatar" :style="{ borderColor: group.color }">
-                {{ account.name ? account.name.charAt(0) : '?' }}
+                <img v-if="account.avatar" :src="proxyAvatar(account.avatar)" :alt="account.name">
+                <img v-else :src="getDefaultAvatar(account.name)" :alt="account.name">
               </div>
               <span class="account-name">{{ account.name }}</span>
               <span :class="['dot', account.status === '正常' ? 'on' : 'off']"></span>
@@ -49,15 +56,20 @@
     </div>
 
     <div v-if="mode === 'edit'" class="sidebar-footer">
-      <div class="add-btn cursor-pointer" @click="$emit('open-account-dialog')">+ 添加账号</div>
+      <div class="add-btn cursor-pointer" @click="$emit('open-account-dialog')">+ 账号设置</div>
     </div>
   </aside>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { ArrowDown, ArrowRight, StarFilled, Close } from '@element-plus/icons-vue'
+import { useAppStore } from '@/stores/app'
+import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
 
-defineProps({
+const appStore = useAppStore()
+
+const props = defineProps({
   mode: {
     type: String,
     default: 'edit',
@@ -73,6 +85,22 @@ defineProps({
 })
 
 defineEmits(['toggle-group', 'select-account', 'remove-account', 'open-account-dialog'])
+
+// 过滤逻辑:
+// 1. 永远过滤掉被渠道黑名单禁用的平台分组
+// 2. edit 模式下,只显示「该平台下有 publishAccountIds 中已选账号」的分组(默认空,选了账号才出现)
+// 3. readonly 模式下,显示所有非黑名单平台分组(用于历史详情查看等场景)
+// group.key 已经是平台 key(如 'xiaohongshu'),无需再走 platformNameToKey
+const visibleAccountGroups = computed(() =>
+  props.accountGroups.filter(group => {
+    if (!group.key || appStore.isPlatformDisabled(group.key)) return false
+    if (props.mode === 'edit') {
+      // edit 模式:必须有已选账号才显示分组
+      return group.accounts.some(a => props.publishAccountIds.has(a.id))
+    }
+    return true
+  })
+)
 </script>
 
 <style lang="scss" scoped>
@@ -199,6 +227,22 @@ defineEmits(['toggle-group', 'select-account', 'remove-account', 'open-account-d
     }
   }
 
+  .group-list > .empty-hint {
+    padding: 48px 16px;
+    text-align: center;
+    color: $text-muted;
+    font-size: 13px;
+
+    p {
+      margin: 0 0 6px;
+    }
+
+    .empty-sub {
+      font-size: 11px;
+      opacity: 0.7;
+    }
+  }
+
   .slide-enter-active, .slide-leave-active {
     transition: all 200ms ease;
     overflow: hidden;
@@ -239,6 +283,13 @@ defineEmits(['toggle-group', 'select-account', 'remove-account', 'open-account-d
       flex-shrink: 0;
       border: 2px solid transparent;
       transition: all 0.2s ease;
+      overflow: hidden;
+
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
     }
 
     .account-name {

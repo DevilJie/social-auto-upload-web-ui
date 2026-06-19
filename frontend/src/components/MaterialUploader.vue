@@ -62,7 +62,7 @@
               :percentage="f.percent"
               :stroke-width="6"
               :show-text="true"
-              :format="(p) => `${p}% · ${formatSpeed(f.speed)}`"
+              :format="(p) => formatProgressText(p, f)"
             />
             <div v-else-if="f.status === 'success'" class="mud-file-status ok">
               <el-icon><CircleCheckFilled /></el-icon> 上传完成
@@ -72,7 +72,15 @@
             </div>
           </div>
           <button
-            v-if="f.status === 'failed'"
+            v-if="f.status === 'uploading' && f.isChunkUpload"
+            class="mud-file-cancel"
+            :disabled="f.cancelling"
+            @click="cancelUpload(idx)"
+          >
+            {{ f.cancelling ? '取消中…' : '取消' }}
+          </button>
+          <button
+            v-else-if="f.status === 'failed'"
             class="mud-file-retry"
             @click="retryUpload(idx)"
           >
@@ -124,6 +132,7 @@ import { ref, computed, watch } from 'vue'
 import { UploadFilled, VideoCamera, Picture, CircleCheckFilled, CircleCloseFilled, Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { materialsApi } from '@/api/materials'
+import { uploadApi } from '@/api/upload'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -134,6 +143,12 @@ const props = defineProps({
   title: { type: String, default: '上传素材' },
   tip: { type: String, default: '' },
 })
+
+// 100MB 以上的文件走分片上传（避免 axios onUploadProgress 在超大 multipart 时不更新）
+const CHUNK_THRESHOLD = 100 * 1024 * 1024
+const DEFAULT_CHUNK_SIZE = 50 * 1024 * 1024
+const CHUNK_CONCURRENCY = 3
+const CHUNK_RETRY_MAX = 3
 
 const emit = defineEmits(['update:modelValue', 'uploaded', 'all-uploaded', 'error', 'closed'])
 
@@ -171,6 +186,9 @@ function onFileChange(file) {
       percent: 0,
       speed: 0,
       error: '',
+      isChunkUpload: false,  // 由 uploadOne 路由时设置
+      uploadId: '',         // 分片 session id（用于取消）
+      cancelling: false,     // 正在取消中
       _ref: file,  // 保留 el-upload 的 file 引用，便于移除
     }
     if (props.maxSize && file.size > props.maxSize * 1024 * 1024) {
@@ -222,6 +240,15 @@ async function uploadOne(idx) {
   item.status = 'uploading'
   item.percent = 0
   item.speed = 0
+  item.isChunkUpload = item.size > CHUNK_THRESHOLD
+  if (item.isChunkUpload) {
+    await uploadByChunks(item)
+  } else {
+    await uploadSimple(item)
+  }
+}
+
+async function uploadSimple(item) {
   const startTime = Date.now()
   const formData = new FormData()
   formData.append('file', item.raw)
@@ -248,6 +275,124 @@ async function uploadOne(idx) {
     item.error = err.message || '网络错误'
     emit('error', err)
   }
+}
+
+async function uploadByChunks(item) {
+  const startTime = Date.now()
+  try {
+    // 1. init session
+    const initResp = await uploadApi.init({
+      filename: item.name,
+      file_size: item.size,
+      mime_type: item.raw.type || '',
+      chunk_size: DEFAULT_CHUNK_SIZE,
+    })
+    if (initResp.code !== 200) {
+      throw new Error(initResp.msg || '初始化上传失败')
+    }
+    const { upload_id, total_chunks, chunk_size } = initResp.data
+    item.uploadId = upload_id
+    item.totalChunks = total_chunks
+    item.chunkSize = chunk_size
+
+    // 2. 并发上传分片
+    const completedBytes = 0
+    item.completedBytes = completedBytes  // 已完成分片的累计字节
+    let uploaded = []  // 已上传分片索引列表（断点续传：init 时 server 端为 []）
+    let nextIdx = 0
+    const inFlight = new Set()
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+    const uploadOneChunk = async (idx) => {
+      const start = idx * chunk_size
+      const end = Math.min(start + chunk_size, item.size)
+      const blob = item.raw.slice(start, end)
+      let lastErr = null
+      for (let attempt = 1; attempt <= CHUNK_RETRY_MAX; attempt++) {
+        if (item.cancelling || item.status === 'failed') return
+        try {
+          await uploadApi.uploadChunk(upload_id, idx, blob, (progressEvent) => {
+            const chunkLoaded = progressEvent.loaded
+            const chunkTotal = progressEvent.total || blob.size
+            const overallLoaded = (item.completedBytes || 0) + chunkLoaded
+            item.percent = Math.round((overallLoaded / item.size) * 100)
+            const elapsed = (Date.now() - startTime) / 1000
+            if (elapsed > 0.1) item.speed = overallLoaded / elapsed
+          })
+          return  // success
+        } catch (e) {
+          lastErr = e
+          if (attempt < CHUNK_RETRY_MAX) {
+            await sleep(1000 * Math.pow(2, attempt - 1))  // 1s, 2s, 4s
+          }
+        }
+      }
+      throw lastErr || new Error(`分片 ${idx} 上传失败`)
+    }
+
+    // 并发池：保持 CHUNK_CONCURRENCY 个 inFlight
+    while (nextIdx < total_chunks || inFlight.size > 0) {
+      while (inFlight.size < CHUNK_CONCURRENCY && nextIdx < total_chunks) {
+        const idx = nextIdx++
+        if (uploaded.includes(idx)) continue  // 跳过已上传
+        const p = uploadOneChunk(idx).then(() => {
+          uploaded.push(idx)
+          item.completedBytes = uploaded.reduce((sum, i) => {
+            const s = i * chunk_size
+            const e = Math.min(s + chunk_size, item.size)
+            return sum + (e - s)
+          }, 0)
+          item.percent = Math.round((item.completedBytes / item.size) * 100)
+          inFlight.delete(p)
+        }).catch((e) => {
+          inFlight.delete(p)
+          throw e
+        })
+        inFlight.add(p)
+      }
+      if (inFlight.size > 0) {
+        await Promise.race(inFlight)
+      }
+    }
+
+    // 3. merge
+    const mergeResp = await uploadApi.merge(upload_id)
+    if (mergeResp.code !== 200) {
+      throw new Error(mergeResp.msg || '合并失败')
+    }
+    item.status = 'success'
+    item.percent = 100
+    item.response = mergeResp.data
+    emit('uploaded', mergeResp.data)
+  } catch (err) {
+    if (item.cancelling) {
+      // 用户主动取消，状态已由 cancelUpload 设置
+      return
+    }
+    item.status = 'failed'
+    item.error = err.message || '网络错误'
+    emit('error', err)
+  }
+}
+
+async function cancelUpload(idx) {
+  const item = fileList.value[idx]
+  if (!item || !item.isChunkUpload || !item.uploadId) return
+  item.cancelling = true
+  try {
+    await uploadApi.cancel(item.uploadId)
+  } catch (e) {
+    // 即使 cancel 失败也标记为已取消（用户体验优先）
+    console.warn('[MaterialUploader] cancel API failed:', e)
+  }
+  item.status = 'failed'
+  item.error = '已取消'
+  item.cancelling = false
+}
+
+function formatProgressText(percent, item) {
+  const speed = item?.speed ? ` · ${formatSpeed(item.speed)}` : ''
+  return `${percent}%${speed}`
 }
 
 async function startUpload() {
@@ -351,13 +496,15 @@ watch(visible, (v) => {
   &.err { color: #f56c6c; }
 }
 
-.mud-file-retry, .mud-file-remove {
+.mud-file-retry, .mud-file-remove, .mud-file-cancel {
   background: transparent; border: 1px solid $border; color: $text-muted;
   padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
   transition: $transition-base;
   &:hover { color: $brand-start; border-color: $brand-start; }
+  &:disabled { opacity: .5; cursor: not-allowed; }
 }
 .mud-file-remove { padding: 4px 9px; font-size: 16px; line-height: 1; }
+.mud-file-cancel { color: $text-muted; }
 
 .mud-addmore {
   display: flex; align-items: center; justify-content: center; gap: 6px;

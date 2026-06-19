@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { platformIdToName } from '@/config/platforms'
+import { accountApi } from '@/api/account'
 
 export const useAccountStore = defineStore('account', () => {
   // 存储所有账号信息
@@ -17,7 +18,8 @@ export const useAccountStore = defineStore('account', () => {
         name: item[3],
         status: item[4] === -1 ? '验证中' : (item[4] === 1 ? '正常' : '异常'),
         platform: platformIdToName[item[1]] || '未知',
-        avatar: item[5] || ''
+        avatar: item[5] || '',
+        tags: item[6] || []
       }
     })
   }
@@ -44,6 +46,19 @@ export const useAccountStore = defineStore('account', () => {
   const getAccountsByPlatform = (platform) => {
     return accounts.value.filter(acc => acc.platform === platform)
   }
+
+  const allTags = ref([])
+
+  const loadTags = async () => {
+    try {
+      const res = await accountApi.getTags()
+      if (res.code === 200 && res.data) {
+        allTags.value = res.data
+      }
+    } catch (e) {
+      console.error('加载标签失败:', e)
+    }
+  }
   
   return {
     accounts,
@@ -51,6 +66,8 @@ export const useAccountStore = defineStore('account', () => {
     addAccount,
     updateAccount,
     deleteAccount,
-    getAccountsByPlatform
+    getAccountsByPlatform,
+    allTags,
+    loadTags
   }
 })

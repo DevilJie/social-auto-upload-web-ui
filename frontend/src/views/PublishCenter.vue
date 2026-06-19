@@ -57,7 +57,7 @@
             <div class="bar purple"></div>
             <span class="section-label">公共配置</span>
             <span class="hint">所有账号共享</span>
-            <template v-if="currentPlatformConfig">
+            <template v-if="currentPlatformConfig && publishAccountIds.size > 0">
               <el-checkbox
                 v-model="platformChecked[selectedPlatform]"
                 @change="onPlatformCheckChange"
@@ -115,7 +115,7 @@
         <div class="divider"></div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-        <div v-if="currentPlatformConfig" class="config-section">
+        <div v-if="currentPlatformConfig && publishAccountIds.size > 0" class="config-section">
           <div class="section-bar">
             <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
             <span class="section-label">
@@ -241,7 +241,10 @@
                   class="setting-card"
                   :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
                 >
-                  <div class="setting-label" :style="{ color: currentPlatformConfig.color }">{{ field.label }}</div>
+                  <div class="setting-label" :style="{ color: currentPlatformConfig.color }">
+                    <span v-if="field.required" style="color: #f56c6c; margin-right: 2px;">*</span>
+                    {{ field.label }}
+                  </div>
                   <div v-if="field.description" class="setting-desc">{{ field.description }}</div>
 
                   <el-input
@@ -332,6 +335,15 @@
               </template>
             </template>
           </div>
+        </div>
+
+        <!-- No account selected hint -->
+        <div v-else-if="publishAccountIds.size === 0" class="no-platform-hint">
+          <div class="hint-icon">
+            <el-icon :size="48"><UserFilled /></el-icon>
+          </div>
+          <p>请先在左侧添加账号</p>
+          <p class="hint-sub">选择账号后才能配置对应渠道的发布设置</p>
         </div>
 
         <!-- No platform selected hint -->
@@ -452,7 +464,7 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
-import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion } from '@element-plus/icons-vue'
+import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -461,6 +473,7 @@ import { getFileUrl } from '@/utils/storage'
 import { http } from '@/utils/request'
 import { accountApi } from '@/api/account'
 import { platformList, getPlatformByKey, platformKeyToId, platformNameToKey } from '@/config/platforms'
+import { validateVideoForPlatform } from '@/config/videoLimits'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
@@ -695,11 +708,11 @@ const landscapeCoverFrames = computed(() =>
 // ========== Per-platform Config ==========
 const platformConfigs = reactive({
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
-  xiaohongshu: { title: '', description: '', collection: '', groupChat: '', location: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], topic: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
-  channels: { title: '', description: '', isDraft: false, location: '', aiContent: false, isOriginal: false, videoFormat: '', tags: [] },
-  baijiahao: { title: '', description: '', aiContent: false, isOriginal: false, videoFormat: '', tags: [] },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '', tags: [] },
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '', tags: [] },
@@ -937,8 +950,13 @@ const { applyBatchSet } = useBatchSetApply({
   accountChecked,
   accountStore,
 })
+// 渠道个性化可见平台列表：过滤掉被拉黑的平台
+const visiblePlatformsForCustomize = computed(() =>
+  platformList.filter(p => !appStore.isPlatformDisabled(p.key))
+)
+
 const batchSetPlatforms = computed(() => {
-  return platformList.map(p => {
+  return visiblePlatformsForCustomize.value.map(p => {
     const platformAccounts = accountStore.accounts.filter(a => a.platform === p.name)
     const selectedCount = platformAccounts.filter(a => publishAccountIds.has(a.id)).length
     return { key: p.key, name: p.name, logo: p.logo, count: selectedCount }
@@ -1059,6 +1077,7 @@ async function onVideoUploaded(d) {
     stored_path: d.stored_path,
     size: d.file_size,
     type: d.mime_type,
+    duration: d.duration ?? 0,
   }
   if (videoUploadTarget.value === 'portrait') {
     currentEditTarget.value.videoPortrait = videoData
@@ -1349,6 +1368,23 @@ onMounted(async () => {
     console.error('加载账号列表失败:', e)
   }
 
+  // 加载标签列表(确保「选择账号」弹窗内的标签筛选可用)
+  accountStore.loadTags()
+
+  // 清理 publishAccountIds 中属于黑名单平台的账号（本地清理，不写后端）
+  // Set 是发布页内存状态，重建一个新的 Set 来剔除被拉黑平台的账号
+  const filteredIds = new Set()
+  for (const id of publishAccountIds) {
+    const acc = accountStore.accounts.find(a => a.id === id)
+    if (!acc) continue
+    const key = platformNameToKey[acc.platform]
+    if (key && !appStore.isPlatformDisabled(key)) {
+      filteredIds.add(id)
+    }
+  }
+  publishAccountIds.clear()
+  filteredIds.forEach(id => publishAccountIds.add(id))
+
   const draftId = route.query.draft
   if (draftId) {
     restoreDraft(Number(draftId))
@@ -1396,6 +1432,9 @@ async function publishAll() {
     tencent_video: 'creationDeclaration',
     iqiyi: 'creationDeclaration',
     youtube: ['audience', 'alteredContent'],
+    tiktok: 'aiContent',
+    weibo: 'contentStatement',
+    // channels 不必填
   }
 
   for (const group of accountGroups.value) {
@@ -1447,6 +1486,37 @@ async function publishAll() {
   if (accountsWithoutTitle.length > 0) errors.push({ type: '标题', accounts: accountsWithoutTitle })
   if (accountsWithoutVideoFormat.length > 0) errors.push({ type: '视频格式', accounts: accountsWithoutVideoFormat })
   if (accountsWithoutCover.length > 0) errors.push({ type: '封面', accounts: accountsWithoutCover })
+
+  // 3. 视频时长/大小校验
+  const accountsVideoInvalid = []
+  for (const group of accountGroups.value) {
+    if (group.accounts.length === 0) continue
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      const merged = resolveAccountConfig(group.key, account.id)
+      const platformKey = group.key
+
+      // 取有效视频（按 videoFormat 或兜底）
+      const fmt = merged.videoFormat
+      let video = null
+      if (fmt === 'landscape') video = merged.videoLandscape
+      else if (fmt === 'portrait') video = merged.videoPortrait
+      else video = merged.videoLandscape || merged.videoPortrait
+
+      if (!video || !video.duration || video.duration === 0) {
+        // 未上传视频的账号：跳过（必填标题会先拦住）
+        continue
+      }
+
+      const result = validateVideoForPlatform(platformKey, video.duration, video.size || 0)
+      if (!result.ok) {
+        accountsVideoInvalid.push(`${account.name}(${group.name}): ${result.error}`)
+      }
+    }
+  }
+  if (accountsVideoInvalid.length > 0) {
+    errors.push({ type: '视频校验', accounts: accountsVideoInvalid })
+  }
 
   if (errors.length > 0) {
     const maxShow = 3

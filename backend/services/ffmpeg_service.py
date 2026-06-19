@@ -6,6 +6,7 @@ and perform frame extraction (thumbnail and HD) for the video timeline feature.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -353,3 +354,53 @@ def get_frame_image_path(
     except subprocess.CalledProcessError as exc:
         logger.error("Failed to extract HD frame at {}s: {}", seconds, exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Safe duration detection (with ffmpeg fallback)
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)")
+
+
+def _parse_duration_from_stderr(stderr: str) -> float:
+    """从 ffmpeg -i 的 stderr 中解析 Duration 行（fallback 用）。
+
+    ffmpeg -i 总是返回非零（缺输出文件），但 stderr 仍包含容器 metadata。
+    """
+    match = _DURATION_RE.search(stderr)
+    if not match:
+        return 0.0
+    h, m, s = match.groups()
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+def get_video_duration_safe(video_path: str) -> float:
+    """获取视频时长（秒）。
+
+    优先调用 ffprobe（毫秒级返回，不解码视频帧）。
+    ffprobe 不可用或失败时，fallback 到 `ffmpeg -i` 解析 stderr 中的 Duration 行。
+    都失败时返回 0.0（调用方应将 0 视为"未识别"，不阻塞业务）。
+    """
+    try:
+        duration = get_video_duration(video_path)
+        if duration > 0:
+            return duration
+    except Exception as exc:
+        logger.warning("ffprobe failed for {}: {}", video_path, exc)
+
+    # Fallback: ffmpeg -i
+    _ensure_binaries()
+    if FFMPEG is None:
+        return 0.0
+
+    try:
+        result = subprocess.run(
+            [FFMPEG, "-i", video_path],
+            capture_output=True, text=True, timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+        return _parse_duration_from_stderr(result.stderr)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.warning("ffmpeg fallback failed for {}: {}", video_path, exc)
+        return 0.0

@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import sqlite3
 import sys
 import threading
@@ -206,6 +207,15 @@ def getAccounts():
             cursor.execute('SELECT * FROM user_info')
             rows = cursor.fetchall()
             rows_list = [list(row) for row in rows]
+
+            for row in rows_list:
+                tags = conn.execute('''
+                    SELECT t.id, t.name, t.color FROM tags t
+                    JOIN account_tags at ON t.id = at.tag_id
+                    WHERE at.account_id = ?
+                ''', (row[0],)).fetchall()
+                row.append([dict(t) for t in tags])
+
         return jsonify({"code": 200, "msg": None, "data": rows_list}), 200
     except Exception as e:
         return jsonify({"code": 500, "msg": f"获取账号列表失败: {str(e)}", "data": None}), 500
@@ -233,6 +243,15 @@ def getValidAccounts():
                 row[4] = new_status
                 with sqlite3.connect(str(DB_PATH)) as conn:
                     conn.execute('UPDATE user_info SET status = ? WHERE id = ?', (new_status, row[0]))
+
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            for row in rows_list:
+                tags = conn.execute('''
+                    SELECT t.id, t.name, t.color FROM tags t
+                    JOIN account_tags at ON t.id = at.tag_id
+                    WHERE at.account_id = ?
+                ''', (row[0],)).fetchall()
+                row.append([dict(t) for t in tags])
 
         return jsonify({"code": 200, "msg": None, "data": rows_list}), 200
     except Exception as e:
@@ -289,6 +308,105 @@ def updateUserinfo():
         return jsonify({"code": 200, "msg": "account update successfully", "data": None}), 200
     except Exception as e:
         return jsonify({"code": 500, "msg": "update failed!", "data": None}), 500
+
+
+# ── Tag management ────────────────────────────────────────
+
+@app.route('/api/tags', methods=['GET'])
+def get_tags():
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('SELECT * FROM tags ORDER BY name').fetchall()
+        return jsonify({"code": 200, "data": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/tags', methods=['POST'])
+def create_tag():
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    color = data.get('color') or random.choice([
+        '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+        '#f97316', '#f59e0b', '#10b981', '#14b8a6',
+        '#0ea5e9', '#3b82f6',
+    ])
+    if not name:
+        return jsonify({"code": 400, "msg": "标签名不能为空"}), 400
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute('INSERT INTO tags (name, color) VALUES (?, ?)', (name, color))
+            tag_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            conn.commit()
+        return jsonify({"code": 200, "data": {"id": tag_id, "name": name, "color": color}})
+    except sqlite3.IntegrityError:
+        return jsonify({"code": 409, "msg": "标签名已存在"}), 409
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
+def delete_tag(tag_id):
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            # SQLite 默认不强制外键,需要先清关联行
+            conn.execute('DELETE FROM account_tags WHERE tag_id = ?', (tag_id,))
+            conn.execute('DELETE FROM tags WHERE id = ?', (tag_id,))
+            conn.commit()
+        return jsonify({"code": 200})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/accounts/<int:account_id>/tags', methods=['PUT'])
+def set_account_tags(account_id):
+    data = request.get_json()
+    tag_ids = data.get('tag_ids', [])
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.execute('DELETE FROM account_tags WHERE account_id = ?', (account_id,))
+            for tid in tag_ids:
+                conn.execute('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)', (account_id, tid))
+            conn.commit()
+        return jsonify({"code": 200})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/accounts/batch/tags', methods=['PUT'])
+def set_batch_account_tags():
+    """批量为多个账号添加相同的标签(追加模式:不清除已有标签)"""
+    data = request.get_json()
+    account_ids = data.get('account_ids', [])
+    tag_ids = data.get('tag_ids', [])
+    if not account_ids:
+        return jsonify({"code": 400, "msg": "请选择至少一个账号"}), 400
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            for account_id in account_ids:
+                for tid in tag_ids:
+                    conn.execute('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)', (account_id, tid))
+            conn.commit()
+        return jsonify({"code": 200, "data": {"updated": len(account_ids)}})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@app.route('/api/accounts/<int:account_id>/tags', methods=['GET'])
+def get_account_tags(account_id):
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('''
+                SELECT t.* FROM tags t
+                JOIN account_tags at ON t.id = at.tag_id
+                WHERE at.account_id = ?
+                ORDER BY t.name
+            ''', (account_id,)).fetchall()
+        return jsonify({"code": 200, "data": [dict(r) for r in rows]})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
 
 
 # ── Cookie file management ──────────────────────────────────
@@ -487,6 +605,45 @@ def login():
     return response
 
 
+def _validate_publish_video(type_id, file_list):
+    """校验视频文件是否符合平台限制。
+
+    Returns:
+        (ok, error_msg). 通过时 error_msg 为空字符串。
+        材料缺失时跳过校验（兼容老路径直接上传）。
+    """
+    from util.video_limits import validate_video_for_platform
+
+    if not file_list:
+        return True, ""
+
+    platform = get_platform(type_id)
+    if platform is None or not hasattr(platform, "platform_key"):
+        return True, ""
+
+    platform_key = platform.platform_key
+
+    first_file = next((f for f in file_list if f), None)
+    if not first_file:
+        return True, ""
+
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT duration, file_size FROM materials WHERE stored_path = ?",
+            (first_file,),
+        ).fetchone()
+        conn.close()
+    except Exception:
+        return True, ""
+
+    if row is None:
+        return True, ""
+
+    return validate_video_for_platform(platform_key, row["duration"], row["file_size"])
+
+
 @app.route('/postVideo', methods=['POST'])
 def postVideo():
     data = request.get_json()
@@ -499,6 +656,12 @@ def postVideo():
     platform = get_platform(data.get('type'))
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型"}), 400
+
+    # 视频时长/大小校验（早于 publish_video，避免无效提交）
+    ok, err = _validate_publish_video(data.get('type'), data.get('fileList', []))
+    if not ok:
+        logger.info(f"发布视频校验失败: {err}")
+        return jsonify({"code": 400, "msg": err}), 400
 
     try:
         # Resolve file paths through storage abstraction
@@ -613,6 +776,12 @@ def postVideoBatch():
         platform = get_platform(data.get('type'))
         if not platform:
             failures.append({"index": idx, "reason": "不支持的平台类型"})
+            continue
+
+        # 视频时长/大小校验
+        ok, err = _validate_publish_video(data.get('type'), data.get('fileList', []))
+        if not ok:
+            failures.append({"index": idx, "reason": err})
             continue
 
         try:

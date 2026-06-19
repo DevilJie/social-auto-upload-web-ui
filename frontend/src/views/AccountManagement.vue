@@ -43,6 +43,27 @@
         <el-icon v-if="!appStore.isAccountRefreshing"><Loading /></el-icon>
         批量检查
       </el-button>
+      <el-button class="batch-tag-btn" @click="batchTagDialogVisible = true">
+        <el-icon><CollectionTag /></el-icon>
+        批量设置标签
+      </el-button>
+    </div>
+
+    <!-- 标签筛选 -->
+    <div v-if="tagFilterOptions.length > 0" class="tag-filter-bar">
+      <button
+        :class="['tag-filter-item', { active: !activeTagId }]"
+        @click="activeTagId = null"
+      >全部标签</button>
+      <button
+        v-for="tag in tagFilterOptions"
+        :key="tag.id"
+        :class="['tag-filter-item', { active: activeTagId === tag.id }]"
+        @click="activeTagId = activeTagId === tag.id ? null : tag.id"
+      >
+        <span class="tag-dot" :style="{ background: tag.color }"></span>
+        {{ tag.name }}
+      </button>
     </div>
 
     <!-- 账号卡片列表 -->
@@ -50,6 +71,7 @@
       <div
         v-for="account in filteredAccounts"
         :key="account.id"
+        :data-account-id="account.id"
         :class="['account-card', `platform-${getPlatformClass(account.platform)}`]"
       >
         <!-- 卡片主体：头像 + 用户信息 -->
@@ -59,6 +81,15 @@
             <span class="user-name">{{ account.name }}</span>
             <div class="platform-row">
               <span class="platform-name">{{ account.platform }}</span>
+              <el-tag
+                v-if="isAccountDisabled(account)"
+                type="info"
+                size="small"
+                effect="plain"
+                class="disabled-tag"
+              >
+                已拉黑
+              </el-tag>
               <span :class="['status-badge', getStatusClass(account.status)]">
                 <span class="status-dot"></span>
                 {{ account.status }}
@@ -73,12 +104,58 @@
           </div>
         </div>
 
+        <!-- 标签行(独立一行,溢出跑马灯) -->
+        <div class="account-tags-row">
+          <span class="account-tags-label">标签:</span>
+          <div
+            v-if="account.tags && account.tags.length > 0"
+            :class="['account-tags-viewport', { 'is-overflow': tagOverflowMap[account.id] }]"
+          >
+            <div
+              class="account-tags-track"
+              :class="{ marquee: tagOverflowMap[account.id] }"
+            >
+              <span
+                v-for="tag in tagOverflowMap[account.id] ? [...account.tags, ...account.tags] : account.tags"
+                :key="tag.id + '-' + (tagOverflowMap[account.id] ? 'b' : 'a')"
+                class="account-tag"
+                :style="{ borderColor: tag.color, color: tag.color }"
+              >
+                {{ tag.name }}
+                <span
+                  class="account-tag-remove"
+                  title="从该账号移除此标签"
+                  @click.stop="handleRemoveAccountTag(account, tag)"
+                >×</span>
+              </span>
+            </div>
+          </div>
+          <TagPopover
+            :visible="tagPopoverVisible && tagPopoverAccountId === account.id"
+            :account-id="account.id"
+            :selected-tags="account.tags || []"
+            @update:visible="tagPopoverVisible = $event"
+            @changed="onTagChanged"
+          >
+            <button class="tag-add-btn" @click.stop="openTagPopover(account.id)">
+              <el-icon><Plus /></el-icon>
+            </button>
+          </TagPopover>
+        </div>
+
         <!-- 卡片底部：操作按钮 -->
         <div class="card-footer">
           <div class="card-actions">
-            <button v-if="account.status === '异常'" class="action-btn login" @click="handleReLogin(account)">
+            <button
+              v-if="account.status === '异常'"
+              class="action-btn login"
+              :class="{ 'is-blacklisted': isAccountDisabled(account) }"
+              :disabled="isAccountDisabled(account)"
+              :title="isAccountDisabled(account) ? '该渠道已被加入黑名单,请先在系统设置中移除' : ''"
+              @click="handleReLogin(account)"
+            >
               <el-icon><Key /></el-icon>
-              登录
+              {{ isAccountDisabled(account) ? '已拉黑' : '登录' }}
             </button>
             <button v-else class="action-btn check" @click="handleCheckAccount(account)" :disabled="checkingIds.has(account.id)">
               <el-icon v-if="checkingIds.has(account.id)" class="is-loading"><Loading /></el-icon>
@@ -87,14 +164,26 @@
                 检查
               </template>
             </button>
-            <button class="action-btn sync" @click="handleSyncProfile(account)" :disabled="account.status === '异常' || syncingIds.has(account.id)">
+            <button
+              class="action-btn sync"
+              :class="{ 'is-blacklisted': isAccountDisabled(account) }"
+              :disabled="isAccountDisabled(account) || account.status === '异常' || syncingIds.has(account.id)"
+              :title="isAccountDisabled(account) ? '该渠道已被加入黑名单,请先在系统设置中移除' : ''"
+              @click="handleSyncProfile(account)"
+            >
               <el-icon v-if="syncingIds.has(account.id)" class="is-loading"><Loading /></el-icon>
               <template v-else>
                 <el-icon><Refresh /></el-icon>
                 同步
               </template>
             </button>
-            <button class="action-btn creator" @click="handleOpenCreatorCenter(account)" :disabled="account.status === '异常'">
+            <button
+              class="action-btn creator"
+              :class="{ 'is-blacklisted': isAccountDisabled(account) }"
+              :disabled="isAccountDisabled(account) || account.status === '异常'"
+              :title="isAccountDisabled(account) ? '该渠道已被加入黑名单,请先在系统设置中移除' : ''"
+              @click="handleOpenCreatorCenter(account)"
+            >
               <el-icon><Link /></el-icon>
               创作中心
             </button>
@@ -120,85 +209,116 @@
       </div>
     </div>
 
-    <!-- 添加/编辑账号对话框 -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="dialogType === 'add' ? '添加账号' : (accountForm.id ? '重新登录' : '编辑账号')"
-      width="500px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="!sseConnecting"
-      :show-close="!sseConnecting"
-    >
-      <el-form :model="accountForm" label-width="80px" :rules="rules" ref="accountFormRef">
-        <el-form-item label="平台" prop="platform">
-          <el-select
-            v-model="accountForm.platform"
-            placeholder="请选择平台"
-            :disabled="dialogType === 'edit' || sseConnecting"
-            style="width: 100%"
-            @change="onPlatformSelect"
-          >
-            <el-option
-              v-for="p in platformOptions"
-              :key="p.value"
-              :label="p.label"
-              :value="p.label"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="dialogType === 'edit'" label="名称" prop="name">
-          <el-input
-            v-model="accountForm.name"
-            placeholder="扫码后自动同步"
-            disabled
-          />
-        </el-form-item>
+    <!-- 添加/重新登录账号对话框 -->
+    <LoginDialog
+      v-model="loginDialogVisible"
+      :mode="loginMode"
+      :account="reloginAccount"
+      @success="onLoginSuccess"
+      @fail="onLoginFail"
+    />
 
-        <!-- 登录状态提示 -->
-        <div v-if="sseConnecting" class="qrcode-container">
-          <div v-if="!loginStatus" class="loading-wrapper">
-            <el-icon class="is-loading"><Refresh /></el-icon>
-            <span>等待登录中...</span>
-          </div>
-          <div v-else-if="loginStatus === '200'" class="status-wrapper success">
-            <el-icon><CircleCheckFilled /></el-icon>
-            <span>{{ dialogType === 'edit' ? '登录成功' : '添加成功' }}</span>
-          </div>
-          <div v-else-if="loginStatus === '500'" class="status-wrapper error">
-            <el-icon><CircleCloseFilled /></el-icon>
-            <span>添加失败，请稍后再试</span>
-          </div>
-        </div>
-      </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button
-            type="primary"
-            @click="submitAccountForm"
-            :loading="sseConnecting"
-            :disabled="sseConnecting"
-          >
-            {{ sseConnecting ? '请求中' : '确认' }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <!-- 批量设置标签对话框 -->
+    <BatchTagDialog
+      v-model="batchTagDialogVisible"
+      @done="onBatchTagDone"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { Refresh, CircleCheckFilled, CircleCloseFilled, Loading, Link, Plus, Edit, Delete, Check, Folder, Key } from '@element-plus/icons-vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { http } from '@/utils/request'
-import { platformList, platformNameToId, platformCssMap, getPlatformByName, PLATFORMS } from '@/config/platforms'
+import { platformList, platformNameToId, platformNameToKey, platformCssMap, getPlatformByName } from '@/config/platforms'
+import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
+import LoginDialog from '@/components/LoginDialog.vue'
+import TagPopover from '@/components/TagPopover.vue'
+import BatchTagDialog from '@/components/BatchTagDialog.vue'
 
 const accountStore = useAccountStore()
 const appStore = useAppStore()
+
+/** 平台是否已被加入黑名单（account.platform 是中文名,需先转为 key） */
+const isAccountDisabled = (account) => {
+  const key = platformNameToKey[account.platform]
+  return !!(key && appStore.isPlatformDisabled(key))
+}
+
+const activeTagId = ref(null)
+const tagPopoverVisible = ref(false)
+const tagPopoverAccountId = ref(null)
+
+// 哪些账号的标签溢出(决定是否跑马灯):key=accountId
+const tagOverflowMap = ref({})
+
+const tagFilterOptions = computed(() => accountStore.allTags)
+
+function openTagPopover(accountId) {
+  tagPopoverAccountId.value = accountId
+  tagPopoverVisible.value = true
+}
+
+// 检测每张卡片标签行是否溢出,溢出时启用跑马灯
+function checkTagOverflow() {
+  nextTick(() => {
+    const rows = document.querySelectorAll('.account-tags-viewport')
+    const next = {}
+    rows.forEach(viewport => {
+      const track = viewport.querySelector('.account-tags-track')
+      const card = viewport.closest('.account-card')
+      const id = Number(card?.dataset?.accountId)
+      if (id && track) {
+        next[id] = track.scrollWidth > viewport.clientWidth + 1
+      }
+    })
+    tagOverflowMap.value = next
+  })
+}
+
+watch(() => accountStore.accounts, () => {
+  checkTagOverflow()
+}, { deep: true })
+
+let tagResizeObserver = null
+
+onMounted(() => {
+  fetchAccountsQuick()
+  accountStore.loadTags()
+  nextTick(() => {
+    checkTagOverflow()
+    tagResizeObserver = new ResizeObserver(() => checkTagOverflow())
+    document.querySelectorAll('.account-tags-viewport').forEach(el => tagResizeObserver.observe(el))
+  })
+})
+
+onBeforeUnmount(() => {
+  tagResizeObserver?.disconnect()
+})
+
+async function onTagChanged() {
+  await fetchAccountsQuick()
+}
+
+async function handleRemoveAccountTag(account, tag) {
+  const remaining = (account.tags || []).filter(t => t.id !== tag.id).map(t => t.id)
+  try {
+    const res = await accountApi.setAccountTags(account.id, remaining)
+    if (res.code === 200) {
+      await fetchAccountsQuick()
+      ElMessage.success(`已从「${account.name}」移除标签「${tag.name}」`)
+    } else {
+      ElMessage.error(res.msg || '移除失败')
+    }
+  } catch (e) {
+    console.error('移除标签失败:', e)
+    ElMessage.error('移除标签失败')
+  }
+}
 
 const activeTab = ref('all')
 const searchKeyword = ref('')
@@ -215,14 +335,6 @@ const filterOptions = computed(() => {
     ...platformList.map(p => ({ label: p.name, value: p.name, count: counts[p.name] || 0 }))
   ].filter(opt => opt.value === 'all' || (opt.count && opt.count > 0))
 })
-
-const platformOptions = platformList.map(p => ({
-  label: p.name,
-  value: String(p.id),
-  logo: p.logo,
-  color: p.color,
-  bg: p.bgColor,
-}))
 
 const fetchAccountsQuick = async () => {
   try {
@@ -256,10 +368,6 @@ const fetchAccounts = async () => {
     appStore.setAccountRefreshing(false)
   }
 }
-
-onMounted(() => {
-  fetchAccountsQuick()
-})
 
 const getPlatformClass = (platform) => {
   return platformCssMap[platform] || ''
@@ -308,6 +416,9 @@ const filteredAccounts = computed(() => {
   if (activeTab.value !== 'all') {
     accounts = accounts.filter(a => a.platform === activeTab.value)
   }
+  if (activeTagId.value) {
+    accounts = accounts.filter(a => a.tags?.some(t => t.id === activeTagId.value))
+  }
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
     accounts = accounts.filter(a => a.name.toLowerCase().includes(keyword))
@@ -335,8 +446,12 @@ const rules = {
   platform: [{ required: true, message: '请选择平台', trigger: 'change' }]
 }
 
-const sseConnecting = ref(false)
 const checkingIds = ref(new Set())
+
+// LoginDialog 弹窗控制
+const loginDialogVisible = ref(false)
+const loginMode = ref('add')        // 'add' | 'relogin'
+const reloginAccount = ref(null)
 
 const handleCheckAccount = async (row) => {
   checkingIds.value.add(row.id)
@@ -355,31 +470,11 @@ const handleCheckAccount = async (row) => {
     checkingIds.value.delete(row.id)
   }
 }
-const qrCodeData = ref('')
-const loginStatus = ref('')
-
-const onPlatformSelect = async (value) => {
-  accountFormRef.value?.validateField('platform')
-  if (value === '小红书') {
-    try {
-      await ElMessageBox.confirm(
-        '由于小红书反检测机制比较恶心，如果出现被警告的情况！请立即停止使用小红书渠道！',
-        '风险警告',
-        { confirmButtonText: '我已知悉，继续添加', cancelButtonText: '取消', type: 'warning' }
-      )
-    } catch {
-      accountForm.platform = ''
-    }
-  }
-}
 
 const handleAddAccount = () => {
-  dialogType.value = 'add'
-  Object.assign(accountForm, { id: null, name: '', platform: '', status: '正常' })
-  sseConnecting.value = false
-  qrCodeData.value = ''
-  loginStatus.value = ''
-  dialogVisible.value = true
+  loginMode.value = 'add'
+  reloginAccount.value = null
+  loginDialogVisible.value = true
 }
 
 const handleEdit = (row) => {
@@ -453,13 +548,10 @@ const handleUploadCookie = (row) => {
 }
 
 const handleReLogin = (row) => {
-  dialogType.value = 'edit'
-  Object.assign(accountForm, { id: row.id, name: row.name, platform: row.platform, status: row.status })
-  sseConnecting.value = false
-  qrCodeData.value = ''
-  loginStatus.value = ''
-  dialogVisible.value = true
-  setTimeout(() => connectSSE(row.platform, row.id), 300)
+  if (isAccountDisabled(row)) return
+  loginMode.value = 'relogin'
+  reloginAccount.value = row
+  loginDialogVisible.value = true
 }
 
 const syncingIds = reactive(new Set())
@@ -487,15 +579,7 @@ const handleSyncProfile = async (row) => {
   }
 }
 
-const getDefaultAvatar = (name) => {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
-}
-
-/** 头像代理：sinaimg.cn 防盗链，走后端代理绕过 */
-const proxyAvatar = (url) => {
-  const api = window.__AVATAR_PROXY_API__ || '/api/image-proxy'
-  return url && url.includes('sinaimg.cn') ? `${api}?url=${encodeURIComponent(url)}` : url
-}
+// getDefaultAvatar / proxyAvatar 已抽到 @/utils/avatar
 
 const handleOpenCreatorCenter = async (row) => {
   try {
@@ -511,138 +595,47 @@ const handleOpenCreatorCenter = async (row) => {
   }
 }
 
-let eventSource = null
-
-const closeSSEConnection = () => {
-  if (eventSource) { eventSource.close(); eventSource = null }
+// LoginDialog 回调:登录成功后刷新账号列表(后端 sync_profile 已写库)
+const onLoginSuccess = ({ platform, accountId }) => {
+  fetchAccountsQuick()
 }
 
-const connectSSE = (platform, accountId) => {
-  closeSSEConnection()
-  sseConnecting.value = true
-  qrCodeData.value = ''
-  loginStatus.value = ''
+const onLoginFail = ({ platform, errMsg }) => {
+  console.warn(`登录失败 [${platform}]:`, errMsg)
+}
 
-  const type = platformNameToId[platform] ? String(platformNameToId[platform]) : '1'
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5409'
-  // 使用 UUID 作为临时标识，不再需要用户输入名称
-  const tempId = crypto.randomUUID()
-  let url = `${baseUrl}/login?type=${type}&id=${encodeURIComponent(tempId)}`
-  if (accountId) {
-    url += `&account_id=${encodeURIComponent(accountId)}`
-  }
-
-  eventSource = new EventSource(url)
-
-  eventSource.onmessage = (event) => {
-    const data = event.data
-
-    // 先尝试解析 JSON（登录响应）
-    try {
-      const result = JSON.parse(data)
-      if (result.status === '200') {
-        loginStatus.value = '200'
-        closeSSEConnection()
-        setTimeout(() => {
-          setTimeout(() => {
-            dialogVisible.value = false
-            sseConnecting.value = false
-            ElMessage.success(dialogType.value === 'edit' ? '登录成功' : '账号添加成功')
-            ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
-            fetchAccountsQuick().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
-          }, 1000)
-        }, 1000)
-        return
-      }
-      if (result.status === '500') {
-        loginStatus.value = '500'
-        closeSSEConnection()
-        sseConnecting.value = false
-        qrCodeData.value = ''
-        ElMessage.error(result.msg || '登录失败，请稍后再试')
-        setTimeout(() => { loginStatus.value = '' }, 2000)
-        return
-      }
-      if (result.status === '0' || result.status === 'error') {
-        loginStatus.value = '500'
-        closeSSEConnection()
-        sseConnecting.value = false
-        qrCodeData.value = ''
-        ElMessage.error(result.msg || result.error || '登录已取消')
-        setTimeout(() => { loginStatus.value = '' }, 2000)
-        return
-      }
-    } catch (e) {}
-
-    if (data === '500') {
-      loginStatus.value = '500'
-      closeSSEConnection()
-      setTimeout(() => { sseConnecting.value = false; qrCodeData.value = ''; loginStatus.value = '' }, 2000)
-    } else if (!qrCodeData.value && data.length > 100) {
-      // 二维码图片
-      try {
-        qrCodeData.value = data.startsWith('data:image') ? data : `data:image/png;base64,${data}`
-      } catch (error) {}
-    } else if (data === '200') {
-      // 兼容旧格式
-      loginStatus.value = '200'
-      closeSSEConnection()
-      setTimeout(() => {
-        setTimeout(() => {
-          dialogVisible.value = false
-          sseConnecting.value = false
-          ElMessage.success(dialogType.value === 'edit' ? '登录成功' : '账号添加成功')
-          ElMessage({ type: 'info', message: '正在同步账号信息...', duration: 0 })
-          fetchAccountsQuick().then(() => { ElMessage.closeAll(); ElMessage.success('账号信息已更新') })
-        }, 1000)
-      }, 1000)
-    }
-  }
-
-  eventSource.onerror = (error) => {
-    console.error('SSE连接错误:', error)
-    ElMessage.error('连接服务器失败，请稍后再试')
-    closeSSEConnection()
-    sseConnecting.value = false
-  }
+// 批量设置标签
+const batchTagDialogVisible = ref(false)
+const onBatchTagDone = async () => {
+  await accountStore.loadTags()
+  await fetchAccountsQuick()
 }
 
 const submitAccountForm = () => {
   accountFormRef.value.validate(async (valid) => {
     if (valid) {
-      if (dialogType.value === 'add') {
-        connectSSE(accountForm.platform)
-      } else {
-        try {
-          const type = platformNameToId[accountForm.platform] || 1
-          const res = await accountApi.updateAccount({ id: accountForm.id, type, userName: accountForm.name })
-          if (res.code === 200) {
-            accountStore.updateAccount(accountForm.id, { id: accountForm.id, name: accountForm.name, platform: accountForm.platform, status: accountForm.status })
-            ElMessage.success('更新成功')
-            dialogVisible.value = false
-            fetchAccountsQuick()
-          } else {
-            ElMessage.error(res.msg || '更新账号失败')
-          }
-        } catch (error) {
-          console.error('更新账号失败:', error)
-          ElMessage.error('更新账号失败')
+      try {
+        const type = platformNameToId[accountForm.platform] || 1
+        const res = await accountApi.updateAccount({ id: accountForm.id, type, userName: accountForm.name })
+        if (res.code === 200) {
+          accountStore.updateAccount(accountForm.id, { id: accountForm.id, name: accountForm.name, platform: accountForm.platform, status: accountForm.status })
+          ElMessage.success('更新成功')
+          dialogVisible.value = false
+          fetchAccountsQuick()
+        } else {
+          ElMessage.error(res.msg || '更新账号失败')
         }
+      } catch (error) {
+        console.error('更新账号失败:', error)
+        ElMessage.error('更新账号失败')
       }
     }
   })
 }
-
-onBeforeUnmount(() => { closeSSEConnection() })
 </script>
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
-
-@keyframes rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 .account-management {
   padding: 24px;
@@ -767,7 +760,7 @@ onBeforeUnmount(() => { closeSSEConnection() })
       }
     }
 
-    .refresh-btn, .check-all-btn {
+    .refresh-btn, .check-all-btn, .batch-tag-btn {
       background: $bg-surface;
       border: 1px solid $border;
       border-radius: 10px;
@@ -779,6 +772,40 @@ onBeforeUnmount(() => { closeSSEConnection() })
         background: rgba($brand-start, 0.1);
         border-color: rgba($brand-start, 0.3);
         color: $text-primary;
+      }
+    }
+  }
+
+  .tag-filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+
+    .tag-filter-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: $bg-surface;
+      border: 1px solid $border;
+      border-radius: 8px;
+      font-size: 13px;
+      color: $text-secondary;
+      cursor: pointer;
+      transition: all $transition-base;
+
+      &:hover { background: rgba($brand-start, 0.1); }
+      &.active {
+        background: rgba($brand-start, 0.15);
+        border-color: $brand-start;
+        color: #fff;
+      }
+
+      .tag-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
       }
     }
   }
@@ -886,6 +913,11 @@ onBeforeUnmount(() => { closeSSEConnection() })
             color: $text-muted;
           }
 
+          .disabled-tag {
+            margin-left: 4px;
+            border-style: dashed;
+          }
+
           .status-badge {
             display: flex;
             align-items: center;
@@ -943,6 +975,129 @@ onBeforeUnmount(() => { closeSSEConnection() })
       }
     }
 
+    // 标签行(独立一行,溢出跑马灯)
+    .account-tags-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      margin-bottom: 12px;
+      min-height: 22px;
+    }
+
+    .account-tags-label {
+      font-size: 12px;
+      color: $text-muted;
+      font-weight: 500;
+      flex: 0 0 auto;
+      user-select: none;
+    }
+
+    .account-tags-viewport {
+      // 按内容自适应,溢出时收缩并启用 mask + marquee
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      position: relative;
+
+      // 仅溢出时渐隐边缘(正常情况保持 chip 完整显示)
+      &.is-overflow {
+        mask-image: linear-gradient(to right, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+        -webkit-mask-image: linear-gradient(to right, transparent 0, black 12px, black calc(100% - 12px), transparent 100%);
+      }
+    }
+
+    .account-tags-track {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: max-content;
+      padding-right: 6px;
+
+      &.marquee {
+        animation: tag-marquee 18s linear infinite;
+
+        &:hover { animation-play-state: paused; }
+      }
+    }
+
+    @keyframes tag-marquee {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    .account-tag {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px;
+      border: 1px solid;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 16px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all $transition-fast;
+
+      &:hover {
+        .account-tag-remove {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+    }
+
+    .account-tag-remove {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: $danger-color;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0.6);
+      cursor: pointer;
+      transition: all $transition-fast;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      z-index: 1;
+
+      &:hover {
+        background: #dc2626;
+        transform: scale(1.1);
+      }
+    }
+
+    .tag-add-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      border: 1px dashed rgba(255,255,255,0.2);
+      border-radius: 4px;
+      background: transparent;
+      color: $text-muted;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all $transition-base;
+
+      &:hover {
+        border-color: $brand-start;
+        color: $brand-start;
+        background: rgba($brand-start, 0.1);
+      }
+    }
+
     .card-footer {
       display: flex;
       align-items: center;
@@ -980,6 +1135,11 @@ onBeforeUnmount(() => { closeSSEConnection() })
         }
 
         &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        &.is-blacklisted {
           opacity: 0.5;
           cursor: not-allowed;
         }
@@ -1048,57 +1208,6 @@ onBeforeUnmount(() => { closeSSEConnection() })
         margin: 0 0 24px;
       }
     }
-  }
-
-  
-  // QR code area
-  .qrcode-container {
-    margin-top: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 250px;
-
-    .qrcode-wrapper {
-      text-align: center;
-
-      .qrcode-tip {
-        margin-bottom: 16px;
-        color: $text-secondary;
-      }
-
-      .qrcode-image {
-        max-width: 200px;
-        max-height: 200px;
-        border: 1px solid $border;
-        background-color: #000;
-        border-radius: $radius-sm;
-      }
-    }
-
-    .loading-wrapper, .status-wrapper {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-
-      .el-icon {
-        font-size: 48px;
-        &.is-loading { animation: rotate 1s linear infinite; }
-      }
-      span { font-size: 16px; }
-    }
-
-    .success .el-icon { color: $success-color; }
-    .error .el-icon { color: $danger-color; }
-  }
-
-  .dialog-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
   }
 }
 

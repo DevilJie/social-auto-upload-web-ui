@@ -56,7 +56,7 @@
             <div class="bar purple"></div>
             <span class="section-label">公共配置</span>
             <span class="hint">所有账号共享</span>
-            <template v-if="currentPlatformConfig">
+            <template v-if="currentPlatformConfig && publishAccountIds.size > 0">
               <el-checkbox
                 v-model="platformChecked[selectedPlatform]"
                 @change="onPlatformCheckChange"
@@ -100,7 +100,7 @@
         <div class="divider"></div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-        <div class="config-section" v-show="selectedPlatform">
+        <div class="config-section" v-show="selectedPlatform && publishAccountIds.size > 0">
           <div class="section-bar">
             <div class="bar" :style="{ background: currentPlatformConfig?.color }"></div>
             <span class="section-label">
@@ -144,8 +144,17 @@
           />
         </div>
 
+        <!-- No account selected hint -->
+        <div v-if="publishAccountIds.size === 0" class="no-platform-hint">
+          <div class="hint-icon">
+            <el-icon :size="48"><UserFilled /></el-icon>
+          </div>
+          <p>请先在左侧添加账号</p>
+          <p class="hint-sub">选择账号后才能配置对应渠道的发布设置</p>
+        </div>
+
         <!-- No platform selected hint -->
-        <div v-show="!selectedPlatform" class="no-platform-hint">
+        <div v-else-if="!selectedPlatform" class="no-platform-hint">
           <div class="hint-icon">
             <el-icon :size="48"><PictureFilled /></el-icon>
           </div>
@@ -257,7 +266,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Upload, Picture, PictureFilled,
-  Document, FullScreen, MagicStick, Setting, Promotion
+  Document, FullScreen, MagicStick, Setting, Promotion, UserFilled
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -266,7 +275,7 @@ import { accountApi } from '@/api/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { draftApi } from '@/api/draft'
 import { getFileUrl } from '@/utils/storage'
-import { platformList, getPlatformByKey } from '@/config/platforms'
+import { platformList, getPlatformByKey, platformNameToKey } from '@/config/platforms'
 import { useRoute } from 'vue-router'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
@@ -495,8 +504,12 @@ const panelsProxy = reactive({
   get weibo() { return weiboPanelRef.value },
 })
 const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
+// 渠道个性化可见平台列表：过滤掉被拉黑的平台
+const visibleImagePlatformsForCustomize = computed(() =>
+  IMAGE_PLATFORMS.filter(p => !appStore.isPlatformDisabled(p.key))
+)
 const batchSetPlatforms = computed(() => {
-  return IMAGE_PLATFORMS.map(p => {
+  return visibleImagePlatformsForCustomize.value.map(p => {
     const panelAccounts = accountStore.accounts.filter(a => a.platform === p.name)
     const selectedCount = panelAccounts.filter(a => publishAccountIds.has(a.id)).length
     return { key: p.key, name: p.name, logo: p.logo, count: selectedCount }
@@ -1028,6 +1041,23 @@ onMounted(async () => {
       console.error('加载账号失败:', e)
     }
   }
+
+  // 加载标签列表(确保「选择账号」弹窗内的标签筛选可用)
+  accountStore.loadTags()
+
+  // 清理 publishAccountIds 中属于黑名单平台的账号（本地清理，不写后端）
+  // publishAccountIds 是 reactive Set，用 clear + add 模式重建
+  const filteredIds = new Set()
+  for (const id of publishAccountIds) {
+    const acc = accountStore.accounts.find(a => a.id === id)
+    if (!acc) continue
+    const key = platformNameToKey[acc.platform]
+    if (key && !appStore.isPlatformDisabled(key)) {
+      filteredIds.add(id)
+    }
+  }
+  publishAccountIds.clear()
+  filteredIds.forEach(id => publishAccountIds.add(id))
 
   const draftId = route.query.draft
   if (draftId) {

@@ -96,7 +96,7 @@ If your implementation solution is overly complicated, stop development immediat
 
 **抽象方法：** `login`、`check_cookie`、`open_creator_center`、`sync_profile`、`publish_video`
 
-**平台 ID：** 1=小红书, 2=视频号, 3=抖音, 4=快手, 5=B站, 6=百家号, 7=TikTok, 8=YouTube, 9=腾讯视频, 10=爱奇艺
+**平台 ID：** 1=小红书, 2=视频号, 3=抖音, 4=快手, 5=B站, 6=百家号, 7=TikTok, 8=YouTube, 9=腾讯视频, 10=爱奇艺, 11=微博
 
 浏览器自动化通过 `backend/impl/_browser.py` 的 CloakBrowser（隐匿 Chromium）实现。
 

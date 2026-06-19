@@ -22,4 +22,9 @@ export const materialsApi = {
   delete(id) {
     return http.delete(`/api/materials/${id}`)
   },
+
+  /** 识别存量视频元数据（用于选中素材时同步补全 duration/size） */
+  probe(id) {
+    return http.post(`/api/materials/${id}/probe`)
+  },
 }

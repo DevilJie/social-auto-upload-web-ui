@@ -678,28 +678,6 @@
   }
   .footer-meta a{color:#FCA5A5;text-decoration:none}
 
-  /* ===== 重播按钮(浮动右下角) ===== */
-  .replay-btn{
-    position:fixed;right:1.5rem;bottom:1.5rem;z-index:100;
-    display:inline-flex;align-items:center;gap:.55rem;
-    padding:.85rem 1.25rem;
-    background: linear-gradient(135deg, var(--weibo) 0%, var(--pink) 100%);
-    color:#fff;font-weight:700;font-size:.95rem;
-    border:none;border-radius:14px;cursor:pointer;
-    box-shadow: 0 12px 30px -8px var(--weibo-glow), 0 4px 12px rgba(0,0,0,0.4);
-    opacity:0;transform: translateY(20px) scale(.95);
-    transition: all .35s cubic-bezier(.34,1.56,.64,1);
-    font-family: var(--display);
-    letter-spacing:.02em;
-  }
-  .replay-btn.show{opacity:1;transform:none}
-  .replay-btn:hover{transform: translateY(-2px) scale(1.03);box-shadow: 0 16px 40px -8px var(--weibo-glow)}
-  .replay-btn:active{transform: translateY(0) scale(.98)}
-  .replay-btn svg{width:18px;height:18px}
-  @media (max-width: 640px){
-    .replay-btn{padding:.7rem 1rem;font-size:.85rem;right:1rem;bottom:1rem}
-  }
-
   /* ===== 初始隐藏(GSAP 接管后动画) ===== */
   .reveal{opacity: 0}
 
@@ -1322,13 +1300,6 @@
   </p>
 </footer>
 
-<button class="replay-btn" id="replayBtn" aria-label="重播动画">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-    <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
-  <span>重播动画</span>
-</button>
-
 <script>
 (function(){
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1362,10 +1333,6 @@
       }
     });
   });
-
-  // ===== 重播按钮:总是显示(就算 GSAP 失败用户也能感知状态) =====
-  const replayBtn = document.getElementById('replayBtn');
-  setTimeout(() => replayBtn.classList.add('show'), 800);
 
   // ===== GSAP 加载失败 / reduced motion: 直接显示,退出 =====
   if (reduced || !HAS_GSAP) {
@@ -1416,30 +1383,7 @@
     { y: 0, x: -30, scale: 1, rotate: 0, filter: 'none', ease: 'expo.out' },
   ];
 
-  // ===== 全局:重置 + 启动 =====
-  function resetAll(){
-    gsap.killTweensOf('*');
-    ScrollTrigger.getAll().forEach(st => st.kill());
-    // 清除 hero 元素的 inline 残留
-    gsap.set(['.hero-brand', '.hero-eyebrow', '#hero-version', '.hero-title', '.hero-desc', '.hero-stats .stat-chip', '.hero-scroll-cue', '.char'], { clearProps: 'all' });
-    gsap.set('.reveal', { opacity: 0 });
-    gsap.set('.hl-card', { opacity: 0, y: 50 });
-    gsap.set('.feature', { opacity: 0, y: 40 });
-    gsap.set('footer > *', { clearProps: 'all' });
-    document.querySelectorAll('.section-flash').forEach(el => el.classList.remove('flash-in'));
-    // 移除已存在的旧 char(重播时重新拆)
-    document.querySelectorAll('#hero-title .char').forEach(c => {
-      const parent = c.parentNode;
-      if (c.classList.contains('char-space')) {
-        parent.insertBefore(document.createTextNode(' '), c);
-      } else {
-        parent.insertBefore(document.createTextNode(c.textContent), c);
-      }
-      c.remove();
-    });
-    document.getElementById('hero-title').dataset.split = '';
-  }
-
+  // ===== Hero 启动(无限循环) =====
   function playHero(){
     const tl = gsap.timeline({ delay: 0.3, repeat: -1, repeatDelay: 1.5 });
     tl.fromTo('.hero-brand',
@@ -1570,17 +1514,6 @@
   console.log('[changelog] starting hero timeline');
   playHero();
   setupScrollTriggers();
-
-  // ===== 重播按钮:点一下重新播整个 Hero + 重置 ScrollTrigger =====
-  replayBtn.addEventListener('click', () => {
-    console.log('[changelog] replay clicked');
-    resetAll();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setTimeout(() => {
-      playHero();
-      setupScrollTriggers();
-    }, 500);
-  });
 })();
 </script>
 

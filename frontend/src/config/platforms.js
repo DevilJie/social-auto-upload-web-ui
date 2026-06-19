@@ -192,7 +192,37 @@ export const PLATFORMS = {
         { label: '请理性适度消费', value: '请理性适度消费' },
         { label: '未成年人请在监护人指导下浏览', value: '未成年人请在监护人指导下浏览' },
       ] },
-      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间',
+        disabledDate: (time) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const maxDate = new Date(today);
+          maxDate.setDate(maxDate.getDate() + 7);
+          return time.getTime() < today.getTime() || time.getTime() > maxDate.getTime();
+        },
+        disabledHours: (_role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (!isToday) return [];
+          return Array.from({ length: now.getHours() + 1 }, (_, i) => i);
+        },
+        disabledMinutes: (hour, _role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (isToday && hour === now.getHours()) {
+            return Array.from({ length: now.getMinutes() + 1 }, (_, i) => i);
+          }
+          return [];
+        },
+      },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', isOriginal: false, creationDeclaration: '', supplementaryDeclaration: '', scheduleTime: '', videoFormat: '' },

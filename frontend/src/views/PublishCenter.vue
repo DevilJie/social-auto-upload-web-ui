@@ -342,7 +342,7 @@
           <div class="hint-icon">
             <el-icon :size="48"><UserFilled /></el-icon>
           </div>
-          <p>请先在左侧添加账号</p>
+          <p>请先在左侧账号设置</p>
           <p class="hint-sub">选择账号后才能配置对应渠道的发布设置</p>
         </div>
 

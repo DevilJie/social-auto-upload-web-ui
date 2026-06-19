@@ -9,7 +9,7 @@
       <!-- 空态:edit 模式下没有已选账号时,显示提示 -->
       <div v-if="mode === 'edit' && visibleAccountGroups.length === 0" class="empty-hint">
         <p>暂无选中账号</p>
-        <p class="empty-sub">点击下方「添加账号」开始</p>
+        <p class="empty-sub">点击下方「账号设置」开始</p>
       </div>
 
       <div
@@ -56,7 +56,7 @@
     </div>
 
     <div v-if="mode === 'edit'" class="sidebar-footer">
-      <div class="add-btn cursor-pointer" @click="$emit('open-account-dialog')">+ 添加账号</div>
+      <div class="add-btn cursor-pointer" @click="$emit('open-account-dialog')">+ 账号设置</div>
     </div>
   </aside>
 </template>

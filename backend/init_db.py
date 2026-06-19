@@ -14,7 +14,7 @@ DB_PATH = DB_DIR / "database.db"
 
 def init_database():
     # 确保 data/ 下的所有必要子目录存在
-    for subdir in ["db", "logs", "cookies", "cookiesFile", "uploads", "thumbnails"]:
+    for subdir in ["db", "logs", "cookies", "cookiesFile", "uploads", "thumbnails", "upload_chunks"]:
         (BASE_DIR / subdir).mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(str(DB_PATH))
@@ -155,6 +155,39 @@ def init_database():
         thumbnail_path TEXT DEFAULT '',
         upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
     )
+    """)
+
+    # 分片上传会话表（用于大文件分片上传 + 断点续传）
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS upload_sessions (
+        upload_id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        mime_type TEXT,
+        file_type TEXT,
+        chunk_size INTEGER NOT NULL,
+        total_chunks INTEGER NOT NULL,
+        uploaded_chunks INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'uploading',
+        material_id TEXT,
+        error_message TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS upload_chunks (
+        upload_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk_size INTEGER NOT NULL,
+        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (upload_id, chunk_index),
+        FOREIGN KEY (upload_id) REFERENCES upload_sessions(upload_id) ON DELETE CASCADE
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_upload_sessions_status
+    ON upload_sessions(status, updated_at)
     """)
 
     # 标签表

@@ -792,10 +792,14 @@ async function publishAll() {
       }
 
       // 注入 panel：platformConfig 保留所有平台特定字段 + 9 标准字段已更新；
-      // accountOverrides[id] = merged（含平台特定字段）让 publish 链路拿到完整配置
+      // accountOverrides[id] 在 panel 原有 override（含音乐等平台特定字段）基础上叠加 merged，
+      // 否则 resolveAccountConfig 只产出 9 标准字段，会丢掉 selectedMusicId/musicTitle 等字段
       panel.restoreConfigs(
         updatedPlatformConfig,
-        { ...originalAccountOverrides, [account.id]: merged }
+        {
+          ...originalAccountOverrides,
+          [account.id]: { ...(originalAccountOverrides[account.id] || {}), ...merged },
+        }
       )
       try {
         await panel.publish(account.id, account.name, commonData, publishExtra)

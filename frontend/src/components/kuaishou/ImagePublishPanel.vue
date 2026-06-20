@@ -108,7 +108,7 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
             cover_path: commonData.coverImage?.stored_path || '',
             music_id: merged.selectedMusicId || '',
             music_title: merged.musicTitle || '',
-            dry_run: true,  // 测试期固定 true；正式发布时改 false
+            dry_run: false,
           },
           batchId: extra?.batchId || '',
           landscapeCoverMaterialId: extra?.landscapeCoverMaterialId || '',

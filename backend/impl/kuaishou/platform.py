@@ -253,13 +253,28 @@ class KuaishouPlatform(BasePlatform):
         account_file = kwargs.get("account_file", []) or []
         desc = kwargs.get("desc", "")
         cover_path = kwargs.get("cover_path", "")
-        author_declaration = kwargs.get("author_declaration", "")
+        # 作者声明：前端 aiContent 经 image_publish_bp 透传为 ai_content 或 author_declaration
+        # 两者都接收，与 publish_video 保持一致
+        author_declaration = kwargs.get("ai_content", "") or kwargs.get("author_declaration", "")
         music_id = kwargs.get("music_id", "")
         music_title = kwargs.get("music_title", "")
         enable_timer = kwargs.get("enableTimer", False)
         schedule_time_str = kwargs.get("schedule_time_str", "")
         activities = kwargs.get("activities", []) or []
         dry_run = kwargs.get("dry_run", True)
+
+        logger.info(
+            "[kuaishou] publish_image kwargs: "
+            f"title={title!r}, files={files}, tags={tags}, "
+            f"account_file={account_file}, desc={desc!r}, "
+            f"cover_path={cover_path!r}, "
+            f"ai_content={kwargs.get('ai_content', '')!r}, "
+            f"author_declaration={kwargs.get('author_declaration', '')!r}, "
+            f"resolved author_declaration={author_declaration!r}, "
+            f"music_id={music_id!r}, music_title={music_title!r}, "
+            f"enableTimer={enable_timer}, schedule_time_str={schedule_time_str!r}, "
+            f"dry_run={dry_run}"
+        )
 
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
         file_paths = [str(f) for f in files]
@@ -382,10 +397,16 @@ class KuaishouPlatform(BasePlatform):
                     logger.info("========================================")
                     logger.info("点击发布！发布成功！（dry_run）")
                     logger.info("========================================")
+                    # dry_run 模式保留浏览器窗口，方便核对表单填写结果
+                    logger.info(
+                        "[kuaishou] dry_run=True，保留浏览器窗口供核对表单（不关闭 context/browser）"
+                    )
             finally:
-                await context.close()
+                if not dry_run:
+                    await context.close()
         finally:
-            await browser.close()
+            if not dry_run:
+                await browser.close()
 
     # ------------------------------------------------------------------
     # Publish video
@@ -433,7 +454,16 @@ class KuaishouPlatform(BasePlatform):
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "")
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
-        author_declaration = kwargs.get("author_declaration", "")
+        # 作者声明：前端 aiContent 字段经 app.py 透传为 ai_content
+        # （参见 services/draft_merge.py DECLARATION_PLATFORMS['kuaishou']='aiContent'）
+        # author_declaration 仅作别名兼容旧调用
+        author_declaration = kwargs.get("ai_content", "") or kwargs.get("author_declaration", "")
+        logger.info(
+            f"[kuaishou] _publish_video_async kwargs: "
+            f"ai_content={kwargs.get('ai_content', '')!r}, "
+            f"author_declaration={kwargs.get('author_declaration', '')!r}, "
+            f"resolved author_declaration={author_declaration!r}"
+        )
 
         # 优先使用竖版封面，其次横版，最后通用封面
         cover_path = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
@@ -803,50 +833,66 @@ class KuaishouPlatform(BasePlatform):
 
     @staticmethod
     async def _set_author_declaration(page, author_declaration: str):
-        """Set author declaration via ant-select dropdown."""
+        """Set author declaration via ant-select dropdown.
+
+        新版 DOM 结构(label 与 ant-select 为兄弟节点,placeholder 在
+        ``span.ant-select-selection-placeholder`` 上,而非 input):
+        ::
+
+            <label>作者声明<img/></label>
+            <div class="ant-select ...">
+              <div class="ant-select-selector">
+                <input ... style="opacity: 0;"/>            <!-- 无 placeholder -->
+                <span class="ant-select-selection-placeholder">为作品添加补充说明</span>
+              </div>
+            </div>
+        """
         logger.info(f"[kuaishou] setting author declaration: {author_declaration}")
         try:
             select_clicked = False
 
-            # Strategy 1: placeholder-based
-            for placeholder in ['为作品添加补充说明', '补充说明', '请选择']:
-                decl_input = page.locator(
-                    f"input[placeholder*='{placeholder}']"
-                )
-                if await decl_input.count():
-                    wrapper = decl_input.locator(
-                        "xpath=ancestor::div[contains(@class, 'ant-select')]"
-                    ).first
-                    await wrapper.click()
-                    select_clicked = True
-                    break
-
-            # Strategy 2: label-based
+            # Strategy 1: label 兄弟节点定位(新版 DOM 首选)
+            # label 与 div.ant-select 为同级兄弟,直接取后续兄弟里的 ant-select 本身
             if not select_clicked:
                 for label_text in ['作者声明', '补充说明', '声明']:
-                    label = page.locator(f"label:text('{label_text}')")
+                    label = page.locator(f"label:has-text('{label_text}')")
                     if await label.count():
                         wrapper = label.locator(
-                            "xpath=following-sibling::div//div[contains(@class, 'ant-select')]"
+                            "xpath=following-sibling::div[contains(@class, 'ant-select')][1]"
                         ).first
                         if await wrapper.count():
                             await wrapper.click()
                             select_clicked = True
                             break
 
-            # Strategy 3: scan all ant-select components
+            # Strategy 2: 占位符 span 定位(新版 DOM 的占位符在 span 上)
             if not select_clicked:
-                all_selects = page.locator("div.ant-select")
-                count = await all_selects.count()
-                for i in range(count):
-                    sel = all_selects.nth(i)
-                    input_el = sel.locator("input").first
-                    if await input_el.count():
-                        ph = await input_el.get_attribute("placeholder") or ""
-                        if any(kw in ph for kw in ['补充', '声明', '说明', '选择']):
-                            await sel.click()
+                for placeholder in ['为作品添加补充说明', '补充说明', '请选择']:
+                    ph_span = page.locator(
+                        f"span.ant-select-selection-placeholder:has-text('{placeholder}')"
+                    )
+                    if await ph_span.count():
+                        wrapper = ph_span.locator(
+                            "xpath=ancestor::div[contains(@class, 'ant-select')][1]"
+                        ).first
+                        if await wrapper.count():
+                            await wrapper.click()
                             select_clicked = True
                             break
+
+            # Strategy 3: 兼容旧版 DOM —— input 上的 placeholder
+            if not select_clicked:
+                for placeholder in ['为作品添加补充说明', '补充说明', '请选择']:
+                    decl_input = page.locator(
+                        f"input[placeholder*='{placeholder}']"
+                    )
+                    if await decl_input.count():
+                        wrapper = decl_input.locator(
+                            "xpath=ancestor::div[contains(@class, 'ant-select')]"
+                        ).first
+                        await wrapper.click()
+                        select_clicked = True
+                        break
 
             if not select_clicked:
                 logger.info("[kuaishou] author declaration dropdown not found, skipping")

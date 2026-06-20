@@ -218,35 +218,64 @@ async def _upload_video_file(page, file_path: str) -> None:
 
 
 async def _fill_title_and_tags(page, title: str, tags: list[str]) -> None:
-    """Type the title and hashtags into the rich-text editor."""
+    """Type hashtags into the rich-text description editor.
+
+    视频号的主标题不再填入正文/描述区——title 由 _set_short_title 填到
+    「短标题」输入框；正文/描述区只放描述和话题标签。
+    """
     await page.locator("div.input-editor").click()
-    await page.keyboard.type(title)
-    await page.keyboard.press("Enter")
     for tag in tags:
         await page.keyboard.type("#" + tag)
         await page.keyboard.press("Space")
-    logger.info(f"[channels] added title + {len(tags)} hashtags")
+    logger.info(f"[channels] added {len(tags)} hashtags to description editor")
 
 
 async def _fill_description(page, desc: str) -> None:
-    """Append the description after the title/tags."""
+    """Type the description into the rich-text description editor.
+
+    描述填入正文/描述区（与话题标签同区），title 不再混入此处。
+    """
     if not desc:
         return
-    await page.keyboard.press("Enter")
+    await page.locator("div.input-editor").click()
     await page.keyboard.type(desc)
     logger.info(f"[channels] added description ({len(desc)} chars)")
 
 
 async def _set_short_title(page, title: str, short_title: str | None = None) -> None:
-    """Fill the short-title input if present."""
-    short_title_element = (
-        page.get_by_text("短标题", exact=True)
-        .locator("..")
-        .locator("xpath=following-sibling::div")
-        .locator('span input[type="text"]')
-    )
-    if await short_title_element.count():
-        await short_title_element.fill(short_title or _format_short_title(title))
+    """Fill the short-title input if present.
+
+    短标题输入框 placeholder 为「填写短标题有机会获得更多流量」，
+    旧选择器（按「短标题」文字定位兄弟节点）匹配不到，导致短标题未填入。
+    改为按 placeholder 直接定位，并保留兜底选择器。
+    """
+    value = short_title or _format_short_title(title)
+    # 主选择器：placeholder 直接匹配（新版 DOM）
+    selectors = [
+        'input[placeholder*="填写短标题"]',
+        'input[placeholder*="短标题"]',
+    ]
+    for selector in selectors:
+        short_title_element = page.locator(selector).first
+        if await short_title_element.count():
+            await short_title_element.fill(value)
+            logger.info(f"[channels] short title filled: {value!r} ({selector})")
+            return
+    # 兜底：旧版按「短标题」文字 + 兄弟 input
+    try:
+        legacy = (
+            page.get_by_text("短标题", exact=True)
+            .locator("..")
+            .locator("xpath=following-sibling::div")
+            .locator('span input[type="text"]')
+        )
+        if await legacy.count():
+            await legacy.fill(value)
+            logger.info(f"[channels] short title filled (legacy): {value!r}")
+            return
+    except Exception:
+        pass
+    logger.info("[channels] short title input not found, skipping")
 
 
 async def _apply_collection(page) -> None:
@@ -350,6 +379,70 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
             await asyncio.sleep(2)
 
 
+# ---------------------------------------------------------------------------
+# 封面设置阻塞等待：视频号在视频/封面处理中，悬停或点击封面区域会弹出
+# weui-desktop-popover 提示「文件上传中...」/「预览图生成中...」，此时无法编辑封面，
+# 必须无限等待该提示消失后才能继续。
+# ---------------------------------------------------------------------------
+
+# 需要阻塞的 popover 文案关键词（支持「后面还有其他文字」的模糊匹配）
+_COVER_BLOCKING_KEYWORDS = ("文件上传中", "预览图生成中")
+
+
+async def _wait_for_cover_ready(page, *, action: str = "") -> None:
+    """检测并无限等待封面相关的阻塞型 popover 消失。
+
+    视频号在视频上传/封面预览图生成期间，悬停或点击封面入口会弹出
+    ``<div class="weui-desktop-popover__desc">文件上传中...`` 或
+    ``预览图生成中...`` 提示，此时无法编辑封面。本函数无限轮询，直到
+    该类提示消失才返回。
+
+    Args:
+        action: 触发场景描述，仅用于日志（如 "点击封面入口前"）。
+    """
+    popover = page.locator("div.weui-desktop-popover__desc")
+    blocking = None
+    try:
+        count = await popover.count()
+        for i in range(count):
+            try:
+                text = (await popover.nth(i).inner_text(timeout=1000)).strip()
+            except Exception:
+                continue
+            if any(kw in text for kw in _COVER_BLOCKING_KEYWORDS):
+                blocking = text
+                break
+    except Exception:
+        blocking = None
+
+    if not blocking:
+        return
+
+    logger.info(f"[channels] 封面阻塞提示出现({action}):「{blocking}」，开始无限等待...")
+    waited = 0
+    while True:
+        await asyncio.sleep(1)
+        waited += 1
+        still_blocking = None
+        try:
+            count = await popover.count()
+            for i in range(count):
+                try:
+                    text = (await popover.nth(i).inner_text(timeout=1000)).strip()
+                except Exception:
+                    continue
+                if any(kw in text for kw in _COVER_BLOCKING_KEYWORDS):
+                    still_blocking = text
+                    break
+        except Exception:
+            still_blocking = None
+        if not still_blocking:
+            logger.info(f"[channels] 封面阻塞提示已消失，等待耗时 {waited}s，继续执行({action})")
+            return
+        if waited % 10 == 0:
+            logger.info(f"[channels] 封面阻塞等待中({action}):「{still_blocking}」... ({waited}s)")
+
+
 async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_path: str | None = None, thumbnail_portrait_path: str | None = None) -> None:
     """Set the video cover/thumbnail (5-step flow).
 
@@ -384,35 +477,22 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
         # Horizontal cover (分享卡片, 4:3)
         ('div.horizon-cover-wrap', 'horizontal'),
     ]
-    entry_clicked = False
     cover_type = None
+    cover_entry = None
     for selector, ctype in cover_entry_selectors:
-        cover_entry = page.locator(selector).first
+        candidate = page.locator(selector).first
         try:
-            if not await cover_entry.count():
+            if not await candidate.count():
                 continue
-            await cover_entry.wait_for(state="visible", timeout=3000)
-            await cover_entry.click()
-
-            # 视频上传中时，点击编辑会弹出提示"文件上传中，请等待完成后再编辑"
-            # 循环等待直到点击后不再出现该提示
-            popover = page.locator('div.weui-desktop-popover__desc:has-text("文件上传中")')
-            for attempt in range(60):
-                if not await popover.count():
-                    break
-                logger.info(f"[channels] 封面编辑等待视频上传完成... ({attempt + 1}s)")
-                await page.wait_for_timeout(1000)
-                await cover_entry.click()
-
-            await page.wait_for_timeout(500)
-            logger.info(f"[channels] cover entry clicked: {selector} ({ctype})")
-            entry_clicked = True
+            await candidate.wait_for(state="visible", timeout=3000)
+            cover_entry = candidate
             cover_type = ctype
+            logger.info(f"[channels] cover entry found: {selector} ({ctype})")
             break
         except Exception:
             continue
 
-    if not entry_clicked:
+    if not cover_entry:
         logger.info("[channels] WARNING: no cover entry found, skipping cover")
         return
 
@@ -426,37 +506,68 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
         logger.info(f"[channels] no thumbnail for {cover_type} cover, skipping")
         return
 
-    # Step 3: wait for cover dialog
-    await page.wait_for_timeout(1500)
     cover_dialog_selectors = [
         ("div.weui-desktop-dialog", "编辑个人主页卡片"),
         ("div.weui-desktop-dialog", "封面"),
         ("div.weui-desktop-dialog", "上传"),
         ("div.weui-desktop-dialog", "卡片"),
     ]
-    cover_dialog = None
-    for selector, text_hint in cover_dialog_selectors:
-        try:
-            dialog = page.locator(selector).filter(has_text=text_hint).first
-            if await dialog.count() and await dialog.is_visible():
-                cover_dialog = dialog
-                logger.info(f"[channels] found cover dialog (text: {text_hint})")
-                break
-        except Exception:
-            continue
 
-    if not cover_dialog:
+    async def _find_cover_dialog():
+        """按既定选择器找当前可见的封面对话框，找不到返回 None。"""
+        for selector, text_hint in cover_dialog_selectors:
+            try:
+                dialog = page.locator(selector).filter(has_text=text_hint).first
+                if await dialog.count() and await dialog.is_visible():
+                    logger.info(f"[channels] found cover dialog (text: {text_hint})")
+                    return dialog
+            except Exception:
+                continue
+        # fallback：任意可见对话框
         try:
             fallback = page.locator("div.weui-desktop-dialog").first
             if await fallback.count() and await fallback.is_visible():
-                cover_dialog = fallback
                 logger.info("[channels] using fallback dialog match")
+                return fallback
         except Exception:
             pass
+        return None
 
-    if not cover_dialog:
-        logger.info("[channels] WARNING: cover dialog not found, skipping cover")
-        return
+    # Step 3: 点击封面入口直到对话框出现 —— 简单粗暴的无限重试。
+    # 视频号在视频上传/封面预览图生成期间，点击封面入口会被 weui-desktop-popover
+    # （「文件上传中...」/「预览图生成中...」）拦截，对话框不会弹出。
+    # 因此每轮重试都先 hover/click → 阻塞等待 popover 消失 → 再查对话框，
+    # 直到对话框出现为止。
+    logger.info("[channels] 开始点击封面入口，直到封面对话框出现（无限重试）")
+    cover_dialog = None
+    attempt = 0
+    while cover_dialog is None:
+        attempt += 1
+        try:
+            # hover 触发（popover 可能是 hover 态才出现）
+            try:
+                await cover_entry.hover()
+            except Exception:
+                pass
+            await page.wait_for_timeout(500)
+            await _wait_for_cover_ready(page, action=f"封面入口 hover(第{attempt}轮)")
+
+            # click 进入编辑
+            await cover_entry.click()
+            await page.wait_for_timeout(800)
+            await _wait_for_cover_ready(page, action=f"封面入口 click(第{attempt}轮)")
+
+            # 查对话框
+            cover_dialog = await _find_cover_dialog()
+        except Exception as retry_exc:
+            logger.info(f"[channels] 封面入口重试异常(第{attempt}轮): {retry_exc}")
+
+        if cover_dialog is None:
+            if attempt == 1 or attempt % 5 == 0:
+                logger.info(
+                    f"[channels] 封面对话框未出现，继续重试点击封面入口(第{attempt}轮)"
+                )
+            await page.wait_for_timeout(1000)
 
     # Step 4: upload cover file
     file_input_selectors = [
@@ -488,6 +599,8 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             return
 
     await file_input.wait_for(state="attached", timeout=10000)
+    # 上传封面文件前再次阻塞等待（预览图生成中等提示可能此时出现）
+    await _wait_for_cover_ready(page, action="上传封面文件前")
     logger.info(f"[channels] uploading cover ({cover_type}): {effective_thumbnail}")
     await file_input.set_input_files(effective_thumbnail)
     await page.wait_for_timeout(2000)
@@ -569,7 +682,10 @@ async def _set_schedule_time(page, publish_date) -> None:
 
     await page.click('input[placeholder="请选择时间"]')
     await page.keyboard.press("Control+KeyA")
-    await page.keyboard.type(publish_date.strftime("%H"))
+    await page.keyboard.press("Delete")
+    # 输入完整时分（HH:MM）。旧代码只输小时导致分钟恒为 00
+    # （如 04:02 被填成 04:00）
+    await page.keyboard.type(publish_date.strftime("%H:%M"))
     await page.locator("div.input-editor").click()
 
 
@@ -887,6 +1003,19 @@ class ChannelsPlatform(BasePlatform):
         if thumbnail_portrait_path:
             thumbnail_portrait_path = str(thumbnail_portrait_path)
 
+        logger.info(
+            "[channels] publish_video kwargs: "
+            f"title={title!r}, files={resolved_files}, tags={tags}, "
+            f"account_file={account_files}, category={category!r}, "
+            f"enableTimer={enable_timer}, videos_per_day={videos_per_day}, "
+            f"daily_times={daily_times}, start_days={start_days}, "
+            f"is_draft={is_draft}, desc={desc!r}, "
+            f"thumbnail_path={thumbnail_path!r}, "
+            f"thumbnail_landscape_path={thumbnail_landscape_path!r}, "
+            f"thumbnail_portrait_path={thumbnail_portrait_path!r}, "
+            f"schedule_time_str={schedule_time_str!r}"
+        )
+
         publish_datetimes = parse_schedule_time(
             schedule_time_str,
             len(resolved_files),
@@ -894,6 +1023,10 @@ class ChannelsPlatform(BasePlatform):
             videos_per_day,
             daily_times,
             start_days,
+        )
+        logger.info(
+            f"[channels] parse_schedule_time 结果: schedule_time_str={schedule_time_str!r} "
+            f"-> publish_datetimes={publish_datetimes}"
         )
 
         # Run the async upload in a new event loop (same pattern as legacy)
@@ -926,8 +1059,10 @@ class ChannelsPlatform(BasePlatform):
                         await _upload_video_file(page, file_path)
 
                         # Fill metadata
-                        await _fill_title_and_tags(page, title, tags)
+                        # title → 短标题输入框（_set_short_title，稍后填）
+                        # 正文/描述区 → desc + tags
                         await _fill_description(page, desc)
+                        await _fill_title_and_tags(page, title, tags)
                         await _apply_collection(page)
                         await _apply_original_statement(page, category)
 

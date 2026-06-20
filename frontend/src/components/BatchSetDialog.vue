@@ -46,6 +46,17 @@
           </div>
         </div>
       </el-form-item>
+      <el-form-item label="定时发布">
+        <el-date-picker
+          v-model="formScheduleTime"
+          type="datetime"
+          placeholder="留空表示立即发布，选择时间则定时发布"
+          format="YYYY-MM-DD HH:mm:ss"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          clearable
+          style="width: 100%"
+        />
+      </el-form-item>
       <el-form-item label="渠道">
         <div class="channel-grid">
           <div
@@ -76,10 +87,18 @@
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button
         type="primary"
+        plain
         :disabled="checkedCount === 0"
-        @click="handleApply"
+        @click="handleApply('partial')"
       >
-        应用到 {{ checkedCount }} 个渠道
+        仅应用已填写
+      </el-button>
+      <el-button
+        type="primary"
+        :disabled="checkedCount === 0"
+        @click="handleApply('full')"
+      >
+        全量应用
       </el-button>
     </template>
   </el-dialog>
@@ -103,6 +122,7 @@ const formTitle = ref('')
 const formDescription = ref('')
 const formTags = ref([])
 const tagInput = ref('')
+const formScheduleTime = ref('')
 const checkedKeys = ref(new Set())
 
 const checkedCount = computed(() => checkedKeys.value.size)
@@ -113,6 +133,7 @@ watch(() => props.modelValue, (open) => {
     formDescription.value = ''
     formTags.value = []
     tagInput.value = ''
+    formScheduleTime.value = ''
     checkedKeys.value = new Set(
       props.platforms.filter(p => p.count > 0).map(p => p.key)
     )
@@ -149,11 +170,14 @@ function removeTag(idx) {
   formTags.value = formTags.value.filter((_, i) => i !== idx)
 }
 
-function handleApply() {
+function handleApply(mode = 'full') {
   emit('apply', Array.from(checkedKeys.value), {
     title: formTitle.value,
     description: formDescription.value,
     tags: [...formTags.value],
+    scheduleTime: formScheduleTime.value || '',
+    // 'full' = 全量覆盖（空值也会清空原值）；'partial' = 仅覆盖已填写字段（空值跳过）
+    mode,
   })
   emit('update:modelValue', false)
 }

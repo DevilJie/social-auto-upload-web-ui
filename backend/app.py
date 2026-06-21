@@ -631,6 +631,9 @@ def _validate_publish_video(type_id, file_list):
     if not first_file:
         return True, ""
 
+    # 兜底：存量视频 duration 可能为 0（草稿/历史恢复绕过了素材库 probe）。
+    # 在读 DB 拿到 duration 后，若仍 <=0 则同步补全，确保校验拿到真实时长。
+    # 与原查询合并为一次 DB 访问，避免重复连接；表缺失/异常一律降级跳过。
     try:
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
@@ -638,6 +641,21 @@ def _validate_publish_video(type_id, file_list):
             "SELECT duration, file_size FROM materials WHERE stored_path = ?",
             (first_file,),
         ).fetchone()
+
+        # 时长缺失则同步兜底补全，再重读一次拿到最新值
+        if row and (not row["duration"] or row["duration"] <= 0):
+            conn.close()
+            try:
+                from services.duration_repair import ensure_duration_or_probe
+                ensure_duration_or_probe(first_file, row["duration"])
+            except Exception as _e:
+                logger.debug("提交前时长兜底失败（不影响后续校验）: %s", str(_e))
+            conn = sqlite3.connect(str(DB_PATH))
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT duration, file_size FROM materials WHERE stored_path = ?",
+                (first_file,),
+            ).fetchone()
         conn.close()
     except Exception:
         return True, ""
@@ -1233,6 +1251,15 @@ if __name__ == "__main__":
     except Exception as _e:
         logger.info(f"[Startup] DB verification FAILED: {_e}")
         logger.info(f"[Startup] SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
+
+    # 启动后台任务：补全存量视频素材 duration=0 的数据
+    # （草稿/历史恢复走 DB 直读，绕过了「素材库选中→probe」，
+    #  导致历史 duration=0 的数据漏识别，发布校验被跳过）
+    try:
+        from services.duration_repair import start_repair_in_background
+        start_repair_in_background()
+    except Exception as _e:
+        logger.warning("[Startup] 时长补全任务启动失败（不影响主服务）: %s", _e)
 
     port = int(os.environ.get("SAU_PORT", "5409"))
     if port == 5409:

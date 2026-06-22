@@ -414,7 +414,28 @@ async def scrape_alipay_profile(page):
     avatar = ""
     try:
         await page.wait_for_load_state("domcontentloaded", timeout=10000)
-        await asyncio.sleep(2)
+
+        # 显式等待账号容器渲染(支付宝 SPA 在 goto 后异步拉 appId 重渲染,
+        # 固定 sleep 不够稳定 —— 改成轮询等 container 出现)
+        container_ready = False
+        for _ in range(20):  # 最多等 10s
+            try:
+                found = await page.evaluate(
+                    "() => !!document.querySelector('div[class*=\"accountContainer\"]')"
+                )
+                if found:
+                    container_ready = True
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+        if not container_ready:
+            logger.warning(
+                f"[alipay] accountContainer 未渲染 (url={page.url})"
+            )
+        # 容器就绪后再等一小会儿让 img src 填充
+        await asyncio.sleep(0.5)
 
         result = await page.evaluate("""() => {
             let name = '', avatar = '';

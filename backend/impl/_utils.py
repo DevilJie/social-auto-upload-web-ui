@@ -389,14 +389,23 @@ async def scrape_youtube_profile(page):
 async def scrape_alipay_profile(page):
     """支付宝内容创作平台专用 scraper。
 
-    抓取依据(文档 ~/zfb.md 行 4-5):登录后的创作中心首页
-    (``c.alipay.com/page/life-account/index``)会渲染账号信息容器
-    ``accountContainer___xxx``:
-    - 昵称: 内部 ``name___xxx`` 节点文本
-    - 头像: 内部 ``logo___xxx > img`` 的 src
+    抓取依据:登录后的创作中心首页
+    (``c.alipay.com/page/life-account/index``)会渲染账号信息容器。
+    login() 和 sync_profile() 都调用此方法,保证逻辑一致。
+
+    实测 DOM 结构(~/zfb.md):
+        div.accountContainer___kpZ4v
+          div.logoBox___fGEjP
+            img.logo___sql8x[src="...头像..."]
+          div
+            div.nameBox___TJg7M
+              div.name___mAiik  ← 昵称文本
+              span.nameDesc___rILJM ← 描述(忽略)
+            div.numBox___BlEq0 ← 粉丝/获赞(忽略)
 
     class 名是 CSS modules hash,完整类名会随构建漂移,所以用
-    ``[class*="accountContainer"]`` 前缀匹配,内部再嵌套查找 name/logo。
+    ``[class*="xxx"]`` 前缀匹配。用 querySelectorAll 遍历 + 长度最短
+    匹配(最内层)的策略,避免父级 nameBox 被误选。
 
     Returns:
         tuple[str, str]: (user_name, avatar_url)
@@ -404,25 +413,36 @@ async def scrape_alipay_profile(page):
     name = ""
     avatar = ""
     try:
-        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
         await asyncio.sleep(2)
 
         result = await page.evaluate("""() => {
             let name = '', avatar = '';
-            // 账号信息容器(前缀匹配规避 hash 漂移)
             const container = document.querySelector(
                 'div[class*="accountContainer"]'
             );
-            if (container) {
-                const nameEl = container.querySelector(
-                    'div[class*="name"]:not([class*="nameDesc"]):not([class*="nameBox"])'
-                ) || container.querySelector('div[class*="name"]');
-                if (nameEl) name = nameEl.textContent.trim();
-                const logoImg = container.querySelector(
-                    'img[class*="logo"]'
-                );
-                if (logoImg) avatar = logoImg.src || '';
+            if (!container) return { name, avatar };
+
+            // 头像: img[class*="logo"] 的 src
+            const logoImg = container.querySelector('img[class*="logo"]');
+            if (logoImg) avatar = logoImg.src || '';
+
+            // 昵称: 遍历所有 div[class*="name"],取 className 最短的
+            // (最内层节点,如 name___mAiik),跳过 nameBox/nameDesc/nameDesc 等父级
+            const allNameDivs = container.querySelectorAll('div[class*="name"]');
+            let bestEl = null;
+            let bestLen = Infinity;
+            for (const el of allNameDivs) {
+                const cls = el.className || '';
+                // 跳过 nameBox/nameDesc/nameNum 等容器节点
+                if (/name(Box|Desc|Num|Cnt|CntBox)/i.test(cls)) continue;
+                if (cls.length < bestLen) {
+                    bestLen = cls.length;
+                    bestEl = el;
+                }
             }
+            if (bestEl) name = bestEl.textContent.trim();
+
             return { name, avatar };
         }""")
         name = (result.get("name") or "").strip()

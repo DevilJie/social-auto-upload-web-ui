@@ -15,11 +15,11 @@
     <!-- 音乐列表 -->
     <div class="music-list" v-loading="loading">
       <div
-        v-for="(music, idx) in musicList"
-        :key="music.musicId || music.title || idx"
+        v-for="music in pagedMusicList"
+        :key="music.musicId || music.title"
         class="music-item"
-        @mouseenter="hoverIdx = idx"
-        @mouseleave="hoverIdx = -1"
+        @mouseenter="hoverId = music.musicId || music.title"
+        @mouseleave="hoverId = ''"
       >
         <div class="music-left">
           <div class="music-cover" @click="togglePlay(music)">
@@ -40,7 +40,7 @@
         </div>
         <div class="music-right">
           <el-button
-            v-show="hoverIdx === idx"
+            v-show="hoverId === (music.musicId || music.title)"
             type="primary"
             size="small"
             @click="handleSelect(music)"
@@ -56,16 +56,15 @@
       </div>
     </div>
 
-    <!-- 分页(支付宝原生用 antd5-pagination,这里用 el-pagination 对应) -->
+    <!-- 分页(客户端切片,贴近支付宝原生每页 5 条) -->
     <template #footer>
       <div class="drawer-footer">
         <el-pagination
           v-model:current-page="pageNum"
-          :page-size="1"
-          :total="hasMore ? pageNum + 1 : pageNum"
+          :page-size="PAGE_SIZE"
+          :total="musicList.length"
           layout="prev, pager, next"
           :pager-count="7"
-          @current-change="handlePageChange"
         />
         <div class="footer-tip">
           <el-icon><InfoFilled /></el-icon>
@@ -85,7 +84,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { VideoPlay, VideoPause, InfoFilled } from '@element-plus/icons-vue'
 import { alipayApi } from '@/api/alipay'
 
@@ -97,19 +96,32 @@ const emit = defineEmits(['update:modelValue', 'select'])
 
 const visible = ref(props.modelValue)
 const loading = ref(false)
-const musicList = ref([])
-const hoverIdx = ref(-1)
+// 全量音乐列表(queryAllMaterial.json 一次性返回全部)
+const allMusicList = ref([])
 const pageNum = ref(1)
-const hasMore = ref(true)
+// 每页条数:贴近支付宝原生音乐弹窗(实测每页 5 条)
+const PAGE_SIZE = 5
+
+// 当前页切片(客户端分页,无需重新请求)
+const pagedMusicList = computed(() => {
+  const start = (pageNum.value - 1) * PAGE_SIZE
+  return allMusicList.value.slice(start, start + PAGE_SIZE)
+})
+
+// hover 状态用 id 而非 idx(因为列表是切片,idx 会跨页复用)
+const hoverId = ref('')
 
 // 试听状态(单例播放)
 const audioRef = ref(null)
 const playingId = ref(null)
 const currentAudioUrl = ref('')
 
+// 兼容旧模板引用(musicList 指向全量,空状态判断用)
+const musicList = computed(() => allMusicList.value)
+
 watch(() => props.modelValue, (val) => {
   visible.value = val
-  if (val && musicList.value.length === 0) {
+  if (val && allMusicList.value.length === 0) {
     pageNum.value = 1
     fetchMusicList()
   }
@@ -119,27 +131,23 @@ watch(visible, (val) => {
   if (!val) stopPlay()
 })
 
+// 翻页时停止试听
+watch(pageNum, () => stopPlay())
+
 async function fetchMusicList() {
   if (!props.accountId) return
   loading.value = true
   try {
-    const resp = await alipayApi.musicList(props.accountId, pageNum.value)
+    const resp = await alipayApi.musicList(props.accountId)
     if (resp.code === 200) {
-      musicList.value = resp.data?.list || []
-      hasMore.value = resp.data?.hasMore ?? false
+      allMusicList.value = resp.data?.list || []
     }
   } catch (e) {
     console.error('[支付宝音乐] 加载失败:', e)
-    musicList.value = []
+    allMusicList.value = []
   } finally {
     loading.value = false
   }
-}
-
-function handlePageChange(p) {
-  stopPlay()
-  pageNum.value = p
-  fetchMusicList()
 }
 
 function togglePlay(music) {
@@ -197,12 +205,10 @@ function handleClose() {
 }
 
 function formatDuration(duration) {
-  // 支付宝返回的 duration 可能是 "00:24" 字符串或秒数
-  if (!duration) return '00:00'
-  const s = String(duration)
-  if (s.includes(':')) return s
-  const sec = parseInt(s, 10)
-  if (isNaN(sec)) return s
+  // 支付宝返回的 duration 是 audioTime 秒数(整数)
+  if (!duration && duration !== 0) return '00:00'
+  const sec = parseInt(duration, 10)
+  if (isNaN(sec)) return String(duration)
   const m = Math.floor(sec / 60)
   const r = Math.floor(sec % 60)
   return `${m.toString().padStart(2, '0')}:${r.toString().padStart(2, '0')}`

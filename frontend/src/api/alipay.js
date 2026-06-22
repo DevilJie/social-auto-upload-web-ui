@@ -7,8 +7,9 @@ export const alipayApi = {
     return http.get(`/api/alipay/compilation-search?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}`)
   },
 
-  // 获取图集背景音乐列表(后端打开 short-content 页 + 拦截音乐列表接口,分页)
-  musicList(accountId, pageNum = 1) {
-    return http.get(`/api/alipay/music-list?account_id=${accountId}&page_num=${pageNum}`)
+  // 获取图集背景音乐列表(后端打开 short-content 页 + 拦截 queryAllMaterial.json,
+  // 一次性返回全部音乐,前端客户端分页)
+  musicList(accountId) {
+    return http.get(`/api/alipay/music-list?account_id=${accountId}`)
   },
 }

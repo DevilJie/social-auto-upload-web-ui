@@ -309,41 +309,43 @@ def run_async(coro):
 
 
 # ======================================================================
-# /api/alipay/music-list — 图集背景音乐列表(分页)
+# /api/alipay/music-list — 图集背景音乐列表
 # 文档 ~/ZFB-tuji.md:支付宝音乐组件无搜索,只有分页展示 + 试听
+#
+# 接口(实测抓包确认):
+#   GET https://contentweb.alipay.com/life/queryAllMaterial.json
+#       ?pamir_app_scene=CONTENT
+#   一次性返回全部背景音乐(约 40 首),分页是前端纯 UI 分页。
+#   音乐在 result.materialTypes[0].materials[0].materialDetails[]
+#   字段映射:
+#     name              -> title
+#     code              -> musicId
+#     snapshotImageUrl  -> coverUrl
+#     resourceAccessUrl -> audioUrl(试听直链)
+#     configs           -> JSON 字符串 {"audioTime": 秒数} -> duration
 # ======================================================================
 
 @alipay_bp.route('/music-list', methods=['GET'])
 def music_list():
-    """获取支付宝图集背景音乐列表 —— 浏览器自动化分页获取。
+    """获取支付宝图集背景音乐列表(全量返回,前端客户端分页)。
 
     Query params:
         account_id: 账号 id(用于取 cookie)
-        page_num:   页码(默认 1)
 
     Returns:
         {"code": 200, "data": {
             "list": [{"musicId","title","coverUrl","audioUrl","duration"}],
-            "pageNum": N, "hasMore": bool
+            "total": N
         }}
 
-    实现策略(运行时抓包探索):
-        支付宝音乐列表接口 URL 文档未给出,采用宽泛拦截 —— 打开图集页 →
-        点「添加音乐」→ 拦截响应里含「音乐数组」(每项同时具备 title +
-        封面 URL + 音频 URL 特征)的 JSON。首次命中后,会以 DEBUG 级别打印
-        命中的 URL,便于后续收敛成精确匹配。
+    实现:
+        打开图集发布页 → 点「添加音乐」打开 modal → 精确拦截
+        queryAllMaterial.json 响应 → 解析 materialDetails 数组。
+        一次返回全部,前端自行分页(避免每次翻页都开浏览器)。
     """
     account_id = request.args.get('account_id')
-    page_num = request.args.get('page_num', '1')
 
-    logger.info(
-        f"[音乐列表] 收到请求: account_id={account_id}, page_num={page_num}"
-    )
-
-    try:
-        page_num_int = int(page_num)
-    except (TypeError, ValueError):
-        page_num_int = 1
+    logger.info(f"[音乐列表] 收到请求: account_id={account_id}")
 
     try:
         cookie_file = _get_account_cookie_file(account_id)
@@ -351,16 +353,12 @@ def music_list():
             logger.warning(f"[音乐列表] 账号不存在: {account_id}")
             return jsonify({"code": 404, "msg": "没有可用的支付宝账号"}), 404
 
-        result = run_async(
-            _fetch_music_list_via_browser(cookie_file, page_num_int)
-        )
+        result = run_async(_fetch_music_list_via_browser(cookie_file))
 
         if result.get("success"):
             data = result.get("data", {})
             items = data.get("list", [])
-            logger.info(
-                f"[音乐列表] 成功,第 {page_num_int} 页共 {len(items)} 首音乐"
-            )
+            logger.info(f"[音乐列表] 成功,共 {len(items)} 首音乐")
             return jsonify({"code": 200, "data": data})
         else:
             logger.error(f"[音乐列表] 失败: {result.get('error')}")
@@ -372,16 +370,10 @@ def music_list():
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
-async def _fetch_music_list_via_browser(cookie_file: str, page_num: int) -> dict:
-    """用 CloakBrowser 打开图集页 + 点添加音乐 + 拦截音乐列表响应 + 翻页。
+async def _fetch_music_list_via_browser(cookie_file: str) -> dict:
+    """用 CloakBrowser 打开图集页 + 点添加音乐 + 精确拦截音乐列表响应。
 
-    步骤:
-        1. 开启 response 监听(宽泛匹配:JSON 内含「音乐数组」特征)
-        2. goto 图集页 → 等表单渲染
-        3. 点「添加音乐」打开「选择音乐」modal
-        4. 若 page_num > 1,点 pagination-next 翻页(每次翻页触发一次请求)
-        5. 轮询等 captured_response(最长 15s)
-        6. 解析响应,提取音乐数组
+    接口 queryAllMaterial.json 一次性返回全部音乐,无翻页。
     """
     cookie_path = _get_cookie_path(cookie_file)
 
@@ -391,118 +383,22 @@ async def _fetch_music_list_via_browser(cookie_file: str, page_num: int) -> dict
         try:
             page = await context.new_page()
 
-            # 1. 监听音乐列表接口(宽泛匹配 + 特征判定)
+            # 1. 监听音乐素材接口(精确匹配 queryAllMaterial.json)
             captured_response = None
-
-            def _looks_like_music_list(obj) -> bool:
-                """判定一个 JSON 对象是否是音乐列表响应。
-
-                特征:对象内含数组字段,数组首元素同时有「标题」+
-                「封面 URL」+「音频/时长」三类字段中的 ≥2 类。
-                支付宝音乐项 DOM 对应字段:title / img(封面) /
-                audio(音频)。后端响应里可能是:
-                  {list: [{title, coverUrl, audioUrl, duration}]}
-                或嵌在 result/data 里。这里递归找第一个满足特征的数组。
-                """
-                if not isinstance(obj, dict):
-                    return False
-
-                def _score_item(item):
-                    if not isinstance(item, dict):
-                        return 0
-                    score = 0
-                    keys = {k.lower() for k in item.keys()}
-                    vals = {k.lower(): v for k, v in item.items()}
-                    # 标题类
-                    if any('title' in k or 'name' in k for k in keys):
-                        score += 1
-                    # 封面图类
-                    if any('cover' in k or 'img' in k for k in keys):
-                        score += 1
-                    # 音频/时长类
-                    if any('audio' in k or 'url' in k or 'duration' in k
-                           or 'time' in k for k in keys):
-                        score += 1
-                    # 音频文件特征(afts/file 路径)
-                    for v in vals.values():
-                        if isinstance(v, str) and 'afts/file' in v:
-                            score += 1
-                            break
-                    return score
-
-                # 递归扫描所有数组,找 score >= 2 的数组
-                def _scan(node):
-                    if isinstance(node, list):
-                        if node and _score_item(node[0]) >= 2:
-                            return node
-                        for x in node:
-                            r = _scan(x)
-                            if r is not None:
-                                return r
-                    elif isinstance(node, dict):
-                        for v in node.values():
-                            r = _scan(v)
-                            if r is not None:
-                                return r
-                    return None
-
-                return _scan(obj) is not None
-
-            def _extract_music_array(obj):
-                """从响应里抽出音乐数组(同 _looks_like_music_list 的递归)。"""
-                def _scan(node):
-                    if isinstance(node, list):
-                        if node:
-                            s = 0
-                            for it in node[:3]:
-                                if isinstance(it, dict):
-                                    keys = {k.lower() for k in it.keys()}
-                                    ss = 0
-                                    if any('title' in k or 'name' in k for k in keys):
-                                        ss += 1
-                                    if any('cover' in k or 'img' in k for k in keys):
-                                        ss += 1
-                                    if any('audio' in k or 'url' in k
-                                           or 'duration' in k or 'time' in k
-                                           for k in keys):
-                                        ss += 1
-                                    for v in it.values():
-                                        if isinstance(v, str) and 'afts/file' in v:
-                                            ss += 1
-                                            break
-                                    s = max(s, ss)
-                            if s >= 2:
-                                return node
-                        for x in node:
-                            r = _scan(x)
-                            if r is not None:
-                                return r
-                    elif isinstance(node, dict):
-                        for v in node.values():
-                            r = _scan(v)
-                            if r is not None:
-                                return r
-                    return None
-                return _scan(obj) or []
 
             async def handle_response(response):
                 nonlocal captured_response
                 if captured_response is not None:
                     return
-                # 只看 JSON 响应
-                ctype = (response.headers.get("content-type") or "").lower()
-                if "json" not in ctype:
+                if "queryAllMaterial.json" not in response.url:
                     return
                 try:
                     data = await response.json()
                 except Exception:
                     return
-                if not _looks_like_music_list(data):
-                    return
-                # 命中!DEBUG 打印 URL 便于后续收敛成精确匹配
-                logger.debug(
-                    f"[音乐列表][命中] URL={response.url} "
-                    f"top_keys={list(data.keys()) if isinstance(data, dict) else type(data)}"
+                stat = data.get("stat") if isinstance(data, dict) else None
+                logger.info(
+                    f"[音乐列表][命中] queryAllMaterial.json stat={stat}"
                 )
                 captured_response = data
 
@@ -526,12 +422,11 @@ async def _fetch_music_list_via_browser(cookie_file: str, page_num: int) -> dict
                     "error": f"未找到「添加音乐」按钮: {e}",
                 }
 
-            # 4. 点击打开 modal
+            # 4. 点击打开 modal(触发 queryAllMaterial.json 请求)
             await add_music_btn.click()
-            logger.info("[音乐列表] 已点击「添加音乐」,等待 modal")
-            await asyncio.sleep(1.5)
+            logger.info("[音乐列表] 已点击「添加音乐」,等待 modal + 响应")
 
-            # 等 modal 打开
+            # 等 modal 打开(并行等响应,接口在 modal 打开时触发)
             try:
                 await page.locator(
                     'div.antd5-modal[aria-modal="true"]:has-text("选择音乐")'
@@ -542,26 +437,7 @@ async def _fetch_music_list_via_browser(cookie_file: str, page_num: int) -> dict
                     "error": f"音乐 modal 未打开: {e}",
                 }
 
-            # 5. 若 page_num > 1,翻页到目标页(每翻一页触发一次请求)
-            if page_num > 1:
-                for _ in range(page_num - 1):
-                    captured_response = None  # 清掉旧捕获,只取当前页
-                    try:
-                        next_btn = page.locator(
-                            "li.antd5-pagination-next:not(.antd5-pagination-disabled)"
-                        ).first
-                        await next_btn.wait_for(
-                            state="visible", timeout=5000
-                        )
-                        await next_btn.click()
-                        await asyncio.sleep(1.0)
-                    except Exception as e:
-                        logger.info(
-                            f"[音乐列表] 翻到第 {page_num} 页失败(可能已到末页): {e}"
-                        )
-                        break
-
-            # 6. 轮询等响应(最长 15s)
+            # 5. 轮询等响应(最长 15s)
             for _ in range(150):
                 if captured_response is not None:
                     break
@@ -570,42 +446,14 @@ async def _fetch_music_list_via_browser(cookie_file: str, page_num: int) -> dict
             if captured_response is None:
                 return {"success": False, "error": "未能拦截到音乐列表响应"}
 
-            # 7. 解析响应,提取音乐数组并标准化
-            music_array = _extract_music_array(captured_response)
-            items = []
-            for raw in music_array:
-                if not isinstance(raw, dict):
-                    continue
-                items.append({
-                    "musicId": _first_value(raw, [
-                        "musicId", "music_id", "id", "audioId",
-                    ]) or "",
-                    "title": _first_value(raw, ["title", "name"]) or "",
-                    "coverUrl": _extract_url(
-                        raw, ["coverUrl", "cover", "img", "pic", "imgUrl"]
-                    ),
-                    "audioUrl": _extract_url(
-                        raw, ["audioUrl", "audio", "url", "playUrl", "fileUrl"]
-                    ),
-                    "duration": _first_value(raw, ["duration", "time", "len"]) or "",
-                })
-
-            # 是否有下一页:看 pagination 的 next 是否 disabled
-            has_more = False
-            try:
-                next_disabled = await page.locator(
-                    "li.antd5-pagination-next.antd5-pagination-disabled"
-                ).count()
-                has_more = next_disabled == 0
-            except Exception:
-                pass
+            # 6. 解析响应,提取音乐数组并标准化
+            items = _parse_music_response(captured_response)
 
             return {
                 "success": True,
                 "data": {
                     "list": items,
-                    "pageNum": page_num,
-                    "hasMore": has_more,
+                    "total": len(items),
                 },
             }
 
@@ -615,30 +463,66 @@ async def _fetch_music_list_via_browser(cookie_file: str, page_num: int) -> dict
         await browser.close()
 
 
-def _first_value(d: dict, keys: list):
-    """从 dict 里按候选 key 顺序取第一个非空值。"""
-    for k in keys:
-        # 大小写不敏感查找
-        for dk, dv in d.items():
-            if dk.lower() == k.lower() and dv not in (None, "", []):
-                return dv
-    return None
+def _parse_music_response(data: dict) -> list:
+    """解析 queryAllMaterial.json 响应,提取标准化音乐列表。
+
+    响应路径:result.materialTypes[].materials[].materialDetails[]
+    过滤:materialType 数组里 type == "music" 的分类下的 materialDetails。
+    (实测响应里只有一个 music 分类,但保留遍历逻辑以防结构扩展)
+    """
+    if not isinstance(data, dict) or data.get("stat") != "ok":
+        logger.warning(
+            f"[音乐列表] 响应 stat 非 ok: {data.get('stat') if isinstance(data, dict) else type(data)}"
+        )
+        return []
+
+    result = data.get("result") or {}
+    material_types = result.get("materialTypes") or []
+    items = []
+
+    for mt in material_types:
+        if not isinstance(mt, dict):
+            continue
+        # 只取 music 分类
+        if mt.get("type") != "music":
+            continue
+        for material in (mt.get("materials") or []):
+            for detail in (material.get("materialDetails") or []):
+                if not isinstance(detail, dict):
+                    continue
+                items.append(_normalize_music_detail(detail))
+
+    return items
 
 
-def _extract_url(d: dict, keys: list) -> str:
-    """从 dict 里取 URL —— 兼容字段是字符串或 {url_list:[...]} 结构。"""
-    v = _first_value(d, keys)
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    if isinstance(v, dict):
-        # antd 风格 {url_list: ["http://..."]}
-        for uk in ("url_list", "urls", "list"):
-            if uk in v and isinstance(v[uk], list) and v[uk]:
-                return v[uk][0]
-        if "url" in v and isinstance(v["url"], str):
-            return v["url"]
-    if isinstance(v, list) and v:
-        return v[0] if isinstance(v[0], str) else ""
-    return ""
+def _normalize_music_detail(detail: dict) -> dict:
+    """把单个 materialDetail 标准化为前端使用的音乐对象。
+
+    字段映射(实测):
+      - code:              音乐唯一码(如 M220260617163945272)
+      - name:              音乐名
+      - snapshotImageUrl:  封面图
+      - resourceAccessUrl: 试听音频直链
+      - configs:           JSON 字符串,如 {"audioTime": 24} (秒)
+    """
+    import json as _json
+
+    # 解析 configs 里的 audioTime(秒数)
+    duration = ""
+    configs_raw = detail.get("configs") or ""
+    if configs_raw:
+        try:
+            cfg = _json.loads(configs_raw)
+            audio_time = cfg.get("audioTime")
+            if isinstance(audio_time, (int, float)):
+                duration = int(audio_time)
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "musicId": detail.get("code") or "",
+        "title": detail.get("name") or "",
+        "coverUrl": detail.get("snapshotImageUrl") or "",
+        "audioUrl": detail.get("resourceAccessUrl") or "",
+        "duration": duration,
+    }

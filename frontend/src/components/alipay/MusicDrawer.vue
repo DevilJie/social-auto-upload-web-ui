@@ -132,7 +132,8 @@ const musicList = computed(() => allMusicList.value)
 
 watch(() => props.modelValue, (val) => {
   visible.value = val
-  if (val && allMusicList.value.length === 0 && !errorMsg.value) {
+  // 打开抽屉且无数据时加载(accountId 可空,后端用任意支付宝账号 cookie)
+  if (val && allMusicList.value.length === 0) {
     pageNum.value = 1
     fetchMusicList()
   }
@@ -146,10 +147,8 @@ watch(visible, (val) => {
 watch(pageNum, () => stopPlay())
 
 async function fetchMusicList() {
-  if (!props.accountId) {
-    errorMsg.value = '未选择账号,无法获取音乐列表'
-    return
-  }
+  // accountId 可空:为空时后端用任意一个支付宝账号的 cookie
+  // (音乐库对所有账号一致,不依赖具体登录态)
   loading.value = true
   errorMsg.value = ''
   try {

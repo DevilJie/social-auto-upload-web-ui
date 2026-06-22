@@ -9,7 +9,9 @@ export const alipayApi = {
 
   // 获取图集背景音乐列表(后端打开 short-content 页 + 拦截 queryAllMaterial.json,
   // 一次性返回全部音乐,前端客户端分页)
+  // accountId 可空:为空时后端用数据库里任意一个支付宝账号的 cookie
   musicList(accountId) {
-    return http.get(`/api/alipay/music-list?account_id=${accountId}`)
+    const q = accountId ? `account_id=${accountId}` : ''
+    return http.get(`/api/alipay/music-list${q ? '?' + q : ''}`)
   },
 }

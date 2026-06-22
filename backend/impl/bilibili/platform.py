@@ -572,9 +572,8 @@ class BilibiliPlatform(BasePlatform):
         2. 上传进度条/转码状态消失
         3. 封面区域 (`div.cover-main`) 出现并可见
         """
-        max_retries = 120
         retry_count = 0
-        while retry_count < max_retries:
+        while True:
             try:
                 # Check 1: "上传完成" 文字出现（iframe 或主页）
                 done_found = False
@@ -648,8 +647,7 @@ class BilibiliPlatform(BasePlatform):
                 await asyncio.sleep(3)
             retry_count += 1
 
-        if retry_count == max_retries:
-            logger.info("[bilibili] upload may not have completed (timeout)")
+        # (no timeout — wait indefinitely until upload complete signals appear)
 
     @staticmethod
     async def _fill_title(page, title: str):

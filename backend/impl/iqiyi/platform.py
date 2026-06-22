@@ -437,7 +437,6 @@ class IqiyiPlatform(BasePlatform):
     async def _wait_video_upload_complete(
         page,
         upload_done: asyncio.Event,
-        timeout_ms: int = 600000,
     ) -> None:
         """等待视频上传到服务器完成。
 
@@ -445,19 +444,13 @@ class IqiyiPlatform(BasePlatform):
         （caller 负责在 ``set_input_files`` 之前注册监听器）。这是
         服务端确认上传完成的权威信号——DOM 提示可能提前消失，不能
         作为完成依据。
+
+        无超时:视频可能很大(≤16G),一直等到上传完成请求到达。
         """
-        try:
-            await asyncio.wait_for(
-                upload_done.wait(), timeout=timeout_ms / 1000
-            )
-            logger.info(
-                "检测到 /upload/record 请求，视频上传完成"
-            )
-        except asyncio.TimeoutError:
-            logger.error(
-                "等待 /upload/record 请求超时（%d ms）", timeout_ms
-            )
-            raise
+        await upload_done.wait()
+        logger.info(
+            "检测到 /upload/record 请求，视频上传完成"
+        )
 
     # ------------------------------------------------------------------
     # Form field helpers

@@ -354,25 +354,21 @@ class TencentVideoPlatform(BasePlatform):
 
                 # Step 2: Wait for the publish form to appear after upload
                 # The form title "视频1" signals upload is done
+                # (timeout=0 means wait indefinitely — video may be very large)
                 await page.wait_for_selector(
                     'div[class*="formTitle"]:has-text("视频")',
-                    timeout=120000,
+                    timeout=0,
                 )
                 logger.info("Video upload complete, publish form ready")
                 await asyncio.sleep(2)
 
                 # Step 2.5: 等待真正的上传完成 HTTP 请求（formTitle 只是
                 # UI 提示，不是后端完成的权威信号）
-                try:
-                    await asyncio.wait_for(upload_done.wait(), timeout=600)
-                    logger.info(
-                        "视频上传完成（检测到 UploadNotify 请求）"
-                    )
-                except asyncio.TimeoutError:
-                    logger.error(
-                        "等待视频上传完成超时（600 秒），未检测到 UploadNotify"
-                    )
-                    raise Exception("视频上传超时")
+                # 无超时:视频可能很大(≤16G),一直等到 UploadNotify 到达
+                await upload_done.wait()
+                logger.info(
+                    "视频上传完成（检测到 UploadNotify 请求）"
+                )
 
                 # Step 3: Fill title
                 await self._fill_title(page, title or desc)

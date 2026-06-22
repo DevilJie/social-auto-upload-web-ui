@@ -438,7 +438,7 @@ class BaijiahaoPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_for_upload(
-        page, upload_done: asyncio.Event, timeout_s: int = 600
+        page, upload_done: asyncio.Event,
     ) -> bool:
         """Wait for the authoritative upload-complete HTTP request.
 
@@ -452,21 +452,13 @@ class BaijiahaoPlatform(BasePlatform):
         file, leading to a publish click while the video is still
         uploading. The completion HTTP request is the source of truth.
 
+        无超时:视频可能很大(≤16G),一直等到上传完成请求到达。
+
         Returns True on success, False on failure.
         """
-        try:
-            await asyncio.wait_for(upload_done.wait(), timeout=timeout_s)
-            logger.info("视频上传完毕（检测到 compuploadvideo 请求）")
-            return True
-        except asyncio.TimeoutError:
-            upload_failed = await page.locator(
-                'div .cover-overlay:has-text("上传失败")'
-            ).count()
-            if upload_failed:
-                logger.error("发现上传出错了...")
-                return False
-            logger.error("等待视频上传完成超时（%d 秒）", timeout_s)
-            return False
+        await upload_done.wait()
+        logger.info("视频上传完毕（检测到 compuploadvideo 请求）")
+        return True
 
     # ------------------------------------------------------------------
     # Helper: fill title and tags (Baijiahao uses description field)

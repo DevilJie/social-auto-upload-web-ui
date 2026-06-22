@@ -560,15 +560,15 @@ class KuaishouPlatform(BasePlatform):
                 await page.keyboard.type(f"#{tag} ")
                 await asyncio.sleep(2)
 
-            # ------ Wait for upload to complete ------
+            # ------ Wait for upload to complete (no timeout — wait indefinitely) ------
             retry = 0
-            while retry < 60:
+            while True:
                 try:
                     if await page.locator("text=上传中").count() == 0:
                         logger.info("[kuaishou] video upload complete")
                         break
-                    if retry % 5 == 0:
-                        logger.info("[kuaishou] still uploading...")
+                    if retry % 15 == 0:
+                        logger.info("[kuaishou] still uploading... (retry=%d)", retry)
                     if await page.locator("text=上传失败").count():
                         logger.info("[kuaishou] upload failed, retrying...")
                         await page.locator(

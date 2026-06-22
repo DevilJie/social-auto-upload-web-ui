@@ -387,7 +387,7 @@ class YoutubePlatform(BasePlatform):
             # ---- Step 3: Wait for upload complete ----
             logger.info(_msg("waiting for upload to finish"))
             title_box = page.locator("#title-textarea #textbox").first
-            await title_box.wait_for(state="visible", timeout=300000)  # up to 5 min
+            await title_box.wait_for(state="visible", timeout=0)  # no timeout — wait indefinitely
             logger.info(_msg("title textarea appeared — upload complete"))
 
             # Wait for thumbnail uploader to be ready

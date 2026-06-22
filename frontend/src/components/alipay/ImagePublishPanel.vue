@@ -5,6 +5,11 @@
     </div>
 
     <div class="setting-card" style="grid-column: 1 / -1">
+      <div class="setting-label">标题 <span class="required">*</span></div>
+      <el-input v-model="form.title" placeholder="一个好的标题，能获得更多人的喜欢哦" maxlength="30" show-word-limit :disabled="disabled" />
+    </div>
+
+    <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">描述</div>
       <el-input v-model="form.description" type="textarea" :rows="5" placeholder="请输入描述..." maxlength="1000" show-word-limit :disabled="disabled" />
     </div>
@@ -53,7 +58,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { Headset } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { imagePublishApi } from '@/api/imagePublish'
@@ -96,7 +101,7 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
             account_id: accountId,
             platform: '支付宝',
             filePath: account.filePath,
-            title: merged.description, // 图集标题=描述
+            title: merged.title, // 图集标题(独立字段,≤30 字)
             description: merged.description,
             tags: merged.tags || [],
             music_id: merged.music?.musicId || '',
@@ -114,12 +119,15 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
         emit('publish-result', { accountName, status: 'fail', message: e.message || '发布失败' })
       }
     },
-    validateFn: (accountId, merged) => ({ valid: true, errors: [] }),
+    validateFn: (accountId, merged) => {
+      const errors = []
+      if (!merged.title || !merged.title.trim()) {
+        errors.push('请填写标题(≤30 字)')
+      }
+      return { valid: errors.length === 0, errors }
+    },
   },
 )
-
-// 图集标题始终 = 描述(让 publishAll 的 !merged.title 校验通过)
-watch(() => form.description, (v) => { form.title = v || '' })
 
 const tagInput = ref('')
 const musicDrawerVisible = ref(false)

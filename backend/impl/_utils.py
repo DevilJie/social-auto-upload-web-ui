@@ -386,6 +386,57 @@ async def scrape_youtube_profile(page):
     return name, avatar
 
 
+async def scrape_alipay_profile(page):
+    """支付宝内容创作平台专用 scraper。
+
+    抓取依据(文档 ~/zfb.md 行 4-5):登录后的创作中心首页
+    (``c.alipay.com/page/life-account/index``)会渲染账号信息容器
+    ``accountContainer___xxx``:
+    - 昵称: 内部 ``name___xxx`` 节点文本
+    - 头像: 内部 ``logo___xxx > img`` 的 src
+
+    class 名是 CSS modules hash,完整类名会随构建漂移,所以用
+    ``[class*="accountContainer"]`` 前缀匹配,内部再嵌套查找 name/logo。
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+        await asyncio.sleep(2)
+
+        result = await page.evaluate("""() => {
+            let name = '', avatar = '';
+            // 账号信息容器(前缀匹配规避 hash 漂移)
+            const container = document.querySelector(
+                'div[class*="accountContainer"]'
+            );
+            if (container) {
+                const nameEl = container.querySelector(
+                    'div[class*="name"]:not([class*="nameDesc"]):not([class*="nameBox"])'
+                ) || container.querySelector('div[class*="name"]');
+                if (nameEl) name = nameEl.textContent.trim();
+                const logoImg = container.querySelector(
+                    'img[class*="logo"]'
+                );
+                if (logoImg) avatar = logoImg.src || '';
+            }
+            return { name, avatar };
+        }""")
+        name = (result.get("name") or "").strip()
+        avatar = (result.get("avatar") or "").strip()
+        logger.info(
+            f"[alipay] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[alipay] profile scrape error: {e}")
+
+    return name, avatar
+
+
 async def scrape_weibo_profile(page):
     """Weibo-specific scraper.
 
@@ -600,6 +651,7 @@ PLATFORM_SYNC_URLS = {
     9: "https://mp.v.qq.com/",
     10: "https://creator.iqiyi.com/",
     11: "https://weibo.com/set/index",
+    12: "https://c.alipay.com/page/life-account/index",
 }
 
 
@@ -617,4 +669,5 @@ PLATFORM_SCRAPE_FNS = {
     7: scrape_user_profile,         # TikTok
     8: scrape_youtube_profile,      # YouTube
     11: scrape_weibo_profile,       # Weibo
+    12: scrape_alipay_profile,      # Alipay
 }

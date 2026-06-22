@@ -16,6 +16,7 @@ import logoYoutube from '@/assets/logos/youtube.png'
 import logoTencentVideo from '@/assets/logos/tengxunshipin.png'
 import logoIqiyi from '@/assets/logos/aiqiyi.png'
 import logoWeibo from '@/assets/logos/weibo.png'
+import logoAlipay from '@/assets/logos/alipay.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 
@@ -358,6 +359,32 @@ export const PLATFORMS = {
         ] },
     ],
     defaultSettings: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '' },
+  },
+  ALIPAY: {
+    id: 12,
+    key: 'alipay',
+    name: '支付宝',
+    shortName: 'ZFB',
+    letter: 'Z',
+    logo: logoAlipay,
+    color: '#1677FF',
+    bgColor: 'rgba(22, 119, 255, 0.15)',
+    cssClass: 'alipay',
+    creatorUrl: 'https://c.alipay.com/page/life-account/index',
+    settingsFields: [
+      { key: 'authorStatement', label: '作者声明', type: 'select', required: true, placeholder: '请选择作者声明（必填）', options: [
+        { label: '内容无需标注', value: '内容无需标注' },
+        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+        { label: '内容由AI生成', value: '内容由AI生成' },
+        { label: '内容虚构演绎，仅供娱乐', value: '内容虚构演绎，仅供娱乐' },
+        { label: '内容含营销信息', value: '内容含营销信息' },
+        { label: '内容为转载', value: '内容为转载' },
+      ] },
+      { key: 'compilation', label: '加入合集', type: 'input', placeholder: '输入合集名称（精确匹配，可选）' },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+    ],
+    defaultSettings: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', videoFormat: '' },
   },
 }
 

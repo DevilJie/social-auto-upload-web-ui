@@ -6,11 +6,11 @@ from util.video_limits import VIDEO_LIMITS, validate_video_for_platform, _format
 # ----- 平台规则完整性 -----
 
 def test_all_platforms_have_limits():
-    """恰好 11 个平台，不多不少"""
+    """恰好 12 个平台，不多不少"""
     expected_keys = {
         "tencent_video", "iqiyi", "douyin", "baijiahao", "weibo",
         "kuaishou", "bilibili", "xiaohongshu", "channels",
-        "tiktok", "youtube",
+        "tiktok", "youtube", "alipay",
     }
     assert set(VIDEO_LIMITS.keys()) == expected_keys
 

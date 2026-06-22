@@ -871,7 +871,7 @@ def _extract_channels_summary(draft_data):
         'kuaishou': '快手', 'bilibili': 'B站', 'baijiahao': '百家号',
         'tiktok': 'TikTok', 'youtube': 'YouTube', 'iqiyi': '爱奇艺',
         'tencent_video': '腾讯视频',
-        'weibo': '微博',
+        'weibo': '微博', 'alipay': '支付宝',
     }
 
     try:
@@ -888,7 +888,7 @@ def _extract_channels_summary(draft_data):
             'kuaishou': 4, 'bilibili': 5,
             'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
             'tencent_video': 9, 'iqiyi': 10,
-            'weibo': 11,
+            'weibo': 11, 'alipay': 12,
         }.items()}
 
         platform_counts = {}

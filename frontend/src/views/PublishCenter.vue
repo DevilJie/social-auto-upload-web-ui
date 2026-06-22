@@ -721,6 +721,7 @@ const platformConfigs = reactive({
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', videoFormat: '', tags: [] },
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '', tags: [] },
   weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [] },
+  alipay: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', videoFormat: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1438,6 +1439,7 @@ async function publishAll() {
     youtube: ['audience', 'alteredContent'],
     tiktok: 'aiContent',
     weibo: 'contentStatement',
+    alipay: 'authorStatement',
     // channels 不必填
   }
 
@@ -1657,6 +1659,9 @@ async function publishAll() {
           : (merged.aiContent || ''),
         // 微博「内容声明」单独透传
         contentStatement: group.key === 'weibo' ? (merged.contentStatement || '') : '',
+        // 支付宝「作者声明」+「合集」单独透传(其他平台忽略)
+        authorStatement: merged.authorStatement || '',
+        compilation: merged.compilation || '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

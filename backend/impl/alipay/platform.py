@@ -1115,28 +1115,66 @@ class AlipayPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_for_publish_success(page, timeout_s: int = 90):
-        """等待发布完成信号。
+        """等待发布完成信号,并处理"发布请注意"优化提示弹窗。
 
-        判据(OR):
-        1. 检测到成功 toast / 文案("发布成功"等)
-        2. URL 跳转离开 short-video 发布页
-        3. 作者声明错误消失 + 按钮变为已发布态
+        点完「确认发布」后,支付宝可能弹出一个 ``发布请注意`` 的 modal,
+        提示封面断字/优化项等,内有两个按钮:
+        - ``返回更换``(antd5-btn-primary) — 中止
+        - ``继续发布``(antd5-btn-default) — 跳过提示继续发布
 
-        90s 内任一命中即视为成功。
+        本方法的职责:监测这个弹窗,出现就**点「继续发布」**,
+        然后等 URL 跳转离开发布页 = 发布成功。
+
+        成功判据(OR):
+        1. URL 跳转离开 short-video 发布页(最可靠)
+        2. 检测到"发布成功"文案
+
+        中间状态处理:
+        - 检测到 antd5-modal「发布请注意」→ 点「继续发布」按钮
+
+        90s 内任一成功判据命中即视为成功。
         """
         deadline = asyncio.get_event_loop().time() + timeout_s
         original_url = page.url
+        continue_clicked = False
 
         while asyncio.get_event_loop().time() < deadline:
-            # 条件 1: 成功文案
-            try:
-                if await page.get_by_text("发布成功", exact=True).count() > 0:
-                    logger.info("[alipay] 发布成功(检测到「发布成功」文案)")
-                    return
-            except Exception:
-                pass
+            # ---- 中间状态:「发布请注意」优化提示弹窗 ----
+            # DOM: div.antd5-modal[aria-modal="true"] 内含「发布请注意」文本
+            #      + 按钮「继续发布」(antd5-btn-default)
+            if not continue_clicked:
+                try:
+                    modal = page.locator(
+                        'div.antd5-modal[aria-modal="true"]:has-text("发布请注意")'
+                    )
+                    if await modal.count() > 0 and await modal.first.is_visible():
+                        logger.info(
+                            "[alipay] 检测到「发布请注意」优化提示弹窗,"
+                            "尝试点击「继续发布」"
+                        )
+                        # 弹窗内打印优化项文案便于排查
+                        try:
+                            tip = await modal.locator(
+                                'div.text-\\[\\#666666\\]'
+                            ).first.text_content()
+                            logger.info("[alipay] 优化提示: %s", (tip or '')[:120])
+                        except Exception:
+                            pass
 
-            # 条件 2: URL 跳转
+                        # 点「继续发布」按钮(antd5-btn-default,非 primary)
+                        # primary 是「返回更换」,不能点
+                        continue_btn = modal.locator(
+                            "button.antd5-btn-default:has-text('继续发布')"
+                        ).first
+                        await continue_btn.click()
+                        continue_clicked = True
+                        logger.info("[alipay] 已点击「继续发布」,等待跳转")
+                        await asyncio.sleep(1)
+                        continue
+                except Exception as e:
+                    logger.debug("[alipay] 检测弹窗异常(忽略): %s", e)
+
+            # ---- 成功判据 1: URL 跳转离开发布页(最可靠) ----
             try:
                 current_url = page.url
                 if (
@@ -1148,10 +1186,19 @@ class AlipayPlatform(BasePlatform):
             except Exception:
                 pass
 
+            # ---- 成功判据 2: 「发布成功」文案 ----
+            try:
+                if await page.get_by_text("发布成功", exact=True).count() > 0:
+                    logger.info("[alipay] 发布成功(检测到「发布成功」文案)")
+                    return
+            except Exception:
+                pass
+
             await asyncio.sleep(2)
 
         raise RuntimeError(
-            f"[alipay] 等待发布完成超时({timeout_s}s)"
+            f"[alipay] 等待发布完成超时({timeout_s}s),"
+            f"是否点了继续发布: {continue_clicked}"
         )
 
 

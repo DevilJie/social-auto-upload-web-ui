@@ -667,6 +667,7 @@ class AlipayPlatform(BasePlatform):
         # 2. 切换到"上传封面" tab(弹窗默认在"截取封面")
         #    DOM: div.antd5-tabs-tab > div.antd5-tabs-tab-btn(文本="上传封面")
         #    get_by_role("tab") 在 antd5 里常匹配不到,用文本+class 定位
+        tab_switched = False
         try:
             upload_tab = page.locator(
                 "div.antd5-tabs-tab-btn", has_text="上传封面"
@@ -674,24 +675,69 @@ class AlipayPlatform(BasePlatform):
             await upload_tab.wait_for(state="visible", timeout=10000)
             await upload_tab.click()
             await asyncio.sleep(1)
+            tab_switched = True
             logger.info("[alipay] 已切换到「上传封面」tab")
         except Exception as e:
-            logger.warning("[alipay] 切换「上传封面」tab 失败: %s", e)
-            # 不 return:可能已在目标 tab 或 tab 结构不同,继续尝试找 input
+            logger.info("[alipay] 切换「上传封面」tab 跳过(可能已在目标 tab): %s", e)
 
-        # 3. 找隐藏 input[type=file][accept*='image'] 上传
-        #    切换 tab 后 panel 才渲染 input,等它出现
-        file_input = page.locator(
-            "input[type='file'][accept*='image']"
-        ).first
+        # 3. 上传封面文件 —— 用 file_chooser 兜底 + set_input_files 双保险
+        #    支付宝封面 input 的 accept 属性实测不含 "image" 字样,
+        #    input[type='file'][accept*='image'] 选择器会失败(见后端日志)。
+        #    改用三重策略,任一成功即可:
+        #    ① 直接找任意 input[type=file] 尝试 set_input_files
+        #    ② 监听 file_chooser + 点击上传区
+        #    ③ JS 标记 + 等待 patched input
+        uploaded = False
+
+        # 策略 ①: 当前页面所有 input[type=file],过滤掉视频那个,
+        #          找封面的(通常是第 2 个或 accept 不同的)
         try:
-            await file_input.wait_for(state="attached", timeout=15000)
-            await file_input.set_input_files(cover_path)
-            logger.info(
-                "[alipay] 已上传封面文件: %s", os.path.basename(cover_path)
-            )
+            all_file_inputs = page.locator("input[type='file']")
+            fi_count = await all_file_inputs.count()
+            logger.info("[alipay] 当前 input[type=file] 数量: %d", fi_count)
+            for i in range(fi_count):
+                fi = all_file_inputs.nth(i)
+                accept_val = await fi.get_attribute("accept") or ""
+                # 跳过视频专用的 input
+                if "video" in accept_val.lower():
+                    continue
+                # 这个 input 可能就是封面的(图片/空 accept)
+                await fi.set_input_files(cover_path)
+                logger.info(
+                    "[alipay] 已上传封面(策略① input #%d, accept=%r): %s",
+                    i, accept_val, os.path.basename(cover_path),
+                )
+                uploaded = True
+                break
         except Exception as e:
-            logger.warning("[alipay] 上传封面文件失败: %s", e)
+            logger.info("[alipay] 策略① set_input_files 失败: %s", e)
+
+        # 策略 ②: 监听原生 file_chooser + 点击上传触发区
+        if not uploaded:
+            try:
+                # 上传触发区:tab 切换后的 panel 里通常有"点击上传"/拖拽区
+                trigger = page.locator(
+                    "div.antd5-tabs-tabpane-active "
+                    "div[class*='upload'],"
+                    "div.antd5-tabs-tabpane-active "
+                    "[class*='dragger'],"
+                    "div.antd5-tabs-tabpane-active "
+                    "[class*='Upload']"
+                ).first
+                async with page.expect_file_chooser(timeout=8000) as fc_info:
+                    await trigger.click(force=True)
+                fc = await fc_info.value
+                await fc.set_files(cover_path)
+                uploaded = True
+                logger.info(
+                    "[alipay] 已上传封面(策略② file_chooser): %s",
+                    os.path.basename(cover_path),
+                )
+            except Exception as e:
+                logger.info("[alipay] 策略② file_chooser 失败: %s", e)
+
+        if not uploaded:
+            logger.warning("[alipay] 封面上传所有策略均失败,跳过封面")
             try:
                 await page.keyboard.press("Escape")
             except Exception:

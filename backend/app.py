@@ -122,6 +122,10 @@ from blueprints.douyin_image_bp import douyin_image_bp  # noqa: E402
 app.register_blueprint(douyin_image_bp)
 logger.info("[Startup] douyin_image_bp registered OK")
 
+from blueprints.alipay_bp import alipay_bp  # noqa: E402
+app.register_blueprint(alipay_bp)
+logger.info("[Startup] alipay_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")

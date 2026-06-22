@@ -334,6 +334,12 @@
                     filterable
                     class="cursor-pointer weibo-cascader"
                   />
+                  <AlipayCompilationSelect
+                    v-else-if="field.type === 'compilationSelect'"
+                    :account-id="selectedAccountId"
+                    v-model="form[field.key]"
+                    @change="(val) => handleAlipayCompilationChange(field.key, val)"
+                  />
                 </div>
               </template>
             </template>
@@ -491,6 +497,7 @@ import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
 import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
 import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
+import AlipayCompilationSelect from '@/components/alipay/CompilationSelect.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
@@ -925,6 +932,16 @@ function handleDouyinMixChange(mix) {
   } else {
     form.mixId = ''
     form.mixData = null
+  }
+}
+
+// 支付宝合集选择回调:把选中的完整对象存到 form.compilationData 便于回显,
+// v-model 已把 compilationId 绑定到 form.compilation
+function handleAlipayCompilationChange(fieldKey, comp) {
+  if (comp) {
+    form.compilationData = comp
+  } else {
+    form.compilationData = null
   }
 }
 

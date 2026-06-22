@@ -380,7 +380,7 @@ export const PLATFORMS = {
         { label: '内容含营销信息', value: '内容含营销信息' },
         { label: '内容为转载', value: '内容为转载' },
       ] },
-      { key: 'compilation', label: '加入合集', type: 'input', placeholder: '输入合集名称（精确匹配，可选）' },
+      { key: 'compilation', label: '加入合集', type: 'compilationSelect', placeholder: '输入合集名称搜索' },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],

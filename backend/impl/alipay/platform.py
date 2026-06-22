@@ -703,23 +703,31 @@ class AlipayPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _set_compilation(page, compilation_name: str):
-        """选择合集(按文档要求:监听 queryCompilationsByPublicId.json 响应)。
+    async def _set_compilation(page, compilation_value: str):
+        """选择合集(发布流程的执行端)。
+
+        前端 ``CompilationSelect`` 已经在发布前通过
+        ``/api/alipay/compilation-search`` 预览过合集列表并把用户选中的
+        合集传过来。本方法负责在真实发布页把这个合集点选上。
+
+        参数 compilation_value 约定(与前端 CompilationSelect 的 emit 一致):
+            "<compilationId>"   — 优先按 id 精确匹配(最稳)
+            "<title>"           — 退化为按 title 文本匹配
 
         流程(文档 ~/zfb.md):
-        1. 定位合集 select 的搜索输入框 ``input[id$='_compilationInfo']``
-           (role=combobox,placeholder="请选择要加入到的合集")
-        2. 用 ``page.expect_response`` 监听合集列表接口
-           ``queryCompilationsByPublicId.json?...appId=...&ctoken=...``,
-           在等待窗口内 fill 合集名触发搜索请求
-        3. 响应到达后解析 JSON,优先按精确 title 匹配合集 id;
-           若响应解析失败或无匹配,fallback 到 DOM ``[role="option"]`` 点选
-        4. 点击对应 ``[role="option"]`` 完成选择
+        1. 定位合集 select 搜索框 ``input[id$='_compilationInfo']``
+        2. fill compilation_value 触发 queryCompilationsByPublicId.json
+           (用 page.expect_response 同步等待,确保列表已返回)
+        3. 等 ``[role="option"]`` 渲染
+        4. 优先按 compilationId 精确匹配 ``option[data-id]``;否则按 title
+           精确/模糊匹配;最后兜底点第一项
 
-        合集列表是会话级的(需登录态 appId + ctoken),前端无法预拉,
-        故由前端传入精确合集名,后端在此搜索并点匹配项。
+        本方法与 ``alipay_bp.search_compilation`` 共享同一个支付宝接口,
+        但职责不同:bp 是"搜索预览",这里是"真实点选"。
         """
-        # 合集 select 的搜索 input(id 后缀 _compilationInfo 来自文档 DOM)
+        if not compilation_value:
+            return
+
         compilation_input = page.locator(
             "input[id$='_compilationInfo']"
         ).first
@@ -731,127 +739,87 @@ class AlipayPlatform(BasePlatform):
             logger.warning("[alipay] 未找到合集输入框: %s", e)
             return
 
-        # 监听 queryCompilationsByPublicId.json 响应 + 同时 fill 触发搜索
-        # 文档:此接口携带 appId + ctoken,返回当前账号的所有合集
-        matched_compilation_id = None
+        # 监听 queryCompilationsByPublicId.json + fill 触发搜索
         try:
             async with page.expect_response(
                 lambda r: "queryCompilationsByPublicId.json" in r.url,
                 timeout=10000,
-            ) as resp_info:
+            ):
                 await compilation_input.click()
-                await compilation_input.fill(compilation_name)
+                await compilation_input.fill(compilation_value)
                 logger.info(
-                    "[alipay] 已输入合集名,等待 queryCompilationsByPublicId 响应"
-                )
-            response = await resp_info.value
-            try:
-                payload = await response.json()
-                # 解析合集列表(支付宝返回结构: resultList[*].{id,name/title})
-                items = (
-                    payload.get("resultList")
-                    or payload.get("data", {}).get("resultList")
-                    or payload.get("data", {}).get("list")
-                    or []
-                )
-                logger.info(
-                    "[alipay] queryCompilationsByPublicId 返回 %d 个合集",
-                    len(items),
-                )
-                # 精确 name/title 匹配,取 id 便于后续 DOM 定位
-                for item in items:
-                    name = (
-                        item.get("name")
-                        or item.get("title")
-                        or item.get("compilationName")
-                        or ""
-                    )
-                    if name.strip() == compilation_name.strip():
-                        matched_compilation_id = (
-                            item.get("id")
-                            or item.get("compilationId")
-                            or item.get("publicId")
-                        )
-                        logger.info(
-                            "[alipay] 响应匹配到合集「%s」(id=%s)",
-                            name.strip(), matched_compilation_id,
-                        )
-                        break
-            except Exception as parse_err:
-                logger.info(
-                    "[alipay] 解析合集响应失败,改用 DOM 匹配: %s",
-                    parse_err,
+                    "[alipay] 已输入合集值「%s」,等待接口响应",
+                    compilation_value,
                 )
         except Exception as e:
             logger.info(
                 "[alipay] 未捕获到 queryCompilationsByPublicId 响应(%s),"
-                "回退到等 [role=option] 渲染",
+                "直接等 DOM 渲染",
                 e,
             )
-            # 兜底:fill 已执行,直接等 DOM
-            try:
-                await compilation_input.fill(compilation_name)
-            except Exception:
-                pass
 
-        # 等下拉 option 渲染(响应已到,DOM 通常已渲染)
+        # 等 option 渲染
         try:
             await page.locator("[role='option']").first.wait_for(
                 state="visible", timeout=10000
             )
         except Exception as e:
             logger.warning(
-                "[alipay] 合集下拉未渲染(可能无匹配合集): %s", e
+                "[alipay] 合集下拉未渲染(可能无匹配合集「%s」): %s",
+                compilation_value, e,
             )
             return
 
-        # 优先按响应匹配到的 id 定位 option;否则按 title 文本匹配
+        # 三级匹配:① 按 compilationId(data-id) ② 按 title 精确 ③ 按 title 模糊
         options = page.locator("[role='option']")
         count = await options.count()
         clicked = False
 
-        if matched_compilation_id is not None:
-            for i in range(count):
-                opt = options.nth(i)
-                opt_id = await opt.get_attribute("data-id")
-                if opt_id and str(opt_id) == str(matched_compilation_id):
-                    await opt.click()
-                    clicked = True
-                    logger.info(
-                        "[alipay] 已选合集(按响应 id): %s", compilation_name
-                    )
-                    break
+        # ① compilationId 精确匹配
+        for i in range(count):
+            opt = options.nth(i)
+            opt_id = await opt.get_attribute("data-id")
+            if opt_id and str(opt_id) == str(compilation_value):
+                await opt.click()
+                clicked = True
+                logger.info(
+                    "[alipay] 已选合集(按 compilationId=%s)",
+                    compilation_value,
+                )
+                break
 
+        # ② title 精确匹配
         if not clicked:
-            # 按 title 精确匹配
             for i in range(count):
                 opt = options.nth(i)
                 title_attr = await opt.get_attribute("title")
-                if title_attr and title_attr.strip() == compilation_name:
+                if title_attr and title_attr.strip() == compilation_value:
                     await opt.click()
                     clicked = True
                     logger.info(
-                        "[alipay] 已选合集(精确): %s", compilation_name
+                        "[alipay] 已选合集(按 title 精确): %s",
+                        compilation_value,
                     )
                     break
 
+        # ③ title 模糊包含
         if not clicked:
-            # 模糊包含匹配
             for i in range(count):
                 opt = options.nth(i)
                 title_attr = await opt.get_attribute("title") or ""
-                if compilation_name in title_attr:
+                if compilation_value in title_attr:
                     await opt.click()
                     clicked = True
                     logger.info(
-                        "[alipay] 已选合集(模糊): %s", title_attr.strip()
+                        "[alipay] 已选合集(按 title 模糊): %s",
+                        title_attr.strip(),
                     )
                     break
 
         if not clicked:
             logger.warning(
                 "[alipay] 未找到匹配的合集「%s」,跳过合集设置",
-                compilation_name,
+                compilation_value,
             )
             try:
                 await page.keyboard.press("Escape")

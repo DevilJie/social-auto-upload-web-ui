@@ -284,6 +284,31 @@ class AlipayPlatform(BasePlatform):
         schedule_time_str: str = "",
     ):
         """单个视频上传到单个账号的完整流程。"""
+        # 打印完整上送参数,便于排查(与其他渠道日志风格一致)
+        logger.info(
+            "[alipay] ===== 上送参数 =====\n"
+            "  title=%r\n"
+            "  file_path=%r\n"
+            "  tags=%r\n"
+            "  account_file=%r\n"
+            "  desc=%r\n"
+            "  thumbnail_landscape=%r\n"
+            "  thumbnail_portrait=%r\n"
+            "  author_statement=%r\n"
+            "  compilation=%r\n"
+            "  enable_timer=%r\n"
+            "  schedule_time_str=%r\n"
+            "========================",
+            title, file_path, tags,
+            os.path.basename(account_file),
+            desc,
+            thumbnail_landscape_path,
+            thumbnail_portrait_path,
+            author_statement,
+            compilation,
+            enable_timer,
+            schedule_time_str,
+        )
         browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(

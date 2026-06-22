@@ -781,6 +781,13 @@ class IqiyiPlatform(BasePlatform):
     async def _click_publish(page) -> bool:
         """Click the publish button and wait for navigation to the success page.
 
+        **点击前先等待视频上传完成**:爱奇艺发布页的上传区域 ``.up-phone-card``
+        在上传过程中会显示(含进度条/速度/剩余时间/取消按钮),上传完成后
+        该区域会消失。为确保点发布时视频已真正上传完毕,会:
+
+          1. 等待 ``.up-phone-card`` 不再可见(上传区域消失)
+          2. 额外等 3 秒(让后端完成转码/校验等收尾)
+
         成功判定（两层，任一满足即返回 True）：
           1. URL 离开发布页（不再包含 /publish/video/wemedia）
              **且** 页面出现成功关键词（"发布成功" / "已发布" / "提交成功" / "发布完成"）
@@ -789,6 +796,54 @@ class IqiyiPlatform(BasePlatform):
         仅 URL 变化但页面无成功标志时，判定为失败（避免误判跳转到
         内容管理页 / 错误页的情况）。
         """
+        # ---- 点击前:等待视频上传区域消失 ----
+        # .up-phone-card 是上传进度卡片(含"上传过程中请不要删除/移动文件"提示、
+        # 进度条、已上传/速度/剩余时间、取消上传按钮)。上传完成后该卡片消失。
+        try:
+            upload_card = page.locator('.up-phone-card').first
+            if await upload_card.count() > 0:
+                logger.info(
+                    "[iqiyi] 检测到上传区域 .up-phone-card,等待其消失后再点发布"
+                )
+                # 轮询等待卡片消失(最长 30 分钟,大文件慢网络留余量)
+                deadline = asyncio.get_event_loop().time() + 1800
+                last_percent = -1
+                while asyncio.get_event_loop().time() < deadline:
+                    try:
+                        if await upload_card.count() == 0:
+                            break
+                        # 卡片仍可见,打印进度(便于排查卡住)
+                        try:
+                            percent_el = upload_card.locator(
+                                '.up-progress-percent'
+                            ).first
+                            if await percent_el.count() > 0:
+                                percent_text = await percent_el.text_content()
+                                percent_text = (percent_text or '').strip()
+                                if percent_text and percent_text != last_percent:
+                                    last_percent = percent_text
+                                    logger.info(
+                                        "[iqiyi] 视频上传中 %s,等待完成...",
+                                        percent_text,
+                                    )
+                        except Exception:
+                            pass
+                    except Exception:
+                        break
+                    await asyncio.sleep(5)
+                else:
+                    logger.warning(
+                        "[iqiyi] 等待上传区域消失超时(30min),仍尝试点击发布"
+                    )
+                logger.info("[iqiyi] 上传区域已消失,额外等待 3s 后点击发布")
+                await asyncio.sleep(3)
+            else:
+                logger.info("[iqiyi] 未检测到上传区域(可能已上传完),直接点发布")
+        except Exception as e:
+            logger.info(
+                "[iqiyi] 等待上传区域异常(忽略,继续点发布): %s", e
+            )
+
         logger.info("Clicking publish button")
         try:
             publish_btn = page.locator(

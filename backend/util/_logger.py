@@ -15,7 +15,7 @@ from conf import BASE_DIR
 
 CHANNELS = ["backend", "bilibili", "douyin", "kuaishou", "xiaohongshu",
            "iqiyi", "tencent_video", "youtube", "baijiahao", "tiktok",
-           "channels", "weibo", "alipay"]
+           "channels", "weibo", "alipay", "toutiao"]
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s][backend][%(channel)s][%(filename)s:%(lineno)d in %(funcName)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"

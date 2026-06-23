@@ -61,6 +61,7 @@
 import { ref, watch } from 'vue'
 import { Search, Loading, Picture } from '@element-plus/icons-vue'
 import { alipayApi } from '@/api/alipay'
+import { toutiaoApi } from '@/api/toutiao'
 
 const props = defineProps({
   accountId: {
@@ -74,6 +75,11 @@ const props = defineProps({
   data: {
     type: Object,
     default: null
+  },
+  platform: {
+    type: String,
+    default: 'alipay', // 'alipay' | 'toutiao'
+    validator: (value) => ['alipay', 'toutiao'].includes(value)
   }
 })
 
@@ -83,6 +89,19 @@ const loading = ref(false)
 const compilationList = ref([])
 const selectedCompilationId = ref(props.modelValue || '')
 const searchKeyword = ref('')
+
+// 根据平台获取对应的 API
+function getApi() {
+  if (props.platform === 'toutiao') {
+    return toutiaoApi
+  }
+  return alipayApi
+}
+
+// 获取平台显示名称
+function getPlatformName() {
+  return props.platform === 'toutiao' ? '今日头条' : '支付宝'
+}
 
 // 切换账号时清空(不同账号合集不同)
 watch(() => props.accountId, () => {
@@ -117,21 +136,22 @@ async function handleSearch() {
   }
 
   if (!props.accountId) {
-    console.warn('[支付宝合集] 未选择账号,无法搜索')
+    console.warn(`[${getPlatformName()}合集] 未选择账号,无法搜索`)
     return
   }
 
-  console.log('[支付宝合集] 触发搜索:', keyword)
+  console.log(`[${getPlatformName()}合集] 触发搜索:`, keyword)
   loading.value = true
   try {
-    const resp = await alipayApi.searchCompilation(props.accountId, keyword)
-    console.log('[支付宝合集] 搜索结果:', resp)
+    const api = getApi()
+    const resp = await api.searchCompilation(props.accountId, keyword)
+    console.log(`[${getPlatformName()}合集] 搜索结果:`, resp)
     if (resp.code === 200) {
       compilationList.value = resp.data?.list || []
-      console.log('[支付宝合集] 列表:', compilationList.value)
+      console.log(`[${getPlatformName()}合集] 列表:`, compilationList.value)
     }
   } catch (e) {
-    console.error('[支付宝合集] 搜索失败:', e)
+    console.error(`[${getPlatformName()}合集] 搜索失败:`, e)
   } finally {
     loading.value = false
   }

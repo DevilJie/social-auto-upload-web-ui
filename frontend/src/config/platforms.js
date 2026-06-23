@@ -17,6 +17,7 @@ import logoTencentVideo from '@/assets/logos/tengxunshipin.png'
 import logoIqiyi from '@/assets/logos/aiqiyi.png'
 import logoWeibo from '@/assets/logos/weibo.png'
 import logoAlipay from '@/assets/logos/alipay.png'
+import logoToutiao from '@/assets/logos/toutiao.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 
@@ -385,6 +386,66 @@ export const PLATFORMS = {
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', videoFormat: '' },
+  },
+  TOUTIAO: {
+    id: 13,
+    key: 'toutiao',
+    name: '今日头条',
+    shortName: 'TT',
+    letter: 'T',
+    logo: logoToutiao,
+    color: '#FF0000',
+    bgColor: 'rgba(255, 0, 0, 0.15)',
+    cssClass: 'toutiao',
+    creatorUrl: 'https://mp.toutiao.com/profile_v4/index',
+    settingsFields: [
+      { key: 'creationDeclaration', label: '作品声明', type: 'select', required: true, placeholder: '请选择作品声明', options: [
+        { label: '取自站外', value: '取自站外' },
+        { label: '引用站内', value: '引用站内' },
+        { label: '自行拍摄', value: '自行拍摄' },
+        { label: 'AI生成', value: 'AI生成' },
+        { label: '虚构演绎，故事经历', value: '虚构演绎，故事经历' },
+        { label: '投资观点，仅供参考', value: '投资观点，仅供参考' },
+        { label: '健康医疗分享，仅供参考', value: '健康医疗分享，仅供参考' },
+      ] },
+      { key: 'enableGenerateImage', label: '视频生成图文', type: 'switch', description: '勾选后额外得图文创作收益' },
+      { key: 'collection', label: '加入合集', type: 'compilationSelect', placeholder: '输入合集名称搜索' },
+      { key: 'extendLink', label: '扩展链接', type: 'switch', description: '在今日头条APP的固定位置插入链接', linkField: 'extendLinkUrl' },
+      { key: 'extendLinkUrl', label: '链接地址', type: 'input', placeholder: '请输入扩展链接地址', visibleWhen: { key: 'extendLink', value: true } },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间',
+        disabledDate: (time) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const maxDate = new Date(today);
+          maxDate.setDate(maxDate.getDate() + 7);
+          return time.getTime() < today.getTime() || time.getTime() > maxDate.getTime();
+        },
+        disabledHours: (_role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (!isToday) return [];
+          return Array.from({ length: now.getHours() + 1 }, (_, i) => i);
+        },
+        disabledMinutes: (hour, _role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (isToday && hour === now.getHours()) {
+            return Array.from({ length: now.getMinutes() + 1 }, (_, i) => i);
+          }
+          return [];
+        },
+      },
+      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+    ],
+    defaultSettings: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', videoFormat: '' },
   },
 }
 

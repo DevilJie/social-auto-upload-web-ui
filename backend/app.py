@@ -126,6 +126,10 @@ from blueprints.alipay_bp import alipay_bp  # noqa: E402
 app.register_blueprint(alipay_bp)
 logger.info("[Startup] alipay_bp registered OK")
 
+from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
+app.register_blueprint(toutiao_bp)
+logger.info("[Startup] toutiao_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
@@ -749,6 +753,11 @@ def postVideo():
                 content_statement=data.get('contentStatement', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
+                # 今日头条特有参数
+                enable_generate_image=data.get('enableGenerateImage', True),
+                collection_id=data.get('collection', ''),
+                extend_link=data.get('extendLink', False),
+                extend_link_url=data.get('extendLinkUrl', ''),
             ))
         else:
             result = publish_fn(
@@ -785,6 +794,11 @@ def postVideo():
                 content_statement=data.get('contentStatement', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
+                # 今日头条特有参数
+                enable_generate_image=data.get('enableGenerateImage', True),
+                collection_id=data.get('collection', ''),
+                extend_link=data.get('extendLink', False),
+                extend_link_url=data.get('extendLinkUrl', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

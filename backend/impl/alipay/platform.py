@@ -515,12 +515,14 @@ class AlipayPlatform(BasePlatform):
     async def _set_music(page, music_title: str):
         """选择背景音乐(文档 ~/ZFB-tuji.md 行 14-22)。
 
+        支付宝音乐选择组件**没有搜索功能**，是分页显示(每页5首)。
+        因此需要**逐页翻页查找**目标音乐，直到找到或没有更多页。
+
         流程:
         1. 点「添加音乐」button.ant-btn 打开「选择音乐」modal
         2. 等 antd5-modal「选择音乐」打开
-        3. JS hover 目标项 → 让「使用」按钮显示(原本 opacity:0/visibility:hidden)
-        4. 点目标项内的 button:has-text("使用")
-        5. 等 modal 关闭
+        3. 循环:当前页查找 → 找到则点击使用 → 未找到则点下一页
+        4. 等 modal 关闭
 
         支付宝音乐项 DOM:
           <div class="...group" ...>
@@ -531,8 +533,10 @@ class AlipayPlatform(BasePlatform):
             </button>
           </div>
 
-        「使用」按钮默认隐藏(opacity:0 + visibility:hidden),
-        需要先在父级触发 mouseenter 才会显示。
+        分页 DOM:
+          <ul class="antd5-pagination">
+            <li title="Next Page" class="antd5-pagination-next">...</li>
+          </ul>
         """
         if not music_title:
             return
@@ -560,64 +564,90 @@ class AlipayPlatform(BasePlatform):
             logger.warning("[alipay-image] 音乐 modal 未打开: %s", e)
             return
 
-        # 3. JS:在所有音乐项里找 title 匹配 → mouseenter → 点「使用」
-        #    一次性在浏览器侧完成 hover + 点击,避免 Playwright hover 对
-        #    CSS-only visibility 切换的时序问题。
-        clicked = await page.evaluate(
-            """(name) => {
-                const modal = document.querySelector(
-                    'div.antd5-modal[aria-modal="true"]'
-                );
-                if (!modal) return 'no-modal';
-                // 音乐项容器:每项是一个 div(含 img + title div + 使用 button)
-                // 项内 <div title="xxx"> 是音乐名,或 <img alt="xxx">
-                const items = modal.querySelectorAll('div[class*="group"]');
-                const target = Array.from(items).find(el => {
-                    const t = el.querySelector('div[title]');
-                    const img = el.querySelector('img[alt]');
-                    const tn = t ? t.getAttribute('title') : '';
-                    const an = img ? img.getAttribute('alt') : '';
-                    return tn === name || an === name
-                        || (tn && tn.includes(name))
-                        || (an && an.includes(name));
-                });
-                if (!target) return 'not-found';
-                // 触发 hover(group-hover:opacity-100)
-                target.dispatchEvent(
-                    new MouseEvent('mouseenter', {bubbles: true})
-                );
-                target.dispatchEvent(
-                    new MouseEvent('mouseover', {bubbles: true})
-                );
-                // 找「使用」按钮(button > span 文本「使 用」中间有空格)
-                const btns = target.querySelectorAll('button');
-                for (const b of btns) {
-                    const txt = (b.textContent || '').replace(/\\s/g, '');
-                    if (txt === '使用') {
-                        b.style.visibility = 'visible';
-                        b.style.opacity = '1';
-                        b.click();
-                        return 'clicked';
-                    }
-                }
-                return 'no-btn';
-            }""",
-            music_title,
-        )
+        # 3. 逐页翻页查找目标音乐
+        max_pages = 20  # 安全上限,防止死循环
+        found = False
 
-        if clicked == "clicked":
-            logger.info("[alipay-image] 已选音乐: %s", music_title)
-        else:
-            logger.warning(
-                "[alipay-image] 选择音乐「%s」失败: %s", music_title, clicked,
+        for page_num in range(1, max_pages + 1):
+            logger.info("[alipay-image] 音乐查找: 第 %d 页,目标「%s」", page_num, music_title)
+
+            # 在当前页查找目标音乐
+            clicked = await page.evaluate(
+                """(name) => {
+                    const modal = document.querySelector(
+                        'div.antd5-modal[aria-modal="true"]'
+                    );
+                    if (!modal) return 'no-modal';
+                    // 音乐项容器:每项是一个 div(含 img + title div + 使用 button)
+                    const items = modal.querySelectorAll('div[class*="group"]');
+                    const target = Array.from(items).find(el => {
+                        const t = el.querySelector('div[title]');
+                        const img = el.querySelector('img[alt]');
+                        const tn = t ? t.getAttribute('title') : '';
+                        const an = img ? img.getAttribute('alt') : '';
+                        return tn === name || an === name
+                            || (tn && tn.includes(name))
+                            || (an && an.includes(name));
+                    });
+                    if (!target) return 'not-found';
+                    // 触发 hover(group-hover:opacity-100)
+                    target.dispatchEvent(
+                        new MouseEvent('mouseenter', {bubbles: true})
+                    );
+                    target.dispatchEvent(
+                        new MouseEvent('mouseover', {bubbles: true})
+                    );
+                    // 找「使用」按钮(button > span 文本「使 用」中间有空格)
+                    const btns = target.querySelectorAll('button');
+                    for (const b of btns) {
+                        const txt = (b.textContent || '').replace(/\\s/g, '');
+                        if (txt === '使用') {
+                            b.style.visibility = 'visible';
+                            b.style.opacity = '1';
+                            b.click();
+                            return 'clicked';
+                        }
+                    }
+                    return 'no-btn';
+                }""",
+                music_title,
             )
+
+            if clicked == "clicked":
+                logger.info("[alipay-image] 已选音乐: %s (第 %d 页)", music_title, page_num)
+                found = True
+                break
+            elif clicked != "not-found":
+                logger.warning("[alipay-image] 音乐查找异常: %s", clicked)
+                break
+
+            # 当前页未找到,尝试翻到下一页
+            try:
+                next_btn = page.locator(
+                    'li.antd5-pagination-next:not([aria-disabled="true"]):not(.antd5-pagination-disabled)'
+                ).first
+                # 检查下一页按钮是否可用
+                next_count = await next_btn.count()
+                if next_count == 0:
+                    logger.info("[alipay-image] 音乐「%s」未找到,已无更多页(共 %d 页)", music_title, page_num)
+                    break
+
+                await next_btn.click()
+                logger.info("[alipay-image] 翻到第 %d 页", page_num + 1)
+                await asyncio.sleep(1.0)  # 等待下一页加载
+            except Exception as e:
+                logger.info("[alipay-image] 翻页失败(可能已到最后一页): %s", e)
+                break
+
+        if not found:
+            logger.warning("[alipay-image] 未找到音乐「%s」,跳过音乐设置", music_title)
             try:
                 await page.keyboard.press("Escape")
             except Exception:
                 pass
             return
 
-        # 5. 等 modal 关闭(最多 8s)
+        # 4. 等 modal 关闭(最多 8s)
         try:
             await page.locator(
                 'div.antd5-modal[aria-modal="true"]:has-text("选择音乐")'

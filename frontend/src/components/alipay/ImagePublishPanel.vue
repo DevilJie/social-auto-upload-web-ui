@@ -43,9 +43,12 @@
     <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">作者声明</div>
       <div class="setting-hint">可选。选择作者声明</div>
-      <el-select v-model="form.authorStatement" placeholder="请选择作者声明（可选）" :disabled="disabled" clearable style="width: 100%;">
-        <el-option label="内容由AI生成" value="内容由AI生成" />
-      </el-select>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <el-select v-model="form.authorStatement" placeholder="请选择作者声明（可选）" :disabled="disabled" clearable style="flex: 1;">
+          <el-option label="内容由AI生成" value="内容由AI生成" />
+        </el-select>
+        <el-button v-if="form.authorStatement" text size="small" @click="form.authorStatement = ''" :disabled="disabled">清空</el-button>
+      </div>
     </div>
 
     <!-- 音乐选择抽屉 -->

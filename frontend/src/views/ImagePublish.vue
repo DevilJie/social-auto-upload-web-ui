@@ -478,10 +478,11 @@ function resolveAccountConfig(platformKey, accountId) {
 
 function mergeConfig(common, platformDefault, platformOv, accountOv) {
   return {
-    // 文本字段仅从 platformDefault 取（覆写区不再含 title/desc/tags）
-    title: platformDefault?.title ?? '',
-    description: platformDefault?.description ?? '',
-    tags: platformDefault?.tags ?? [],
+    // 文本字段走 4 级合并(accountOv > platformOv > platformDefault > '')
+    // 修复:原来只从 platformDefault 取,导致账号级覆写的 title 取不到
+    title: accountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
+    description: accountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
+    tags: accountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
     // 媒体字段走 4 级合并 → commonConfig 兜底
     images: accountOv?.images ?? platformOv?.images ?? platformDefault?.images ?? common.images,
     coverImage: accountOv?.coverImage ?? platformOv?.coverImage ?? platformDefault?.coverImage ?? common.coverImage,

@@ -157,6 +157,9 @@ const isPlatformKeyDisabled = (key) => appStore.isPlatformDisabled(key)
 
 const filteredAccounts = computed(() => {
   let list = accountStore.accounts
+  // 只显示 props.platforms 里有的渠道账号（图集发布只显示支持的渠道）
+  const allowedPlatformNames = new Set(props.platforms.map(p => p.name))
+  list = list.filter(a => allowedPlatformNames.has(a.platform))
   list = list.filter(a => !isPlatformKeyDisabled(platformKeyOf(a)))
   if (selectedPlatformNames.value.size > 0) {
     list = list.filter(a => selectedPlatformNames.value.has(a.platform))

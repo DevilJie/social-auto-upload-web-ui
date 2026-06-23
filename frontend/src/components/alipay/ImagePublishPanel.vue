@@ -41,9 +41,9 @@
     </div>
 
     <div class="setting-card" style="grid-column: 1 / -1">
-      <div class="setting-label">作者声明 <span class="required">*</span></div>
-      <div class="setting-hint">支付宝图集作者声明仅支持「内容由AI生成」</div>
-      <el-select v-model="form.authorStatement" placeholder="请选择作者声明" :disabled="disabled" style="width: 100%;">
+      <div class="setting-label">作者声明</div>
+      <div class="setting-hint">可选。选择作者声明</div>
+      <el-select v-model="form.authorStatement" placeholder="请选择作者声明（可选）" :disabled="disabled" clearable style="width: 100%;">
         <el-option label="内容由AI生成" value="内容由AI生成" />
       </el-select>
     </div>
@@ -81,7 +81,7 @@ const ALIPAY_DEFAULTS = {
   description: '',
   tags: [],
   music: null, // { musicId, title, coverUrl, audioUrl, duration }
-  authorStatement: '内容由AI生成',
+  authorStatement: '',
 }
 
 const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
@@ -106,7 +106,7 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
             tags: merged.tags || [],
             music_id: merged.music?.musicId || '',
             music_title: merged.music?.title || '',
-            author_statement: '内容由AI生成', // 图集固定,后端兜底
+            author_statement: merged.authorStatement || '', // 可选
             cover_path: '',
             dry_run: false,
           },

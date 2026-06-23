@@ -50,6 +50,10 @@ _ALIPAY_CREATOR_URL = "https://c.alipay.com/page/life-account/index"
 _ALIPAY_PUBLISH_URL = (
     "https://c.alipay.com/page/content-creation/publish/short-video"
 )
+# 图集(图文)发布页 — 与视频页 short-video 独立,文档 ~/ZFB-tuji.md
+_ALIPAY_SHORT_CONTENT_URL = (
+    "https://c.alipay.com/page/content-creation/publish/short-content"
+)
 
 
 # ======================================================================
@@ -264,6 +268,368 @@ class AlipayPlatform(BasePlatform):
                     enable_timer=enable_timer,
                     schedule_time_str=schedule_time_str,
                 )
+
+    # ------------------------------------------------------------------
+    # Image (图集) publishing — 图文发布页 short-content
+    # 文档 ~/ZFB-tuji.md
+    # ------------------------------------------------------------------
+
+    def publish_image(self, **kwargs) -> bool:
+        """支付宝图集发布(sync wrapper)。
+
+        Accepted keyword arguments:
+
+        - ``title`` (*str*)        — 标题(≤30 字)
+        - ``files`` (*list[str]*)  — 图片绝对路径列表(多图)
+        - ``tags`` (*list[str]*)   — 话题
+        - ``account_file`` (*list[str]*) — cookie 文件名列表
+        - ``desc`` (*str*)         — 描述
+        - ``author_statement`` (*str*) — 作者声明(默认「内容由AI生成」)
+        - ``music_title`` (*str*)  — 选中的音乐名(可选)
+        - ``music_id`` (*str*)     — 选中的音乐 id(可选,保留)
+        """
+        asyncio.run(self._upload_all_images(**kwargs))
+        return True
+
+    async def _upload_all_images(self, **kwargs):
+        """图片集 × 账号 笛卡尔积,每个组合一个 browser。"""
+        title = kwargs.get("title", "")
+        files = kwargs.get("files", []) or []
+        tags = kwargs.get("tags", []) or []
+        account_file = kwargs.get("account_file", []) or []
+        desc = kwargs.get("desc", "") or ""
+        # 图集作者声明下拉只有「内容由AI生成」一个选项,空则兜底填它
+        author_statement = (
+            kwargs.get("author_statement", "")
+            or kwargs.get("author_declaration", "")
+            or "内容由AI生成"
+        )
+        music_title = kwargs.get("music_title", "") or ""
+
+        account_paths = [
+            str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
+        ]
+        file_paths = [str(f) for f in files]
+
+        for cookie_path in account_paths:
+            await self._upload_one_image_set(
+                title=title,
+                file_paths=file_paths,
+                tags=tags,
+                account_file=cookie_path,
+                desc=desc,
+                author_statement=author_statement,
+                music_title=music_title,
+            )
+
+    async def _upload_one_image_set(
+        self,
+        title: str,
+        file_paths: list,
+        tags: list,
+        account_file: str,
+        desc: str = "",
+        author_statement: str = "内容由AI生成",
+        music_title: str = "",
+    ):
+        """一组图片上传到单个账号的完整流程。"""
+        logger.info(
+            "[alipay-image] ===== 上送参数 =====\n"
+            "  title=%r\n"
+            "  image_count=%d\n"
+            "  tags=%r\n"
+            "  account_file=%r\n"
+            "  desc=%r\n"
+            "  author_statement=%r\n"
+            "  music_title=%r\n"
+            "========================",
+            title, len(file_paths), tags,
+            os.path.basename(account_file),
+            desc, author_statement, music_title,
+        )
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(
+                browser,
+                storage_state=account_file,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/127.0.4324.150 Safari/537.36"
+                ),
+            )
+            try:
+                page = await context.new_page()
+                await page.goto(_ALIPAY_SHORT_CONTENT_URL, timeout=60000)
+                await page.wait_for_load_state("domcontentloaded", timeout=30000)
+                logger.info("[alipay-image] 正在上传图片-------%s", title)
+
+                # 1. 上传图片(多图)
+                await self._upload_images(page, file_paths)
+
+                # 2. 等待表单可交互(标题输入框可见)
+                await self._wait_for_image_form(page)
+
+                # 3. 填标题
+                await self._set_title(page, title)
+
+                # 4. 填描述 + 话题
+                await self._set_description_and_tags(page, desc, title, tags)
+
+                # 5. 音乐(可选)
+                if music_title:
+                    await self._set_music(page, music_title)
+
+                # 6. 作者声明(必填,默认「内容由AI生成」)
+                await self._set_author_statement(page, author_statement)
+
+                # 7. 点击「确认发布」
+                await self._click_publish(page)
+
+                # 8. 等待发布成功(图集走 short-content 跳转判据)
+                await self._wait_for_publish_success(page, page_type="image")
+
+                # 9. 保存 cookie
+                await context.storage_state(path=account_file)
+                logger.info("[alipay-image] cookie 已更新")
+                await asyncio.sleep(2)
+            finally:
+                await context.close()
+        finally:
+            await browser.close()
+
+    # ------------------------------------------------------------------
+    # Helper (image): upload multiple images via hidden input[type=file]
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _upload_images(page, image_paths: list):
+        """上传多张图片 — 图集页 input[type=file][accept*='image'] multiple。
+
+        支付宝图集上传区 DOM(文档 ~/ZFB-tuji.md):
+          <input type="file" accept="image/jpeg,image/png" multiple
+                 style="display: none;">
+
+        与视频版 ``_upload_video_file`` 的差异:
+        - accept 是 image/* 而非 video/*
+        - 支持 multiple,一次性传多张(set_input_files 接受 list)
+        - 无需像视频那样上传后才渲染表单,这里上传完直接进入填表单
+        """
+        valid_paths = [p for p in image_paths if p and os.path.exists(p)]
+        if not valid_paths:
+            raise RuntimeError(
+                "[alipay-image] 无有效图片文件 "
+                f"(传入 {len(image_paths)} 个)"
+            )
+
+        total_size = sum(os.path.getsize(p) for p in valid_paths)
+        logger.info(
+            "[alipay-image] 准备上传 %d 张图片(共 %.1f MB)",
+            len(valid_paths), total_size / 1024 / 1024,
+        )
+
+        # 策略 1: 直接找图片专用的 input(accept 含 image)
+        try:
+            image_input = page.locator(
+                "input[type='file'][accept*='image']"
+            ).first
+            await image_input.wait_for(state="attached", timeout=15000)
+            await image_input.set_input_files(valid_paths)
+            logger.info(
+                "[alipay-image] 已通过 set_input_files 提交 %d 张图片",
+                len(valid_paths),
+            )
+            return
+        except Exception as e:
+            logger.info("[alipay-image] 策略① image input 失败: %s", e)
+
+        # 策略 2: 任意 input[type=file] 兜底(过滤掉非图片 accept)
+        try:
+            all_inputs = page.locator("input[type='file']")
+            cnt = await all_inputs.count()
+            for i in range(cnt):
+                fi = all_inputs.nth(i)
+                accept_val = (await fi.get_attribute("accept") or "").lower()
+                # 跳过 video 专用,接受 image 或空 accept
+                if "video" in accept_val:
+                    continue
+                await fi.set_input_files(valid_paths)
+                logger.info(
+                    "[alipay-image] 已通过兜底 input #%d 提交 %d 张图片",
+                    i, len(valid_paths),
+                )
+                return
+        except Exception as e:
+            logger.info("[alipay-image] 策略② 兜底 input 失败: %s", e)
+
+        # 策略 3: expect_file_chooser + 点击上传区
+        try:
+            upload_trigger = page.get_by_text("上传图片").first
+            async with page.expect_file_chooser(timeout=10000) as fc_info:
+                await upload_trigger.click(force=True)
+            fc = await fc_info.value
+            await fc.set_files(valid_paths)
+            logger.info(
+                "[alipay-image] 已通过 expect_file_chooser 提交 %d 张图片",
+                len(valid_paths),
+            )
+            return
+        except Exception as e:
+            logger.info("[alipay-image] 策略③ file_chooser 失败: %s", e)
+
+        raise RuntimeError("[alipay-image] 所有图片上传策略均失败")
+
+    # ------------------------------------------------------------------
+    # Helper (image): wait for form interactive
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _wait_for_image_form(page, timeout_s: int = 120):
+        """等待图集表单可交互(标题输入框可见)。
+
+        图集页无需像视频页那样等大文件上传,判据简化为:
+        标题输入框 ``input[placeholder*='好的标题']`` 可见。
+        默认超时 120s(图集上传 + 处理通常很快,留余量)。
+        """
+        title_input = page.locator(
+            "input[placeholder*='好的标题']"
+        ).first
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                if await title_input.is_visible():
+                    logger.info("[alipay-image] 表单已可交互(标题输入框可见)")
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(3)
+        raise RuntimeError(
+            f"[alipay-image] 等待表单就绪超时({timeout_s}s)"
+        )
+
+    # ------------------------------------------------------------------
+    # Helper (image): select music (添加音乐 → hover → 使用)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_music(page, music_title: str):
+        """选择背景音乐(文档 ~/ZFB-tuji.md 行 14-22)。
+
+        流程:
+        1. 点「添加音乐」button.ant-btn 打开「选择音乐」modal
+        2. 等 antd5-modal「选择音乐」打开
+        3. JS hover 目标项 → 让「使用」按钮显示(原本 opacity:0/visibility:hidden)
+        4. 点目标项内的 button:has-text("使用")
+        5. 等 modal 关闭
+
+        支付宝音乐项 DOM:
+          <div class="...group" ...>
+            <img alt="{音乐名}" ...>
+            <div title="{音乐名}" ...>...</div>
+            <button class="...opacity-0 group-hover:opacity-100" style="visibility:hidden;">
+              <span>使 用</span>
+            </button>
+          </div>
+
+        「使用」按钮默认隐藏(opacity:0 + visibility:hidden),
+        需要先在父级触发 mouseenter 才会显示。
+        """
+        if not music_title:
+            return
+
+        # 1. 点「添加音乐」
+        try:
+            add_music_btn = page.locator(
+                "button.ant-btn:has-text('添加音乐')"
+            ).first
+            await add_music_btn.wait_for(state="visible", timeout=10000)
+            await add_music_btn.click()
+            logger.info("[alipay-image] 已点击「添加音乐」,等待 modal")
+            await asyncio.sleep(1.5)
+        except Exception as e:
+            logger.warning("[alipay-image] 未找到「添加音乐」按钮: %s", e)
+            return
+
+        # 2. 等 modal 打开
+        try:
+            music_modal = page.locator(
+                'div.antd5-modal[aria-modal="true"]:has-text("选择音乐")'
+            ).first
+            await music_modal.wait_for(state="visible", timeout=10000)
+        except Exception as e:
+            logger.warning("[alipay-image] 音乐 modal 未打开: %s", e)
+            return
+
+        # 3. JS:在所有音乐项里找 title 匹配 → mouseenter → 点「使用」
+        #    一次性在浏览器侧完成 hover + 点击,避免 Playwright hover 对
+        #    CSS-only visibility 切换的时序问题。
+        clicked = await page.evaluate(
+            """(name) => {
+                const modal = document.querySelector(
+                    'div.antd5-modal[aria-modal="true"]'
+                );
+                if (!modal) return 'no-modal';
+                // 音乐项容器:每项是一个 div(含 img + title div + 使用 button)
+                // 项内 <div title="xxx"> 是音乐名,或 <img alt="xxx">
+                const items = modal.querySelectorAll('div[class*="group"]');
+                const target = Array.from(items).find(el => {
+                    const t = el.querySelector('div[title]');
+                    const img = el.querySelector('img[alt]');
+                    const tn = t ? t.getAttribute('title') : '';
+                    const an = img ? img.getAttribute('alt') : '';
+                    return tn === name || an === name
+                        || (tn && tn.includes(name))
+                        || (an && an.includes(name));
+                });
+                if (!target) return 'not-found';
+                // 触发 hover(group-hover:opacity-100)
+                target.dispatchEvent(
+                    new MouseEvent('mouseenter', {bubbles: true})
+                );
+                target.dispatchEvent(
+                    new MouseEvent('mouseover', {bubbles: true})
+                );
+                // 找「使用」按钮(button > span 文本「使 用」中间有空格)
+                const btns = target.querySelectorAll('button');
+                for (const b of btns) {
+                    const txt = (b.textContent || '').replace(/\\s/g, '');
+                    if (txt === '使用') {
+                        b.style.visibility = 'visible';
+                        b.style.opacity = '1';
+                        b.click();
+                        return 'clicked';
+                    }
+                }
+                return 'no-btn';
+            }""",
+            music_title,
+        )
+
+        if clicked == "clicked":
+            logger.info("[alipay-image] 已选音乐: %s", music_title)
+        else:
+            logger.warning(
+                "[alipay-image] 选择音乐「%s」失败: %s", music_title, clicked,
+            )
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+            return
+
+        # 5. 等 modal 关闭(最多 8s)
+        try:
+            await page.locator(
+                'div.antd5-modal[aria-modal="true"]:has-text("选择音乐")'
+            ).wait_for(state="hidden", timeout=8000)
+            logger.info("[alipay-image] 音乐 modal 已关闭")
+        except Exception:
+            # 兜底:Esc 强关
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+        await asyncio.sleep(0.5)
 
     # ------------------------------------------------------------------
     # Internal: upload one video to one account
@@ -1114,7 +1480,7 @@ class AlipayPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _wait_for_publish_success(page, timeout_s: int = 90):
+    async def _wait_for_publish_success(page, timeout_s: int = 90, page_type: str = "video"):
         """等待发布完成信号,并处理"发布请注意"优化提示弹窗。
 
         点完「确认发布」后,支付宝可能弹出一个 ``发布请注意`` 的 modal,
@@ -1126,7 +1492,9 @@ class AlipayPlatform(BasePlatform):
         然后等 URL 跳转离开发布页 = 发布成功。
 
         成功判据(OR):
-        1. URL 跳转离开 short-video 发布页(最可靠)
+        1. URL 跳转离开当前发布页(最可靠)
+           - video → "publish/short-video"
+           - image → "publish/short-content"
         2. 检测到"发布成功"文案
 
         中间状态处理:
@@ -1134,6 +1502,10 @@ class AlipayPlatform(BasePlatform):
 
         90s 内任一成功判据命中即视为成功。
         """
+        publish_path = (
+            "publish/short-content" if page_type == "image"
+            else "publish/short-video"
+        )
         deadline = asyncio.get_event_loop().time() + timeout_s
         original_url = page.url
         continue_clicked = False
@@ -1179,7 +1551,7 @@ class AlipayPlatform(BasePlatform):
                 current_url = page.url
                 if (
                     current_url != original_url
-                    and "publish/short-video" not in current_url
+                    and publish_path not in current_url
                 ):
                     logger.info("[alipay] 发布成功(URL 已跳转: %s)", current_url)
                     return

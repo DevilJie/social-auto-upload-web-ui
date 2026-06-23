@@ -174,6 +174,7 @@ def publish_images():
                 'kuaishou': 4,
                 '快手': 4,
                 'weibo': 11, '微博': 11,   # 新增
+                'alipay': 12, '支付宝': 12,  # 图集发布
             }
             platform_id = platform_map.get(platform_type)
             if not platform_id:
@@ -214,6 +215,7 @@ def publish_images():
                 is_original=config.get('isOriginal', False),
                 activities=config.get('activities', []),
                 author_declaration=config.get('aiContent', ''),
+                author_statement=config.get('author_statement', '') or config.get('authorStatement', ''),
                 music_id=config.get('music_id', ''),
                 music_title=config.get('music_title', ''),
                 dry_run=dry_run,
@@ -382,6 +384,7 @@ def _extract_image_channels_summary(draft_data):
         5: ('bilibili', 'B站'),
         6: ('baijiahao', '百家号'),
         11: ('weibo', '微博'),   # 新增
+        12: ('alipay', '支付宝'),  # 图集发布
     }
 
     try:
@@ -459,7 +462,7 @@ def execute_publish():
     # 平台名映射（与 /publish 一致，用于在 publish_details.platform 存可读名）
     platform_name_map = {1: '小红书', 2: '视频号', 3: '抖音', 4: '快手', 5: 'B站',
                          6: '百家号', 7: 'TikTok', 8: 'YouTube', 9: '腾讯视频', 10: '爱奇艺',
-                         11: '微博'}  # 新增
+                         11: '微博', 12: '支付宝'}  # 新增
     platform_label = platform_name_map.get(int(platform_type), str(platform_type))
 
     now = datetime.now().isoformat()

@@ -41,6 +41,10 @@ alipay_bp = Blueprint('alipay', __name__, url_prefix='/api/alipay')
 _ALIPAY_PUBLISH_URL = (
     "https://c.alipay.com/page/content-creation/publish/short-video"
 )
+# 图集(图文)发布页 — 文档 ~/ZFB-tuji.md
+_ALIPAY_SHORT_CONTENT_URL = (
+    "https://c.alipay.com/page/content-creation/publish/short-content"
+)
 
 
 def _get_cookie_path(cookie_file: str) -> str:
@@ -302,3 +306,299 @@ def run_async(coro):
     except RuntimeError:
         pass
     return asyncio.run(coro)
+
+
+# ======================================================================
+# /api/alipay/music-list — 图集背景音乐列表
+# 文档 ~/ZFB-tuji.md:支付宝音乐组件无搜索,只有分页展示 + 试听
+#
+# 接口(实测抓包确认):
+#   GET https://contentweb.alipay.com/life/queryAllMaterial.json
+#       ?pamir_app_scene=CONTENT
+#   一次性返回全部背景音乐(约 40 首),分页是前端纯 UI 分页。
+#   音乐在 result.materialTypes[0].materials[0].materialDetails[]
+#   字段映射:
+#     name              -> title
+#     code              -> musicId
+#     snapshotImageUrl  -> coverUrl
+#     resourceAccessUrl -> audioUrl(试听直链)
+#     configs           -> JSON 字符串 {"audioTime": 秒数} -> duration
+# ======================================================================
+
+@alipay_bp.route('/music-list', methods=['GET'])
+def music_list():
+    """获取支付宝图集背景音乐列表(全量返回,前端客户端分页)。
+
+    Query params:
+        account_id: 账号 id(用于取 cookie)
+
+    Returns:
+        {"code": 200, "data": {
+            "list": [{"musicId","title","coverUrl","audioUrl","duration"}],
+            "total": N
+        }}
+
+    实现:
+        打开图集发布页 → 点「添加音乐」打开 modal → 精确拦截
+        queryAllMaterial.json 响应 → 解析 materialDetails 数组。
+        一次返回全部,前端自行分页(避免每次翻页都开浏览器)。
+    """
+    account_id = request.args.get('account_id')
+
+    logger.info(f"[音乐列表] 收到请求: account_id={account_id}")
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            logger.warning(f"[音乐列表] 账号不存在: {account_id}")
+            return jsonify({"code": 404, "msg": "没有可用的支付宝账号"}), 404
+
+        result = run_async(_fetch_music_list_via_browser(cookie_file))
+
+        if result.get("success"):
+            data = result.get("data", {})
+            items = data.get("list", [])
+            logger.info(f"[音乐列表] 成功,共 {len(items)} 首音乐")
+            return jsonify({"code": 200, "data": data})
+        else:
+            logger.error(f"[音乐列表] 失败: {result.get('error')}")
+            return jsonify({
+                "code": 500, "msg": result.get("error", "请求失败"),
+            }), 500
+    except Exception as e:
+        logger.error(f"[音乐列表] 异常: {e}", exc_info=True)
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+async def _fetch_music_list_via_browser(cookie_file: str) -> dict:
+    """用 CloakBrowser 打开图集页 + 点添加音乐 + 精确拦截音乐列表响应。
+
+    接口 queryAllMaterial.json 一次性返回全部音乐,无翻页。
+
+    注意:图集发布页的「添加音乐」按钮在表单完全渲染后才出现。
+    表单渲染需要先上传至少一张图片(与视频页「先上传空视频」同理),
+    所以这里会准备一张测试图,若按钮未自动出现则上传测试图触发表单。
+    """
+    cookie_path = _get_cookie_path(cookie_file)
+
+    # 准备测试图(1x1 JPEG),用于上传触发表单渲染
+    test_image = Path(BASE_DIR / ".alipay_music_test.jpg")
+    if not test_image.exists():
+        try:
+            _create_test_jpeg(test_image)
+        except Exception as e:
+            logger.warning(f"[音乐列表] 创建测试图失败(继续尝试): {e}")
+
+    browser = await create_browser(headless=True)
+    try:
+        context = await create_context(browser, storage_state=cookie_path)
+        try:
+            page = await context.new_page()
+
+            # 1. 监听音乐素材接口(精确匹配 queryAllMaterial.json)
+            #    注册在 goto 之前,避免错过页面加载时触发的请求
+            captured_response = None
+
+            async def handle_response(response):
+                nonlocal captured_response
+                if captured_response is not None:
+                    return
+                if "queryAllMaterial.json" not in response.url:
+                    return
+                try:
+                    data = await response.json()
+                except Exception:
+                    return
+                stat = data.get("stat") if isinstance(data, dict) else None
+                logger.info(
+                    f"[音乐列表][命中] queryAllMaterial.json stat={stat}"
+                )
+                captured_response = data
+
+            page.on("response", handle_response)
+
+            # 2. 打开图集页
+            logger.info("[音乐列表] 打开支付宝图集发布页...")
+            await page.goto(_ALIPAY_SHORT_CONTENT_URL, timeout=60000)
+            await page.wait_for_load_state("domcontentloaded", timeout=30000)
+
+            # 3. 等「添加音乐」按钮可见 —— 若 3s 内没出现,上传测试图触发表单
+            add_music_btn = page.locator(
+                "button.ant-btn:has-text('添加音乐')"
+            ).first
+            try:
+                await add_music_btn.wait_for(state="visible", timeout=3000)
+                logger.info("[音乐列表] 「添加音乐」按钮已可见")
+            except Exception:
+                logger.info(
+                    "[音乐列表] 「添加音乐」按钮未直接出现,"
+                    "上传测试图触发表单渲染..."
+                )
+                if not test_image.exists():
+                    return {
+                        "success": False,
+                        "error": "「添加音乐」按钮未出现,且测试图创建失败",
+                    }
+                try:
+                    img_input = page.locator(
+                        "input[type='file'][accept*='image']"
+                    ).first
+                    await img_input.wait_for(state="attached", timeout=10000)
+                    await img_input.set_input_files(str(test_image))
+                    logger.info("[音乐列表] 已上传测试图,等表单渲染")
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"上传测试图失败: {e}",
+                    }
+                # 等表单渲染(添加音乐按钮出现)
+                try:
+                    await add_music_btn.wait_for(
+                        state="visible", timeout=20000
+                    )
+                    logger.info("[音乐列表] 上传后「添加音乐」按钮已可见")
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"上传测试图后仍未出现「添加音乐」按钮: {e}",
+                    }
+
+            # 4. 点击打开 modal(触发 queryAllMaterial.json 请求)
+            await add_music_btn.click()
+            logger.info("[音乐列表] 已点击「添加音乐」,等待 modal + 响应")
+
+            # 等 modal 打开(并行等响应,接口在 modal 打开时触发)
+            try:
+                await page.locator(
+                    'div.antd5-modal[aria-modal="true"]:has-text("选择音乐")'
+                ).first.wait_for(state="visible", timeout=10000)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"音乐 modal 未打开: {e}",
+                }
+
+            # 5. 轮询等响应(最长 15s)
+            for _ in range(150):
+                if captured_response is not None:
+                    break
+                await asyncio.sleep(0.1)
+
+            if captured_response is None:
+                return {
+                    "success": False,
+                    "error": "未能拦截到 queryAllMaterial.json 响应"
+                    "(可能页面未触发请求,检查 cookie 是否有效)",
+                }
+
+            # 6. 解析响应,提取音乐数组并标准化
+            items = _parse_music_response(captured_response)
+            if not items:
+                return {
+                    "success": False,
+                    "error": "响应已捕获但解析出 0 首音乐"
+                    f"(stat={captured_response.get('stat')})",
+                    "data": {"raw_sample": str(captured_response)[:500]},
+                }
+
+            return {
+                "success": True,
+                "data": {
+                    "list": items,
+                    "total": len(items),
+                },
+            }
+
+        finally:
+            await context.close()
+    finally:
+        await browser.close()
+
+
+def _create_test_jpeg(path: Path):
+    """创建一个 1x1 像素的最小 JPEG(用于上传触发表单渲染)。"""
+    try:
+        from PIL import Image
+        img = Image.new('RGB', (1, 1), color='white')
+        img.save(str(path), 'JPEG')
+        return
+    except ImportError:
+        pass
+    # 无 PIL 时,写一个硬编码的最小 JPEG 文件头
+    path.write_bytes(
+        b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01'
+        b'\x00\x01\x00\x00\xff\xdb\x00C\x00\x08\xff\xff\xff\xff'
+        b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+        b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+        b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+        b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+        b'\xff\xff\xff\xff\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01'
+        b'\x01\x11\x00\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00'
+        b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda'
+        b'\x00\x08\x01\x01\x00\x00?\x00\xfb\xff\xd9'
+    )
+
+
+def _parse_music_response(data: dict) -> list:
+    """解析 queryAllMaterial.json 响应,提取标准化音乐列表。
+
+    响应路径:result.materialTypes[].materials[].materialDetails[]
+    过滤:materialType 数组里 type == "music" 的分类下的 materialDetails。
+    (实测响应里只有一个 music 分类,但保留遍历逻辑以防结构扩展)
+    """
+    if not isinstance(data, dict) or data.get("stat") != "ok":
+        logger.warning(
+            f"[音乐列表] 响应 stat 非 ok: {data.get('stat') if isinstance(data, dict) else type(data)}"
+        )
+        return []
+
+    result = data.get("result") or {}
+    material_types = result.get("materialTypes") or []
+    items = []
+
+    for mt in material_types:
+        if not isinstance(mt, dict):
+            continue
+        # 只取 music 分类
+        if mt.get("type") != "music":
+            continue
+        for material in (mt.get("materials") or []):
+            for detail in (material.get("materialDetails") or []):
+                if not isinstance(detail, dict):
+                    continue
+                items.append(_normalize_music_detail(detail))
+
+    return items
+
+
+def _normalize_music_detail(detail: dict) -> dict:
+    """把单个 materialDetail 标准化为前端使用的音乐对象。
+
+    字段映射(实测):
+      - code:              音乐唯一码(如 M220260617163945272)
+      - name:              音乐名
+      - snapshotImageUrl:  封面图
+      - resourceAccessUrl: 试听音频直链
+      - configs:           JSON 字符串,如 {"audioTime": 24} (秒)
+    """
+    import json as _json
+
+    # 解析 configs 里的 audioTime(秒数)
+    duration = ""
+    configs_raw = detail.get("configs") or ""
+    if configs_raw:
+        try:
+            cfg = _json.loads(configs_raw)
+            audio_time = cfg.get("audioTime")
+            if isinstance(audio_time, (int, float)):
+                duration = int(audio_time)
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "musicId": detail.get("code") or "",
+        "title": detail.get("name") or "",
+        "coverUrl": detail.get("snapshotImageUrl") or "",
+        "audioUrl": detail.get("resourceAccessUrl") or "",
+        "duration": duration,
+    }

@@ -142,6 +142,14 @@
             @config-changed="onChannelConfigChanged"
             @publish-result="onPublishResult"
           />
+          <AlipayImagePublishPanel
+            ref="alipayPanelRef"
+            :account-id="selectedPlatform === 'alipay' ? selectedAccountId : null"
+            :disabled="publishing"
+            v-show="selectedPlatform === 'alipay'"
+            @config-changed="onChannelConfigChanged"
+            @publish-result="onPublishResult"
+          />
         </div>
 
         <!-- No account selected hint -->
@@ -295,6 +303,7 @@ import DouyinImagePublishPanel from '@/components/douyin/ImagePublishPanel.vue'
 import XiaohongshuImagePublishPanel from '@/components/xiaohongshu/ImagePublishPanel.vue'
 import KuaishouImagePublishPanel from '@/components/kuaishou/ImagePublishPanel.vue'
 import WeiboImagePublishPanel from '@/components/weibo/ImagePublishPanel.vue'
+import AlipayImagePublishPanel from '@/components/alipay/ImagePublishPanel.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -303,7 +312,7 @@ appStore.loadAutoFillTitle()
 appStore.loadAutoSaveSettings()
 const route = useRoute()
 
-const IMAGE_PLATFORM_KEYS = ['xiaohongshu', 'douyin', 'kuaishou', 'weibo']
+const IMAGE_PLATFORM_KEYS = ['xiaohongshu', 'douyin', 'kuaishou', 'weibo', 'alipay']
 const IMAGE_PLATFORMS = platformList.filter(p => IMAGE_PLATFORM_KEYS.includes(p.key))
 
 // ========== Left Sidebar State ==========
@@ -391,9 +400,10 @@ const douyinPanelRef = ref(null)
 const xiaohongshuPanelRef = ref(null)
 const kuaishouPanelRef = ref(null)
 const weiboPanelRef = ref(null)
+const alipayPanelRef = ref(null)
 
 function getPanel(key) {
-  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef, weibo: weiboPanelRef }
+  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef, weibo: weiboPanelRef, alipay: alipayPanelRef }
   return map[key]?.value
 }
 
@@ -413,7 +423,7 @@ function onPublishResult({ accountName, status, message }) {
 function hasAccountOverride(accountId) {
   // Task 10：新增覆写层勾选 + panel 内部 accountOverrides 任一为真都算
   if (accountChecked[accountId] && hasAccountOverrideContent(accountId)) return true
-  for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
+  for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo', 'alipay']) {
     const panel = getPanel(key)
     if (panel && panel.hasAccountOverride(accountId)) return true
   }
@@ -479,6 +489,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
     aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
+    music: accountOv?.music ?? platformOv?.music ?? platformDefault?.music ?? null,
+    authorStatement: accountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
   }
 }
 
@@ -502,6 +514,7 @@ const panelsProxy = reactive({
   get xiaohongshu() { return xiaohongshuPanelRef.value },
   get kuaishou() { return kuaishouPanelRef.value },
   get weibo() { return weiboPanelRef.value },
+  get alipay() { return alipayPanelRef.value },
 })
 const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
 // 渠道个性化可见平台列表：过滤掉被拉黑的平台
@@ -641,7 +654,7 @@ async function saveDraft() {
   try {
     const allPlatformConfigs = {}
     const panelAccountOverrides = {}
-    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo', 'alipay']) {
       const panel = getPanel(key)
       if (panel) {
         const configs = panel.getConfigs()
@@ -896,7 +909,7 @@ function handleOneClickFill(record) {
 // ========== Old Draft Migration ==========
 function migrateOldDraftFormat(dd) {
   if (dd.commonConfig?.topics && Array.isArray(dd.commonConfig.topics)) {
-    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo', 'alipay']) {
       if (dd.platformConfigs?.[key]) {
         dd.platformConfigs[key].tags = [...dd.commonConfig.topics]
       }

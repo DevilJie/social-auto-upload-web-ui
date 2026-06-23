@@ -471,27 +471,33 @@ function onAccountCheckChange(checked) {
 function resolveAccountConfig(platformKey, accountId) {
   const accountOv = (accountChecked[accountId] && accountOverrides[accountId]) || null
   const platformOv = (platformChecked[platformKey] && platformOverrides[platformKey]) || null
-  // 注意：plan 写的是 getConfig()，实际 panel 暴露的是 getConfigs() 返回 { platformConfig, accountOverrides }
-  const platformDefault = getPanel(platformKey)?.getConfigs?.()?.platformConfig || null
-  return mergeConfig(commonConfig, platformDefault, platformOv, accountOv)
+  // panel 内部状态(含 channel-specific 的 accountOverrides，如标题/描述)
+  const panelConfigs = getPanel(platformKey)?.getConfigs?.() || {}
+  const platformDefault = panelConfigs.platformConfig || null
+  // panel 内部的 accountOverrides 也需要参与合并(标题/描述/标签等文本字段
+  // 在 useChannelForm 的 watch(form) 里同步到 panel 内部 accountOverrides)
+  const panelAccountOv = panelConfigs.accountOverrides?.[accountId] || null
+  return mergeConfig(commonConfig, platformDefault, platformOv, accountOv, panelAccountOv)
 }
 
-function mergeConfig(common, platformDefault, platformOv, accountOv) {
+function mergeConfig(common, platformDefault, platformOv, accountOv, panelAccountOv = null) {
+  // 合并优先级：accountOv > panelAccountOv > platformOv > platformDefault > ''
+  // accountOv: 顶层媒体覆写(图片/封面等)
+  // panelAccountOv: panel 内部账号覆写(标题/描述/标签等文本字段)
   return {
-    // 文本字段走 4 级合并(accountOv > platformOv > platformDefault > '')
-    // 修复:原来只从 platformDefault 取,导致账号级覆写的 title 取不到
-    title: accountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
-    description: accountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
-    tags: accountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
+    // 文本字段走 4 级合并(顶层 accountOv > panel accountOv > platformOv > platformDefault)
+    title: accountOv?.title ?? panelAccountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
+    description: accountOv?.description ?? panelAccountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
+    tags: accountOv?.tags ?? panelAccountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
     // 媒体字段走 4 级合并 → commonConfig 兜底
     images: accountOv?.images ?? platformOv?.images ?? platformDefault?.images ?? common.images,
     coverImage: accountOv?.coverImage ?? platformOv?.coverImage ?? platformDefault?.coverImage ?? common.coverImage,
     enableTimer: accountOv?.enableTimer ?? platformOv?.enableTimer ?? platformDefault?.enableTimer ?? 0,
     scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
-    aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
+    aiContent: accountOv?.aiContent ?? panelAccountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
-    music: accountOv?.music ?? platformOv?.music ?? platformDefault?.music ?? null,
-    authorStatement: accountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
+    music: accountOv?.music ?? panelAccountOv?.music ?? platformOv?.music ?? platformDefault?.music ?? null,
+    authorStatement: accountOv?.authorStatement ?? panelAccountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
   }
 }
 

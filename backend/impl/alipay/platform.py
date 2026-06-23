@@ -469,14 +469,13 @@ class AlipayPlatform(BasePlatform):
                     idx + 1, len(valid_paths), img_name, attempt + 1, max_retries,
                 )
 
-                # 监听上传接口响应
-                upload_response = None
+                # 使用可变对象存储响应,避免闭包问题
+                upload_result = {"response": None}
                 async def handle_upload_response(response):
-                    nonlocal upload_response
                     if "mass.alipay.com/file/auth/upload" in response.url:
                         try:
                             data = await response.json()
-                            upload_response = data
+                            upload_result["response"] = data
                         except Exception:
                             pass
 
@@ -485,19 +484,22 @@ class AlipayPlatform(BasePlatform):
                 try:
                     # 上传单张图片
                     await image_input.set_input_files(img_path)
+                    await asyncio.sleep(0.5)  # 等待上传开始
+
                     # 等待上传完成(响应返回 或 错误 DOM)
                     for _ in range(100):  # 最多等 10s
-                        if upload_response is not None:
+                        if upload_result["response"] is not None:
                             break
                         # 检查是否出现错误 DOM
                         error_item = page.locator(
                             f'.ant-upload-list-item-error:has-text("{img_name}")'
                         ).first
                         if await error_item.count() > 0:
-                            upload_response = {"code": -1, "error": "DOM error"}
+                            upload_result["response"] = {"code": -1, "error": "DOM error"}
                             break
                         await asyncio.sleep(0.1)
 
+                    upload_response = upload_result["response"]
                     if upload_response is None:
                         logger.warning("[alipay-image] 上传超时: %s", img_name)
                         continue
@@ -508,6 +510,8 @@ class AlipayPlatform(BasePlatform):
                             img_name, upload_response.get("data", {}).get("id", ""),
                         )
                         uploaded_count += 1
+                        # 等待上传完成后再继续下一张
+                        await asyncio.sleep(1)
                         break  # 成功,跳出重试循环
                     else:
                         logger.warning(

@@ -254,6 +254,12 @@
       @cancel="cancelBatch"
     />
 
+    <!-- Pre-publish Cookie Check Dialog -->
+    <PrePublishCheckDialog
+      ref="prePublishCheckRef"
+      v-model="prePublishCheckVisible"
+    />
+
     <!-- One-click Fill Dialog -->
     <OneClickFillDialog
       v-model="oneClickDialogOpen"
@@ -304,6 +310,7 @@ import XiaohongshuImagePublishPanel from '@/components/xiaohongshu/ImagePublishP
 import KuaishouImagePublishPanel from '@/components/kuaishou/ImagePublishPanel.vue'
 import WeiboImagePublishPanel from '@/components/weibo/ImagePublishPanel.vue'
 import AlipayImagePublishPanel from '@/components/alipay/ImagePublishPanel.vue'
+import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -511,6 +518,8 @@ if (firstGroup) {
 // ========== Dialog State ==========
 const accountDialogVisible = ref(false)
 const batchPublishDialogVisible = ref(false)
+const prePublishCheckRef = ref(null)
+const prePublishCheckVisible = ref(false)
 const oneClickDialogOpen = ref(false)
 const batchSetDialogOpen = ref(false)
 
@@ -744,6 +753,15 @@ async function publishAll() {
         ElMessage.error(`${account.name}(${group.name}): ${result.errors.join('; ')}`)
         return
       }
+    }
+  }
+
+  // ===== 表单校验全部通过后，进行 Cookie 预检 =====
+  if (prePublishCheckRef.value) {
+    const accountsToCheck = accountStore.accounts.filter(a => publishAccountIds.has(a.id))
+    if (accountsToCheck.length > 0) {
+      const allValid = await prePublishCheckRef.value.open(accountsToCheck)
+      if (!allValid) return  // 用户取消或未全部修复
     }
   }
 

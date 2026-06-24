@@ -459,6 +459,12 @@
       @cancel="cancelBatch"
     />
 
+    <!-- Pre-publish Cookie Check Dialog -->
+    <PrePublishCheckDialog
+      ref="prePublishCheckRef"
+      v-model="prePublishCheckVisible"
+    />
+
     <OneClickFillDialog
       v-model="oneClickDialogOpen"
       type="video"
@@ -500,6 +506,7 @@ import DouyinHotspotSelect from '@/components/douyin/HotspotSelect.vue'
 import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
 import AlipayCompilationSelect from '@/components/alipay/CompilationSelect.vue'
+import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
@@ -974,6 +981,10 @@ const materialLibraryCoverTarget = ref('landscape')
 const oneClickDialogOpen = ref(false)
 const materialLibraryVideoTarget = ref('landscape')
 const batchPublishDialogVisible = ref(false)
+
+// ========== 发布前 Cookie 预检 ==========
+const prePublishCheckRef = ref(null)
+const prePublishCheckVisible = ref(false)
 
 // ========== 批量设 (Batch Set) ==========
 const batchSetDialogOpen = ref(false)
@@ -1594,6 +1605,15 @@ async function publishAll() {
     if (ac + tc > 5) {
       ElMessage.error(`官方活动(${ac}) + 标签(${tc}) 超过 5 个`)
       return
+    }
+  }
+
+  // ===== 表单校验全部通过后，进行 Cookie 预检 =====
+  if (publishAccountIds.size > 0 && prePublishCheckRef.value) {
+    const accountsToCheck = accountStore.accounts.filter(a => publishAccountIds.has(a.id))
+    if (accountsToCheck.length > 0) {
+      const allValid = await prePublishCheckRef.value.open(accountsToCheck)
+      if (!allValid) return  // 用户取消或未全部修复
     }
   }
 

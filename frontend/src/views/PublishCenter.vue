@@ -1427,7 +1427,22 @@ onMounted(async () => {
 })
 
 async function publishAll() {
-  if (!commonConfig.videoLandscape && !commonConfig.videoPortrait) {
+  // 视频校验：扫全部 3 个源（commonConfig / platformOverrides / accountOverrides）
+  // 个性化模式下视频可能在 platformOverrides 里，commonConfig 为空是正常的，
+  // 只看 commonConfig 会误判为「未上传视频」。
+  const hasAnyVideo = (() => {
+    if (commonConfig.videoLandscape || commonConfig.videoPortrait) return true
+    for (const aid of publishAccountIds) {
+      const ov = accountOverrides[aid]
+      if (ov && (ov.videoLandscape || ov.videoPortrait)) return true
+    }
+    for (const pkey of Object.keys(platformOverrides)) {
+      const pov = platformOverrides[pkey]
+      if (pov && (pov.videoLandscape || pov.videoPortrait)) return true
+    }
+    return false
+  })()
+  if (!hasAnyVideo) {
     ElMessage.error('请先上传至少一个视频文件')
     return
   }

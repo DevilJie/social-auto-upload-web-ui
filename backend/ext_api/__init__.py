@@ -505,6 +505,81 @@ def get_history_batch(batch_id):
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
+@ext_api.route('/history/batch', methods=['DELETE'])
+def batch_delete_history():
+    """发布历史批量删除。
+
+    Body: {"batch_ids": [str, ...]}  (1-50 个批次 id)
+    Response 200: {"code": 200, "deleted": [...], "failed": [{batch_id, reason}, ...]}
+    Response 400: batch_ids 缺失/非列表/为空/超过 50
+
+    注意：SQLite 默认未启用外键约束，ON DELETE CASCADE 不会触发，
+    故需手动删除关联的 publish_details 行。
+    """
+    data = request.get_json() or {}
+    batch_ids = data.get('batch_ids') or []
+    if not isinstance(batch_ids, list) or not batch_ids or len(batch_ids) > 50:
+        return jsonify({"code": 400, "msg": "batch_ids 数量必须 1-50"}), 400
+
+    conn = _db_conn()
+    try:
+        placeholders = ','.join('?' * len(batch_ids))
+        existing = {r[0] for r in conn.execute(
+            f"SELECT id FROM publish_batches WHERE id IN ({placeholders})", batch_ids
+        ).fetchall()}
+
+        deleted = []
+        failed = []
+        for bid in batch_ids:
+            if bid in existing:
+                try:
+                    # 外键约束未启用，手动级联删除明细
+                    conn.execute("DELETE FROM publish_details WHERE batch_id = ?", (bid,))
+                    conn.execute("DELETE FROM publish_batches WHERE id = ?", (bid,))
+                    deleted.append(bid)
+                except Exception as e:
+                    failed.append({'batch_id': bid, 'reason': str(e)})
+            else:
+                failed.append({'batch_id': bid, 'reason': '记录不存在'})
+
+        conn.commit()
+        return jsonify({"code": 200, "deleted": deleted, "failed": failed}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"code": 500, "msg": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@ext_api.route('/history/<batch_id>', methods=['DELETE'])
+def delete_history_batch(batch_id):
+    """删除单条发布历史记录。
+
+    Response 200: {"code": 200, "msg": "已删除"}
+    Response 404: {"code": 404, "msg": "记录不存在或已被删除"}
+
+    注意：SQLite 默认未启用外键约束，ON DELETE CASCADE 不会触发，
+    故需手动删除关联的 publish_details 行。
+    """
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            "SELECT id FROM publish_batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        if not row:
+            return jsonify({"code": 404, "msg": "记录不存在或已被删除"}), 404
+
+        conn.execute("DELETE FROM publish_details WHERE batch_id = ?", (batch_id,))
+        conn.execute("DELETE FROM publish_batches WHERE id = ?", (batch_id,))
+        conn.commit()
+        return jsonify({"code": 200, "msg": "已删除"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"code": 500, "msg": str(e)}), 500
+    finally:
+        conn.close()
+
+
 # ========== 统计数据 ==========
 
 @ext_api.route('/stats', methods=['GET'])

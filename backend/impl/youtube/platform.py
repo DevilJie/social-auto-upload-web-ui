@@ -16,21 +16,26 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 logger = get_channel_logger("youtube")
 
 from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, scrape_youtube_profile
+from .._utils import get_account_name_by_cookie_file, parse_schedule_time, scrape_youtube_profile
 from ..base_platform import BasePlatform
 
 YOUTUBE_STUDIO_URL = "https://studio.youtube.com"
 
 
 def _msg(text: str) -> str:
-    return f"[youtube] {text}"
+    """日志消息帮助函数。
+
+    channel 槽位已包含 'youtube',此处不再重复加前缀,
+    调用方传入带中文标签的消息即可。
+    """
+    return text
 
 
 class YoutubePlatform(BasePlatform):
@@ -283,6 +288,15 @@ class YoutubePlatform(BasePlatform):
         - ``audience`` (*str*, optional) -- ``"not_kids"`` (default) or ``"kids"``
         - ``altered_content`` (*bool*, optional)
         """
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始YouTube视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", [])
@@ -297,10 +311,22 @@ class YoutubePlatform(BasePlatform):
         audience = kwargs.get("audience", "not_kids")
         altered_content = kwargs.get("altered_content", False)
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_files))
+        logger.info("[发布参数] 定时发布: %s", enable_timer)
+        logger.info("[发布参数] 封面: %s", thumbnail_path or "无")
+        logger.info("[发布参数] 受众: %s", audience)
+        logger.info("[发布参数] 内容有改动: %s", altered_content)
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
+
         # Resolve paths
         # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
         video_files = [str(f) for f in files]
-        cookie_files = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files]
+        cookie_files = [str(Path(BASE_DIR / "cookiesFile") / f) for f in account_files]
         if thumbnail_path:
             # thumbnail_path 已是绝对路径
             thumbnail_path = str(thumbnail_path)
@@ -313,20 +339,29 @@ class YoutubePlatform(BasePlatform):
 
         # Upload each file under each account
         for index, video_file in enumerate(video_files):
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(video_files), video_file)
             publish_dt = publish_datetimes[index] if isinstance(publish_datetimes, list) else publish_datetimes
-            for cookie_file in cookie_files:
-                await self._upload_one(
-                    title=title,
-                    file_path=video_file,
-                    tags=tags,
-                    publish_date=publish_dt,
-                    account_file=cookie_file,
-                    desc=desc,
-                    thumbnail_path=thumbnail_path,
-                    audience=audience,
-                    altered_content=altered_content,
-                )
+            for cookie_index, cookie_file in enumerate(cookie_files):
+                cookie_name = Path(cookie_file).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(cookie_files), nick or "未知")
+                    await self._upload_one(
+                        title=title,
+                        file_path=video_file,
+                        tags=tags,
+                        publish_date=publish_dt,
+                        account_file=cookie_file,
+                        desc=desc,
+                        thumbnail_path=thumbnail_path,
+                        audience=audience,
+                        altered_content=altered_content,
+                    )
 
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
         return True
 
     # ------------------------------------------------------------------
@@ -346,7 +381,7 @@ class YoutubePlatform(BasePlatform):
         altered_content: bool = False,
     ):
         """Upload a single video to YouTube via CloakBrowser."""
-        logger.info(_msg(f"starting upload: {title[:50]}"))
+        logger.info(_msg(f"[上传视频] 开始上传视频: {title[:50]}"))
 
         # Parse tags
         if isinstance(tags, str) and tags.strip():
@@ -371,31 +406,31 @@ class YoutubePlatform(BasePlatform):
                 wait_until="domcontentloaded",
                 timeout=30000,
             )
-            logger.info(_msg("studio page loading, waiting for Polymer render"))
+            logger.info(_msg("[上传视频] 创作者中心页面加载中, 等待渲染..."))
             await asyncio.sleep(5)
 
             # ---- Step 1: Open upload dialog ----
             await self._open_upload_dialog(page)
 
             # ---- Step 2: Upload video file ----
-            logger.info(_msg("uploading video file"))
+            logger.info(_msg("[上传视频] 正在上传视频文件..."))
             file_input = page.locator('input[name="Filedata"]').first
             await file_input.wait_for(state="attached", timeout=10000)
             await file_input.set_input_files(file_path)
-            logger.info(_msg("video file selected"))
+            logger.info(_msg("[上传视频] 视频文件已选择, 等待上传完成..."))
 
             # ---- Step 3: Wait for upload complete ----
-            logger.info(_msg("waiting for upload to finish"))
+            logger.info(_msg("[上传视频] 等待上传完成..."))
             title_box = page.locator("#title-textarea #textbox").first
-            await title_box.wait_for(state="visible", timeout=300000)  # up to 5 min
-            logger.info(_msg("title textarea appeared — upload complete"))
+            await title_box.wait_for(state="visible", timeout=0)  # no timeout — wait indefinitely
+            logger.info(_msg("[上传视频] 标题输入框已出现 — 视频上传成功!"))
 
             # Wait for thumbnail uploader to be ready
             try:
                 thumb_input = page.locator("ytcp-thumbnail-uploader input#file-loader").first
                 await thumb_input.wait_for(state="attached", timeout=60000)
             except Exception:
-                logger.info(_msg("thumbnail uploader not found, continuing"))
+                logger.info(_msg("[设置封面] 未找到封面上传组件, 继续"))
 
             # Check for upload failure
             fail_text = page.locator("text=upload failed")
@@ -411,7 +446,7 @@ class YoutubePlatform(BasePlatform):
 
             # Set thumbnail
             if thumbnail_path and os.path.exists(thumbnail_path):
-                logger.info(_msg("setting thumbnail"))
+                logger.info(_msg("[设置封面] 开始设置视频封面..."))
                 thumb_in = page.locator("ytcp-thumbnail-uploader input#file-loader").first
                 await thumb_in.wait_for(state="attached", timeout=10000)
                 await thumb_in.set_input_files(thumbnail_path)
@@ -425,7 +460,7 @@ class YoutubePlatform(BasePlatform):
             )
 
             # Expand advanced settings
-            logger.info(_msg("expanding advanced settings"))
+            logger.info(_msg("[高级设置] 展开高级设置..."))
             toggle_btn = page.locator("#toggle-button").first
             await toggle_btn.wait_for(state="visible", timeout=10000)
             aria_label = await toggle_btn.get_attribute("aria-label") or ""
@@ -442,7 +477,7 @@ class YoutubePlatform(BasePlatform):
 
             # Fill tags
             if parsed_tags:
-                logger.info(_msg(f"adding {len(parsed_tags)} tags"))
+                logger.info(_msg(f"[填写标签] 开始填写 {len(parsed_tags)} 个标签"))
                 try:
                     tag_input = page.locator("#tags-container input#text-input").first
                     await tag_input.wait_for(state="visible", timeout=10000)
@@ -455,13 +490,13 @@ class YoutubePlatform(BasePlatform):
                             await tag_input.press("Enter")
                             await asyncio.sleep(0.3)
                         except Exception as exc:
-                            logger.info(_msg(f"tag '{tag}' failed: {exc}"))
+                            logger.info(_msg(f"[填写标签] 标签 '{tag}' 失败: {exc}"))
                 except Exception as exc:
-                    logger.info(_msg(f"tag input not found: {exc}"))
+                    logger.info(_msg(f"[填写标签] 未找到标签输入框: {exc}"))
 
             # ---- Step 5-7: Click Next 3 times (video elements, checks, visibility) ----
             for step_name in ("video elements", "checks", "visibility"):
-                logger.info(_msg(f"clicking next -> {step_name}"))
+                logger.info(_msg(f"[发布进度] 点击下一步 -> {step_name}"))
                 next_btn = page.locator("#next-button").first
                 await next_btn.wait_for(state="visible", timeout=10000)
                 await next_btn.click()
@@ -473,23 +508,23 @@ class YoutubePlatform(BasePlatform):
             await asyncio.sleep(1)
 
             # ---- Step 9: Click Done ----
-            logger.info(_msg("clicking done"))
+            logger.info(_msg("[发布] 点击完成按钮..."))
             done_btn = page.locator("#done-button").first
             await done_btn.wait_for(state="visible", timeout=10000)
             await done_btn.click()
             await asyncio.sleep(5)
 
-            logger.info(_msg("video published successfully"))
+            logger.info(_msg("[发布] 视频发布成功!"))
 
             # Update saved cookie
             try:
                 await context.storage_state(path=account_file)
-                logger.info(_msg("cookie updated"))
+                logger.info(_msg("[发布] Cookie状态已更新"))
             except Exception:
                 pass
 
         except Exception as exc:
-            logger.info(_msg(f"upload failed: {exc}"))
+            logger.info(_msg(f"[上传视频] 上传失败: {exc}"))
             raise
         finally:
             if browser:
@@ -522,23 +557,23 @@ class YoutubePlatform(BasePlatform):
             await radio.wait_for(state="visible", timeout=10000)
             is_checked = await radio.get_attribute("aria-checked")
             if is_checked == "true":
-                logger.info(_msg(f"{label} already set"))
+                logger.info(_msg(f"[单选项] {label} 已是目标状态"))
                 return
             await radio.click(force=True)
             await asyncio.sleep(1)
             is_checked_after = await radio.get_attribute("aria-checked")
             if is_checked_after == "true":
-                logger.info(_msg(f"{label} set"))
+                logger.info(_msg(f"[单选项] 已设置 {label}"))
             else:
-                logger.info(_msg(f"{label} retry"))
+                logger.info(_msg(f"[单选项] {label} 重试"))
                 await radio.click(force=True)
                 await asyncio.sleep(0.5)
         except Exception as exc:
-            logger.info(_msg(f"{label} setting failed: {exc}"))
+            logger.info(_msg(f"[单选项] {label} 设置失败: {exc}"))
 
     async def _open_upload_dialog(self, page):
         """Click the upload button on YouTube Studio home page."""
-        logger.info(_msg("opening upload dialog"))
+        logger.info(_msg("[上传视频] 正在打开上传对话框..."))
         await asyncio.sleep(5)  # wait for Polymer rendering
 
         upload_btn = page.locator(
@@ -547,18 +582,18 @@ class YoutubePlatform(BasePlatform):
         ).first
         await upload_btn.wait_for(state="visible", timeout=20000)
         await upload_btn.click(force=True)
-        logger.info(_msg("upload button clicked"))
+        logger.info(_msg("[上传视频] 已点击上传按钮"))
 
         file_picker = page.locator("#select-files-button, ytcp-uploads-file-picker").first
         await file_picker.wait_for(state="visible", timeout=15000)
-        logger.info(_msg("upload dialog opened"))
+        logger.info(_msg("[上传视频] 上传对话框已打开"))
 
     async def _set_visibility(self, page, publish_date):
         """Set video visibility — PUBLIC or scheduled."""
         await asyncio.sleep(2)
 
         # Click PUBLIC radio button with multiple fallback strategies
-        logger.info(_msg("selecting PUBLIC visibility"))
+        logger.info(_msg("[设置可见性] 选择公开可见性..."))
         privacy_radios = page.locator("#privacy-radios").first
         await privacy_radios.wait_for(state="visible", timeout=15000)
 
@@ -583,7 +618,7 @@ class YoutubePlatform(BasePlatform):
                         await asyncio.sleep(1)
                     except Exception:
                         pass
-        logger.info(_msg("PUBLIC radio selected"))
+        logger.info(_msg("[设置可见性] 公开单选项已选择"))
 
         # Schedule if needed
         is_scheduled = publish_date != 0 and publish_date is not None
@@ -603,7 +638,7 @@ class YoutubePlatform(BasePlatform):
             date_str = f"{dt.year}年{dt.month}月{dt.day}日"
             time_str = f"{dt.hour:02d}:{dt.minute:02d}"
 
-            logger.info(_msg(f"scheduling: {date_str} {time_str}"))
+            logger.info(_msg(f"[定时发布] 定时: {date_str} {time_str}"))
 
             # Click second-container to expand schedule option
             second_container = page.locator("#second-container").first
@@ -621,7 +656,7 @@ class YoutubePlatform(BasePlatform):
                 pass
 
             # Set date
-            logger.info(_msg(f"setting date: {date_str}"))
+            logger.info(_msg(f"[定时发布] 设置日期: {date_str}"))
             date_trigger = page.locator("#datepicker-trigger").first
             await date_trigger.wait_for(state="visible", timeout=10000)
             await date_trigger.click(force=True)
@@ -655,7 +690,7 @@ class YoutubePlatform(BasePlatform):
                 await asyncio.sleep(1)
 
             # Set time
-            logger.info(_msg(f"setting time: {time_str}"))
+            logger.info(_msg(f"[定时发布] 设置时间: {time_str}"))
             time_input = page.locator(
                 "#time-of-day-container tp-yt-iron-input input, "
                 "#time-of-day-container input"
@@ -671,7 +706,7 @@ class YoutubePlatform(BasePlatform):
             await asyncio.sleep(0.5)
 
             # Set timezone to GMT+8 (Hong Kong)
-            logger.info(_msg("setting timezone GMT+8"))
+            logger.info(_msg("[定时发布] 设置时区 GMT+8..."))
             try:
                 tz_btn = page.locator('button[aria-label="时区"], #timezone-select-button').first
                 await tz_btn.wait_for(state="visible", timeout=5000)
@@ -685,16 +720,16 @@ class YoutubePlatform(BasePlatform):
                 ).first
                 await tz_option.wait_for(state="visible", timeout=5000)
                 await tz_option.click()
-                logger.info(_msg("timezone set to GMT+8"))
+                logger.info(_msg("[定时发布] 时区已设为 GMT+8"))
             except Exception as exc:
-                logger.info(_msg(f"timezone setting failed, using default: {exc}"))
+                logger.info(_msg(f"[定时发布] 时区设置失败, 使用默认: {exc}"))
                 try:
                     await page.keyboard.press("Escape")
                 except Exception:
                     pass
 
             await asyncio.sleep(1)
-            logger.info(_msg("scheduled publish configured"))
+            logger.info(_msg("[定时发布] 定时发布已配置完成"))
 
         except Exception as exc:
-            logger.info(_msg(f"scheduled publish failed: {exc}"))
+            logger.info(_msg(f"[定时发布] 定时发布失败: {exc}"))

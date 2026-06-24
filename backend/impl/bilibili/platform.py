@@ -15,12 +15,17 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 logger = get_channel_logger("bilibili")
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, save_login_result, scrape_bilibili_profile
+from .._utils import (
+    get_account_name_by_cookie_file,
+    parse_schedule_time,
+    save_login_result,
+    scrape_bilibili_profile,
+)
 from ..base_platform import BasePlatform
 
 BILIBILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
@@ -250,6 +255,15 @@ class BilibiliPlatform(BasePlatform):
         """
 
         async def _run():
+            logger.info("=" * 60)
+            logger.info("[发布视频] 开始B站视频发布流程")
+            logger.info("=" * 60)
+
+            # 打印所有接收到的参数
+            logger.info("[发布参数] 接收到的所有参数:")
+            for key, value in kwargs.items():
+                logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
             title = kwargs.get("title", "")
             files = kwargs.get("files", [])
             tags = kwargs.get("tags", [])
@@ -268,9 +282,20 @@ class BilibiliPlatform(BasePlatform):
             ai_content = kwargs.get("ai_content", "")
             creation_declaration = kwargs.get("creation_declaration", "")
 
+            # 打印发布参数摘要
+            logger.info("[发布参数] 标题: %s", title)
+            logger.info("[发布参数] 文件数量: %d", len(files))
+            logger.info("[发布参数] 标签: %s", tags)
+            logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+            logger.info("[发布参数] 账号数量: %d", len(account_files))
+            logger.info("[发布参数] 定时发布: %s", enable_timer)
+            logger.info("[发布参数] 横版封面: %s", thumbnail_landscape or "无")
+            logger.info("[发布参数] 创作声明: %s", creation_declaration or "无")
+            logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
+
             # Resolve full paths
             cookie_paths = [
-                str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_files
+                str(Path(BASE_DIR / "cookiesFile") / f) for f in account_files
             ]
             # files 已是绝对路径（app.py 调用 _resolve_material_path 处理过）
             file_paths = [str(f) for f in files]
@@ -292,28 +317,33 @@ class BilibiliPlatform(BasePlatform):
             )
 
             for index, file_path in enumerate(file_paths):
+                logger.info("-" * 40)
+                logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(file_paths), file_path)
                 publish_date = (
                     publish_datetimes[index]
                     if isinstance(publish_datetimes, list)
                     else publish_datetimes
                 )
-                for cookie_path in cookie_paths:
-                    logger.info(f"[bilibili] uploading: {file_path}")
-                    logger.info(f"[bilibili] title: {title}")
-                    logger.info(f"[bilibili] desc: {desc}")
-                    logger.info(f"[bilibili] tags: {tags}")
+                for cookie_index, cookie_path in enumerate(cookie_paths):
+                    cookie_name = Path(cookie_path).name
+                    nick = get_account_name_by_cookie_file(cookie_name)
+                    with bind_account_name(nick or "-"):
+                        logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(cookie_paths), nick or "未知")
+                        await self._upload_single_video(
+                            title=title,
+                            file_path=file_path,
+                            tags=tags,
+                            publish_date=publish_date,
+                            account_file=cookie_path,
+                            category=category,
+                            desc=desc,
+                            thumbnail_path=thumbnail_path,
+                            creation_declaration=creation_declaration,
+                        )
 
-                    await self._upload_single_video(
-                        title=title,
-                        file_path=file_path,
-                        tags=tags,
-                        publish_date=publish_date,
-                        account_file=cookie_path,
-                        category=category,
-                        desc=desc,
-                        thumbnail_path=thumbnail_path,
-                        creation_declaration=creation_declaration,
-                    )
+            logger.info("=" * 60)
+            logger.info("[发布视频] 视频发布流程完成!")
+            logger.info("=" * 60)
 
         asyncio.run(_run())
         return True
@@ -347,7 +377,7 @@ class BilibiliPlatform(BasePlatform):
             upload_success = False
             try:
                 page = await context.new_page()
-                logger.info(f"[bilibili] starting upload: {title}")
+                logger.info(f"[上传视频] 开始上传视频: {title}")
                 await page.goto(BILIBILI_UPLOAD_URL)
                 await page.wait_for_url(
                     "**/platform/upload/**", timeout=30000
@@ -377,7 +407,7 @@ class BilibiliPlatform(BasePlatform):
                     state="attached", timeout=600000
                 )
                 logger.info(
-                    "[bilibili] hot-tag-container ready, "
+                    "[上传视频] hot-tag-container ready, "
                     "form is interactive"
                 )
 
@@ -430,7 +460,7 @@ class BilibiliPlatform(BasePlatform):
                 )
 
                 # 10. Submit
-                logger.info("[bilibili] submitting video")
+                logger.info("[上传视频] submitting video")
                 await page.evaluate(
                     "window.scrollTo(0, document.body.scrollHeight)"
                 )
@@ -443,10 +473,10 @@ class BilibiliPlatform(BasePlatform):
                         if await submit_span.count() > 0:
                             await submit_span.first.scroll_into_view_if_needed()
                             await submit_span.first.click()
-                            logger.info("[bilibili] clicked submit button")
+                            logger.info("[上传视频] clicked submit button")
                         else:
                             logger.info(
-                                f"[bilibili] submit button not found, "
+                                f"[上传视频] submit button not found, "
                                 f"retry {attempt + 1}/10"
                             )
                             await asyncio.sleep(3)
@@ -461,7 +491,7 @@ class BilibiliPlatform(BasePlatform):
                             )
                             if not btn_exists:
                                 logger.info(
-                                    "[bilibili] submit success "
+                                    "[上传视频] submit success "
                                     "(button disappeared)"
                                 )
                                 submitted = True
@@ -471,7 +501,7 @@ class BilibiliPlatform(BasePlatform):
                                 and "/platform/upload/" not in page.url
                             ):
                                 logger.info(
-                                    f"[bilibili] submit success, "
+                                    f"[上传视频] submit success, "
                                     f"redirected to: {page.url}"
                                 )
                                 submitted = True
@@ -481,7 +511,7 @@ class BilibiliPlatform(BasePlatform):
                             break
 
                         logger.info(
-                            f"[bilibili] page unchanged after click, "
+                            f"[上传视频] page unchanged after click, "
                             f"retry {attempt + 1}/10"
                         )
                         await page.screenshot(
@@ -492,7 +522,7 @@ class BilibiliPlatform(BasePlatform):
                         )
                     except Exception as exc:
                         logger.info(
-                            f"[bilibili] submit retry {attempt + 1}/10: {exc}"
+                            f"[上传视频] submit retry {attempt + 1}/10: {exc}"
                         )
                         await page.screenshot(
                             path=str(
@@ -504,12 +534,12 @@ class BilibiliPlatform(BasePlatform):
 
                 if not submitted:
                     logger.info(
-                        "[bilibili] could not confirm submission, "
+                        "[上传视频] could not confirm submission, "
                         "but it may have succeeded"
                     )
 
                 if submitted:
-                    logger.info("[bilibili] waiting 10s for processing")
+                    logger.info("[上传视频] waiting 10s for processing")
                     await asyncio.sleep(10)
                     try:
                         await page.screenshot(
@@ -526,13 +556,13 @@ class BilibiliPlatform(BasePlatform):
                 if upload_success:
                     try:
                         await context.storage_state(path=account_file)
-                        logger.info("[bilibili] cookie updated")
+                        logger.info("[上传视频] cookie updated")
                     except Exception:
                         pass
                 await context.close()
         finally:
             await browser.close()
-            logger.info("[bilibili] browser closed")
+            logger.info("[上传视频] browser closed")
 
     # ------------------------------------------------------------------
     # Upload sub-steps
@@ -541,7 +571,7 @@ class BilibiliPlatform(BasePlatform):
     @staticmethod
     async def _upload_video_file(page, file_path: str):
         """Select the video file via iframe or direct file input."""
-        logger.info("[bilibili] uploading video file")
+        logger.info("[上传视频] 正在上传视频文件...")
 
         file_input = None
         try:
@@ -550,7 +580,7 @@ class BilibiliPlatform(BasePlatform):
             await input_in_frame.wait_for(state="attached", timeout=5000)
             file_input = input_in_frame
         except Exception:
-            logger.info("[bilibili] upload iframe not found, trying main page")
+            logger.info("[上传视频] upload iframe not found, trying main page")
 
         if file_input is None:
             file_input = page.locator(
@@ -559,7 +589,7 @@ class BilibiliPlatform(BasePlatform):
             await file_input.wait_for(state="attached", timeout=10000)
 
         await file_input.set_input_files(file_path)
-        logger.info("[bilibili] video file selected, waiting for upload")
+        logger.info("[上传视频] 视频文件已选择, 等待上传完成")
 
     @staticmethod
     async def _wait_upload_complete(page):
@@ -572,9 +602,8 @@ class BilibiliPlatform(BasePlatform):
         2. 上传进度条/转码状态消失
         3. 封面区域 (`div.cover-main`) 出现并可见
         """
-        max_retries = 120
         retry_count = 0
-        while retry_count < max_retries:
+        while True:
             try:
                 # Check 1: "上传完成" 文字出现（iframe 或主页）
                 done_found = False
@@ -625,7 +654,7 @@ class BilibiliPlatform(BasePlatform):
                             and await cover_main.is_visible()
                         ):
                             logger.info(
-                                "[bilibili] video upload complete, "
+                                "[上传视频] video upload complete, "
                                 "cover area ready"
                             )
                             return
@@ -634,27 +663,26 @@ class BilibiliPlatform(BasePlatform):
                 fail_text = page.locator("text=上传失败")
                 if await fail_text.count() > 0:
                     logger.info(
-                        "[bilibili] upload failed detected"
+                        "[上传视频] upload failed detected"
                     )
 
                 if retry_count % 10 == 0:
                     logger.info(
-                        f"[bilibili] upload in progress... ({retry_count * 3}s)"
+                        f"[上传视频] upload in progress... ({retry_count * 3}s)"
                     )
 
                 await asyncio.sleep(3)
             except Exception as exc:
-                logger.info(f"[bilibili] upload status check error: {exc}")
+                logger.info(f"[上传视频] upload status check error: {exc}")
                 await asyncio.sleep(3)
             retry_count += 1
 
-        if retry_count == max_retries:
-            logger.info("[bilibili] upload may not have completed (timeout)")
+        # (no timeout — wait indefinitely until upload complete signals appear)
 
     @staticmethod
     async def _fill_title(page, title: str):
         """Fill the video title (max 80 chars)."""
-        logger.info(f"[bilibili] filling title: {title[:30]}")
+        logger.info(f"[填写标题] 开始填写标题: {title[:30]}")
         title_input = page.locator(
             'input[placeholder*="标题"], input[placeholder*="Title"], '
             '.video-title input, [class*="title"] input[type="text"]'
@@ -688,13 +716,13 @@ class BilibiliPlatform(BasePlatform):
             cn_name = None
 
         logger.info(
-            f"[bilibili] setting category: category={category}, "
+            f"[上传视频] setting category: category={category}, "
             f"cn_name={cn_name}"
         )
 
         if not cn_name:
             logger.info(
-                f"[bilibili] unknown category: {category}, skipping"
+                f"[上传视频] unknown category: {category}, skipping"
             )
             return
 
@@ -704,7 +732,7 @@ class BilibiliPlatform(BasePlatform):
             # 策略 1：按 .section-title-content-main 模糊匹配 "分区"
             title = page.locator('.section-title-content-main', has_text='分区').first
             if await title.count() == 0:
-                logger.error("[bilibili] 找不到 '分区' section 标题")
+                logger.error("[设置分区] 找不到 '分区' section 标题")
                 await page.screenshot(path=str(log_dir / "bili_no_partition_title.png"), full_page=True)
                 return
 
@@ -715,7 +743,7 @@ class BilibiliPlatform(BasePlatform):
             if await selector_container.count() == 0:
                 # 兜底：直接父 div（兼容老 DOM）
                 selector_container = title.locator("xpath=ancestor::div[2]")
-                logger.warning("[bilibili] 用 ancestor::div[2] 兜底定位 selector-container")
+                logger.warning("[设置分区] 用 ancestor::div[2] 兜底定位 selector-container")
 
             # 3. 在该 selector-container 内找 .select-controller
             select_controller = selector_container.locator(".select-controller").first
@@ -723,7 +751,7 @@ class BilibiliPlatform(BasePlatform):
 
             # 4. force=True 避开遮挡（CSS hover 弹层/动画都可能拦截）
             await select_controller.click(force=True)
-            logger.info("[bilibili] clicked select-controller (in 分区 section, force=True)")
+            logger.info("[设置分区] clicked select-controller (in 分区 section, force=True)")
 
             # 5. 等下拉项出现（drop-list-v2-container 是 B 站下拉容器）
             try:
@@ -732,7 +760,7 @@ class BilibiliPlatform(BasePlatform):
                 )
             except Exception:
                 # 兜底：可能已经开了但选择器未匹配，再点一次
-                logger.warning("[bilibili] 下拉未出现，尝试再点一次")
+                logger.warning("[设置分区] 下拉未出现，尝试再点一次")
                 await select_controller.click(force=True)
                 await asyncio.sleep(1)
 
@@ -742,10 +770,10 @@ class BilibiliPlatform(BasePlatform):
             )
             if await target_item.count() > 0:
                 await target_item.first.click(force=True)
-                logger.info(f"[bilibili] category set: {cn_name}")
+                logger.info(f"[设置分区] category set: {cn_name}")
             else:
                 logger.error(
-                    f"[bilibili] partition not found in dropdown: {cn_name}"
+                    f"[上传视频] partition not found in dropdown: {cn_name}"
                 )
                 await page.screenshot(
                     path=str(log_dir / "bilibili_partition_not_found.png"),
@@ -754,7 +782,7 @@ class BilibiliPlatform(BasePlatform):
 
             await asyncio.sleep(1)
         except Exception as exc:
-            logger.info(f"[bilibili] category setting failed (non-fatal): {exc}")
+            logger.info(f"[设置分区] category setting failed (non-fatal): {exc}")
 
     @staticmethod
     async def _fill_tags(page, tags: list):
@@ -773,7 +801,7 @@ class BilibiliPlatform(BasePlatform):
                 parsed.append(t)
         tags = parsed
 
-        logger.info(f"[bilibili] adding {len(tags)} tags")
+        logger.info(f"[填写标签] adding {len(tags)} tags")
 
         log_dir = Path(BASE_DIR / "logs")
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -794,13 +822,13 @@ class BilibiliPlatform(BasePlatform):
                 loc = page.locator(sel).first
                 if await loc.count() > 0 and await loc.is_visible():
                     tag_input = loc
-                    logger.info(f"[bilibili] found tag input: {sel}")
+                    logger.info(f"[填写标签] found tag input: {sel}")
                     break
             except Exception:
                 continue
 
         if tag_input is None:
-            logger.info("[bilibili] tag input not found, taking debug screenshot")
+            logger.info("[填写标签] tag input not found, taking debug screenshot")
             await page.screenshot(
                 path=str(log_dir / "bilibili_tag_input_not_found.png"),
                 full_page=True,
@@ -820,7 +848,7 @@ class BilibiliPlatform(BasePlatform):
                     except Exception:
                         continue
                 if current_input is None:
-                    logger.info("[bilibili] tag input lost, stopping")
+                    logger.info("[填写标签] tag input lost, stopping")
                     break
 
                 await current_input.click()
@@ -830,11 +858,11 @@ class BilibiliPlatform(BasePlatform):
                 await current_input.press("Enter")
                 await asyncio.sleep(0.5)
                 logger.info(
-                    f"[bilibili] added tag ({i + 1}/{min(len(tags), 10)}): "
+                    f"[上传视频] added tag ({i + 1}/{min(len(tags), 10)}): "
                     f"{tag}"
                 )
             except Exception as exc:
-                logger.info(f"[bilibili] failed to add tag '{tag}': {exc}")
+                logger.info(f"[填写标签] failed to add tag '{tag}': {exc}")
 
     @staticmethod
     async def _fill_desc(page, desc: str):
@@ -842,7 +870,7 @@ class BilibiliPlatform(BasePlatform):
         if not desc:
             return
 
-        logger.info("[bilibili] filling description")
+        logger.info("[填写简介] filling description")
         desc_editor = page.locator(
             '[contenteditable="true"][class*="editor"], '
             ".ql-editor, "
@@ -855,7 +883,7 @@ class BilibiliPlatform(BasePlatform):
             await page.keyboard.press("Delete")
             await page.keyboard.type(desc, delay=10)
         else:
-            logger.info("[bilibili] description editor not found")
+            logger.info("[填写简介] description editor not found")
 
     @staticmethod
     async def _set_thumbnail(page, thumbnail_path: str | None):
@@ -870,11 +898,11 @@ class BilibiliPlatform(BasePlatform):
         if not thumbnail_path:
             return
         if not os.path.exists(thumbnail_path):
-            logger.info(f"[bilibili] cover file not found: {thumbnail_path}")
+            logger.info(f"[设置封面] cover file not found: {thumbnail_path}")
             return
 
         log_dir = Path(BASE_DIR / "logs")
-        logger.info("[bilibili] setting cover")
+        logger.info("[设置封面] 开始设置封面")
 
         try:
             await page.screenshot(
@@ -921,7 +949,7 @@ class BilibiliPlatform(BasePlatform):
 
             if not dialog_opened:
                 logger.info(
-                    "[bilibili] all cover triggers failed, "
+                    "[上传视频] all cover triggers failed, "
                     "skipping cover"
                 )
                 return
@@ -984,7 +1012,7 @@ class BilibiliPlatform(BasePlatform):
             if file_count > 0:
                 await file_input.set_input_files(thumbnail_path)
                 logger.info(
-                    f"[bilibili] cover file selected: "
+                    f"[上传视频] cover file selected: "
                     f"{os.path.basename(thumbnail_path)}"
                 )
             else:
@@ -994,7 +1022,7 @@ class BilibiliPlatform(BasePlatform):
                 if await fallback_input.count() > 0:
                     await fallback_input.set_input_files(thumbnail_path)
                 else:
-                    logger.info("[bilibili] cover file input not found")
+                    logger.info("[设置封面] cover file input not found")
                     return
 
             # Wait for image processing
@@ -1018,7 +1046,7 @@ class BilibiliPlatform(BasePlatform):
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.5)
 
-            logger.info("[bilibili] cover set successfully")
+            logger.info("[设置封面] cover set successfully")
 
         except Exception as exc:
             try:
@@ -1040,7 +1068,7 @@ class BilibiliPlatform(BasePlatform):
             return
 
         logger.info(
-            f"[bilibili] setting creation declaration: "
+            f"[上传视频] setting creation declaration: "
             f"{creation_declaration}"
         )
         try:
@@ -1064,7 +1092,7 @@ class BilibiliPlatform(BasePlatform):
                     select_input = scoped_input
                 else:
                     logger.info(
-                        "[bilibili] creation declaration dropdown not "
+                        "[上传视频] creation declaration dropdown not "
                         "present, skipping"
                     )
                     return
@@ -1116,7 +1144,7 @@ class BilibiliPlatform(BasePlatform):
                 if opt_text == target_text:
                     await opt.click()
                     logger.info(
-                        f"[bilibili] selected creation declaration: "
+                        f"[上传视频] selected creation declaration: "
                         f"{opt_text}"
                     )
                     clicked = True
@@ -1124,14 +1152,14 @@ class BilibiliPlatform(BasePlatform):
 
             if not clicked:
                 logger.info(
-                    f"[bilibili] creation declaration option not found: "
+                    f"[上传视频] creation declaration option not found: "
                     f"{target_text}"
                 )
 
             await asyncio.sleep(1)
         except Exception as exc:
             logger.info(
-                f"[bilibili] creation declaration failed (non-fatal): "
+                f"[上传视频] creation declaration failed (non-fatal): "
                 f"{exc}"
             )
 
@@ -1145,7 +1173,7 @@ class BilibiliPlatform(BasePlatform):
 
         dt = publish_date
         logger.info(
-            f"[bilibili] setting schedule: "
+            f"[上传视频] setting schedule: "
             f"{dt.strftime('%Y-%m-%d %H:%M')}"
         )
 
@@ -1181,7 +1209,7 @@ class BilibiliPlatform(BasePlatform):
                     break
             if not date_set:
                 logger.info(
-                    f"[bilibili] could not find clickable date: "
+                    f"[上传视频] could not find clickable date: "
                     f"{target_day}"
                 )
             await asyncio.sleep(0.5)
@@ -1217,6 +1245,6 @@ class BilibiliPlatform(BasePlatform):
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.5)
 
-            logger.info("[bilibili] schedule time set")
+            logger.info("[定时发布] schedule time set")
         except Exception as exc:
-            logger.info(f"[bilibili] schedule time setting failed: {exc}")
+            logger.info(f"[定时发布] schedule time setting failed: {exc}")

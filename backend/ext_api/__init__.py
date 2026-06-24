@@ -505,6 +505,81 @@ def get_history_batch(batch_id):
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
+@ext_api.route('/history/batch', methods=['DELETE'])
+def batch_delete_history():
+    """发布历史批量删除。
+
+    Body: {"batch_ids": [str, ...]}  (1-50 个批次 id)
+    Response 200: {"code": 200, "deleted": [...], "failed": [{batch_id, reason}, ...]}
+    Response 400: batch_ids 缺失/非列表/为空/超过 50
+
+    注意：SQLite 默认未启用外键约束，ON DELETE CASCADE 不会触发，
+    故需手动删除关联的 publish_details 行。
+    """
+    data = request.get_json() or {}
+    batch_ids = data.get('batch_ids') or []
+    if not isinstance(batch_ids, list) or not batch_ids or len(batch_ids) > 50:
+        return jsonify({"code": 400, "msg": "batch_ids 数量必须 1-50"}), 400
+
+    conn = _db_conn()
+    try:
+        placeholders = ','.join('?' * len(batch_ids))
+        existing = {r[0] for r in conn.execute(
+            f"SELECT id FROM publish_batches WHERE id IN ({placeholders})", batch_ids
+        ).fetchall()}
+
+        deleted = []
+        failed = []
+        for bid in batch_ids:
+            if bid in existing:
+                try:
+                    # 外键约束未启用，手动级联删除明细
+                    conn.execute("DELETE FROM publish_details WHERE batch_id = ?", (bid,))
+                    conn.execute("DELETE FROM publish_batches WHERE id = ?", (bid,))
+                    deleted.append(bid)
+                except Exception as e:
+                    failed.append({'batch_id': bid, 'reason': str(e)})
+            else:
+                failed.append({'batch_id': bid, 'reason': '记录不存在'})
+
+        conn.commit()
+        return jsonify({"code": 200, "deleted": deleted, "failed": failed}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"code": 500, "msg": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@ext_api.route('/history/<batch_id>', methods=['DELETE'])
+def delete_history_batch(batch_id):
+    """删除单条发布历史记录。
+
+    Response 200: {"code": 200, "msg": "已删除"}
+    Response 404: {"code": 404, "msg": "记录不存在或已被删除"}
+
+    注意：SQLite 默认未启用外键约束，ON DELETE CASCADE 不会触发，
+    故需手动删除关联的 publish_details 行。
+    """
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            "SELECT id FROM publish_batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        if not row:
+            return jsonify({"code": 404, "msg": "记录不存在或已被删除"}), 404
+
+        conn.execute("DELETE FROM publish_details WHERE batch_id = ?", (batch_id,))
+        conn.execute("DELETE FROM publish_batches WHERE id = ?", (batch_id,))
+        conn.commit()
+        return jsonify({"code": 200, "msg": "已删除"}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"code": 500, "msg": str(e)}), 500
+    finally:
+        conn.close()
+
+
 # ========== 统计数据 ==========
 
 @ext_api.route('/stats', methods=['GET'])
@@ -658,13 +733,22 @@ def update_settings():
 
 # ========== 草稿箱 ==========
 
+# 平台 ID → (key, 名称) 映射。key 必须与 frontend config/platforms.js 一致,
+# 否则草稿箱 getPlatformLogo() 匹配不到 logo。
 _PLATFORM_ID_MAP = {
     1: ('xiaohongshu', '小红书'),
-    2: ('shipinhao', '视频号'),
+    2: ('channels', '视频号'),
     3: ('douyin', '抖音'),
     4: ('kuaishou', '快手'),
     5: ('bilibili', 'B站'),
     6: ('baijiahao', '百家号'),
+    7: ('tiktok', 'TikTok'),
+    8: ('youtube', 'YouTube'),
+    9: ('tencent_video', '腾讯视频'),
+    10: ('iqiyi', '爱奇艺'),
+    11: ('weibo', '微博'),
+    12: ('alipay', '支付宝'),
+    13: ('toutiao', '今日头条'),
 }
 
 
@@ -712,11 +796,15 @@ def get_drafts():
             except json.JSONDecodeError:
                 d['channels_summary'] = []
 
-            # 图文草稿：兜底修复 channels_summary
-            if d.get('type') == 'image' and d.get('draft_data') and not d['channels_summary']:
+            # 统一实时重算 channels_summary:存库快照可能在新增平台后过期
+            # (例如之前漏了今日头条),从 draft_data.publishAccountIds 重算可保证
+            # 历史草稿也能正确显示所有渠道。视频/图集共用同一段提取逻辑。
+            if d.get('draft_data'):
                 try:
                     dd = json.loads(d['draft_data'])
-                    d['channels_summary'] = _extract_image_channels_from_draft(conn, dd)
+                    recomputed = _extract_image_channels_from_draft(conn, dd)
+                    if recomputed:
+                        d['channels_summary'] = recomputed
                 except (json.JSONDecodeError, KeyError):
                     pass
             d.pop('draft_data', None)  # 不在列表接口返回完整 draft_data
@@ -871,7 +959,7 @@ def _extract_channels_summary(draft_data):
         'kuaishou': '快手', 'bilibili': 'B站', 'baijiahao': '百家号',
         'tiktok': 'TikTok', 'youtube': 'YouTube', 'iqiyi': '爱奇艺',
         'tencent_video': '腾讯视频',
-        'weibo': '微博',
+        'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条',
     }
 
     try:
@@ -888,7 +976,7 @@ def _extract_channels_summary(draft_data):
             'kuaishou': 4, 'bilibili': 5,
             'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
             'tencent_video': 9, 'iqiyi': 10,
-            'weibo': 11,
+            'weibo': 11, 'alipay': 12, 'toutiao': 13,
         }.items()}
 
         platform_counts = {}

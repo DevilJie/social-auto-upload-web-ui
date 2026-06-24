@@ -122,6 +122,14 @@ from blueprints.douyin_image_bp import douyin_image_bp  # noqa: E402
 app.register_blueprint(douyin_image_bp)
 logger.info("[Startup] douyin_image_bp registered OK")
 
+from blueprints.alipay_bp import alipay_bp  # noqa: E402
+app.register_blueprint(alipay_bp)
+logger.info("[Startup] alipay_bp registered OK")
+
+from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
+app.register_blueprint(toutiao_bp)
+logger.info("[Startup] toutiao_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
@@ -177,11 +185,11 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
-    11: 'weibo',
+    11: 'weibo', 12: 'alipay',
 }
 
 
@@ -743,6 +751,14 @@ def postVideo():
                 mini_link=mini_link,
                 mix_id=mix_id,
                 content_statement=data.get('contentStatement', ''),
+                author_statement=data.get('authorStatement', ''),
+                compilation=data.get('compilation', ''),
+                video_format=data.get('videoFormat', ''),
+                # 今日头条特有参数
+                enable_generate_image=data.get('enableGenerateImage', True),
+                collection_id=data.get('collection', ''),
+                extend_link=data.get('extendLink', False),
+                extend_link_url=data.get('extendLinkUrl', ''),
             ))
         else:
             result = publish_fn(
@@ -777,6 +793,14 @@ def postVideo():
                 mini_link=mini_link,
                 mix_id=mix_id,
                 content_statement=data.get('contentStatement', ''),
+                author_statement=data.get('authorStatement', ''),
+                compilation=data.get('compilation', ''),
+                video_format=data.get('videoFormat', ''),
+                # 今日头条特有参数
+                enable_generate_image=data.get('enableGenerateImage', True),
+                collection_id=data.get('collection', ''),
+                extend_link=data.get('extendLink', False),
+                extend_link_url=data.get('extendLinkUrl', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -998,7 +1022,7 @@ def _before_publish():
 
         # [DEBUG 2026-06-10] 详细日志：把整个请求 body 的关键字段打印出来
         logger.info(
-            "[/postVideo REQUEST] batchId=%s account=%s type=%s title=%s fileList=%s videoLandscape.id=%s videoPortrait.id=%s coverLandscape.id=%s coverPortrait.id=%s creationDeclaration=%s aiContent=%s isOriginal=%s category=%s",
+            "[/postVideo REQUEST] batchId=%s account=%s type=%s title=%s fileList=%s videoLandscape.id=%s videoPortrait.id=%s coverLandscape.id=%s coverPortrait.id=%s creationDeclaration=%s aiContent=%s isOriginal=%s category=%s authorStatement=%s compilation=%s scheduleTime=%s enableTimer=%s tags=%s",
             batch_id, account_name, platform_type,
             data.get('title', ''),
             file_list,
@@ -1010,6 +1034,11 @@ def _before_publish():
             data.get('aiContent', ''),
             data.get('isOriginal', ''),
             data.get('category', ''),  # 新增：B 站分区字段（platformSettings.zone || 兜底）
+            data.get('authorStatement', ''),  # 支付宝作者声明(必填)
+            data.get('compilation', ''),  # 支付宝合集(名字)
+            data.get('scheduleTime', ''),  # 定时发布
+            data.get('enableTimer', ''),
+            data.get('tags', ''),
         )
 
         # account_configs 存：除了 fileList/accountList/type/thumbnail/batchId/accountId/accountName 之外的所有字段
@@ -1252,14 +1281,14 @@ if __name__ == "__main__":
         logger.info(f"[Startup] DB verification FAILED: {_e}")
         logger.info(f"[Startup] SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 
-    # 启动后台任务：补全存量视频素材 duration=0 的数据
+    # 启动后台任务：补全存量视频素材 duration=0 的数据，以及缺失 orientation 的数据
     # （草稿/历史恢复走 DB 直读，绕过了「素材库选中→probe」，
     #  导致历史 duration=0 的数据漏识别，发布校验被跳过）
     try:
         from services.duration_repair import start_repair_in_background
         start_repair_in_background()
     except Exception as _e:
-        logger.warning("[Startup] 时长补全任务启动失败（不影响主服务）: %s", _e)
+        logger.warning("[Startup] 补全任务启动失败（不影响主服务）: %s", _e)
 
     port = int(os.environ.get("SAU_PORT", "5409"))
     if port == 5409:

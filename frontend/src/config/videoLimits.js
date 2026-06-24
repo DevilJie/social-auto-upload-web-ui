@@ -20,6 +20,7 @@ export const VIDEO_LIMITS = {
   channels:      { minDuration: 5,    maxDuration: 28800,        maxSize: 20 * GB },
   tiktok:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB },
   youtube:       { minDuration: 5,    maxDuration: 36000,        maxSize: 16 * GB },
+  alipay:        { minDuration: 5,    maxDuration: Infinity,     maxSize: 8 * GB },   // 文档:≤8G,时长不限
 }
 
 const PLATFORM_NAMES = {
@@ -34,6 +35,7 @@ const PLATFORM_NAMES = {
   channels: '视频号',
   tiktok: 'TikTok',
   youtube: 'YouTube',
+  alipay: '支付宝',
 }
 
 export function formatSize(sizeBytes) {

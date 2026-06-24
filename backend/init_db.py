@@ -153,6 +153,7 @@ def init_database():
         height INTEGER DEFAULT 0,
         duration REAL DEFAULT 0,
         thumbnail_path TEXT DEFAULT '',
+        orientation TEXT DEFAULT '',
         upload_time DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -239,6 +240,13 @@ def migrate_database():
     try:
         cursor.execute('ALTER TABLE materials ADD COLUMN thumbnail_path TEXT DEFAULT ""')
         logger.info("已添加 materials.thumbnail_path 列")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+
+    # materials 添加 orientation 列（横竖版标识：horizontal/vertical/square）
+    try:
+        cursor.execute("ALTER TABLE materials ADD COLUMN orientation TEXT DEFAULT ''")
+        logger.info("已添加 materials.orientation 列")
     except sqlite3.OperationalError:
         pass  # 列已存在
 

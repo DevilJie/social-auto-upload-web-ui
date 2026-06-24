@@ -15,13 +15,14 @@ from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
     scrape_user_profile,
 )
 from ..base_platform import BasePlatform
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 logger = get_channel_logger("tiktok")
 
@@ -249,6 +250,15 @@ class TiktokPlatform(BasePlatform):
 
     async def _upload_all(self, **kwargs) -> None:
         """Iterate over (file, account) combinations and upload each."""
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始TikTok视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", [])
@@ -269,6 +279,15 @@ class TiktokPlatform(BasePlatform):
             or kwargs.get("thumbnail_path")
         )
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 账号数量: %d", len(account_files))
+        logger.info("[发布参数] 定时发布: %s", enable_timer)
+        logger.info("[发布参数] 封面: %s", thumb or "无")
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
+
         # Resolve paths
         # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
         file_paths = [str(f) for f in files]
@@ -286,25 +305,31 @@ class TiktokPlatform(BasePlatform):
         )
 
         for idx, file_path in enumerate(file_paths):
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", idx + 1, len(file_paths), file_path)
             pub_dt = (
                 publish_datetimes[idx]
                 if isinstance(publish_datetimes, list)
                 else publish_datetimes
             )
-            for cookie_path in cookie_paths:
-                logger.info(
-                    f"[tiktok] === _upload_all 调用 _upload_single "
-                    f"(cookie={cookie_path!r}, file={file_path!r}, title={title!r}) ==="
-                )
-                await self._upload_single(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    publish_date=pub_dt,
-                    account_file=cookie_path,
-                    thumbnail_path=thumb,
-                    ai_content=ai_content,
-                )
+            for cookie_index, cookie_path in enumerate(cookie_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(cookie_paths), nick or "未知")
+                    await self._upload_single(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        publish_date=pub_dt,
+                        account_file=cookie_path,
+                        thumbnail_path=thumb,
+                        ai_content=ai_content,
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
 
     # ------------------------------------------------------------------
     # Publish video — single upload
@@ -322,14 +347,14 @@ class TiktokPlatform(BasePlatform):
     ) -> None:
         """Upload one video to one TikTok account using CloakBrowser.
         """
-        # === 诊断日志：打印所有接收到的参数 + 关键验证 ===
+        # === 诊断日志：打印关键参数 + 文件存在性验证 ===
         import os
-        logger.info(f"[tiktok] === _upload_single 接收参数 ===")
-        logger.info(f"[tiktok]   title={title!r}")
-        logger.info(f"[tiktok]   file_path={file_path!r}")
+        logger.info("[上传视频] === _upload_single 接收参数 ===")
+        logger.info("[上传视频]   title=%r", title)
+        logger.info("[上传视频]   file_path=%r", file_path)
         logger.info(
-            f"[tiktok]   file_path 是否存在="
-            f"{os.path.exists(file_path) if file_path else 'N/A (empty)'}"
+            "[上传视频]   file_path 是否存在=%s",
+            os.path.exists(file_path) if file_path else "N/A (空)",
         )
         if file_path and not os.path.exists(file_path):
             # 列举父目录看实际有什么
@@ -337,25 +362,25 @@ class TiktokPlatform(BasePlatform):
             if os.path.isdir(parent):
                 siblings = os.listdir(parent)[:10]
                 logger.info(
-                    f"[tiktok]   父目录 {parent!r} 存在，样本: {siblings}"
+                    "[上传视频]   父目录 %r 存在，样本: %s", parent, siblings
                 )
             else:
-                logger.info(f"[tiktok]   父目录 {parent!r} 不存在！")
-        logger.info(f"[tiktok]   tags={tags!r}")
-        logger.info(f"[tiktok]   publish_date={publish_date!r}")
-        logger.info(f"[tiktok]   account_file={account_file!r}")
+                logger.info("[上传视频]   父目录 %r 不存在！", parent)
+        logger.info("[上传视频]   tags=%r", tags)
+        logger.info("[上传视频]   publish_date=%r", publish_date)
+        logger.info("[上传视频]   account_file=%r", account_file)
         logger.info(
-            f"[tiktok]   account_file 是否存在="
-            f"{os.path.exists(account_file) if account_file else 'N/A'}"
+            "[上传视频]   account_file 是否存在=%s",
+            os.path.exists(account_file) if account_file else "N/A",
         )
-        logger.info(f"[tiktok]   thumbnail_path={thumbnail_path!r}")
+        logger.info("[上传视频]   thumbnail_path=%r", thumbnail_path)
         if thumbnail_path:
             logger.info(
-                f"[tiktok]   thumbnail_path 是否存在="
-                f"{os.path.exists(thumbnail_path)}"
+                "[上传视频]   thumbnail_path 是否存在=%s",
+                os.path.exists(thumbnail_path),
             )
-        logger.info(f"[tiktok]   ai_content={ai_content!r}")
-        logger.info(f"[tiktok] === 参数打印完毕 ===")
+        logger.info("[上传视频]   ai_content=%r", ai_content)
+        logger.info("[上传视频] === 参数打印完毕 ===")
 
         browser = await self.create_browser(
             headless=False,
@@ -369,7 +394,7 @@ class TiktokPlatform(BasePlatform):
 
             # 1. Navigate directly to upload page (?lang=en skips the lang picker)
             await page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en")
-            logger.info(f"[tiktok] Uploading — {title}")
+            logger.info(f"[上传视频] 开始上传: {title}")
 
             # 2. Wait for the upload UI to render.  The page can take a
             #    few seconds to mount the hidden <input type="file"> in
@@ -381,10 +406,10 @@ class TiktokPlatform(BasePlatform):
                     timeout=10_000,
                     state="attached",
                 )
-                logger.info("[tiktok] Hidden file input present in DOM")
+                logger.info("[上传视频] Hidden file input present in DOM")
             except Exception:
                 logger.info(
-                    "[tiktok] Hidden file input NOT in DOM within 10s — "
+                    "[上传视频] Hidden file input NOT in DOM within 10s — "
                     "will rely on set_input_files auto-wait"
                 )
 
@@ -393,23 +418,23 @@ class TiktokPlatform(BasePlatform):
                 file_input = page.frame_locator(TK_IFRAME).locator(
                     'input[type="file"]'
                 ).first
-                logger.info("[tiktok] Using iframe file input")
+                logger.info("[上传视频] Using iframe file input")
             else:
                 file_input = page.locator('input[type="file"]').first
-                logger.info("[tiktok] Using main page file input")
+                logger.info("[上传视频] Using main page file input")
 
             try:
                 await file_input.set_input_files(file_path, timeout=60_000)
-                logger.info(f"[tiktok] Video file set: {file_path}")
+                logger.info(f"[上传视频] 视频文件已选择: {file_path}")
             except Exception as e:
-                logger.info(f"[tiktok] set_input_files FAILED: {e!r}")
+                logger.info(f"[上传视频] set_input_files FAILED: {e!r}")
                 raise
 
             # 4. Wait for the publish UI to render (caption container visible)
             await page.locator('[data-e2e="caption_container"]').wait_for(
                 state="visible", timeout=120_000
             )
-            logger.info("[tiktok] Publish UI ready")
+            logger.info("[上传视频] Publish UI ready")
 
             # 5. Dismiss any first-run tutorial tooltip ("全新编辑功能已上线")
             await self._dismiss_tutorial_tooltip(page)
@@ -418,44 +443,44 @@ class TiktokPlatform(BasePlatform):
             await self._dismiss_content_check_modal(page)
 
             # 7. Fill title + tags
-            logger.info(f"[tiktok] [step 7] start: title={title!r} tags={tags!r}")
+            logger.info(f"[上传视频] [step 7] start: title={title!r} tags={tags!r}")
             await self._add_title_tags(page, title, tags)
-            logger.info("[tiktok] [step 7] done")
+            logger.info("[上传视频] [step 7] done")
 
             # 8. Upload thumbnail if provided
             if thumbnail_path:
-                logger.info(f"[tiktok] [step 8] start: thumbnail={thumbnail_path}")
+                logger.info(f"[上传视频] [step 8] start: thumbnail={thumbnail_path}")
                 await self._set_cover(page, thumbnail_path)
-                logger.info("[tiktok] [step 8] done")
+                logger.info("[上传视频] [step 8] done")
             else:
-                logger.info("[tiktok] [step 8] skipped (no thumbnail)")
+                logger.info("[上传视频] [step 8] skipped (no thumbnail)")
 
             # 9. Toggle AI declaration if requested
             if ai_content and str(ai_content).lower() not in ("false", "0", ""):
-                logger.info(f"[tiktok] [step 9] start: ai_content={ai_content!r}")
+                logger.info(f"[上传视频] [step 9] start: ai_content={ai_content!r}")
                 await self._set_ai_declaration(page, enable=True)
-                logger.info("[tiktok] [step 9] done")
+                logger.info("[上传视频] [step 9] done")
             else:
-                logger.info("[tiktok] [step 9] skipped")
+                logger.info("[上传视频] [step 9] skipped")
 
             # 10. Schedule if needed
             if publish_date != 0:
-                logger.info(f"[tiktok] [step 10] start: publish_date={publish_date}")
+                logger.info(f"[上传视频] [step 10] start: publish_date={publish_date}")
                 await self._set_schedule_time(page, publish_date)
-                logger.info("[tiktok] [step 10] done")
+                logger.info("[上传视频] [step 10] done")
             else:
-                logger.info("[tiktok] [step 10] skipped (no schedule)")
+                logger.info("[上传视频] [step 10] skipped (no schedule)")
 
             # 11. Click publish and wait for success
             await self._click_publish(page)
 
             # 12. Log video ID
             video_id = await self._get_last_video_id(page)
-            logger.info(f"[tiktok] video_id: {video_id}")
+            logger.info(f"[上传视频] video_id: {video_id}")
 
             # 13. Update cookie
             await context.storage_state(path=account_file)
-            logger.info("[tiktok] Cookie updated")
+            logger.info("[上传视频] Cookie updated")
 
             await asyncio.sleep(2)
 
@@ -483,7 +508,7 @@ class TiktokPlatform(BasePlatform):
             ).first
             await got_it_btn.wait_for(state="visible", timeout=3_000)
             await got_it_btn.click()
-            logger.info("[tiktok] Dismissed tutorial tooltip")
+            logger.info("[关闭引导] Dismissed tutorial tooltip")
         except Exception:
             # Tooltip not shown — fine
             pass
@@ -506,7 +531,7 @@ class TiktokPlatform(BasePlatform):
             ).first
             await enable_btn.wait_for(state="visible", timeout=3_000)
             await enable_btn.click()
-            logger.info("[tiktok] Dismissed '开启自动内容检查' modal")
+            logger.info("[关闭弹窗] Dismissed '开启自动内容检查' modal")
         except Exception:
             # Modal not shown — fine
             pass
@@ -533,7 +558,7 @@ class TiktokPlatform(BasePlatform):
             ).first
             await enable_btn.wait_for(state="visible", timeout=3_000)
             await enable_btn.click()
-            logger.info("[tiktok] Dismissed '标记 AI 生成的内容' modal")
+            logger.info("[关闭弹窗] Dismissed '标记 AI 生成的内容' modal")
         except Exception:
             # Modal not shown — fine
             pass
@@ -567,16 +592,16 @@ class TiktokPlatform(BasePlatform):
                     # force click 跳过可见性/可点击性/遮挡检查
                     await btn.click(force=True, timeout=2_000)
                     logger.info(
-                        f"[tiktok] Dismissed '继续发布？' modal "
+                        f"[上传视频] Dismissed '继续发布？' modal "
                         f"in frame url={frame.url[:60]!r}"
                     )
                     return
                 except Exception:
                     # Frame 不可访问或 button 不在,try next frame
                     continue
-            logger.info("[tiktok] _dismiss_publish_confirm_modal: button not found in any frame within 10s")
+            logger.info("[关闭弹窗] _dismiss_publish_confirm_modal: button not found in any frame within 10s")
         except Exception as e:
-            logger.info(f"[tiktok] _dismiss_publish_confirm_modal: {e!r}")
+            logger.info(f"[关闭弹窗] _dismiss_publish_confirm_modal: {e!r}")
 
     @staticmethod
     async def _add_title_tags(page, title: str, tags: list) -> None:
@@ -589,45 +614,45 @@ class TiktokPlatform(BasePlatform):
         so we use ``keyboard.type`` with a per-character delay (same
         approach as the xiaohongshu publisher).
         """
-        logger.info(f"[tiktok] [_add_title_tags] start: title={title!r} tags={tags!r}")
+        logger.info(f"[填写标题] [_add_title_tags] start: title={title!r} tags={tags!r}")
         editor = page.locator("div.public-DraftEditor-content").first
-        logger.info("[tiktok] [_add_title_tags] waiting for editor visible")
+        logger.info("[填写标题] [_add_title_tags] waiting for editor visible")
         await editor.wait_for(state="visible", timeout=5_000)
-        logger.info("[tiktok] [_add_title_tags] clicking editor")
+        logger.info("[填写标题] [_add_title_tags] clicking editor")
         await editor.click()
-        logger.info("[tiktok] [_add_title_tags] clearing editor")
+        logger.info("[填写标题] [_add_title_tags] clearing editor")
         await page.keyboard.press("Control+A")
         await page.keyboard.press("Delete")
 
         clean_title = (title or "").rstrip()
         if clean_title:
-            logger.info(f"[tiktok] [_add_title_tags] typing title: {clean_title!r}")
+            logger.info(f"[填写标题] [_add_title_tags] typing title: {clean_title!r}")
             await page.keyboard.type(clean_title, delay=20)
-        logger.info("[tiktok] [_add_title_tags] pressing Space to commit title")
+        logger.info("[填写标题] [_add_title_tags] pressing Space to commit title")
         await page.keyboard.press("Space")
         await asyncio.sleep(0.3)
 
         for idx, tag in enumerate(tags or []):
             if not tag:
                 continue
-            logger.info(f"[tiktok] [_add_title_tags] tag {idx+1}/{len(tags)}: typing #{tag}")
+            logger.info(f"[填写标题] [_add_title_tags] tag {idx+1}/{len(tags)}: typing #{tag}")
             # type (not insert_text) so Draft.js sees keydown events
             await page.keyboard.type(" " + "#" + tag, delay=40)
-            logger.info(f"[tiktok] [_add_title_tags] tag {idx+1}/{len(tags)}: sleep 0.4")
+            logger.info(f"[填写标题] [_add_title_tags] tag {idx+1}/{len(tags)}: sleep 0.4")
             await asyncio.sleep(0.4)
-            logger.info(f"[tiktok] [_add_title_tags] tag {idx+1}/{len(tags)}: pressing Space")
+            logger.info(f"[填写标题] [_add_title_tags] tag {idx+1}/{len(tags)}: pressing Space")
             # Space commits #tag → hashtag chip
             await page.keyboard.press("Space")
-            logger.info(f"[tiktok] [_add_title_tags] tag {idx+1}/{len(tags)}: sleep 0.3")
+            logger.info(f"[填写标题] [_add_title_tags] tag {idx+1}/{len(tags)}: sleep 0.3")
             # let the chip conversion settle before next iteration
             await asyncio.sleep(0.3)
 
         # Press Escape to close any lingering autocomplete dropdown
         # so the next interaction (cover/schedule click) isn't blocked.
-        logger.info("[tiktok] [_add_title_tags] Escape to close any open dropdown")
+        logger.info("[填写标题] [_add_title_tags] Escape to close any open dropdown")
         await page.keyboard.press("Escape")
         await asyncio.sleep(0.3)
-        logger.info("[tiktok] [_add_title_tags] done")
+        logger.info("[填写标题] [_add_title_tags] done")
 
     @staticmethod
     async def _set_cover(page, thumbnail_path: str) -> None:
@@ -636,33 +661,33 @@ class TiktokPlatform(BasePlatform):
         流程：点 "编辑封面" → 弹窗里找隐藏的 input=file → 上传图片
         → 点 "保存" 关闭弹窗。
         """
-        logger.info(f"[tiktok] [_set_cover] start: {thumbnail_path}")
+        logger.info(f"[设置封面] [_set_cover] start: {thumbnail_path}")
         cover_container = page.locator('[data-e2e="cover_container"]').first
-        logger.info("[tiktok] [_set_cover] waiting for cover_container")
+        logger.info("[设置封面] [_set_cover] waiting for cover_container")
         await cover_container.wait_for(state="visible", timeout=5_000)
-        logger.info("[tiktok] [_set_cover] clicking 编辑封面")
+        logger.info("[设置封面] [_set_cover] clicking 编辑封面")
         await cover_container.locator('.edit-container:has-text("编辑封面")').click()
 
         # Wait for cover editor dialog
-        logger.info("[tiktok] [_set_cover] waiting for dialog")
+        logger.info("[设置封面] [_set_cover] waiting for dialog")
         dialog = page.locator('div.Dialog__content[data-open="true"]').first
         await dialog.wait_for(state="visible", timeout=5_000)
-        logger.info("[tiktok] [_set_cover] dialog visible, uploading image")
+        logger.info("[设置封面] [_set_cover] dialog visible, uploading image")
 
         # Find hidden image input (accept attribute pins it to jpeg/png/jpg)
         image_input = dialog.locator('input[type="file"]').first
         await image_input.set_input_files(thumbnail_path)
-        logger.info("[tiktok] [_set_cover] image set, clicking 保存")
+        logger.info("[设置封面] [_set_cover] image set, clicking 保存")
 
         # Click "保存" in the dialog header
         save_btn = dialog.locator('button.header-button:has-text("保存")').first
         await save_btn.wait_for(state="visible", timeout=5_000)
         await save_btn.click()
-        logger.info("[tiktok] [_set_cover] save clicked, waiting for dialog to close")
+        logger.info("[设置封面] [_set_cover] save clicked, waiting for dialog to close")
 
         # Wait for dialog to close
         await dialog.wait_for(state="hidden", timeout=5_000)
-        logger.info("[tiktok] Cover uploaded")
+        logger.info("[设置封面] 封面上传成功")
 
     @staticmethod
     async def _set_ai_declaration(page, *, enable: bool) -> None:
@@ -673,19 +698,19 @@ class TiktokPlatform(BasePlatform):
         otherwise the aigc_container is not visible and would hang
         the wait.
         """
-        logger.info(f"[tiktok] [_set_ai_declaration] start: enable={enable}")
+        logger.info(f"[AI声明] [_set_ai_declaration] start: enable={enable}")
 
         # Step 1: Expand the "显示更多" advanced section if it's still collapsed
         try:
             more_btn = page.locator('div.more-btn:has-text("显示更多")').first
             visible_before = await more_btn.is_visible(timeout=1_000)
-            logger.info(f"[tiktok] '显示更多' visible before click: {visible_before}")
+            logger.info(f"[AI声明] '显示更多' visible before click: {visible_before}")
             if visible_before:
                 await more_btn.click(force=True)
-                logger.info("[tiktok] Expanded '显示更多' section")
+                logger.info("[AI声明] Expanded '显示更多' section")
                 await asyncio.sleep(0.8)
         except Exception as e:
-            logger.info(f"[tiktok] Expand '显示更多' skipped/failed: {e!r}")
+            logger.info(f"[AI声明] Expand '显示更多' skipped/failed: {e!r}")
 
         # Step 2: Diagnose the options-form hidden state
         try:
@@ -693,48 +718,48 @@ class TiktokPlatform(BasePlatform):
             hidden_attr = await of.get_attribute("hidden")
             count = await page.locator('[data-e2e="aigc_container"]').count()
             logger.info(
-                f"[tiktok] options-form hidden={hidden_attr!r} "
+                f"[上传视频] options-form hidden={hidden_attr!r} "
                 f"aigc_container count={count}"
             )
         except Exception as e:
-            logger.info(f"[tiktok] diagnosis failed: {e!r}")
+            logger.info(f"[AI声明] diagnosis failed: {e!r}")
 
         # Step 3: Wait for the AI container (longer timeout)
         container = page.locator('[data-e2e="aigc_container"]').first
         try:
             await container.wait_for(state="visible", timeout=10_000)
-            logger.info("[tiktok] aigc_container visible")
+            logger.info("[AI声明] aigc_container visible")
         except Exception as e:
             count = await page.locator('[data-e2e="aigc_container"]').count()
             in_dom = count > 0
             logger.info(
-                f"[tiktok] aigc_container NOT visible after 10s: "
+                f"[上传视频] aigc_container NOT visible after 10s: "
                 f"in_dom={in_dom} count={count} err={e.__class__.__name__}"
             )
             raise
         switch_content = container.locator('div.Switch__content').first
         checked = await switch_content.get_attribute("aria-checked")
         is_on = checked == "true"
-        logger.info(f"[tiktok] AI switch initial state: is_on={is_on}")
+        logger.info(f"[AI声明] AI switch initial state: is_on={is_on}")
 
         # Click the visible Switch__root — the underlying <input> is
         # styled ``appearance: none`` and ``aria-hidden="true"`` so it's
         # a state mirror, not a click target.  Real click handler sits
         # on the outer div.Switch__root.
         if enable and not is_on:
-            logger.info("[tiktok] AI declaration: clicking Switch__root to enable")
+            logger.info("[AI声明] AI declaration: clicking Switch__root to enable")
             await container.locator('div.Switch__root').click(force=True)
             await asyncio.sleep(0.4)
             new_checked = await switch_content.get_attribute("aria-checked")
-            logger.info(f"[tiktok] AI declaration after click: aria-checked={new_checked!r}")
+            logger.info(f"[AI声明] AI declaration after click: aria-checked={new_checked!r}")
             # Toggling AI on pops the "标记 AI 生成的内容" confirm modal
             await TiktokPlatform._dismiss_ai_label_modal(page)
         elif not enable and is_on:
-            logger.info("[tiktok] AI declaration: clicking Switch__root to disable")
+            logger.info("[AI声明] AI declaration: clicking Switch__root to disable")
             await container.locator('div.Switch__root').click(force=True)
             await asyncio.sleep(0.4)
         else:
-            logger.info(f"[tiktok] AI declaration already in target state (is_on={is_on})")
+            logger.info(f"[AI声明] AI declaration already in target state (is_on={is_on})")
 
     @staticmethod
     async def _set_schedule_time(page, publish_date) -> None:
@@ -745,13 +770,13 @@ class TiktokPlatform(BasePlatform):
         3. Click the target day
         4. Click the time input, pick the hour/minute in the time picker
         """
-        logger.info(f"[tiktok] [_set_schedule_time] start: {publish_date}")
+        logger.info(f"[定时发布] [_set_schedule_time] start: {publish_date}")
         # 1. Click "预约发布" radio
         schedule_label = page.locator('label.Radio__root:has-text("预约发布")').first
-        logger.info("[tiktok] [_set_schedule_time] waiting for 预约发布 label")
+        logger.info("[定时发布] [_set_schedule_time] waiting for 预约发布 label")
         await schedule_label.wait_for(state="visible", timeout=5_000)
         await schedule_label.click()
-        logger.info("[tiktok] [_set_schedule_time] clicked 预约发布")
+        logger.info("[定时发布] [_set_schedule_time] clicked 预约发布")
 
         # 2. Date input — TUXFormField with .TUXInputBox, value="YYYY-MM-DD"
         date_input = page.locator(
@@ -777,7 +802,7 @@ class TiktokPlatform(BasePlatform):
             try:
                 current_month = datetime.strptime(current_month_text, "%B").month
             except ValueError:
-                logger.info(f"[tiktok] Unknown month title: {current_month_text}")
+                logger.info(f"[定时发布] Unknown month title: {current_month_text}")
                 current_month = publish_date.month
 
         # Click the right-arrow until the displayed month matches the target.
@@ -848,7 +873,7 @@ class TiktokPlatform(BasePlatform):
         for _ in range(max_attempts):
             # 如果 page 已关闭（用户关浏览器 / TikTok 跳页关闭），直接退出循环
             if page.is_closed():
-                logger.info("[tiktok] Page closed, exit _click_publish loop")
+                logger.info("[发布] Page closed, exit _click_publish loop")
                 return
             try:
                 publish_btn = page.locator(
@@ -857,7 +882,7 @@ class TiktokPlatform(BasePlatform):
                 await publish_btn.wait_for(state="visible", timeout=5_000)
                 disabled = await publish_btn.get_attribute("disabled")
                 if disabled is not None:
-                    logger.info("[tiktok] Publish button disabled, waiting...")
+                    logger.info("[发布] Publish button disabled, waiting...")
                     await asyncio.sleep(0.5)
                     continue
                 await publish_btn.click()
@@ -870,12 +895,12 @@ class TiktokPlatform(BasePlatform):
                     re.compile(r"/tiktokstudio/content"),
                     timeout=10_000,
                 )
-                logger.info("[tiktok] Video published successfully")
+                logger.info("[发布] Video published successfully")
                 return
             except Exception as e:
-                logger.info(f"[tiktok] Waiting for publish... ({e.__class__.__name__})")
+                logger.info(f"[发布] Waiting for publish... ({e.__class__.__name__})")
                 await asyncio.sleep(0.5)
-        logger.info(f"[tiktok] _click_publish loop exhausted {max_attempts} attempts")
+        logger.info(f"[发布] _click_publish loop exhausted {max_attempts} attempts")
 
     @staticmethod
     async def _get_last_video_id(page):

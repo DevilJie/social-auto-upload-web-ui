@@ -10,7 +10,7 @@ import asyncio
 import os
 from datetime import datetime
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 import threading
 from pathlib import Path
 from queue import Queue
@@ -19,6 +19,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
     scrape_baijiahao_profile,
@@ -207,6 +208,15 @@ class BaijiahaoPlatform(BasePlatform):
 
     async def _upload_all(self, **kwargs):
         """Create a browser for each file+account combo and upload."""
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始百家号视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", []) or []
@@ -223,9 +233,22 @@ class BaijiahaoPlatform(BasePlatform):
         supplementary_declaration = kwargs.get("supplementary_declaration", "")
         ai_content = kwargs.get("ai_content", False)
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 定时发布: %s", enableTimer)
+        logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 创作声明: %s", creation_declaration or "无")
+        logger.info("[发布参数] 补充声明: %s", supplementary_declaration or "无")
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enableTimer and schedule_time_str else "immediate")
+
         # Resolve full paths
         account_paths = [
-            str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file
+            str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
         ]
         # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
         file_paths = [str(f) for f in files]
@@ -247,20 +270,30 @@ class BaijiahaoPlatform(BasePlatform):
         )
 
         for file_index, file_path in enumerate(file_paths):
-            for cookie_path in account_paths:
-                await self._upload_one_video(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    publish_date=publish_datetimes[file_index],
-                    account_file=cookie_path,
-                    thumbnail_landscape_path=thumbnail_landscape_path,
-                    thumbnail_portrait_path=thumbnail_portrait_path,
-                    desc=desc,
-                    creation_declaration=creation_declaration,
-                    supplementary_declaration=supplementary_declaration,
-                    ai_content=ai_content,
-                )
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", file_index + 1, len(file_paths), file_path)
+            for cookie_index, cookie_path in enumerate(account_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                    await self._upload_one_video(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        publish_date=publish_datetimes[file_index],
+                        account_file=cookie_path,
+                        thumbnail_landscape_path=thumbnail_landscape_path,
+                        thumbnail_portrait_path=thumbnail_portrait_path,
+                        desc=desc,
+                        creation_declaration=creation_declaration,
+                        supplementary_declaration=supplementary_declaration,
+                        ai_content=ai_content,
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
 
     # ------------------------------------------------------------------
     # Internal: upload one video to one account
@@ -299,12 +332,13 @@ class BaijiahaoPlatform(BasePlatform):
                     "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2",
                     timeout=60000,
                 )
-                logger.info("正在上传-------%s", title)
+                logger.info("[上传视频] 开始上传视频: %s", title)
 
                 await page.wait_for_url(
                     "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2",
                     timeout=60000,
                 )
+                logger.info("[上传视频] 发布页面已打开")
 
                 # 注册上传完成请求监听器（必须在 set_input_files 之前注册，
                 # 否则可能错过在表单填充期间触发的完成请求）
@@ -320,12 +354,14 @@ class BaijiahaoPlatform(BasePlatform):
                 page.on("request", _on_bjh_request)
 
                 # Upload video file
+                logger.info("[上传视频] 正在上传视频文件...")
                 video_input = page.locator(
                     "input[type='file'][accept*='.mp4']"
                 )
                 if await video_input.count() == 0:
                     video_input = page.locator("input[type='file']").first
                 await video_input.set_input_files(file_path)
+                logger.info("[上传视频] 视频文件已选择，等待上传完成...")
 
                 # Wait for the form page to appear
                 while True:
@@ -335,21 +371,24 @@ class BaijiahaoPlatform(BasePlatform):
                         )
                         break
                     except Exception:
-                        logger.info("正在等待进入视频发布页面...")
+                        logger.info("[上传视频] 正在等待进入视频发布页面...")
                         await asyncio.sleep(0.1)
 
                 # Fill title and tags
                 await asyncio.sleep(1)
-                logger.info("正在填充标题和话题...")
+                logger.info("[填写标题] 开始填写标题与话题...")
                 await self._add_title_tags(page, title, desc, tags)
+                logger.info("[填写标题] 标题: %s", title)
+                logger.info("[填写标题] 标题与话题填写完成")
 
                 # Wait for video upload to complete (network signal)
                 upload_status = await self._wait_for_upload(
                     page, upload_done
                 )
                 if not upload_status:
-                    logger.error("发现上传出错了... 文件:%s", file_path)
+                    logger.error("[上传视频] 发现上传出错了... 文件:%s", file_path)
                     raise Exception("Video upload failed")
+                logger.info("[上传视频] 视频上传成功!")
 
                 # Wait for cover area to be ready
                 while True:
@@ -359,32 +398,37 @@ class BaijiahaoPlatform(BasePlatform):
                     ).count()
                     if container_count >= 2:
                         logger.info(
-                            "封面区域已就绪（找到 %d 个 cover-container）",
+                            "[设置封面] 封面区域已就绪（找到 %d 个 cover-container）",
                             container_count,
                         )
                         break
                     else:
                         logger.info(
-                            "等待封面区域就绪（当前 %d 个 cover-container）...",
+                            "[设置封面] 等待封面区域就绪（当前 %d 个 cover-container）...",
                             container_count,
                         )
                         await asyncio.sleep(3)
 
                 # Set custom covers
+                logger.info("[设置封面] 开始设置视频封面...")
                 await self._set_cover(
                     page,
                     thumbnail_landscape_path,
                     thumbnail_portrait_path,
                 )
+                logger.info("[设置封面] 封面设置完成")
 
                 # Set creation declaration
+                logger.info("[设置声明] 开始设置创作声明: %s", creation_declaration or "无")
                 await self._set_creation_declaration(
                     page,
                     creation_declaration,
                     supplementary_declaration,
                 )
+                logger.info("[设置声明] 创作声明设置完成")
 
                 # Publish (immediate or scheduled)
+                logger.info("[发布] 正在点击发布按钮...")
                 await self._publish_video(page, publish_date)
                 await page.wait_for_timeout(2000)
 
@@ -394,16 +438,16 @@ class BaijiahaoPlatform(BasePlatform):
                 )
                 if await captcha_dialog.count():
                     logger.warning(
-                        "出现人机校验，请在浏览器中手动完成验证..."
+                        "[发布] 出现人机校验，请在浏览器中手动完成验证..."
                     )
                     try:
                         await captcha_dialog.wait_for(
                             state="hidden", timeout=120000
                         )
-                        logger.info("人机校验已完成")
+                        logger.info("[发布] 人机校验已完成")
                         await asyncio.sleep(3)
                     except Exception:
-                        logger.error("人机校验等待超时（120秒），退出")
+                        logger.error("[发布] 人机校验等待超时（120秒），退出")
                         raise Exception("人机校验等待超时")
 
                 # Wait for publish success redirect
@@ -412,11 +456,11 @@ class BaijiahaoPlatform(BasePlatform):
                         "https://baijiahao.baidu.com/builder/rc/clue**",
                         timeout=30000,
                     )
-                    logger.info("视频发布成功")
+                    logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
                 except Exception:
                     current_url = page.url
                     logger.error(
-                        "发布后未跳转到成功页面, 当前URL: %s",
+                        "[发布] 发布后未跳转到成功页面, 当前URL: %s",
                         current_url,
                     )
                     raise Exception(
@@ -425,7 +469,7 @@ class BaijiahaoPlatform(BasePlatform):
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)
-                logger.info("cookie更新完毕！")
+                logger.info("[发布] Cookie状态已更新")
                 await asyncio.sleep(2)
             finally:
                 await context.close()
@@ -438,7 +482,7 @@ class BaijiahaoPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_for_upload(
-        page, upload_done: asyncio.Event, timeout_s: int = 600
+        page, upload_done: asyncio.Event,
     ) -> bool:
         """Wait for the authoritative upload-complete HTTP request.
 
@@ -452,21 +496,13 @@ class BaijiahaoPlatform(BasePlatform):
         file, leading to a publish click while the video is still
         uploading. The completion HTTP request is the source of truth.
 
+        无超时:视频可能很大(≤16G),一直等到上传完成请求到达。
+
         Returns True on success, False on failure.
         """
-        try:
-            await asyncio.wait_for(upload_done.wait(), timeout=timeout_s)
-            logger.info("视频上传完毕（检测到 compuploadvideo 请求）")
-            return True
-        except asyncio.TimeoutError:
-            upload_failed = await page.locator(
-                'div .cover-overlay:has-text("上传失败")'
-            ).count()
-            if upload_failed:
-                logger.error("发现上传出错了...")
-                return False
-            logger.error("等待视频上传完成超时（%d 秒）", timeout_s)
-            return False
+        await upload_done.wait()
+        logger.info("[上传视频] 视频上传完毕（检测到 compuploadvideo 请求）")
+        return True
 
     # ------------------------------------------------------------------
     # Helper: fill title and tags (Baijiahao uses description field)
@@ -496,9 +532,9 @@ class BaijiahaoPlatform(BasePlatform):
                 if tags:
                     full_text += " " + " ".join(f"#{t}" for t in tags)
                 await title_container.fill(full_text[:2000])
-                logger.info("已通过 placeholder 填充描述: %s", full_text[:2000])
+                logger.info("[填写简介] 已通过 placeholder 填充描述: %s", full_text[:2000])
                 return
-            logger.warning("未找到描述输入框，跳过填充")
+            logger.warning("[填写标题] 未找到描述输入框，跳过填充")
             return
 
         # 1. 输入描述文本
@@ -508,7 +544,7 @@ class BaijiahaoPlatform(BasePlatform):
         await asyncio.sleep(0.1)
         if desc_text:
             await page.keyboard.type(desc_text, delay=50)
-            logger.info("已填充作品描述: %s", desc_text)
+            logger.info("[填写标题] 已填充作品描述: %s", desc_text)
 
         # 2. 逐个输入 #话题 并从下拉列表选择第一个
         for tag in (tags or []):
@@ -521,10 +557,10 @@ class BaijiahaoPlatform(BasePlatform):
                 await topic_list.wait_for(state="visible", timeout=3000)
                 first_item = topic_list.locator("div[class*='topicItem']").first
                 await first_item.click()
-                logger.info("已选择话题: #%s", tag)
+                logger.info("[填写标题] 已选择话题: #%s", tag)
                 await asyncio.sleep(0.5)
             except Exception:
-                logger.info("话题 #%s 未出现下拉建议，跳过选择", tag)
+                logger.info("[填写标题] 话题 #%s 未出现下拉建议，跳过选择", tag)
 
     # ------------------------------------------------------------------
     # Helper: publish (immediate or scheduled)
@@ -553,7 +589,7 @@ class BaijiahaoPlatform(BasePlatform):
                 if await publish_button.count():
                     await publish_button.first.click()
         except Exception as e:
-            logger.error("直接发布视频失败: %s", e)
+            logger.error("[发布] 直接发布视频失败: %s", e)
             raise
 
     # ------------------------------------------------------------------
@@ -800,17 +836,17 @@ class BaijiahaoPlatform(BasePlatform):
                 "input[placeholder='请选择创作声明']"
             )
             if not await declaration_input.count():
-                logger.info("未找到创作声明输入框，跳过")
+                logger.info("[设置声明] 未找到创作声明输入框，跳过")
                 return
 
             await declaration_input.click()
-            logger.info("已点击创作声明输入框")
+            logger.info("[设置声明] 已点击创作声明输入框")
             await asyncio.sleep(1)
 
             # Locate dialog
             modal = page.get_by_role("dialog", name="创作声明")
             await modal.wait_for(state="visible", timeout=5000)
-            logger.info("创作声明弹窗已出现")
+            logger.info("[设置声明] 创作声明弹窗已出现")
 
             # Select required declaration
             if creation_declaration:
@@ -828,7 +864,7 @@ class BaijiahaoPlatform(BasePlatform):
                         await row.locator(
                             "input.cheetah-radio-input"
                         ).click(force=True)
-                        logger.info("已选择必选声明: %s", row_text)
+                        logger.info("[设置声明] 已选择必选声明: %s", row_text)
                         clicked = True
                         break
                 if not clicked:
@@ -853,7 +889,7 @@ class BaijiahaoPlatform(BasePlatform):
                         await row.locator(
                             "input.cheetah-radio-input"
                         ).click(force=True)
-                        logger.info("已选择补充声明: %s", row_text)
+                        logger.info("[设置声明] 已选择补充声明: %s", row_text)
                         clicked = True
                         break
                 if not clicked:
@@ -868,12 +904,12 @@ class BaijiahaoPlatform(BasePlatform):
             )
             if await confirm_btn.count():
                 await confirm_btn.click()
-                logger.info("已点击创作声明确定按钮")
+                logger.info("[设置声明] 已点击创作声明确定按钮")
             else:
-                logger.warning("未找到创作声明确定按钮")
+                logger.warning("[设置声明] 未找到创作声明确定按钮")
 
             await asyncio.sleep(1)
-            logger.info("创作声明设置完成")
+            logger.info("[设置声明] 创作声明设置完成")
 
         except Exception as e:
-            logger.warning("设置创作声明失败（不影响上传）: %s", e)
+            logger.warning("[设置声明] 设置创作声明失败（不影响上传）: %s", e)

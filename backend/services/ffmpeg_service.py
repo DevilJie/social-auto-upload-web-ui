@@ -126,6 +126,36 @@ def get_video_duration(video_path: str) -> float:
     return duration
 
 
+def get_video_dimensions(video_path: str) -> tuple[int, int]:
+    """获取视频宽高，返回 (width, height)。
+
+    使用 ffprobe 读取第一个视频流的 width 和 height。
+    失败返回 (0, 0)。
+    """
+    _ensure_binaries()
+    if FFPROBE is None:
+        return (0, 0)
+    cmd = [
+        FFPROBE,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=p=0",
+        video_path,
+    ]
+    logger.debug("Running ffprobe for dimensions: {}", " ".join(cmd))
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output = result.stdout.strip()
+        if output:
+            parts = output.split(",")
+            if len(parts) == 2:
+                return (int(parts[0]), int(parts[1]))
+    except (subprocess.CalledProcessError, ValueError) as exc:
+        logger.warning("ffprobe dimensions failed for {}: {}", video_path, exc)
+    return (0, 0)
+
+
 # ---------------------------------------------------------------------------
 # Frame extraction task tracking
 # ---------------------------------------------------------------------------
@@ -404,3 +434,70 @@ def get_video_duration_safe(video_path: str) -> float:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         logger.warning("ffmpeg fallback failed for {}: {}", video_path, exc)
         return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Safe dimensions detection (with ffmpeg fallback)
+# ---------------------------------------------------------------------------
+
+_DIMENSIONS_RE = re.compile(r"Video:.*?(\d{2,5})x(\d{2,5})")
+
+
+def _parse_dimensions_from_stderr(stderr: str) -> tuple[int, int]:
+    """从 ffmpeg -i 的 stderr 中解析视频宽高（fallback 用）。
+
+    匹配格式如：Video: h264, 1920x1080, ...
+    """
+    match = _DIMENSIONS_RE.search(stderr)
+    if not match:
+        return (0, 0)
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def get_video_dimensions_safe(video_path: str) -> tuple[int, int]:
+    """获取视频宽高，返回 (width, height)。
+
+    优先调用 ffprobe（不解码视频帧）。
+    ffprobe 不可用或失败时，fallback 到 `ffmpeg -i` 解析 stderr 中的分辨率。
+    都失败时返回 (0, 0)。
+    """
+    try:
+        width, height = get_video_dimensions(video_path)
+        if width > 0 and height > 0:
+            return (width, height)
+    except Exception as exc:
+        logger.warning("ffprobe dimensions failed for {}: {}", video_path, exc)
+
+    # Fallback: ffmpeg -i
+    _ensure_binaries()
+    if FFMPEG is None:
+        return (0, 0)
+
+    try:
+        result = subprocess.run(
+            [FFMPEG, "-i", video_path],
+            capture_output=True, text=True, timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+        return _parse_dimensions_from_stderr(result.stderr)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.warning("ffmpeg dimensions fallback failed for {}: {}", video_path, exc)
+        return (0, 0)
+
+
+def calculate_orientation(width: int, height: int) -> str:
+    """根据宽高计算横竖版标识。
+
+    返回值：
+    - 'horizontal'：横版（宽 > 高）
+    - 'vertical'：竖版（高 > 宽）
+    - 'square'：正方形（宽 == 高）
+    - ''：未识别（宽或高为 0）
+    """
+    if width <= 0 or height <= 0:
+        return ''
+    if width > height:
+        return 'horizontal'
+    if height > width:
+        return 'vertical'
+    return 'square'

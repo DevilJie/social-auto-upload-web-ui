@@ -15,9 +15,9 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, save_login_result
+from .._utils import get_account_name_by_cookie_file, parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("tencent_video")
@@ -222,6 +222,15 @@ class TencentVideoPlatform(BasePlatform):
         - ``daily_times`` (*list*, optional)
         - ``start_days`` (*int*, optional)
         """
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始腾讯视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", []) or []
@@ -232,8 +241,19 @@ class TencentVideoPlatform(BasePlatform):
         creation_declaration = kwargs.get("creation_declaration", "")
         desc = kwargs.get("desc", "")
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 定时发布: %s", enableTimer)
+        logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 创作声明: %s", creation_declaration or "无")
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enableTimer and schedule_time_str else "immediate")
+
         # Resolve full paths
-        account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
+        account_paths = [str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file]
         # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
         file_paths = [str(f) for f in files]
         if thumbnail_landscape_path:
@@ -261,18 +281,28 @@ class TencentVideoPlatform(BasePlatform):
         )
 
         for file_index, file_path in enumerate(file_paths):
-            for cookie_path in account_paths:
-                await self._upload_one_video(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    publish_date=publish_datetimes[file_index],
-                    account_file=cookie_path,
-                    enableTimer=enableTimer,
-                    thumbnail_landscape_path=thumbnail_landscape_path or None,
-                    creation_declarations=declarations,
-                    desc=desc,
-                )
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", file_index + 1, len(file_paths), file_path)
+            for cookie_index, cookie_path in enumerate(account_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                    await self._upload_one_video(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        publish_date=publish_datetimes[file_index],
+                        account_file=cookie_path,
+                        enableTimer=enableTimer,
+                        thumbnail_landscape_path=thumbnail_landscape_path or None,
+                        creation_declarations=declarations,
+                        desc=desc,
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
         return True
 
     # ------------------------------------------------------------------
@@ -316,14 +346,14 @@ class TencentVideoPlatform(BasePlatform):
                 # Step 1: Upload video file via input[type=file]
                 # [FIX 2026-06-10] 腾讯视频 SPA：networkidle 后还要等表单 JS 渲染完毕
                 # 之前在 networkidle 后直接找 input，找不到（form 还没渲染）
-                logger.info("Uploading video file: %s (exists=%s)", file_path, os.path.exists(file_path))
+                logger.info("[上传视频] 开始上传视频: %s (exists=%s)", file_path, os.path.exists(file_path))
                 # 先等 publish form 渲染：找"上传视频"或上传区域的提示文字
                 try:
                     await page.wait_for_selector(
                         'text=上传视频, input[type="file"], [dt-mpid*="upload"], div[class*="uploadArea"], div[class*="Upload"]',
                         timeout=15000,
                     )
-                    logger.info("Publish form rendered, input area found")
+                    logger.info("[上传视频] Publish form rendered, input area found")
                 except Exception as e:
                     logger.warning("[DEBUG] Publish form wait timeout: %s", e)
 
@@ -335,13 +365,13 @@ class TencentVideoPlatform(BasePlatform):
                 )
                 file_input = page.locator('input[type="file"]').first
                 input_count = await page.locator('input[type="file"]').count()
-                logger.info("Found %d file input(s) on page", input_count)
+                logger.info("[上传视频] Found %d file input(s) on page", input_count)
                 if input_count == 0:
                     # [DEBUG 2026-06-10] 把 page state 全 dump 出来排查
                     current_url = page.url
                     page_title = await page.title()
                     body_text = (await page.locator('body').text_content() or '')[:500]
-                    logger.error("No file input found, cannot upload video")
+                    logger.error("[上传视频] No file input found, cannot upload video")
                     logger.error("[DEBUG] current_url=%s page_title=%s body_excerpt=%s", current_url, page_title, body_text)
                     try:
                         html_excerpt = (await page.content())[:2000]
@@ -350,29 +380,25 @@ class TencentVideoPlatform(BasePlatform):
                         logger.error("[DEBUG] failed to get html: %s", e)
                     raise Exception("未找到视频上传入口")
                 await file_input.set_input_files(file_path)
-                logger.info("Video file set, waiting for upload to complete...")
+                logger.info("[上传视频] 视频文件已选择, 等待上传完成...")
 
                 # Step 2: Wait for the publish form to appear after upload
                 # The form title "视频1" signals upload is done
+                # (timeout=0 means wait indefinitely — video may be very large)
                 await page.wait_for_selector(
                     'div[class*="formTitle"]:has-text("视频")',
-                    timeout=120000,
+                    timeout=0,
                 )
-                logger.info("Video upload complete, publish form ready")
+                logger.info("[上传视频] 视频上传成功! 发布表单已就绪")
                 await asyncio.sleep(2)
 
                 # Step 2.5: 等待真正的上传完成 HTTP 请求（formTitle 只是
                 # UI 提示，不是后端完成的权威信号）
-                try:
-                    await asyncio.wait_for(upload_done.wait(), timeout=600)
-                    logger.info(
-                        "视频上传完成（检测到 UploadNotify 请求）"
-                    )
-                except asyncio.TimeoutError:
-                    logger.error(
-                        "等待视频上传完成超时（600 秒），未检测到 UploadNotify"
-                    )
-                    raise Exception("视频上传超时")
+                # 无超时:视频可能很大(≤16G),一直等到 UploadNotify 到达
+                await upload_done.wait()
+                logger.info(
+                    "视频上传完成（检测到 UploadNotify 请求）"
+                )
 
                 # Step 3: Fill title
                 await self._fill_title(page, title or desc)
@@ -396,7 +422,7 @@ class TencentVideoPlatform(BasePlatform):
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)
-                logger.info("Cookie state updated after publish")
+                logger.info("[上传视频] Cookie state updated after publish")
             finally:
                 await context.close()
         finally:
@@ -411,14 +437,14 @@ class TencentVideoPlatform(BasePlatform):
             'div[data-field-name="videos.0.title"]'
         ).first
         if await title_container.count() == 0:
-            logger.warning("Title field not found")
+            logger.warning("[填写标题] Title field not found")
             return
 
         title_div = title_container.locator(
             'div.ProseMirror.ExEditor-cc-title-input'
         ).first
         if await title_div.count() == 0:
-            logger.warning("Title contenteditable div not found")
+            logger.warning("[填写标题] Title contenteditable div not found")
             return
 
         await title_div.wait_for(state="visible", timeout=10000)
@@ -430,19 +456,19 @@ class TencentVideoPlatform(BasePlatform):
         await asyncio.sleep(0.2)
         # Type the title (max 80 chars per the platform)
         await page.keyboard.type(title[:80])
-        logger.info("Title filled: %s", title[:80])
+        logger.info("[填写标题] 标题已填写: %s", title[:80])
 
     @staticmethod
     async def _upload_cover(page, cover_path: str):
         """Upload cover image via the cover modal."""
-        logger.info("Uploading cover image: %s", cover_path)
+        logger.info("[设置封面] Uploading cover image: %s", cover_path)
         try:
             # Click the "上传横版封面" button area to open the modal
             upload_area = page.locator(
                 'div[class*="uploadAddArea"]:has-text("上传横版封面")'
             ).first
             if await upload_area.count() == 0:
-                logger.warning("Cover upload area not found")
+                logger.warning("[设置封面] Cover upload area not found")
                 return
 
             await upload_area.wait_for(state="visible", timeout=10000)
@@ -452,7 +478,7 @@ class TencentVideoPlatform(BasePlatform):
             # Wait for the ReactModal to appear
             modal = page.locator('div.ReactModal__Content').first
             await modal.wait_for(state="visible", timeout=10000)
-            logger.info("Cover upload modal opened")
+            logger.info("[设置封面] Cover upload modal opened")
 
             # Find the hidden file input inside the modal by id
             # The input is: <input accept=".jpg,.jpeg,.png,.webp" id="uploadCoverBtn" type="file">
@@ -464,7 +490,7 @@ class TencentVideoPlatform(BasePlatform):
                 "el => el.style.display = 'block'"
             )
             await cover_input.set_input_files(cover_path)
-            logger.info("Cover image uploaded to modal")
+            logger.info("[设置封面] Cover image uploaded to modal")
             await asyncio.sleep(3)
 
             # Click the "使用" button to confirm the cover
@@ -474,7 +500,7 @@ class TencentVideoPlatform(BasePlatform):
             ).first
             if await use_btn.count() > 0:
                 await use_btn.click()
-                logger.info("Cover confirmed with '上传封面确定' button")
+                logger.info("[设置封面] Cover confirmed with '上传封面确定' button")
                 await asyncio.sleep(1)
             else:
                 # Fallback: try any "使用" button
@@ -483,20 +509,20 @@ class TencentVideoPlatform(BasePlatform):
                 ).first
                 if await use_btn_fallback.count() > 0:
                     await use_btn_fallback.click()
-                    logger.info("Cover confirmed with '使用' button")
+                    logger.info("[设置封面] Cover confirmed with '使用' button")
                     await asyncio.sleep(1)
                 else:
-                    logger.warning("Cover '使用' button not found in modal")
+                    logger.warning("[设置封面] Cover '使用' button not found in modal")
         except Exception as e:
-            logger.warning("Cover upload failed (non-blocking): %s", e)
+            logger.warning("[设置封面] Cover upload failed (non-blocking): %s", e)
 
     @staticmethod
     async def _set_creation_declarations(page, declarations: list):
         """Check the specified creation declaration checkboxes."""
-        logger.info("Setting creation declarations: %s", declarations)
+        logger.info("[设置声明] Setting creation declarations: %s", declarations)
         for decl in declarations:
             if decl not in CREATION_DECLARATIONS:
-                logger.warning("Unknown declaration: %s", decl)
+                logger.warning("[设置声明] Unknown declaration: %s", decl)
                 continue
             try:
                 # Find the checkbox by its label text
@@ -504,18 +530,18 @@ class TencentVideoPlatform(BasePlatform):
                     f'label[class*="checkboxItem"]:has-text("{decl}")'
                 ).first
                 if await checkbox.count() == 0:
-                    logger.warning("Declaration checkbox not found: %s", decl)
+                    logger.warning("[设置声明] Declaration checkbox not found: %s", decl)
                     continue
 
                 await checkbox.wait_for(state="visible", timeout=5000)
                 # Check if already checked
                 chk_input = checkbox.locator('input[type="checkbox"]')
                 if await chk_input.is_checked():
-                    logger.info("Declaration already checked: %s", decl)
+                    logger.info("[设置声明] Declaration already checked: %s", decl)
                     continue
 
                 await checkbox.click()
-                logger.info("Declaration checked: %s", decl)
+                logger.info("[设置声明] Declaration checked: %s", decl)
                 await asyncio.sleep(0.5)
             except Exception as e:
                 logger.warning(
@@ -526,7 +552,7 @@ class TencentVideoPlatform(BasePlatform):
     @staticmethod
     async def _set_schedule_time(page, publish_date):
         """Enable scheduled publishing and set the date/time."""
-        logger.info("Setting schedule time: %s", publish_date)
+        logger.info("[定时发布] Setting schedule time: %s", publish_date)
         try:
             # Find the toggle switch - check if already enabled
             switch = page.locator('button[role="switch"]').first
@@ -534,7 +560,7 @@ class TencentVideoPlatform(BasePlatform):
                 is_checked = await switch.get_attribute("aria-checked")
                 if is_checked != "true":
                     await switch.click()
-                    logger.info("Scheduled publish toggled ON")
+                    logger.info("[定时发布] Scheduled publish toggled ON")
                     await asyncio.sleep(1)
 
             # Click the datetime trigger to open the picker
@@ -542,7 +568,7 @@ class TencentVideoPlatform(BasePlatform):
                 'div[class*="dateTimeSelect"]'
             ).first
             if await datetime_trigger.count() == 0:
-                logger.warning("Datetime trigger not found")
+                logger.warning("[定时发布] Datetime trigger not found")
                 return
 
             await datetime_trigger.click()
@@ -551,7 +577,7 @@ class TencentVideoPlatform(BasePlatform):
             # Wait for the popup to appear
             popup = page.locator('div[class*="popupWrap"]').first
             if await popup.count() == 0:
-                logger.warning("Datetime popup not found")
+                logger.warning("[定时发布] Datetime popup not found")
                 return
 
             # Format date components as they appear in the popup
@@ -587,7 +613,7 @@ class TencentVideoPlatform(BasePlatform):
             confirm_btn = popup.locator('button:has-text("确定")').first
             if await confirm_btn.count() > 0:
                 await confirm_btn.click()
-                logger.info("Schedule time confirmed: %s", publish_date)
+                logger.info("[定时发布] Schedule time confirmed: %s", publish_date)
                 await asyncio.sleep(1)
         except Exception as e:
             logger.warning(
@@ -602,7 +628,7 @@ class TencentVideoPlatform(BasePlatform):
         1. URL change to a different mp.v.qq.com page (success redirect)
         2. "提交成功" / "发布成功" text appearing on the page
         """
-        logger.info("Clicking publish button")
+        logger.info("[发布] Clicking publish button")
         publish_btn = page.locator(
             'button[dt-mpid="video_submit_click"]'
         ).first
@@ -611,7 +637,7 @@ class TencentVideoPlatform(BasePlatform):
         # Check if button is disabled before clicking
         disabled = await publish_btn.get_attribute("disabled")
         if disabled is not None:
-            logger.warning("Publish button is disabled, waiting for it to enable...")
+            logger.warning("[发布] Publish button is disabled, waiting for it to enable...")
             await page.wait_for_function(
                 "document.querySelector('button[dt-mpid=\"video_submit_click\"]')"
                 " && !document.querySelector('button[dt-mpid=\"video_submit_click\"]').disabled",
@@ -619,7 +645,7 @@ class TencentVideoPlatform(BasePlatform):
             )
 
         await publish_btn.click()
-        logger.info("Publish button clicked, waiting for publish result")
+        logger.info("[发布] Publish button clicked, waiting for publish result")
 
         # Wait up to 60s for success indicators
         success = False
@@ -630,7 +656,7 @@ class TencentVideoPlatform(BasePlatform):
                     'text=提交成功, text=发布成功, text=投稿成功'
                 ).first
                 if await success_text.count() > 0 and await success_text.is_visible():
-                    logger.info("Publish success text detected!")
+                    logger.info("[发布] Publish success text detected!")
                     success = True
                     break
             except Exception:
@@ -653,7 +679,7 @@ class TencentVideoPlatform(BasePlatform):
                 try:
                     still_enabled = await publish_btn.is_enabled()
                     if still_enabled:
-                        logger.info("Button still enabled after 5s, retrying click...")
+                        logger.info("[发布] Button still enabled after 5s, retrying click...")
                         await publish_btn.click()
                 except Exception:
                     pass
@@ -661,9 +687,9 @@ class TencentVideoPlatform(BasePlatform):
             await asyncio.sleep(1)
 
         if success:
-            logger.info("Video published successfully")
+            logger.info("[发布] Video published successfully")
         else:
-            logger.error("Publish indicator not found within 60s timeout")
+            logger.error("[发布] Publish indicator not found within 60s timeout")
             raise Exception("发布失败：未检测到发布成功信号（页面未跳转，无成功文本）")
 
         await asyncio.sleep(2)

@@ -142,6 +142,14 @@
             @config-changed="onChannelConfigChanged"
             @publish-result="onPublishResult"
           />
+          <AlipayImagePublishPanel
+            ref="alipayPanelRef"
+            :account-id="selectedPlatform === 'alipay' ? selectedAccountId : null"
+            :disabled="publishing"
+            v-show="selectedPlatform === 'alipay'"
+            @config-changed="onChannelConfigChanged"
+            @publish-result="onPublishResult"
+          />
         </div>
 
         <!-- No account selected hint -->
@@ -246,6 +254,12 @@
       @cancel="cancelBatch"
     />
 
+    <!-- Pre-publish Cookie Check Dialog -->
+    <PrePublishCheckDialog
+      ref="prePublishCheckRef"
+      v-model="prePublishCheckVisible"
+    />
+
     <!-- One-click Fill Dialog -->
     <OneClickFillDialog
       v-model="oneClickDialogOpen"
@@ -295,6 +309,8 @@ import DouyinImagePublishPanel from '@/components/douyin/ImagePublishPanel.vue'
 import XiaohongshuImagePublishPanel from '@/components/xiaohongshu/ImagePublishPanel.vue'
 import KuaishouImagePublishPanel from '@/components/kuaishou/ImagePublishPanel.vue'
 import WeiboImagePublishPanel from '@/components/weibo/ImagePublishPanel.vue'
+import AlipayImagePublishPanel from '@/components/alipay/ImagePublishPanel.vue'
+import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -303,7 +319,7 @@ appStore.loadAutoFillTitle()
 appStore.loadAutoSaveSettings()
 const route = useRoute()
 
-const IMAGE_PLATFORM_KEYS = ['xiaohongshu', 'douyin', 'kuaishou', 'weibo']
+const IMAGE_PLATFORM_KEYS = ['xiaohongshu', 'douyin', 'kuaishou', 'weibo', 'alipay']
 const IMAGE_PLATFORMS = platformList.filter(p => IMAGE_PLATFORM_KEYS.includes(p.key))
 
 // ========== Left Sidebar State ==========
@@ -391,9 +407,10 @@ const douyinPanelRef = ref(null)
 const xiaohongshuPanelRef = ref(null)
 const kuaishouPanelRef = ref(null)
 const weiboPanelRef = ref(null)
+const alipayPanelRef = ref(null)
 
 function getPanel(key) {
-  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef, weibo: weiboPanelRef }
+  const map = { douyin: douyinPanelRef, xiaohongshu: xiaohongshuPanelRef, kuaishou: kuaishouPanelRef, weibo: weiboPanelRef, alipay: alipayPanelRef }
   return map[key]?.value
 }
 
@@ -413,7 +430,7 @@ function onPublishResult({ accountName, status, message }) {
 function hasAccountOverride(accountId) {
   // Task 10：新增覆写层勾选 + panel 内部 accountOverrides 任一为真都算
   if (accountChecked[accountId] && hasAccountOverrideContent(accountId)) return true
-  for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
+  for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo', 'alipay']) {
     const panel = getPanel(key)
     if (panel && panel.hasAccountOverride(accountId)) return true
   }
@@ -461,24 +478,33 @@ function onAccountCheckChange(checked) {
 function resolveAccountConfig(platformKey, accountId) {
   const accountOv = (accountChecked[accountId] && accountOverrides[accountId]) || null
   const platformOv = (platformChecked[platformKey] && platformOverrides[platformKey]) || null
-  // 注意：plan 写的是 getConfig()，实际 panel 暴露的是 getConfigs() 返回 { platformConfig, accountOverrides }
-  const platformDefault = getPanel(platformKey)?.getConfigs?.()?.platformConfig || null
-  return mergeConfig(commonConfig, platformDefault, platformOv, accountOv)
+  // panel 内部状态(含 channel-specific 的 accountOverrides，如标题/描述)
+  const panelConfigs = getPanel(platformKey)?.getConfigs?.() || {}
+  const platformDefault = panelConfigs.platformConfig || null
+  // panel 内部的 accountOverrides 也需要参与合并(标题/描述/标签等文本字段
+  // 在 useChannelForm 的 watch(form) 里同步到 panel 内部 accountOverrides)
+  const panelAccountOv = panelConfigs.accountOverrides?.[accountId] || null
+  return mergeConfig(commonConfig, platformDefault, platformOv, accountOv, panelAccountOv)
 }
 
-function mergeConfig(common, platformDefault, platformOv, accountOv) {
+function mergeConfig(common, platformDefault, platformOv, accountOv, panelAccountOv = null) {
+  // 合并优先级：accountOv > panelAccountOv > platformOv > platformDefault > ''
+  // accountOv: 顶层媒体覆写(图片/封面等)
+  // panelAccountOv: panel 内部账号覆写(标题/描述/标签等文本字段)
   return {
-    // 文本字段仅从 platformDefault 取（覆写区不再含 title/desc/tags）
-    title: platformDefault?.title ?? '',
-    description: platformDefault?.description ?? '',
-    tags: platformDefault?.tags ?? [],
+    // 文本字段走 4 级合并(顶层 accountOv > panel accountOv > platformOv > platformDefault)
+    title: accountOv?.title ?? panelAccountOv?.title ?? platformOv?.title ?? platformDefault?.title ?? '',
+    description: accountOv?.description ?? panelAccountOv?.description ?? platformOv?.description ?? platformDefault?.description ?? '',
+    tags: accountOv?.tags ?? panelAccountOv?.tags ?? platformOv?.tags ?? platformDefault?.tags ?? [],
     // 媒体字段走 4 级合并 → commonConfig 兜底
     images: accountOv?.images ?? platformOv?.images ?? platformDefault?.images ?? common.images,
     coverImage: accountOv?.coverImage ?? platformOv?.coverImage ?? platformDefault?.coverImage ?? common.coverImage,
     enableTimer: accountOv?.enableTimer ?? platformOv?.enableTimer ?? platformDefault?.enableTimer ?? 0,
     scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
-    aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
+    aiContent: accountOv?.aiContent ?? panelAccountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
+    music: accountOv?.music ?? panelAccountOv?.music ?? platformOv?.music ?? platformDefault?.music ?? null,
+    authorStatement: accountOv?.authorStatement ?? panelAccountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
   }
 }
 
@@ -492,6 +518,8 @@ if (firstGroup) {
 // ========== Dialog State ==========
 const accountDialogVisible = ref(false)
 const batchPublishDialogVisible = ref(false)
+const prePublishCheckRef = ref(null)
+const prePublishCheckVisible = ref(false)
 const oneClickDialogOpen = ref(false)
 const batchSetDialogOpen = ref(false)
 
@@ -502,6 +530,7 @@ const panelsProxy = reactive({
   get xiaohongshu() { return xiaohongshuPanelRef.value },
   get kuaishou() { return kuaishouPanelRef.value },
   get weibo() { return weiboPanelRef.value },
+  get alipay() { return alipayPanelRef.value },
 })
 const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
 // 渠道个性化可见平台列表：过滤掉被拉黑的平台
@@ -641,7 +670,7 @@ async function saveDraft() {
   try {
     const allPlatformConfigs = {}
     const panelAccountOverrides = {}
-    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo', 'alipay']) {
       const panel = getPanel(key)
       if (panel) {
         const configs = panel.getConfigs()
@@ -724,6 +753,15 @@ async function publishAll() {
         ElMessage.error(`${account.name}(${group.name}): ${result.errors.join('; ')}`)
         return
       }
+    }
+  }
+
+  // ===== 表单校验全部通过后，进行 Cookie 预检 =====
+  if (prePublishCheckRef.value) {
+    const accountsToCheck = accountStore.accounts.filter(a => publishAccountIds.has(a.id))
+    if (accountsToCheck.length > 0) {
+      const allValid = await prePublishCheckRef.value.open(accountsToCheck)
+      if (!allValid) return  // 用户取消或未全部修复
     }
   }
 
@@ -896,7 +934,7 @@ function handleOneClickFill(record) {
 // ========== Old Draft Migration ==========
 function migrateOldDraftFormat(dd) {
   if (dd.commonConfig?.topics && Array.isArray(dd.commonConfig.topics)) {
-    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo']) {
+    for (const key of ['douyin', 'xiaohongshu', 'kuaishou', 'weibo', 'alipay']) {
       if (dd.platformConfigs?.[key]) {
         dd.platformConfigs[key].tags = [...dd.commonConfig.topics]
       }

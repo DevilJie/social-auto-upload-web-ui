@@ -92,15 +92,63 @@
           </el-select>
         </div>
 
-        <el-button
-          class="refresh-btn"
-          :icon="Refresh"
-          @click="fetchHistory"
-          :loading="loading"
-        >
-          刷新
-        </el-button>
+        <div class="filter-actions">
+          <el-button
+            v-if="!selectMode"
+            class="select-trigger-btn"
+            :icon="Select"
+            :disabled="batches.length === 0"
+            @click="toggleSelectMode"
+          >
+            多选
+          </el-button>
+          <el-button
+            class="refresh-btn"
+            :icon="Refresh"
+            @click="fetchHistory"
+            :loading="loading"
+          >
+            刷新
+          </el-button>
+        </div>
       </div>
+    </div>
+
+    <!-- Batch operations toolbar -->
+    <div class="batch-toolbar" v-if="selectMode">
+      <el-checkbox
+        :model-value="isAllSelected"
+        :indeterminate="isIndeterminate"
+        class="toolbar-select-all"
+        @change="toggleSelectAll"
+      >
+        全选
+      </el-checkbox>
+
+      <div class="selected-info">
+        <el-icon class="selected-icon"><Check /></el-icon>
+        <span>已选 <strong>{{ selection.size }}</strong> / {{ batches.length }}</span>
+      </div>
+
+      <div class="toolbar-spacer"></div>
+
+      <el-button
+        size="default"
+        :icon="Delete"
+        type="danger"
+        :disabled="selection.size === 0 || isDeleting"
+        @click="onBatchDelete"
+      >
+        批量删除<template v-if="selection.size > 0"> ({{ selection.size }})</template>
+      </el-button>
+      <el-button
+        size="default"
+        :icon="Close"
+        class="toolbar-exit"
+        @click="toggleSelectMode"
+      >
+        退出多选
+      </el-button>
     </div>
 
     <!-- 卡片网格 -->
@@ -113,8 +161,20 @@
         v-for="batch in batches"
         :key="batch.id"
         class="batch-card"
-        @click="goDetail(batch.id)"
+        :class="{
+          'is-selected': selection.has(batch.id),
+          'select-mode': selectMode,
+        }"
+        @click="onCardClick(batch.id)"
       >
+        <div
+          v-if="selectMode"
+          class="card-selector"
+          :class="{ 'is-checked': selection.has(batch.id) }"
+          @click.stop="toggleSelection(batch.id, !selection.has(batch.id))"
+        >
+          <el-icon class="selector-icon"><Check /></el-icon>
+        </div>
         <div class="card-cover">
           <img v-if="batch.cover_url" :src="batch.cover_url" :alt="batch.title" />
           <div v-else class="cover-placeholder">
@@ -135,6 +195,15 @@
             <PublishStats compact />
           </div>
         </div>
+
+        <!-- 单条删除按钮（非多选模式下显示） -->
+        <button
+          v-if="!selectMode"
+          class="card-delete-btn"
+          @click.stop="confirmDelete(batch)"
+        >
+          <el-icon><Delete /></el-icon>
+        </button>
       </div>
     </div>
 
@@ -155,9 +224,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Clock, Picture, Refresh, Upload, CircleCheck, Calendar } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Clock, Picture, Refresh, Upload, CircleCheck, Calendar, Delete, Check, Select, Close } from '@element-plus/icons-vue'
 import { historyApi, statsApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import ChannelSummary from '@/components/ChannelSummary.vue'
@@ -176,6 +246,11 @@ const statusFilter = ref('all')
 const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+
+// 多选 + 删除状态
+const selection = ref(new Set())           // 选中的批次 id
+const selectMode = ref(false)              // 多选模式开关
+const isDeleting = ref(false)
 
 function computeChannelsSummary(items) {
   const groups = {}
@@ -253,12 +328,135 @@ async function fetchStats() {
   }
 }
 
-const handlePageChange = (page) => { currentPage.value = page; fetchHistory() }
-const handleSizeChange = (size) => { pageSize.value = size; currentPage.value = 1; fetchHistory() }
-const handleFilterChange = () => { currentPage.value = 1; fetchHistory() }
+const handlePageChange = (page) => {
+  currentPage.value = page
+  if (selectMode.value) selection.value = new Set()
+  fetchHistory()
+}
+const handleSizeChange = (size) => {
+  pageSize.value = size
+  currentPage.value = 1
+  if (selectMode.value) selection.value = new Set()
+  fetchHistory()
+}
+const handleFilterChange = () => {
+  currentPage.value = 1
+  if (selectMode.value) selection.value = new Set()
+  fetchHistory()
+}
 
 function goDetail(batchId) {
   router.push(`/publish-history/${batchId}`)
+}
+
+// ===== 多选操作 =====
+const isAllSelected = computed(() => {
+  const cnt = batches.value.length
+  return cnt > 0 && selection.value.size >= cnt
+})
+const isIndeterminate = computed(() => {
+  return selection.value.size > 0 && selection.value.size < batches.value.length
+})
+
+function toggleSelectMode() {
+  selectMode.value = !selectMode.value
+  if (!selectMode.value) {
+    selection.value = new Set()
+  }
+}
+
+function toggleSelectAll(checked) {
+  selection.value = checked ? new Set(batches.value.map((b) => b.id)) : new Set()
+}
+
+function toggleSelection(id, checked) {
+  const next = new Set(selection.value)
+  if (checked) next.add(id)
+  else next.delete(id)
+  selection.value = next
+}
+
+function onCardClick(id) {
+  if (!selectMode.value) {
+    goDetail(id)
+    return
+  }
+  toggleSelection(id, !selection.value.has(id))
+}
+
+// ===== 单条删除 =====
+async function confirmDelete(batch) {
+  const title = batch.title || '无标题'
+  try {
+    await ElMessageBox.confirm(
+      `确定删除发布记录「${title}」吗？此操作不可恢复。`,
+      '删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await historyApi.deleteBatch(batch.id)
+    ElMessage.success('记录已删除')
+    // 本地移除并修正总数
+    batches.value = batches.value.filter((b) => b.id !== batch.id)
+    total.value = Math.max(0, total.value - 1)
+    // 当前页空了且不是第一页时回退一页
+    if (batches.value.length === 0 && currentPage.value > 1) {
+      currentPage.value -= 1
+      fetchHistory()
+    } else if (batches.value.length === 0) {
+      // 第一页也没有数据,刷新统计
+      fetchStats()
+    }
+  } catch {
+    // 错误提示已由响应拦截器处理
+  }
+}
+
+// ===== 批量删除 =====
+async function onBatchDelete() {
+  const count = selection.value.size
+  if (count === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除选中的 ${count} 条发布记录？此操作不可恢复。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+
+  const ids = [...selection.value]
+  isDeleting.value = true
+  try {
+    const resp = await historyApi.batchDelete(ids)
+    const { deleted = [], failed = [] } = resp || {}
+    if (deleted.length) {
+      ElMessage.success(`已删除 ${deleted.length} 条记录`)
+      batches.value = batches.value.filter((b) => !deleted.includes(b.id))
+      total.value = Math.max(0, total.value - deleted.length)
+    }
+    if (failed.length) {
+      ElMessage.warning(`${failed.length} 条删除失败：${failed.map((f) => f.reason).join('; ')}`)
+    }
+    selection.value = new Set()
+    // 当前页删空了,回退或刷新
+    if (batches.value.length === 0 && currentPage.value > 1) {
+      currentPage.value -= 1
+      fetchHistory()
+    } else if (batches.value.length === 0) {
+      fetchStats()
+    } else if (deleted.length) {
+      fetchStats()
+    }
+  } catch (e) {
+    ElMessage.error(`批量删除失败：${e?.message || e}`)
+  } finally {
+    isDeleting.value = false
+  }
 }
 
 onMounted(() => { fetchHistory(); fetchStats() })
@@ -446,6 +644,92 @@ onMounted(() => { fetchHistory(); fetchStats() })
         background: rgba($brand-start, 0.06);
       }
     }
+
+    .filter-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .select-trigger-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid $border;
+      border-radius: $radius-base;
+      color: $text-secondary;
+      font-size: 13px;
+
+      &:hover {
+        border-color: rgba($brand-start, 0.4);
+        color: lighten($brand-start, 12%);
+        background: rgba($brand-start, 0.1);
+      }
+
+      &.is-disabled,
+      &.is-disabled:hover {
+        opacity: 0.5;
+        background: rgba(255, 255, 255, 0.04);
+        border-color: $border;
+        color: $text-muted;
+      }
+    }
+  }
+
+  // ========== Batch Operations Toolbar ==========
+  .batch-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border-radius: $radius-card;
+    border: 1px solid $border-active;
+    background: linear-gradient(135deg, rgba($brand-start, 0.1), rgba($brand-end, 0.06));
+    box-shadow: 0 0 24px rgba($brand-start, 0.08);
+    backdrop-filter: blur(8px);
+  }
+
+  .toolbar-select-all {
+    :deep(.el-checkbox__label) {
+      color: $text-secondary;
+      font-size: 13px;
+    }
+  }
+
+  .toolbar-spacer {
+    flex: 1;
+  }
+
+  .selected-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: linear-gradient(135deg, rgba($brand-start, 0.18), rgba($brand-end, 0.12));
+    border: 1px solid rgba($brand-start, 0.25);
+    color: lighten($brand-start, 12%);
+    font-size: 13px;
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+
+    .selected-icon {
+      font-size: 12px;
+      color: $brand-start;
+    }
+
+    strong {
+      color: $text-primary;
+      font-weight: 600;
+    }
+  }
+
+  .toolbar-exit {
+    --el-button-bg-color: rgba(255, 255, 255, 0.03);
+    --el-button-border-color: rgba(255, 255, 255, 0.12);
+    --el-button-text-color: $text-secondary;
+    --el-button-hover-bg-color: rgba(244, 63, 94, 0.12);
+    --el-button-hover-border-color: rgba(244, 63, 94, 0.4);
+    --el-button-hover-text-color: lighten($accent-rose, 8%);
   }
 
   // ========== Cards Grid ==========
@@ -457,6 +741,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
   }
 
   .batch-card {
+    position: relative;
     border: 1px solid $border;
     border-radius: $radius-card;
     background: $bg-elevated;
@@ -470,6 +755,90 @@ onMounted(() => { fetchHistory(); fetchStats() })
       border-color: rgba($brand-start, 0.5);
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
       transform: translateY(-1px);
+    }
+
+    &.select-mode {
+      cursor: pointer;
+    }
+
+    &.is-selected {
+      border-color: rgba($brand-start, 0.5);
+      background: linear-gradient(135deg, rgba($brand-start, 0.08), rgba($brand-end, 0.04));
+      box-shadow:
+        0 0 0 1px rgba($brand-start, 0.45),
+        0 8px 24px rgba($brand-start, 0.18);
+      transform: translateY(-2px);
+
+      // 多选模式下隐藏单条删除按钮,避免误触
+      .card-delete-btn { display: none; }
+    }
+  }
+
+  // 单条删除按钮(右上角,hover 显示)
+  .card-delete-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    border: none;
+    color: rgba(255, 255, 255, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+    font-size: 14px;
+
+    &:hover {
+      background: rgba(245, 108, 108, 0.9);
+      color: #fff;
+    }
+
+    .batch-card:hover & {
+      opacity: 1;
+    }
+  }
+
+  // 多选模式下的选择圆圈
+  .card-selector {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 3;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+
+    .selector-icon {
+      font-size: 14px;
+      color: white;
+      opacity: 0;
+      transform: scale(0.5);
+      transition: all 0.2s;
+    }
+
+    .batch-card.is-selected & {
+      background: $gradient-brand;
+      border-color: transparent;
+      box-shadow: 0 0 14px rgba($brand-start, 0.6);
+
+      .selector-icon {
+        opacity: 1;
+        transform: scale(1);
+      }
     }
   }
 

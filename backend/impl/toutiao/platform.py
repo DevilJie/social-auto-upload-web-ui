@@ -535,12 +535,32 @@ class ToutiaoPlatform(BasePlatform):
                 await publish_btn.click()
 
                 # Wait for redirect (publish success)
-                await asyncio.sleep(3)
-                current_url = page.url
-                if "upload-video" not in current_url:
-                    logger.info("[发布] 视频发布成功! 页面跳转到: %s", current_url)
-                else:
-                    logger.info("[发布] 发布按钮已点击，等待确认...")
+                # 头条发布成功后会跳转到作品管理页(URL 不再含 upload-video)
+                # 也有可能在原页面弹"发布成功"提示;所以既等 URL 变化,也兜底等文案
+                logger.info("[发布] 已点击发布按钮,等待页面跳转或成功提示...")
+                redirect_success = False
+                try:
+                    # 等 URL 离开 upload-video(主判据)
+                    await page.wait_for_url(
+                        lambda url: "upload-video" not in url,
+                        timeout=60000,
+                    )
+                    redirect_success = True
+                    logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
+                except Exception as e:
+                    # URL 没跳,兜底等"发布成功"提示文案
+                    try:
+                        await page.wait_for_selector(
+                            'text=/发布\\s*成功|发布\\s*完毕|已\\s*发布/',
+                            timeout=10000,
+                        )
+                        redirect_success = True
+                        logger.info("[发布] 视频发布成功! (检测到成功文案, URL 未跳)")
+                    except Exception:
+                        logger.warning(
+                            "[发布] 未检测到发布成功跳转或提示: %s, 当前 URL: %s",
+                            e, page.url,
+                        )
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)

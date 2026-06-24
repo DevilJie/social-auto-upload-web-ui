@@ -21,6 +21,13 @@ import logoToutiao from '@/assets/logos/toutiao.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 
+/**
+ * 特殊作者声明值：表示「无需添加声明」。
+ * 后端(impl/kuaishou/platform.py)识别到此值(或空)时会跳过作者声明设置，
+ * 不去快手发布页查找下拉选项。视频和图集发布共用此约定。
+ */
+export const DECLARATION_NONE = '内容无需添加声明'
+
 export const PLATFORMS = {
   XIAOHONGSHU: {
     id: 1,
@@ -101,7 +108,7 @@ export const PLATFORMS = {
     cssClass: 'kuaishou',
     creatorUrl: 'https://k.kuaishou.com/',
     settingsFields: [
-      { key: 'aiContent', label: '作者声明', type: 'select', required: true, placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }] },
+      { key: 'aiContent', label: '作者声明', type: 'select', required: true, placeholder: '请选择作者声明', options: [{ label: '内容为AI生成', value: '内容为AI生成' }, { label: '演绎情节，仅供娱乐', value: '演绎情节，仅供娱乐' }, { label: '个人观点，仅供参考', value: '个人观点，仅供参考' }, { label: '素材来源于网络', value: '素材来源于网络' }, { label: DECLARATION_NONE, value: DECLARATION_NONE }] },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },

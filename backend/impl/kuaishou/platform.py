@@ -34,6 +34,11 @@ _KS_MANAGE_URL_PATTERN = "**/article/manage/video?status=2&from=publish**"
 _KS_UPLOAD_URL_PATTERN = "**/article/publish/video**"
 _COOKIE_INVALID_SELECTOR = "div.names div.container div.name:text('机构服务')"
 
+# 特殊作者声明值：表示「无需添加声明」(与前端 config/platforms.js DECLARATION_NONE 对齐)。
+# 取此值或空时跳过 _set_author_declaration，不去快手发布页查找下拉选项，
+# 避免因页面上无匹配项而 wait_for 超时。视频和图集发布共用此约定。
+_DECLARATION_NONE = "内容无需添加声明"
+
 
 class KuaishouPlatform(BasePlatform):
     platform_id = 4
@@ -395,10 +400,12 @@ class KuaishouPlatform(BasePlatform):
                     logger.info("[设置音乐] 开始设置音乐: %s", music_id)
                     await self._set_image_music(page, music_id, music_title)
 
-                # 8. 作者声明
-                if author_declaration:
+                # 8. 作者声明（值为「无需声明」或空时跳过，不去页面找下拉项）
+                if author_declaration and author_declaration != _DECLARATION_NONE:
                     logger.info("[作者声明] 开始设置作者声明: %s", author_declaration)
                     await self._set_author_declaration(page, author_declaration)
+                elif author_declaration == _DECLARATION_NONE:
+                    logger.info("[作者声明] 选择「内容无需添加声明」，跳过设置")
 
                 # 9. 定时发布
                 if enable_timer and schedule_time_str:
@@ -644,10 +651,12 @@ class KuaishouPlatform(BasePlatform):
             else:
                 logger.info("[设置封面] 未提供封面路径, 跳过封面设置")
 
-            # ------ Set author declaration ------
-            if author_declaration:
+            # ------ Set author declaration（值为「无需声明」或空时跳过）------
+            if author_declaration and author_declaration != _DECLARATION_NONE:
                 logger.info("[作者声明] 开始设置作者声明: %s", author_declaration)
                 await self._set_author_declaration(page, author_declaration)
+            elif author_declaration == _DECLARATION_NONE:
+                logger.info("[作者声明] 选择「内容无需添加声明」，跳过设置")
 
             # ------ Set schedule time ------
             if enable_timer and publish_date and publish_date != 0:
@@ -908,7 +917,17 @@ class KuaishouPlatform(BasePlatform):
                 <span class="ant-select-selection-placeholder">为作品添加补充说明</span>
               </div>
             </div>
+
+        行为约定:
+        - author_declaration 为空或等于 _DECLARATION_NONE 时直接跳过(已在上层守卫,此处防御)。
+        - 打开下拉框后若没有匹配的选项(快手改版/该账号无此声明),主动收起下拉框并跳过,
+          不视为错误 —— 用户要求「没找到匹配项就不强制选择」。
         """
+        # 防御:空或「无需声明」直接跳过(正常情况下上层调用点已守卫)
+        if not author_declaration or author_declaration == _DECLARATION_NONE:
+            logger.info("[作者声明] 无需设置作者声明，跳过")
+            return
+
         logger.info("[作者声明] 开始设置作者声明: %s", author_declaration)
         try:
             select_clicked = False
@@ -963,10 +982,21 @@ class KuaishouPlatform(BasePlatform):
             await asyncio.sleep(1)
 
             # Select matching option
+            # 先用短超时探测匹配项是否存在;不存在则收起下拉框并跳过(非错误)。
             option = page.locator(
                 f"div.ant-select-item-option:has-text('{author_declaration}')"
             ).first
-            await option.wait_for(state="visible", timeout=5000)
+            if not await option.count():
+                logger.info(
+                    "[作者声明] 下拉框中未找到匹配选项「%s」，收起并跳过",
+                    author_declaration,
+                )
+                # 点击空白处收起下拉框，避免遮挡后续操作
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                return
             await option.click()
             logger.info("[作者声明] 作者声明已设置: %s", author_declaration)
             await asyncio.sleep(1)

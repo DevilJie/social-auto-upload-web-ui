@@ -762,11 +762,11 @@ onMounted(() => { fetchHistory(); fetchStats() })
     }
 
     &.is-selected {
-      border-color: rgba($brand-start, 0.5);
-      background: linear-gradient(135deg, rgba($brand-start, 0.08), rgba($brand-end, 0.04));
+      border-color: rgba($brand-start, 0.8);
+      background: linear-gradient(135deg, rgba($brand-start, 0.15), rgba($brand-end, 0.08));
       box-shadow:
-        0 0 0 1px rgba($brand-start, 0.45),
-        0 8px 24px rgba($brand-start, 0.18);
+        0 0 0 2px $brand-start,
+        0 8px 32px rgba($brand-start, 0.35);
       transform: translateY(-2px);
 
       // 多选模式下隐藏单条删除按钮,避免误触

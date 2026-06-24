@@ -811,34 +811,48 @@ onMounted(() => { fetchHistory(); fetchStats() })
     top: 10px;
     left: 10px;
     z-index: 3;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
-    border: 1.5px solid rgba(255, 255, 255, 0.45);
+    border: 2px solid rgba(255, 255, 255, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition: all 0.25s cubic-bezier(.22,.61,.36,1);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 
     .selector-icon {
-      font-size: 14px;
+      font-size: 16px;
+      font-weight: 900;
       color: white;
       opacity: 0;
-      transform: scale(0.5);
-      transition: all 0.2s;
+      transform: scale(0) rotate(-90deg);
+      transition: all 0.25s cubic-bezier(.22,.61,.36,1);
     }
 
+    // 选中状态:以选择圆圈自身的 .is-checked 类为钩子(双保险)
+    // (同时也兼容父级 .batch-card.is-selected 钩子)
+    &.is-checked,
     .batch-card.is-selected & {
-      background: $gradient-brand;
-      border-color: transparent;
-      box-shadow: 0 0 14px rgba($brand-start, 0.6);
+      background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
+      border-color: rgba(255, 255, 255, 0.95);
+      box-shadow:
+        0 0 0 3px rgba(139, 92, 246, 0.35),
+        0 4px 16px rgba(139, 92, 246, 0.55);
+      transform: scale(1.1);
 
       .selector-icon {
         opacity: 1;
-        transform: scale(1);
+        transform: scale(1) rotate(0deg);
       }
+    }
+
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.95);
+      transform: scale(1.05);
     }
   }
 

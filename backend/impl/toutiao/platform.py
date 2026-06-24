@@ -14,12 +14,17 @@ import threading
 from pathlib import Path
 from queue import Queue
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, save_login_result, scrape_toutiao_profile
+from .._utils import (
+    get_account_name_by_cookie_file,
+    parse_schedule_time,
+    save_login_result,
+    scrape_toutiao_profile,
+)
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("toutiao")
@@ -296,23 +301,26 @@ class ToutiaoPlatform(BasePlatform):
             logger.info("-" * 40)
             logger.info("[发布进度] 处理第 %d/%d 个视频: %s", file_index + 1, len(file_paths), file_path)
             for cookie_index, cookie_path in enumerate(account_paths):
-                logger.info("[发布进度] 发布到第 %d/%d 个账号", cookie_index + 1, len(account_paths))
-                await self._upload_one_video(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    publish_date=publish_datetimes[file_index],
-                    account_file=cookie_path,
-                    publish_strategy=publish_strategy,
-                    desc=desc,
-                    thumbnail_landscape_path=thumbnail_landscape_path or None,
-                    thumbnail_portrait_path=thumbnail_portrait_path or None,
-                    creation_declaration=creation_declaration,
-                    enable_generate_image=enable_generate_image,
-                    collection_id=collection_id,
-                    extend_link=extend_link,
-                    extend_link_url=extend_link_url,
-                )
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                    await self._upload_one_video(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        publish_date=publish_datetimes[file_index],
+                        account_file=cookie_path,
+                        publish_strategy=publish_strategy,
+                        desc=desc,
+                        thumbnail_landscape_path=thumbnail_landscape_path or None,
+                        thumbnail_portrait_path=thumbnail_portrait_path or None,
+                        creation_declaration=creation_declaration,
+                        enable_generate_image=enable_generate_image,
+                        collection_id=collection_id,
+                        extend_link=extend_link,
+                        extend_link_url=extend_link_url,
+                    )
 
         logger.info("=" * 60)
         logger.info("[发布视频] 视频发布流程完成!")

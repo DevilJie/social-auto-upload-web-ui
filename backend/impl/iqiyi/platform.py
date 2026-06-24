@@ -12,9 +12,9 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, save_login_result
+from .._utils import get_account_name_by_cookie_file, parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("iqiyi")
@@ -245,6 +245,15 @@ class IqiyiPlatform(BasePlatform):
         - ``daily_times`` (*list*, optional)
         - ``start_days`` (*int*, optional)
         """
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始爱奇艺视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", []) or []
@@ -259,9 +268,21 @@ class IqiyiPlatform(BasePlatform):
         enable_cash_activity = kwargs.get("enable_cash_activity", False)
         desc = kwargs.get("desc", "")
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 定时发布: %s", enableTimer)
+        logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 创作声明: %s", creation_declaration or "无")
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enableTimer and schedule_time_str else "immediate")
+
         # Resolve full paths
         account_paths = [
-            str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file
+            str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
         ]
         # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
         file_paths = [str(f) for f in files]
@@ -295,23 +316,33 @@ class IqiyiPlatform(BasePlatform):
 
         overall_success = True
         for file_index, file_path in enumerate(file_paths):
-            for cookie_path in account_paths:
-                ok = await self._upload_one_video(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    publish_date=publish_datetimes[file_index],
-                    account_file=cookie_path,
-                    enableTimer=enableTimer,
-                    cover_path=portrait_cover or cover_path or None,
-                    landscape_cover=landscape_cover or None,
-                    creation_declaration=creation_declaration,
-                    risk_warning=risk_warning,
-                    enable_cash_activity=enable_cash_activity,
-                    desc=desc,
-                )
-                if not ok:
-                    overall_success = False
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", file_index + 1, len(file_paths), file_path)
+            for cookie_index, cookie_path in enumerate(account_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                    ok = await self._upload_one_video(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        publish_date=publish_datetimes[file_index],
+                        account_file=cookie_path,
+                        enableTimer=enableTimer,
+                        cover_path=portrait_cover or cover_path or None,
+                        landscape_cover=landscape_cover or None,
+                        creation_declaration=creation_declaration,
+                        risk_warning=risk_warning,
+                        enable_cash_activity=enable_cash_activity,
+                        desc=desc,
+                    )
+                    if not ok:
+                        overall_success = False
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
         return overall_success
 
     # ------------------------------------------------------------------
@@ -356,10 +387,10 @@ class IqiyiPlatform(BasePlatform):
                 page.on("request", _on_iqiyi_request)
 
                 # Step 1: Upload video file via input[type=file]
-                logger.info("Uploading video file: %s", file_path)
+                logger.info("[上传视频] 开始上传视频: %s", file_path)
                 file_input = page.locator('input[type="file"]').first
                 await file_input.set_input_files(file_path)
-                logger.info("Video file set, waiting for upload to complete...")
+                logger.info("[上传视频] 视频文件已选择, 等待上传完成...")
 
                 # Step 1.5: 等待视频上传到服务器完成（监听 /upload/record 请求）
                 await self._wait_video_upload_complete(page, upload_done)
@@ -370,7 +401,7 @@ class IqiyiPlatform(BasePlatform):
                     '[class*="wemedia-catalog-form"]',
                     timeout=120000,
                 )
-                logger.info("Video upload complete, publish form ready")
+                logger.info("[上传视频] 视频上传成功! 发布表单已就绪")
                 await asyncio.sleep(3)
 
                 # Step 3: Fill title
@@ -398,7 +429,7 @@ class IqiyiPlatform(BasePlatform):
                     await self._set_risk_warning(page, risk_warning)
 
                 # Step 8: Upload cover image(s)
-                logger.info("Step 8: cover_path=%s, landscape_cover=%s", cover_path, landscape_cover)
+                logger.info("[上传视频] Step 8: cover_path=%s, landscape_cover=%s", cover_path, landscape_cover)
                 if cover_path or landscape_cover:
                     logger.info(">>> Calling _upload_cover <<<")
                     await self._upload_cover(
@@ -407,7 +438,7 @@ class IqiyiPlatform(BasePlatform):
                         landscape_path=landscape_cover,
                     )
                 else:
-                    logger.warning("Step 8: SKIPPED — no cover paths provided")
+                    logger.warning("[上传视频] Step 8: SKIPPED — no cover paths provided")
 
                 # Step 9: Handle scheduled publishing
                 if enableTimer and publish_date != 0:
@@ -418,10 +449,10 @@ class IqiyiPlatform(BasePlatform):
 
                 # Save updated cookie state regardless
                 await context.storage_state(path=account_file)
-                logger.info("Cookie state updated after publish")
+                logger.info("[上传视频] Cookie state updated after publish")
 
                 if not publish_ok:
-                    logger.error("Publish failed for %s", account_file)
+                    logger.error("[上传视频] Publish failed for %s", account_file)
                     return False
                 return True
             finally:
@@ -473,7 +504,7 @@ class IqiyiPlatform(BasePlatform):
                 '.catalog-desc-title-input input[type="text"]'
             ).first
         if await title_input.count() == 0:
-            logger.warning("Title input not found")
+            logger.warning("[填写标题] 未找到标题输入框")
             return
 
         await title_input.wait_for(state="visible", timeout=10000)
@@ -488,7 +519,7 @@ class IqiyiPlatform(BasePlatform):
 
         # iQiyi title max 30 chars
         await page.keyboard.type(title[:30])
-        logger.info("Title filled: %s", title[:30])
+        logger.info("[填写标题] 标题已填写: %s", title[:30])
 
     @staticmethod
     async def _fill_description(page, desc: str):
@@ -500,7 +531,7 @@ class IqiyiPlatform(BasePlatform):
             'textarea[placeholder*="作品简介"]'
         ).first
         if await desc_textarea.count() == 0:
-            logger.warning("Description textarea not found")
+            logger.warning("[填写简介] Description textarea not found")
             return
 
         await desc_textarea.wait_for(state="visible", timeout=5000)
@@ -515,7 +546,7 @@ class IqiyiPlatform(BasePlatform):
 
         # iQiyi description max 450 chars
         await page.keyboard.type(desc[:450])
-        logger.info("Description filled: %s", desc[:50])
+        logger.info("[填写简介] Description filled: %s", desc[:50])
 
     @staticmethod
     async def _set_creation_declaration(page, declaration: str):
@@ -526,7 +557,7 @@ class IqiyiPlatform(BasePlatform):
         # Determine the radio value to click
         value = CREATION_DECLARATION_MAP.get(declaration, declaration)
 
-        logger.info("Setting creation declaration to value=%s", value)
+        logger.info("[设置声明] Setting creation declaration to value=%s", value)
 
         try:
             # Click the <label class="el-radio"> that wraps the matching radio input
@@ -562,10 +593,10 @@ class IqiyiPlatform(BasePlatform):
     async def _set_risk_warning(page, warning: str):
         """Set the risk warning (optional — select dropdown)."""
         if warning not in RISK_WARNING_OPTIONS:
-            logger.warning("Unknown risk warning: %s", warning)
+            logger.warning("[风险提示] Unknown risk warning: %s", warning)
             return
 
-        logger.info("Setting risk warning: %s", warning)
+        logger.info("[风险提示] Setting risk warning: %s", warning)
 
         try:
             # Click the select trigger to open the dropdown
@@ -573,7 +604,7 @@ class IqiyiPlatform(BasePlatform):
                 '.form-select-full .el-input__inner'
             ).first
             if await select_trigger.count() == 0:
-                logger.warning("Risk warning select not found")
+                logger.warning("[风险提示] Risk warning select not found")
                 return
 
             await select_trigger.click()
@@ -586,10 +617,10 @@ class IqiyiPlatform(BasePlatform):
             if await option.count() > 0:
                 await option.wait_for(state="visible", timeout=5000)
                 await option.click()
-                logger.info("Risk warning set to: %s", warning)
+                logger.info("[风险提示] Risk warning set to: %s", warning)
                 await asyncio.sleep(0.5)
             else:
-                logger.warning("Risk warning option not found: %s", warning)
+                logger.warning("[风险提示] Risk warning option not found: %s", warning)
         except Exception as e:
             logger.warning(
                 "Failed to set risk warning (non-blocking): %s", e
@@ -598,19 +629,19 @@ class IqiyiPlatform(BasePlatform):
     @staticmethod
     async def _click_cash_activity(page):
         """Click the cash activity (打卡挑战赛) radio to enable it."""
-        logger.info("Clicking cash activity")
+        logger.info("[现金活动] Clicking cash activity")
         try:
             activity = page.locator(
                 '.activity-radio-option:not(.is-checked)'
             ).first
             if await activity.count() > 0:
                 await activity.click()
-                logger.info("Cash activity clicked")
+                logger.info("[现金活动] Cash activity clicked")
                 await asyncio.sleep(0.5)
             else:
-                logger.info("Cash activity already checked or not found")
+                logger.info("[现金活动] Cash activity already checked or not found")
         except Exception as e:
-            logger.warning("Failed to click cash activity (non-blocking): %s", e)
+            logger.warning("[现金活动] Failed to click cash activity (non-blocking): %s", e)
 
     @staticmethod
     async def _upload_cover(
@@ -639,13 +670,13 @@ class IqiyiPlatform(BasePlatform):
         portrait_path = portrait_path or kwargs.get("cover_path")
         landscape_path = landscape_path or kwargs.get("landscape_path")
 
-        logger.info("Cover upload: portrait=%s, landscape=%s", portrait_path, landscape_path)
+        logger.info("[设置封面] 封面上传: 竖版=%s, landscape=%s", portrait_path, landscape_path)
 
         try:
             # ---------------------------------------------------------------
             # Step 1: Click "选择封面" to open the cover crop dialog
             # ---------------------------------------------------------------
-            logger.info("Step 1: Opening cover dialog...")
+            logger.info("[设置封面] Step 1: Opening cover dialog...")
             trigger = page.locator('div.main-edit-bar').first
             if await trigger.count() == 0:
                 logger.warning("'选择封面' trigger not found, aborting cover upload")
@@ -656,14 +687,14 @@ class IqiyiPlatform(BasePlatform):
 
             dialog = page.locator('.image-crop-dialog')
             await dialog.wait_for(state="visible", timeout=10000)
-            logger.info("Step 1: Cover dialog opened")
+            logger.info("[设置封面] Step 1: Cover dialog opened")
             await asyncio.sleep(2)
 
             # ---------------------------------------------------------------
             # Step 2: Upload portrait cover (竖封面)
             # ---------------------------------------------------------------
             if portrait_path:
-                logger.info("Step 2: Uploading portrait cover: %s", portrait_path)
+                logger.info("[设置封面] Step 2: Uploading portrait cover: %s", portrait_path)
                 # The first visible .crop-content panel contains the portrait upload
                 portrait_panel = page.locator(
                     '.crop-content:not([style*="display: none"])'
@@ -675,24 +706,24 @@ class IqiyiPlatform(BasePlatform):
                     await upload_btn.click()
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(portrait_path)
-                logger.info("Step 2: Portrait file set, waiting for upload...")
+                logger.info("[设置封面] Step 2: Portrait file set, waiting for upload...")
                 await asyncio.sleep(10)
-                logger.info("Step 2: Portrait upload complete")
+                logger.info("[设置封面] Step 2: Portrait upload complete")
             else:
-                logger.info("Step 2: SKIPPED — no portrait_path")
+                logger.info("[设置封面] Step 2: SKIPPED — no portrait_path")
 
             # ---------------------------------------------------------------
             # Step 3: Switch to landscape tab and upload (横封面)
             # ---------------------------------------------------------------
             if landscape_path:
-                logger.info("Step 3: Switching to landscape tab...")
+                logger.info("[设置封面] Step 3: Switching to landscape tab...")
                 landscape_tab = page.locator('.tab-item:has-text("横封面")').first
                 if await landscape_tab.count() > 0:
                     await landscape_tab.click()
-                    logger.info("Step 3: Landscape tab clicked")
+                    logger.info("[设置封面] Step 3: Landscape tab clicked")
                     await asyncio.sleep(2)
 
-                    logger.info("Step 3: Uploading landscape cover: %s", landscape_path)
+                    logger.info("[设置封面] Step 3: Uploading landscape cover: %s", landscape_path)
                     landscape_panel = page.locator(
                         '.crop-content:not([style*="display: none"])'
                     ).first
@@ -703,32 +734,32 @@ class IqiyiPlatform(BasePlatform):
                         await upload_btn.click()
                     file_chooser = await fc_info.value
                     await file_chooser.set_files(landscape_path)
-                    logger.info("Step 3: Landscape file set, waiting for upload...")
+                    logger.info("[设置封面] Step 3: Landscape file set, waiting for upload...")
                     await asyncio.sleep(10)
-                    logger.info("Step 3: Landscape upload complete")
+                    logger.info("[设置封面] Step 3: Landscape upload complete")
                 else:
-                    logger.warning("Step 3: Landscape tab not found")
+                    logger.warning("[设置封面] Step 3: Landscape tab not found")
             else:
-                logger.info("Step 3: SKIPPED — no landscape_path")
+                logger.info("[设置封面] Step 3: SKIPPED — no landscape_path")
 
             # ---------------------------------------------------------------
             # Step 4: Click "完成" to confirm
             # ---------------------------------------------------------------
-            logger.info("Step 4: Clicking '完成'...")
+            logger.info("[设置封面] Step 4: Clicking '完成'...")
             done_btn = page.locator('button:has-text("完成")').first
             if await done_btn.count() > 0:
                 await done_btn.click()
-                logger.info("Step 4: '完成' clicked — cover upload complete")
+                logger.info("[设置封面] Step 4: '完成' clicked — cover upload complete")
                 await asyncio.sleep(2)
             else:
-                logger.warning("Step 4: '完成' button not found")
+                logger.warning("[设置封面] Step 4: '完成' button not found")
         except Exception as e:
-            logger.warning("Cover upload failed: %s", e, exc_info=True)
+            logger.warning("[设置封面] 封面上传失败: %s", e, exc_info=True)
 
     @staticmethod
     async def _set_schedule_time(page, publish_date):
         """Enable scheduled publishing and set the date/time."""
-        logger.info("Setting schedule time: %s", publish_date)
+        logger.info("[定时发布] Setting schedule time: %s", publish_date)
         try:
             # Click "定时发布" radio
             schedule_radio = page.locator(
@@ -737,7 +768,7 @@ class IqiyiPlatform(BasePlatform):
             ).first
             if await schedule_radio.count() > 0:
                 await schedule_radio.click()
-                logger.info("Schedule radio selected")
+                logger.info("[定时发布] Schedule radio selected")
                 await asyncio.sleep(1)
 
             # The date picker should appear — find the date input
@@ -764,7 +795,7 @@ class IqiyiPlatform(BasePlatform):
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(1)
             else:
-                logger.warning("Schedule date input not found")
+                logger.warning("[定时发布] Schedule date input not found")
         except Exception as e:
             logger.warning(
                 "Schedule time setup failed (non-blocking): %s", e
@@ -837,7 +868,7 @@ class IqiyiPlatform(BasePlatform):
                 "[iqiyi] 等待上传区域异常(忽略,继续点发布): %s", e
             )
 
-        logger.info("Clicking publish button")
+        logger.info("[发布] Clicking publish button")
         try:
             publish_btn = page.locator(
                 'button:has-text("发布"), '
@@ -847,7 +878,7 @@ class IqiyiPlatform(BasePlatform):
 
             await publish_btn.wait_for(state="visible", timeout=10000)
             await publish_btn.click()
-            logger.info("Publish button clicked, waiting for navigation")
+            logger.info("[发布] Publish button clicked, waiting for navigation")
 
             # 等待 URL 离开发布页（最多 60s）
             try:
@@ -862,14 +893,14 @@ class IqiyiPlatform(BasePlatform):
                 )
                 return False
 
-            logger.info("URL 离开发布页: %s", page.url)
+            logger.info("[发布] URL 离开发布页: %s", page.url)
             await asyncio.sleep(3)  # 等跳转后的页面稳定
 
             # 判定 1: URL 包含 success / published / done 路径
             current_url = page.url.lower()
             if any(kw in current_url for kw in ("/success", "published", "/done")):
-                logger.info("URL 命中成功路径关键词: %s", page.url)
-                logger.info("Video published successfully")
+                logger.info("[发布] URL 命中成功路径关键词: %s", page.url)
+                logger.info("[发布] Video published successfully")
                 return True
 
             # 判定 2: 页面文本包含成功关键词
@@ -878,7 +909,7 @@ class IqiyiPlatform(BasePlatform):
                 try:
                     if await page.get_by_text(kw, exact=False).count() > 0:
                         logger.info("页面文本命中成功关键词: %r", kw)
-                        logger.info("Video published successfully")
+                        logger.info("[发布] Video published successfully")
                         return True
                 except Exception:
                     continue
@@ -891,5 +922,5 @@ class IqiyiPlatform(BasePlatform):
             )
             return False
         except Exception as e:
-            logger.warning("Publish click failed: %s", e)
+            logger.warning("[发布] Publish click failed: %s", e)
             raise

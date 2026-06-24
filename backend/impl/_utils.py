@@ -20,6 +20,34 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("utils")
 
+
+# ---------------------------------------------------------------------------
+# Account nickname lookup (用于日志带上发布账号昵称)
+# ---------------------------------------------------------------------------
+
+def get_account_name_by_cookie_file(cookie_filename: str) -> str:
+    """根据 cookie 文件名查询账号昵称 (user_info.userName)。
+
+    cookie 文件名即 user_info.filePath 的值（如 ``xxx-uuid.json``）。
+    查询失败或未找到时返回空字符串，调用方应做兜底处理。
+
+    仅用于日志打印，不参与任何业务逻辑判断。
+    """
+    if not cookie_filename:
+        return ""
+    try:
+        db_path = Path(BASE_DIR / "db" / "database.db")
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT userName FROM user_info WHERE filePath = ?",
+                (cookie_filename,),
+            ).fetchone()
+        return row[0] if row else ""
+    except Exception as e:
+        logger.warning("查询账号昵称失败 (%s): %s", cookie_filename, e)
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # JS injection script for generic profile scraping
 # Source: original login.py JS injection script

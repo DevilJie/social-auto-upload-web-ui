@@ -34,10 +34,14 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import save_login_result, scrape_alipay_profile
+from .._utils import (
+    get_account_name_by_cookie_file,
+    save_login_result,
+    scrape_alipay_profile,
+)
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("alipay")
@@ -232,6 +236,15 @@ class AlipayPlatform(BasePlatform):
 
     async def _upload_all(self, **kwargs):
         """文件 × 账号 笛卡尔积,每个组合一个 browser。"""
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始支付宝视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", []) or []
         tags = kwargs.get("tags", []) or []
@@ -244,6 +257,18 @@ class AlipayPlatform(BasePlatform):
         enable_timer = kwargs.get("enableTimer")
         schedule_time_str = kwargs.get("schedule_time_str", "") or ""
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 作者声明: %s", author_statement or "无")
+        logger.info("[发布参数] 合集: %s", compilation or "无")
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
+
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
         ]
@@ -253,21 +278,31 @@ class AlipayPlatform(BasePlatform):
         if thumbnail_portrait_path:
             thumbnail_portrait_path = str(thumbnail_portrait_path)
 
-        for file_path in file_paths:
-            for cookie_path in account_paths:
-                await self._upload_one_video(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    account_file=cookie_path,
-                    thumbnail_landscape_path=thumbnail_landscape_path,
-                    thumbnail_portrait_path=thumbnail_portrait_path,
-                    desc=desc,
-                    author_statement=author_statement,
-                    compilation=compilation,
-                    enable_timer=enable_timer,
-                    schedule_time_str=schedule_time_str,
-                )
+        for file_index, file_path in enumerate(file_paths):
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", file_index + 1, len(file_paths), file_path)
+            for cookie_index, cookie_path in enumerate(account_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                    await self._upload_one_video(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        account_file=cookie_path,
+                        thumbnail_landscape_path=thumbnail_landscape_path,
+                        thumbnail_portrait_path=thumbnail_portrait_path,
+                        desc=desc,
+                        author_statement=author_statement,
+                        compilation=compilation,
+                        enable_timer=enable_timer,
+                        schedule_time_str=schedule_time_str,
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
 
     # ------------------------------------------------------------------
     # Image (图集) publishing — 图文发布页 short-content
@@ -293,6 +328,15 @@ class AlipayPlatform(BasePlatform):
 
     async def _upload_all_images(self, **kwargs):
         """图片集 × 账号 笛卡尔积,每个组合一个 browser。"""
+        logger.info("=" * 60)
+        logger.info("[发布图集] 开始支付宝图集发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", []) or []
         tags = kwargs.get("tags", []) or []
@@ -306,21 +350,38 @@ class AlipayPlatform(BasePlatform):
         )
         music_title = kwargs.get("music_title", "") or ""
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 图片数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 作者声明: %s", author_statement or "无")
+        logger.info("[发布参数] 音乐: %s", music_title or "无")
+
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
         ]
         file_paths = [str(f) for f in files]
 
-        for cookie_path in account_paths:
-            await self._upload_one_image_set(
-                title=title,
-                file_paths=file_paths,
-                tags=tags,
-                account_file=cookie_path,
-                desc=desc,
-                author_statement=author_statement,
-                music_title=music_title,
-            )
+        for cookie_index, cookie_path in enumerate(account_paths):
+            cookie_name = Path(cookie_path).name
+            nick = get_account_name_by_cookie_file(cookie_name)
+            with bind_account_name(nick or "-"):
+                logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                await self._upload_one_image_set(
+                    title=title,
+                    file_paths=file_paths,
+                    tags=tags,
+                    account_file=cookie_path,
+                    desc=desc,
+                    author_statement=author_statement,
+                    music_title=music_title,
+                )
+
+        logger.info("=" * 60)
+        logger.info("[发布图集] 图集发布流程完成!")
+        logger.info("=" * 60)
 
     async def _upload_one_image_set(
         self,
@@ -333,20 +394,8 @@ class AlipayPlatform(BasePlatform):
         music_title: str = "",
     ):
         """一组图片上传到单个账号的完整流程。"""
-        logger.info(
-            "[alipay-image] ===== 上送参数 =====\n"
-            "  title=%r\n"
-            "  image_count=%d\n"
-            "  tags=%r\n"
-            "  account_file=%r\n"
-            "  desc=%r\n"
-            "  author_statement=%r\n"
-            "  music_title=%r\n"
-            "========================",
-            title, len(file_paths), tags,
-            os.path.basename(account_file),
-            desc, author_statement, music_title,
-        )
+        logger.info("[上传图集] 开始上传图集 (%d 张图片)", len(file_paths))
+        logger.info("[上传图集] 标题: %s", title)
         browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(
@@ -362,7 +411,7 @@ class AlipayPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto(_ALIPAY_SHORT_CONTENT_URL, timeout=60000)
                 await page.wait_for_load_state("domcontentloaded", timeout=30000)
-                logger.info("[alipay-image] 正在上传图片-------%s", title)
+                logger.info("[上传图集] 正在上传图片: %s", title)
 
                 # 1. 上传图片(多图)
                 await self._upload_images(page, file_paths)
@@ -391,7 +440,7 @@ class AlipayPlatform(BasePlatform):
 
                 # 9. 保存 cookie
                 await context.storage_state(path=account_file)
-                logger.info("[alipay-image] cookie 已更新")
+                logger.info("[上传图集] cookie 已更新")
                 await asyncio.sleep(2)
             finally:
                 await context.close()
@@ -431,13 +480,13 @@ class AlipayPlatform(BasePlatform):
         valid_paths = [p for p in image_paths if p and os.path.exists(p)]
         if not valid_paths:
             raise RuntimeError(
-                "[alipay-image] 无有效图片文件 "
+                "[上传图集] 无有效图片文件 "
                 f"(传入 {len(image_paths)} 个)"
             )
 
         total_size = sum(os.path.getsize(p) for p in valid_paths)
         logger.info(
-            "[alipay-image] 准备逐张上传 %d 张图片(共 %.1f MB)",
+            "[上传图集] 准备逐张上传 %d 张图片(共 %.1f MB)",
             len(valid_paths), total_size / 1024 / 1024,
         )
 
@@ -465,7 +514,7 @@ class AlipayPlatform(BasePlatform):
             for attempt in range(max_retries):
                 img_name = os.path.basename(img_path)
                 logger.info(
-                    "[alipay-image] 上传图片 %d/%d: %s (尝试 %d/%d)",
+                    "[上传图集] 上传图片 %d/%d: %s (尝试 %d/%d)",
                     idx + 1, len(valid_paths), img_name, attempt + 1, max_retries,
                 )
 
@@ -501,12 +550,12 @@ class AlipayPlatform(BasePlatform):
 
                     upload_response = upload_result["response"]
                     if upload_response is None:
-                        logger.warning("[alipay-image] 上传超时: %s", img_name)
+                        logger.warning("[上传图集] 上传超时: %s", img_name)
                         continue
 
                     if upload_response.get("code") == 0:
                         logger.info(
-                            "[alipay-image] 上传成功: %s (id=%s)",
+                            "[上传图集] 上传成功: %s (id=%s)",
                             img_name, upload_response.get("data", {}).get("id", ""),
                         )
                         uploaded_count += 1
@@ -515,7 +564,7 @@ class AlipayPlatform(BasePlatform):
                         break  # 成功,跳出重试循环
                     else:
                         logger.warning(
-                            "[alipay-image] 上传失败: %s (code=%s)",
+                            "[上传图集] 上传失败: %s (code=%s)",
                             img_name, upload_response.get("code"),
                         )
                         # 删除失败项
@@ -526,13 +575,13 @@ class AlipayPlatform(BasePlatform):
                             ).first
                             if await delete_btn.count() > 0:
                                 await delete_btn.click()
-                                logger.info("[alipay-image] 已删除失败项: %s", img_name)
+                                logger.info("[上传图集] 已删除失败项: %s", img_name)
                                 await asyncio.sleep(0.5)
                         except Exception as e:
-                            logger.warning("[alipay-image] 删除失败项异常: %s", e)
+                            logger.warning("[上传图集] 删除失败项异常: %s", e)
 
                 except Exception as e:
-                    logger.warning("[alipay-image] 上传异常: %s - %s", img_name, e)
+                    logger.warning("[上传图集] 上传异常: %s - %s", img_name, e)
                 finally:
                     try:
                         page.remove_listener("response", handle_upload_response)
@@ -540,11 +589,11 @@ class AlipayPlatform(BasePlatform):
                         pass
 
         logger.info(
-            "[alipay-image] 图片上传完成: %d/%d 成功",
+            "[上传图集] 图片上传完成: %d/%d 成功",
             uploaded_count, len(valid_paths),
         )
         if uploaded_count == 0:
-            raise RuntimeError("[alipay-image] 所有图片上传均失败")
+            raise RuntimeError("[上传图集] 所有图片上传均失败")
 
     # ------------------------------------------------------------------
     # Helper (image): wait for form interactive
@@ -565,13 +614,13 @@ class AlipayPlatform(BasePlatform):
         while asyncio.get_event_loop().time() < deadline:
             try:
                 if await title_input.is_visible():
-                    logger.info("[alipay-image] 表单已可交互(标题输入框可见)")
+                    logger.info("[上传图集] 表单已可交互(标题输入框可见)")
                     return
             except Exception:
                 pass
             await asyncio.sleep(3)
         raise RuntimeError(
-            f"[alipay-image] 等待表单就绪超时({timeout_s}s)"
+            f"[上传图集] 等待表单就绪超时({timeout_s}s)"
         )
 
     # ------------------------------------------------------------------
@@ -615,10 +664,10 @@ class AlipayPlatform(BasePlatform):
             ).first
             await add_music_btn.wait_for(state="visible", timeout=10000)
             await add_music_btn.click()
-            logger.info("[alipay-image] 已点击「添加音乐」,等待 modal")
+            logger.info("[上传图集] 已点击「添加音乐」,等待 modal")
             await asyncio.sleep(1.5)
         except Exception as e:
-            logger.warning("[alipay-image] 未找到「添加音乐」按钮: %s", e)
+            logger.warning("[上传图集] 未找到「添加音乐」按钮: %s", e)
             return
 
         # 2. 等 modal 打开
@@ -628,7 +677,7 @@ class AlipayPlatform(BasePlatform):
             ).first
             await music_modal.wait_for(state="visible", timeout=10000)
         except Exception as e:
-            logger.warning("[alipay-image] 音乐 modal 未打开: %s", e)
+            logger.warning("[上传图集] 音乐 modal 未打开: %s", e)
             return
 
         # 3. 逐页翻页查找目标音乐
@@ -636,7 +685,7 @@ class AlipayPlatform(BasePlatform):
         found = False
 
         for page_num in range(1, max_pages + 1):
-            logger.info("[alipay-image] 音乐查找: 第 %d 页,目标「%s」", page_num, music_title)
+            logger.info("[上传图集] 音乐查找: 第 %d 页,目标「%s」", page_num, music_title)
 
             # 在当前页查找目标音乐
             clicked = await page.evaluate(
@@ -681,11 +730,11 @@ class AlipayPlatform(BasePlatform):
             )
 
             if clicked == "clicked":
-                logger.info("[alipay-image] 已选音乐: %s (第 %d 页)", music_title, page_num)
+                logger.info("[上传图集] 已选音乐: %s (第 %d 页)", music_title, page_num)
                 found = True
                 break
             elif clicked != "not-found":
-                logger.warning("[alipay-image] 音乐查找异常: %s", clicked)
+                logger.warning("[上传图集] 音乐查找异常: %s", clicked)
                 break
 
             # 当前页未找到,尝试翻到下一页
@@ -696,18 +745,18 @@ class AlipayPlatform(BasePlatform):
                 # 检查下一页按钮是否可用
                 next_count = await next_btn.count()
                 if next_count == 0:
-                    logger.info("[alipay-image] 音乐「%s」未找到,已无更多页(共 %d 页)", music_title, page_num)
+                    logger.info("[上传图集] 音乐「%s」未找到,已无更多页(共 %d 页)", music_title, page_num)
                     break
 
                 await next_btn.click()
-                logger.info("[alipay-image] 翻到第 %d 页", page_num + 1)
+                logger.info("[上传图集] 翻到第 %d 页", page_num + 1)
                 await asyncio.sleep(1.0)  # 等待下一页加载
             except Exception as e:
-                logger.info("[alipay-image] 翻页失败(可能已到最后一页): %s", e)
+                logger.info("[上传图集] 翻页失败(可能已到最后一页): %s", e)
                 break
 
         if not found:
-            logger.warning("[alipay-image] 未找到音乐「%s」,跳过音乐设置", music_title)
+            logger.warning("[上传图集] 未找到音乐「%s」,跳过音乐设置", music_title)
             try:
                 await page.keyboard.press("Escape")
             except Exception:
@@ -719,7 +768,7 @@ class AlipayPlatform(BasePlatform):
             await page.locator(
                 'div.antd5-modal[aria-modal="true"]:has-text("选择音乐")'
             ).wait_for(state="hidden", timeout=8000)
-            logger.info("[alipay-image] 音乐 modal 已关闭")
+            logger.info("[上传图集] 音乐 modal 已关闭")
         except Exception:
             # 兜底:Esc 强关
             try:
@@ -749,7 +798,7 @@ class AlipayPlatform(BasePlatform):
         """单个视频上传到单个账号的完整流程。"""
         # 打印完整上送参数,便于排查(与其他渠道日志风格一致)
         logger.info(
-            "[alipay] ===== 上送参数 =====\n"
+            "[上传视频] ===== 上送参数 =====\n"
             "  title=%r\n"
             "  file_path=%r\n"
             "  tags=%r\n"
@@ -787,7 +836,7 @@ class AlipayPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto(_ALIPAY_PUBLISH_URL, timeout=60000)
                 await page.wait_for_load_state("domcontentloaded", timeout=30000)
-                logger.info("[alipay] 正在上传-------%s", title)
+                logger.info("[上传视频] 正在上传-------%s", title)
 
                 # 1. 上传视频文件
                 await self._upload_video_file(page, file_path)
@@ -826,7 +875,7 @@ class AlipayPlatform(BasePlatform):
 
                 # 11. 保存 cookie
                 await context.storage_state(path=account_file)
-                logger.info("[alipay] cookie 已更新")
+                logger.info("[上传视频] cookie 已更新")
                 await asyncio.sleep(2)
             finally:
                 await context.close()
@@ -848,7 +897,7 @@ class AlipayPlatform(BasePlatform):
         """
         file_size = os.path.getsize(file_path)
         logger.info(
-            "[alipay] 准备上传视频: %s (%.1f MB)",
+            "[上传视频] 准备上传视频: %s (%.1f MB)",
             os.path.basename(file_path), file_size / 1024 / 1024,
         )
 
@@ -911,10 +960,10 @@ class AlipayPlatform(BasePlatform):
             target_input = page.locator(target_input_sel).first
             await target_input.wait_for(state="attached", timeout=15000)
             await target_input.set_input_files(file_path)
-            logger.info("[alipay] 已通过 set_input_files 提交视频")
+            logger.info("[上传视频] 已通过 set_input_files 提交视频")
             return
         except Exception as e:
-            logger.info("[alipay] 直接 set_input_files 失败: %s", e)
+            logger.info("[上传视频] 直接 set_input_files 失败: %s", e)
 
         # 2. 兜底: expect_file_chooser + 点击上传区
         try:
@@ -927,10 +976,10 @@ class AlipayPlatform(BasePlatform):
                 await upload_area.click(force=True)
             fc = await fc_info.value
             await fc.set_files(file_path)
-            logger.info("[alipay] 已通过 expect_file_chooser 提交视频")
+            logger.info("[上传视频] 已通过 expect_file_chooser 提交视频")
             return
         except Exception as e:
-            logger.info("[alipay] expect_file_chooser 失败: %s", e)
+            logger.info("[上传视频] expect_file_chooser 失败: %s", e)
 
         # 3. 最后兜底: 等带标记 input 出现
         marked_sel = (
@@ -943,7 +992,7 @@ class AlipayPlatform(BasePlatform):
                 count = await page.locator(marked_sel).count()
                 if count > 0:
                     await page.locator(marked_sel).first.set_input_files(file_path)
-                    logger.info("[alipay] 已通过 patched input 提交视频")
+                    logger.info("[上传视频] 已通过 patched input 提交视频")
                     return
             except Exception:
                 pass
@@ -951,7 +1000,7 @@ class AlipayPlatform(BasePlatform):
 
         all_count = await page.locator("input[type='file']").count()
         raise RuntimeError(
-            f"[alipay] 30s 内未找到可用的 file input "
+            f"[上传视频] 30s 内未找到可用的 file input "
             f"(input[type=file] 总数: {all_count})"
         )
 
@@ -979,7 +1028,7 @@ class AlipayPlatform(BasePlatform):
                 # 上传失败检测
                 if await page.get_by_text("上传失败", exact=True).count() > 0:
                     raise RuntimeError(
-                        "[alipay] 视频上传失败(页面检测到「上传失败」文本)"
+                        "[上传视频] 视频上传失败(页面检测到「上传失败」文本)"
                     )
             except RuntimeError:
                 raise
@@ -989,7 +1038,7 @@ class AlipayPlatform(BasePlatform):
             try:
                 if await title_input.is_visible():
                     logger.info(
-                        "[alipay] 标题输入框已可见,上传完成、表单可交互"
+                        "[上传视频] 标题输入框已可见,上传完成、表单可交互"
                     )
                     return
             except Exception:
@@ -1000,7 +1049,7 @@ class AlipayPlatform(BasePlatform):
                 remaining = int(deadline - asyncio.get_event_loop().time())
                 if remaining % 60 < 5:
                     logger.info(
-                        "[alipay] 等待上传完成... (剩余 %ds)", remaining,
+                        "[上传视频] 等待上传完成... (剩余 %ds)", remaining,
                     )
             except Exception:
                 pass
@@ -1012,7 +1061,7 @@ class AlipayPlatform(BasePlatform):
         except Exception:
             url = "(unknown)"
         raise RuntimeError(
-            f"[alipay] 等待视频上传完成超时({timeout_s}s),"
+            f"[上传视频] 等待视频上传完成超时({timeout_s}s),"
             f"标题输入框未出现。当前 URL: {url}"
         )
 
@@ -1031,7 +1080,7 @@ class AlipayPlatform(BasePlatform):
         await title_input.wait_for(state="visible", timeout=10000)
         truncated = title.strip()[:30]
         await title_input.fill(truncated)
-        logger.info("[alipay] 已填标题: %s", truncated)
+        logger.info("[上传视频] 已填标题: %s", truncated)
 
     # ------------------------------------------------------------------
     # Helper: fill description + tags
@@ -1062,7 +1111,7 @@ class AlipayPlatform(BasePlatform):
             await asyncio.sleep(0.2)
             await page.keyboard.type(text, delay=30)
             await page.keyboard.press("Space")
-            logger.info("[alipay] 已填描述(长度=%d)", len(text))
+            logger.info("[上传视频] 已填描述(长度=%d)", len(text))
             await asyncio.sleep(0.3)
 
         # 话题逐一通过 # 触发联想下拉
@@ -1097,15 +1146,15 @@ class AlipayPlatform(BasePlatform):
                     if label_text and label_text.strip() == f"#{tag}":
                         await item.click()
                         clicked = True
-                        logger.info("[alipay] 已选话题(官方): #%s", tag)
+                        logger.info("[上传视频] 已选话题(官方): #%s", tag)
                         break
                 if not clicked and count > 0:
                     # 回退: 点第一项
                     await items.first.click()
-                    logger.info("[alipay] 已选话题(第一项): #%s", tag)
+                    logger.info("[上传视频] 已选话题(第一项): #%s", tag)
                 await asyncio.sleep(0.3)
             except Exception as e:
-                logger.warning("[alipay] 添加话题 #%s 失败: %s", tag, e)
+                logger.warning("[上传视频] 添加话题 #%s 失败: %s", tag, e)
                 # ESC 关闭可能残留的联想下拉
                 try:
                     await page.keyboard.press("Escape")
@@ -1129,7 +1178,7 @@ class AlipayPlatform(BasePlatform):
            data-aspm-desc="封面图选择-确认")
         """
         if not cover_path or not os.path.exists(cover_path):
-            logger.info("[alipay] 无封面文件,跳过封面上传")
+            logger.info("[上传视频] 无封面文件,跳过封面上传")
             return
 
         # 1. 点击"上传封面"触发入口(页面上的封面区,非 tab)
@@ -1145,12 +1194,12 @@ class AlipayPlatform(BasePlatform):
             try:
                 await upload_trigger.wait_for(state="visible", timeout=5000)
             except Exception as e:
-                logger.warning("[alipay] 未找到「上传封面」入口: %s", e)
+                logger.warning("[上传视频] 未找到「上传封面」入口: %s", e)
                 return
 
         await upload_trigger.click()
         await asyncio.sleep(1.5)
-        logger.info("[alipay] 已点击「上传封面」入口,等待弹窗")
+        logger.info("[上传视频] 已点击「上传封面」入口,等待弹窗")
 
         # 2. 切换到"上传封面" tab(弹窗默认在"截取封面")
         #    DOM: div.antd5-tabs-tab > div.antd5-tabs-tab-btn(文本="上传封面")
@@ -1164,9 +1213,9 @@ class AlipayPlatform(BasePlatform):
             await upload_tab.click()
             await asyncio.sleep(1)
             tab_switched = True
-            logger.info("[alipay] 已切换到「上传封面」tab")
+            logger.info("[上传视频] 已切换到「上传封面」tab")
         except Exception as e:
-            logger.info("[alipay] 切换「上传封面」tab 跳过(可能已在目标 tab): %s", e)
+            logger.info("[上传视频] 切换「上传封面」tab 跳过(可能已在目标 tab): %s", e)
 
         # 3. 上传封面文件 —— 用 file_chooser 兜底 + set_input_files 双保险
         #    支付宝封面 input 的 accept 属性实测不含 "image" 字样,
@@ -1182,7 +1231,7 @@ class AlipayPlatform(BasePlatform):
         try:
             all_file_inputs = page.locator("input[type='file']")
             fi_count = await all_file_inputs.count()
-            logger.info("[alipay] 当前 input[type=file] 数量: %d", fi_count)
+            logger.info("[上传视频] 当前 input[type=file] 数量: %d", fi_count)
             for i in range(fi_count):
                 fi = all_file_inputs.nth(i)
                 accept_val = await fi.get_attribute("accept") or ""
@@ -1192,13 +1241,13 @@ class AlipayPlatform(BasePlatform):
                 # 这个 input 可能就是封面的(图片/空 accept)
                 await fi.set_input_files(cover_path)
                 logger.info(
-                    "[alipay] 已上传封面(策略① input #%d, accept=%r): %s",
+                    "[上传视频] 已上传封面(策略① input #%d, accept=%r): %s",
                     i, accept_val, os.path.basename(cover_path),
                 )
                 uploaded = True
                 break
         except Exception as e:
-            logger.info("[alipay] 策略① set_input_files 失败: %s", e)
+            logger.info("[上传视频] 策略① set_input_files 失败: %s", e)
 
         # 策略 ②: 监听原生 file_chooser + 点击上传触发区
         if not uploaded:
@@ -1218,14 +1267,14 @@ class AlipayPlatform(BasePlatform):
                 await fc.set_files(cover_path)
                 uploaded = True
                 logger.info(
-                    "[alipay] 已上传封面(策略② file_chooser): %s",
+                    "[上传视频] 已上传封面(策略② file_chooser): %s",
                     os.path.basename(cover_path),
                 )
             except Exception as e:
-                logger.info("[alipay] 策略② file_chooser 失败: %s", e)
+                logger.info("[上传视频] 策略② file_chooser 失败: %s", e)
 
         if not uploaded:
-            logger.warning("[alipay] 封面上传所有策略均失败,跳过封面")
+            logger.warning("[上传视频] 封面上传所有策略均失败,跳过封面")
             try:
                 await page.keyboard.press("Escape")
             except Exception:
@@ -1250,9 +1299,9 @@ class AlipayPlatform(BasePlatform):
         try:
             await done_btn.wait_for(state="visible", timeout=10000)
             await done_btn.click(force=True)
-            logger.info("[alipay] 已点击封面「完 成」按钮")
+            logger.info("[上传视频] 已点击封面「完 成」按钮")
         except Exception as e:
-            logger.warning("[alipay] 点击封面确认按钮失败: %s", e)
+            logger.warning("[上传视频] 点击封面确认按钮失败: %s", e)
 
         await asyncio.sleep(1)
 
@@ -1292,7 +1341,7 @@ class AlipayPlatform(BasePlatform):
                 state="visible", timeout=10000
             )
         except Exception as e:
-            logger.warning("[alipay] 未找到合集输入框: %s", e)
+            logger.warning("[上传视频] 未找到合集输入框: %s", e)
             return
 
         # 监听 queryCompilationsByPublicId.json + fill 触发搜索
@@ -1304,12 +1353,12 @@ class AlipayPlatform(BasePlatform):
                 await compilation_input.click()
                 await compilation_input.fill(compilation_name)
                 logger.info(
-                    "[alipay] 已输入合集名「%s」,等待接口响应",
+                    "[上传视频] 已输入合集名「%s」,等待接口响应",
                     compilation_name,
                 )
         except Exception as e:
             logger.info(
-                "[alipay] 未捕获到 queryCompilationsByPublicId 响应(%s),"
+                "[上传视频] 未捕获到 queryCompilationsByPublicId 响应(%s),"
                 "直接等 DOM 渲染",
                 e,
             )
@@ -1321,7 +1370,7 @@ class AlipayPlatform(BasePlatform):
             ).first.wait_for(state="visible", timeout=10000)
         except Exception as e:
             logger.warning(
-                "[alipay] 合集下拉未渲染(可能无匹配合集「%s」): %s",
+                "[上传视频] 合集下拉未渲染(可能无匹配合集「%s」): %s",
                 compilation_name, e,
             )
             return
@@ -1365,13 +1414,13 @@ class AlipayPlatform(BasePlatform):
         )
         if clicked:
             logger.info(
-                "[alipay] 已选合集(%s): %s",
+                "[上传视频] 已选合集(%s): %s",
                 "精确" if clicked == "exact" else "模糊",
                 compilation_name if clicked == "exact" else clicked,
             )
         else:
             logger.warning(
-                "[alipay] 未找到匹配的合集「%s」,跳过合集设置",
+                "[上传视频] 未找到匹配的合集「%s」,跳过合集设置",
                 compilation_name,
             )
             try:
@@ -1406,7 +1455,7 @@ class AlipayPlatform(BasePlatform):
         """
         if not statement:
             logger.warning(
-                "[alipay] 作者声明为空,支付宝要求必填,后续发布可能失败"
+                "[上传视频] 作者声明为空,支付宝要求必填,后续发布可能失败"
             )
             return
 
@@ -1420,7 +1469,7 @@ class AlipayPlatform(BasePlatform):
                 state="visible", timeout=10000
             )
         except Exception as e:
-            logger.warning("[alipay] 未找到作者声明 select 容器: %s", e)
+            logger.warning("[上传视频] 未找到作者声明 select 容器: %s", e)
             return
 
         # 2. 点 div.ant-select-selector 展开下拉
@@ -1430,9 +1479,9 @@ class AlipayPlatform(BasePlatform):
         try:
             await selector_el.click()
             await asyncio.sleep(0.8)
-            logger.info("[alipay] 已点击作者声明 selector,等待下拉")
+            logger.info("[上传视频] 已点击作者声明 selector,等待下拉")
         except Exception as e:
-            logger.warning("[alipay] 点击作者声明 selector 失败: %s", e)
+            logger.warning("[上传视频] 点击作者声明 selector 失败: %s", e)
             return
 
         # 3. 等 option 渲染,点 title 精确匹配项
@@ -1442,12 +1491,12 @@ class AlipayPlatform(BasePlatform):
         try:
             await target_opt.wait_for(state="visible", timeout=10000)
             await target_opt.click()
-            logger.info("[alipay] 已选作者声明: %s", statement)
+            logger.info("[上传视频] 已选作者声明: %s", statement)
             await asyncio.sleep(0.5)
             return
         except Exception as e:
             logger.warning(
-                "[alipay] 未找到作者声明选项「%s」: %s", statement, e
+                "[上传视频] 未找到作者声明选项「%s」: %s", statement, e
             )
 
         # 兜底:列出所有 option 的 title 辅助排查
@@ -1458,7 +1507,7 @@ class AlipayPlatform(BasePlatform):
                 );
                 return Array.from(opts).map(o => o.getAttribute('title'));
             }""")
-            logger.info("[alipay] 当前下拉可选项: %s", titles)
+            logger.info("[上传视频] 当前下拉可选项: %s", titles)
         except Exception:
             pass
 
@@ -1488,7 +1537,7 @@ class AlipayPlatform(BasePlatform):
         dt = _parse_schedule_dt(schedule_time_str)
         if not dt:
             logger.warning(
-                "[alipay] 无法解析定时时间「%s」,跳过定时设置",
+                "[上传视频] 无法解析定时时间「%s」,跳过定时设置",
                 schedule_time_str,
             )
             return
@@ -1503,10 +1552,10 @@ class AlipayPlatform(BasePlatform):
             # radio 可能在 label 内,用 click label 父级
             label = regularly_radio.locator("xpath=ancestor::label[1]")
             await label.click(force=True)
-            logger.info("[alipay] 已切换到「定时发布」")
+            logger.info("[上传视频] 已切换到「定时发布」")
             await asyncio.sleep(0.8)
         except Exception as e:
-            logger.warning("[alipay] 切换定时发布失败: %s", e)
+            logger.warning("[上传视频] 切换定时发布失败: %s", e)
             return
 
         # 2. 直接填 picker 输入框
@@ -1521,9 +1570,9 @@ class AlipayPlatform(BasePlatform):
             await schedule_input.fill("")
             await schedule_input.type(time_str, delay=50)
             await asyncio.sleep(0.5)
-            logger.info("[alipay] 已填定时时间: %s", time_str)
+            logger.info("[上传视频] 已填定时时间: %s", time_str)
         except Exception as e:
-            logger.warning("[alipay] 填定时时间失败: %s", e)
+            logger.warning("[上传视频] 填定时时间失败: %s", e)
             return
 
         # 3. 点"确定"按钮关闭 picker
@@ -1531,10 +1580,10 @@ class AlipayPlatform(BasePlatform):
             ok_btn = page.get_by_role("button", name="确 定", exact=True).first
             if await ok_btn.count() > 0:
                 await ok_btn.click()
-                logger.info("[alipay] 已点击 picker「确定」")
+                logger.info("[上传视频] 已点击 picker「确定」")
                 await asyncio.sleep(0.5)
         except Exception as e:
-            logger.info("[alipay] 点击 picker 确定失败(可能已关): %s", e)
+            logger.info("[上传视频] 点击 picker 确定失败(可能已关): %s", e)
             try:
                 await page.keyboard.press("Enter")
             except Exception:
@@ -1553,7 +1602,7 @@ class AlipayPlatform(BasePlatform):
         try:
             await publish_btn.wait_for(state="visible", timeout=15000)
         except Exception as e:
-            raise RuntimeError(f"[alipay] 未找到「确认发布」按钮: {e}")
+            raise RuntimeError(f"[上传视频] 未找到「确认发布」按钮: {e}")
 
         # 轮询 disabled(最长 60s),等表单就绪
         for _ in range(60):
@@ -1563,12 +1612,12 @@ class AlipayPlatform(BasePlatform):
             await asyncio.sleep(1)
         else:
             raise RuntimeError(
-                "[alipay] 「确认发布」按钮一直 disabled,表单未就绪"
+                "[上传视频] 「确认发布」按钮一直 disabled,表单未就绪"
                 "(检查作者声明等必填项)"
             )
 
         await publish_btn.click()
-        logger.info("[alipay] 已点击「确认发布」按钮")
+        logger.info("[上传视频] 已点击「确认发布」按钮")
 
     # ------------------------------------------------------------------
     # Helper: wait for publish success signal
@@ -1612,7 +1661,7 @@ class AlipayPlatform(BasePlatform):
                     )
                     if await modal.count() > 0 and await modal.first.is_visible():
                         logger.info(
-                            "[alipay] 检测到「发布请注意」优化提示弹窗,"
+                            "[上传视频] 检测到「发布请注意」优化提示弹窗,"
                             "尝试点击「继续发布」"
                         )
                         # 点「继续发布」按钮(antd5-btn-default,非 primary)
@@ -1621,11 +1670,11 @@ class AlipayPlatform(BasePlatform):
                         ).first
                         await continue_btn.click()
                         modal_handled = True
-                        logger.info("[alipay] 已点击「继续发布」,等待跳转")
+                        logger.info("[上传视频] 已点击「继续发布」,等待跳转")
                         await asyncio.sleep(1)
                         continue
                 except Exception as e:
-                    logger.debug("[alipay] 检测弹窗1异常(忽略): %s", e)
+                    logger.debug("[上传视频] 检测弹窗1异常(忽略): %s", e)
 
             # ---- 弹窗 2:「发布请注意」确认弹窗(ant-modal-confirm) ----
             if not modal_handled:
@@ -1635,7 +1684,7 @@ class AlipayPlatform(BasePlatform):
                     )
                     if await confirm_modal.count() > 0 and await confirm_modal.first.is_visible():
                         logger.info(
-                            "[alipay] 检测到「发布请注意」确认弹窗,"
+                            "[上传视频] 检测到「发布请注意」确认弹窗,"
                             "尝试点击「确认发布」"
                         )
                         # 点「确认发布」按钮(ant-btn-primary)
@@ -1644,11 +1693,11 @@ class AlipayPlatform(BasePlatform):
                         ).first
                         await confirm_btn.click()
                         modal_handled = True
-                        logger.info("[alipay] 已点击弹窗「确认发布」,等待跳转")
+                        logger.info("[上传视频] 已点击弹窗「确认发布」,等待跳转")
                         await asyncio.sleep(1)
                         continue
                 except Exception as e:
-                    logger.debug("[alipay] 检测弹窗2异常(忽略): %s", e)
+                    logger.debug("[上传视频] 检测弹窗2异常(忽略): %s", e)
 
             # ---- 成功判据 1: URL 跳转离开发布页(最可靠) ----
             try:
@@ -1657,7 +1706,7 @@ class AlipayPlatform(BasePlatform):
                     current_url != original_url
                     and publish_path not in current_url
                 ):
-                    logger.info("[alipay] 发布成功(URL 已跳转: %s)", current_url)
+                    logger.info("[上传视频] 发布成功(URL 已跳转: %s)", current_url)
                     return
             except Exception:
                 pass
@@ -1665,7 +1714,7 @@ class AlipayPlatform(BasePlatform):
             # ---- 成功判据 2: 「发布成功」文案 ----
             try:
                 if await page.get_by_text("发布成功", exact=True).count() > 0:
-                    logger.info("[alipay] 发布成功(检测到「发布成功」文案)")
+                    logger.info("[上传视频] 发布成功(检测到「发布成功」文案)")
                     return
             except Exception:
                 pass
@@ -1673,7 +1722,7 @@ class AlipayPlatform(BasePlatform):
             await asyncio.sleep(2)
 
         raise RuntimeError(
-            f"[alipay] 等待发布完成超时({timeout_s}s),"
+            f"[上传视频] 等待发布完成超时({timeout_s}s),"
             f"是否处理过弹窗: {modal_handled}"
         )
 
@@ -1714,5 +1763,5 @@ def _parse_schedule_dt(schedule_time_str: str):
             except ValueError:
                 continue
     except Exception as e:
-        logger.info("[alipay] 解析定时时间失败: %s", e)
+        logger.info("[上传视频] 解析定时时间失败: %s", e)
     return None

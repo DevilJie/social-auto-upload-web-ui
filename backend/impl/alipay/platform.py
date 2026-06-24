@@ -251,6 +251,7 @@ class AlipayPlatform(BasePlatform):
         account_file = kwargs.get("account_file", []) or []
         thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path")
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path")
+        video_format = kwargs.get("video_format", "") or ""
         desc = kwargs.get("desc", "") or ""
         author_statement = kwargs.get("author_statement", "") or ""
         compilation = kwargs.get("compilation", "") or ""
@@ -265,6 +266,7 @@ class AlipayPlatform(BasePlatform):
         logger.info("[发布参数] 账号数量: %d", len(account_file))
         logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
         logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 视频格式: %s", video_format or "未指定")
         logger.info("[发布参数] 作者声明: %s", author_statement or "无")
         logger.info("[发布参数] 合集: %s", compilation or "无")
         logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
@@ -293,6 +295,7 @@ class AlipayPlatform(BasePlatform):
                         account_file=cookie_path,
                         thumbnail_landscape_path=thumbnail_landscape_path,
                         thumbnail_portrait_path=thumbnail_portrait_path,
+                        video_format=video_format,
                         desc=desc,
                         author_statement=author_statement,
                         compilation=compilation,
@@ -789,6 +792,7 @@ class AlipayPlatform(BasePlatform):
         account_file: str,
         thumbnail_landscape_path=None,
         thumbnail_portrait_path=None,
+        video_format: str = "",
         desc: str = "",
         author_statement: str = "",
         compilation: str = "",
@@ -806,6 +810,7 @@ class AlipayPlatform(BasePlatform):
             "  desc=%r\n"
             "  thumbnail_landscape=%r\n"
             "  thumbnail_portrait=%r\n"
+            "  video_format=%r\n"
             "  author_statement=%r\n"
             "  compilation=%r\n"
             "  enable_timer=%r\n"
@@ -816,6 +821,7 @@ class AlipayPlatform(BasePlatform):
             desc,
             thumbnail_landscape_path,
             thumbnail_portrait_path,
+            video_format,
             author_statement,
             compilation,
             enable_timer,
@@ -850,9 +856,25 @@ class AlipayPlatform(BasePlatform):
                 # 4. 填描述 + 话题
                 await self._set_description_and_tags(page, desc, title, tags)
 
-                # 5. 上传封面(横版优先)
-                cover_path = (
-                    thumbnail_landscape_path or thumbnail_portrait_path
+                # 5. 上传封面(按视频格式选择对应封面)
+                #    竖版视频(portrait)→竖版封面;横版视频(landscape)→横版封面
+                #    未指定格式时横版优先兜底
+                if video_format == "portrait":
+                    cover_path = (
+                        thumbnail_portrait_path or thumbnail_landscape_path
+                    )
+                elif video_format == "landscape":
+                    cover_path = (
+                        thumbnail_landscape_path or thumbnail_portrait_path
+                    )
+                else:
+                    cover_path = (
+                        thumbnail_landscape_path or thumbnail_portrait_path
+                    )
+                logger.info(
+                    "[上传视频] 封面选择: 格式=%s → %s",
+                    video_format or "未指定",
+                    os.path.basename(cover_path) if cover_path else "无",
                 )
                 await self._set_cover(page, cover_path)
 
@@ -1114,48 +1136,76 @@ class AlipayPlatform(BasePlatform):
             logger.info("[上传视频] 已填描述(长度=%d)", len(text))
             await asyncio.sleep(0.3)
 
-        # 话题逐一通过 # 触发联想下拉
+        # 话题逐一粘贴 #话题名 到描述区,然后输入空格确认。
+        #
+        # 支付宝话题交互:
+        #   直接打 `#xxx` 逐字符输入时,联想接口可能拿不到话题词,
+        #   下拉一直是默认热门推荐。改用 insert_text(模拟粘贴)一次性
+        #   注入 `#话题名`,再输一个空格触发话题成型。
         for tag in (tags or []):
             tag = (tag or "").strip().lstrip("#")
             if not tag:
                 continue
             try:
+                logger.info("[上传视频] 开始添加话题 #%s", tag)
                 await textarea.click()
+                await asyncio.sleep(0.2)
+                # 先键盘输入 # 触发 mention 插件的联想下拉
+                await page.keyboard.type("#", delay=50)
+                await asyncio.sleep(0.3)
+                # 再用 Ctrl+V 粘贴话题名,触发真正的 paste 事件
+                await page.evaluate(
+                    "text => navigator.clipboard.writeText(text)",
+                    tag,
+                )
                 await asyncio.sleep(0.1)
-                await page.keyboard.type(f"#{tag}", delay=50)
-                # 等联想下拉出现
+                await page.keyboard.press("Control+v")
+                logger.info("[上传视频] 已输入#并Ctrl+V粘贴 %s,等待联想下拉...", tag)
+                await asyncio.sleep(0.8)
+                # 检查下拉是否出现
                 suggestion_list = page.locator(
                     ".mentions-textarea__suggestions__list"
                 ).first
-                await suggestion_list.wait_for(
-                    state="visible", timeout=5000
-                )
-                # 优先点精确匹配的官方话题项(排除"自定义话题")
-                # DOM: li > div > div:first-child 文本 == #xxx
-                items = suggestion_list.locator(
-                    ".mentions-textarea__suggestions__item"
-                )
-                count = await items.count()
-                clicked = False
-                for i in range(count):
-                    item = items.nth(i)
-                    # 第一个 div 子节点的文本
-                    label_text = await item.locator(
-                        "div > div:first-child"
-                    ).first.text_content()
-                    if label_text and label_text.strip() == f"#{tag}":
-                        await item.click()
-                        clicked = True
-                        logger.info("[上传视频] 已选话题(官方): #%s", tag)
-                        break
-                if not clicked and count > 0:
-                    # 回退: 点第一项
-                    await items.first.click()
-                    logger.info("[上传视频] 已选话题(第一项): #%s", tag)
+                dropdown_visible = await suggestion_list.is_visible()
+                if dropdown_visible:
+                    # 下拉出现了,尝试精确匹配官方话题
+                    items = suggestion_list.locator(
+                        ".mentions-textarea__suggestions__item"
+                    )
+                    count = await items.count()
+                    logger.info("[上传视频] 话题 #%s 联想下拉共 %d 项", tag, count)
+                    matched = False
+                    for i in range(count):
+                        item = items.nth(i)
+                        label_text = await item.locator(
+                            "div > div:first-child"
+                        ).first.text_content()
+                        sub_text = await item.locator(
+                            "div > div:nth-child(2)"
+                        ).first.text_content()
+                        label = (label_text or "").strip()
+                        logger.info(
+                            "[上传视频]   候选[%d] 话题=%s 标记=%s",
+                            i, label, (sub_text or "").strip(),
+                        )
+                        if label == f"#{tag}" or label == tag:
+                            await item.click()
+                            matched = True
+                            logger.info(
+                                "[上传视频] 已选话题(官方精确): #%s", tag,
+                            )
+                            break
+                    if not matched:
+                        # 没有精确匹配,输入空格确认为自定义话题
+                        await page.keyboard.press("Space")
+                        logger.info("[上传视频] 已选话题(自定义): #%s", tag)
+                else:
+                    # 下拉没出现,直接输空格确认
+                    await page.keyboard.press("Space")
+                    logger.info("[上传视频] 已添加话题(无下拉,空格确认): #%s", tag)
                 await asyncio.sleep(0.3)
             except Exception as e:
                 logger.warning("[上传视频] 添加话题 #%s 失败: %s", tag, e)
-                # ESC 关闭可能残留的联想下拉
                 try:
                     await page.keyboard.press("Escape")
                 except Exception:
@@ -1441,17 +1491,18 @@ class AlipayPlatform(BasePlatform):
         6 个选项:内容无需标注 / 个人观点,仅供参考 / 内容由AI生成 /
         内容虚构演绎,仅供娱乐 / 内容含营销信息 / 内容为转载
 
-        DOM(用户实测):
-        - 锚点: ``label[title="作者声明"]``(form-item-label,稳定)
-        - select 容器: ``div.ant-select``(不是 antd5-select)
-        - trigger: ``div.ant-select-selector``(点这里展开下拉)
-        - 搜索 input: ``input#tagList`` readonly+opacity:0
-        - option: ``div.ant-select-item-option[title="内容由AI生成"]``
+        DOM(2026-06-24 实测):
+        - 搜索 input: ``input[id$='_tagList']`` (ID 有随机前缀,后缀稳定)
+          属性: role=combobox, readonly, aria-required=true
+        - select 容器: input 的祖先中 role=combobox 或含 arrow 的 div
+        - option: ``[role='option'][title="内容由AI生成"]`` (title 稳定)
+
+        **禁止用 class 定位**(antd5 + CSS modules hash 会漂移)。
 
         流程:
-        1. 通过 input#tagList 锚点定位同级 select
-        2. 点 div.ant-select-selector 展开下拉
-        3. 点 div.ant-select-item-option[title="..."] 精确匹配
+        1. 通过 input[id$='_tagList'] 定位搜索框
+        2. 点其父级展开下拉
+        3. 点 [role='option'][title="..."] 精确匹配
         """
         if not statement:
             logger.warning(
@@ -1459,34 +1510,30 @@ class AlipayPlatform(BasePlatform):
             )
             return
 
-        # 1. 通过 input#tagList 定位作者声明的 select 容器
-        #    input#tagList 是作者声明下拉的搜索框(readonly)
-        select_container = page.locator(
-            'div.ant-select:has(input#tagList)'
+        # 1. 通过 input[id$='_tagList'] 定位搜索框(input 有 role=combobox)
+        search_input = page.locator(
+            "input[id$='_tagList'][role='combobox']"
         ).first
         try:
-            await select_container.wait_for(
-                state="visible", timeout=10000
-            )
+            await search_input.wait_for(state="visible", timeout=10000)
         except Exception as e:
-            logger.warning("[上传视频] 未找到作者声明 select 容器: %s", e)
+            logger.warning("[上传视频] 未找到作者声明搜索框: %s", e)
             return
 
-        # 2. 点 div.ant-select-selector 展开下拉
-        selector_el = select_container.locator(
-            "div.ant-select-selector"
-        ).first
+        # 2. 点搜索框展开下拉(它 readonly,点击会冒泡到父级 select 触发展开)
         try:
-            await selector_el.click()
+            await search_input.click()
             await asyncio.sleep(0.8)
-            logger.info("[上传视频] 已点击作者声明 selector,等待下拉")
+            logger.info("[上传视频] 已点击作者声明搜索框,等待下拉")
         except Exception as e:
-            logger.warning("[上传视频] 点击作者声明 selector 失败: %s", e)
+            logger.warning("[上传视频] 点击作者声明搜索框失败: %s", e)
             return
 
         # 3. 等 option 渲染,点 title 精确匹配项
+        #    选项 DOM: <div aria-selected="false" title="内容由AI生成">...</div>
+        #    没有 role='option',只用 title 属性定位(稳定,不依赖 class)
         target_opt = page.locator(
-            f'div.ant-select-item-option[title="{statement.strip()}"]'
+            f"[title='{statement.strip()}']"
         ).first
         try:
             await target_opt.wait_for(state="visible", timeout=10000)
@@ -1499,13 +1546,14 @@ class AlipayPlatform(BasePlatform):
                 "[上传视频] 未找到作者声明选项「%s」: %s", statement, e
             )
 
-        # 兜底:列出所有 option 的 title 辅助排查
+        # 兜底:列出所有带 title 的下拉项辅助排查
         try:
             titles = await page.evaluate("""() => {
-                const opts = document.querySelectorAll(
-                    'div.ant-select-item-option[title]'
-                );
-                return Array.from(opts).map(o => o.getAttribute('title'));
+                const holder = document.querySelector(".rc-virtual-list-holder-inner");
+                if (!holder) return [];
+                return Array.from(holder.children)
+                    .map(o => o.getAttribute('title'))
+                    .filter(Boolean);
             }""")
             logger.info("[上传视频] 当前下拉可选项: %s", titles)
         except Exception:

@@ -753,6 +753,7 @@ def postVideo():
                 content_statement=data.get('contentStatement', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
+                video_format=data.get('videoFormat', ''),
                 # 今日头条特有参数
                 enable_generate_image=data.get('enableGenerateImage', True),
                 collection_id=data.get('collection', ''),
@@ -794,6 +795,7 @@ def postVideo():
                 content_statement=data.get('contentStatement', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
+                video_format=data.get('videoFormat', ''),
                 # 今日头条特有参数
                 enable_generate_image=data.get('enableGenerateImage', True),
                 collection_id=data.get('collection', ''),

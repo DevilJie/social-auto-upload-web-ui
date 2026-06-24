@@ -27,6 +27,13 @@ ext_api = Blueprint('ext_api', __name__, url_prefix='/api/v2')
 
 DB_PATH = BASE_DIR / "db" / "database.db"
 
+# 平台 id → 中文名称(必须与 frontend config/platforms.js + impl/registry.py 一致)
+_PLATFORM_ID_TO_NAME = {
+    1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站",
+    6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频",
+    10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条",
+}
+
 # SSE 订阅者
 _sse_subscribers: list[queue.Queue] = []
 _sse_lock = threading.Lock()
@@ -198,7 +205,12 @@ def create_task():
         if not data.get(field):
             return jsonify({"code": 400, "msg": f"缺少必填字段: {field}"}), 400
 
-    platform_map = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站"}
+    # 平台 id → 名称 完整映射(必须与 frontend config/platforms.js + impl/registry.py 一致)
+    platform_map = {
+        1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站",
+        6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频",
+        10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条",
+    }
     platform_type = data['platformType']
 
     task = PublishTask(
@@ -334,6 +346,19 @@ def _normalize_detail_row(d):
             d['duration'] = None
     else:
         d['duration'] = None
+    # 实时校正 platform 字段：旧数据可能因 platform_map 缺失被写成「未知」
+    # 用 account_id 查 user_info.type 重新映射
+    if d.get('account_id') and (not d.get('platform') or d.get('platform') == '未知'):
+        try:
+            conn = _db_conn()
+            row = conn.execute(
+                "SELECT type FROM user_info WHERE id = ?", (d['account_id'],)
+            ).fetchone()
+            conn.close()
+            if row:
+                d['platform'] = _PLATFORM_ID_TO_NAME.get(row[0], d.get('platform', ''))
+        except Exception:
+            pass
     return d
 
 

@@ -1,5 +1,6 @@
 @echo off
-chcp 65001 >nul 2>&1
+:: 强制切换 UTF-8 编码(避免 Windows 默认 GBK 编码导致中文乱码)
+chcp 65001 >nul
 setlocal EnableDelayedExpansion
 
 :: ============================================================

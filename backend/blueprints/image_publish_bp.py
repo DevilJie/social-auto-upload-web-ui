@@ -376,15 +376,18 @@ def _extract_image_channels_summary(draft_data):
         return []
 
     # 平台ID到名称和key的映射
+    # 注意: platform key 必须与 frontend config/platforms.js 的 key 一致,
+    # 否则草稿箱 getPlatformLogo() 匹配不到 logo。
     platform_id_to_name = {
         1: ('xiaohongshu', '小红书'),
-        2: ('shipinhao', '视频号'),
+        2: ('channels', '视频号'),
         3: ('douyin', '抖音'),
         4: ('kuaishou', '快手'),
         5: ('bilibili', 'B站'),
         6: ('baijiahao', '百家号'),
-        11: ('weibo', '微博'),   # 新增
-        12: ('alipay', '支付宝'),  # 图集发布
+        11: ('weibo', '微博'),
+        12: ('alipay', '支付宝'),   # 图集发布
+        13: ('toutiao', '今日头条'),
     }
 
     try:

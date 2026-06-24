@@ -733,13 +733,22 @@ def update_settings():
 
 # ========== 草稿箱 ==========
 
+# 平台 ID → (key, 名称) 映射。key 必须与 frontend config/platforms.js 一致,
+# 否则草稿箱 getPlatformLogo() 匹配不到 logo。
 _PLATFORM_ID_MAP = {
     1: ('xiaohongshu', '小红书'),
-    2: ('shipinhao', '视频号'),
+    2: ('channels', '视频号'),
     3: ('douyin', '抖音'),
     4: ('kuaishou', '快手'),
     5: ('bilibili', 'B站'),
     6: ('baijiahao', '百家号'),
+    7: ('tiktok', 'TikTok'),
+    8: ('youtube', 'YouTube'),
+    9: ('tencent_video', '腾讯视频'),
+    10: ('iqiyi', '爱奇艺'),
+    11: ('weibo', '微博'),
+    12: ('alipay', '支付宝'),
+    13: ('toutiao', '今日头条'),
 }
 
 
@@ -787,11 +796,15 @@ def get_drafts():
             except json.JSONDecodeError:
                 d['channels_summary'] = []
 
-            # 图文草稿：兜底修复 channels_summary
-            if d.get('type') == 'image' and d.get('draft_data') and not d['channels_summary']:
+            # 统一实时重算 channels_summary:存库快照可能在新增平台后过期
+            # (例如之前漏了今日头条),从 draft_data.publishAccountIds 重算可保证
+            # 历史草稿也能正确显示所有渠道。视频/图集共用同一段提取逻辑。
+            if d.get('draft_data'):
                 try:
                     dd = json.loads(d['draft_data'])
-                    d['channels_summary'] = _extract_image_channels_from_draft(conn, dd)
+                    recomputed = _extract_image_channels_from_draft(conn, dd)
+                    if recomputed:
+                        d['channels_summary'] = recomputed
                 except (json.JSONDecodeError, KeyError):
                     pass
             d.pop('draft_data', None)  # 不在列表接口返回完整 draft_data
@@ -946,7 +959,7 @@ def _extract_channels_summary(draft_data):
         'kuaishou': '快手', 'bilibili': 'B站', 'baijiahao': '百家号',
         'tiktok': 'TikTok', 'youtube': 'YouTube', 'iqiyi': '爱奇艺',
         'tencent_video': '腾讯视频',
-        'weibo': '微博', 'alipay': '支付宝',
+        'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条',
     }
 
     try:
@@ -963,7 +976,7 @@ def _extract_channels_summary(draft_data):
             'kuaishou': 4, 'bilibili': 5,
             'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
             'tencent_video': 9, 'iqiyi': 10,
-            'weibo': 11, 'alipay': 12,
+            'weibo': 11, 'alipay': 12, 'toutiao': 13,
         }.items()}
 
         platform_counts = {}

@@ -359,7 +359,7 @@ export const PLATFORMS = {
       { key: 'contentStatement', label: '内容声明', type: 'select', required: true,
         placeholder: '请选择内容声明（可选）',
         options: [
-          { label: '无', value: '' },
+          { label: '无', value: '无' },
           { label: '内容为自主创作', value: '内容为自主创作' },
           { label: '内容为转载', value: '内容为转载' },
           { label: '内容由AI生成', value: '内容由AI生成' },

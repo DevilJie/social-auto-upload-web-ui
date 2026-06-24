@@ -34,6 +34,17 @@ _PLATFORM_ID_TO_NAME = {
     10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条",
 }
 
+# 平台 key(拼音) → 中文名称。修复 publish_details.platform 历史脏数据:
+# 旧数据中有的存的是拼音 key(如 iqiyi / tencent_video),有的存的是中文名
+# 这里统一转中文名。key 必须与 frontend config/platforms.js 一致。
+_PLATFORM_KEY_TO_NAME = {
+    "xiaohongshu": "小红书", "channels": "视频号", "douyin": "抖音",
+    "kuaishou": "快手", "bilibili": "B站", "baijiahao": "百家号",
+    "tiktok": "TikTok", "youtube": "YouTube",
+    "tencent_video": "腾讯视频", "iqiyi": "爱奇艺",
+    "weibo": "微博", "alipay": "支付宝", "toutiao": "今日头条",
+}
+
 # SSE 订阅者
 _sse_subscribers: list[queue.Queue] = []
 _sse_lock = threading.Lock()
@@ -347,18 +358,23 @@ def _normalize_detail_row(d):
     else:
         d['duration'] = None
     # 实时校正 platform 字段：旧数据可能因 platform_map 缺失被写成「未知」
-    # 用 account_id 查 user_info.type 重新映射
-    if d.get('account_id') and (not d.get('platform') or d.get('platform') == '未知'):
-        try:
-            conn = _db_conn()
-            row = conn.execute(
-                "SELECT type FROM user_info WHERE id = ?", (d['account_id'],)
-            ).fetchone()
-            conn.close()
-            if row:
-                d['platform'] = _PLATFORM_ID_TO_NAME.get(row[0], d.get('platform', ''))
-        except Exception:
-            pass
+    # 或被前端误写成拼音 key(如 iqiyi / tencent_video)。统一校正为中文名。
+    plat = d.get('platform', '') or ''
+    if not plat or plat == '未知':
+        if d.get('account_id'):
+            try:
+                conn = _db_conn()
+                row = conn.execute(
+                    "SELECT type FROM user_info WHERE id = ?", (d['account_id'],)
+                ).fetchone()
+                conn.close()
+                if row:
+                    d['platform'] = _PLATFORM_ID_TO_NAME.get(row[0], plat)
+            except Exception:
+                pass
+    elif plat in _PLATFORM_KEY_TO_NAME:
+        # 是拼音 key,转成中文名
+        d['platform'] = _PLATFORM_KEY_TO_NAME[plat]
     return d
 
 

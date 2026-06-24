@@ -20,6 +20,34 @@ from util._logger import get_channel_logger
 
 logger = get_channel_logger("utils")
 
+
+# ---------------------------------------------------------------------------
+# Account nickname lookup (用于日志带上发布账号昵称)
+# ---------------------------------------------------------------------------
+
+def get_account_name_by_cookie_file(cookie_filename: str) -> str:
+    """根据 cookie 文件名查询账号昵称 (user_info.userName)。
+
+    cookie 文件名即 user_info.filePath 的值（如 ``xxx-uuid.json``）。
+    查询失败或未找到时返回空字符串，调用方应做兜底处理。
+
+    仅用于日志打印，不参与任何业务逻辑判断。
+    """
+    if not cookie_filename:
+        return ""
+    try:
+        db_path = Path(BASE_DIR / "db" / "database.db")
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT userName FROM user_info WHERE filePath = ?",
+                (cookie_filename,),
+            ).fetchone()
+        return row[0] if row else ""
+    except Exception as e:
+        logger.warning("查询账号昵称失败 (%s): %s", cookie_filename, e)
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # JS injection script for generic profile scraping
 # Source: original login.py JS injection script
@@ -552,11 +580,11 @@ async def scrape_weibo_profile(page):
     """Weibo-specific scraper.
 
     抓取依据：微博创作中心顶部导航栏登录后会出现
-    ``a[href^=\"/u/\"]``（最后一个 tab，带 ``title`` 属性和头像 img）。
+    ``a[href^="/u/"]``（最后一个 tab，带 ``title`` 属性和头像 img）。
     直接跑 JS eval 取属性，避免 locator API 链的兼容问题。
 
-    1. 昵称：``a[href^=\"/u/\"]`` 的 ``title`` 属性
-    2. 头像：``a[href^=\"/u/\"] img[src*=\"sinaimg.cn\"]`` 的 ``src`` 属性
+    1. 昵称：``a[href^="/u/"]`` 的 ``title`` 属性
+    2. 头像：``a[href^="/u/"] img[src*="sinaimg.cn"]`` 的 ``src`` 属性
 
     失败兜底：返回 ("", "")，由 save_login_result 兜底用户名。
 
@@ -586,6 +614,86 @@ async def scrape_weibo_profile(page):
         logger.info(f"[weibo] profile scraped - name={name!r} avatar={avatar[:80] if avatar else 'None'} (result={result})")
     except Exception as e:
         logger.info(f"[weibo] profile scrape error: {e}")
+
+    return name, avatar
+
+
+async def scrape_toutiao_profile(page):
+    """Toutiao-specific scraper.
+
+    抓取依据：今日头条创作中心登录后会出现 user-panel 结构。
+    从 user-panel 中提取头像和昵称。
+
+    定位策略：
+    1. 昵称：auth-avator-name 类名的元素
+    2. 头像：auth-avator-img 类名的 img 元素
+
+    失败兜底：返回 ("", "")，由 save_login_result 兜底用户名。
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        await asyncio.sleep(3)
+
+        result = await page.evaluate("""() => {
+            let name = '', avatar = '';
+
+            // Strategy 1: Look for user-panel structure
+            const userPanel = document.querySelector('.user-panel .information');
+            if (userPanel) {
+                // Avatar: img inside auth-avator-img-wrap
+                const avatarImg = userPanel.querySelector('.auth-avator-img');
+                if (avatarImg) {
+                    avatar = avatarImg.src || '';
+                }
+                // Name: text in auth-avator-name
+                const nameEl = userPanel.querySelector('.auth-avator-name');
+                if (nameEl) {
+                    name = nameEl.textContent.trim();
+                }
+            }
+
+            // Strategy 2: Look for menu-title (e.g., "晚上好，菜鸡")
+            if (!name) {
+                const menuTitle = document.querySelector('.menu-title');
+                if (menuTitle) {
+                    const text = menuTitle.textContent.trim();
+                    // Extract name after comma
+                    const match = text.match(/[，,](.+)$/);
+                    if (match) {
+                        name = match[1].trim();
+                    }
+                }
+            }
+
+            // Strategy 3: Look for title attribute on links
+            if (!name) {
+                const userLink = document.querySelector('.user-panel a[title]');
+                if (userLink) {
+                    const title = userLink.getAttribute('title');
+                    // Extract name from "菜鸡的个人主页"
+                    const match = title.match(/^(.+?)的个人主页$/);
+                    if (match) {
+                        name = match[1].trim();
+                    }
+                }
+            }
+
+            return { name, avatar };
+        }""")
+
+        name = (result.get("name") or "").strip()
+        avatar = (result.get("avatar") or "").strip()
+        logger.info(
+            f"[toutiao] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[toutiao] profile scrape error: {e}")
 
     return name, avatar
 
@@ -763,6 +871,7 @@ PLATFORM_SYNC_URLS = {
     10: "https://creator.iqiyi.com/",
     11: "https://weibo.com/set/index",
     12: "https://c.alipay.com/page/life-account/index",
+    13: "https://mp.toutiao.com/profile_v4/index",
 }
 
 
@@ -781,4 +890,5 @@ PLATFORM_SCRAPE_FNS = {
     8: scrape_youtube_profile,      # YouTube
     11: scrape_weibo_profile,       # Weibo
     12: scrape_alipay_profile,      # Alipay
+    13: scrape_toutiao_profile,     # Toutiao
 }

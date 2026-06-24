@@ -126,6 +126,10 @@ from blueprints.alipay_bp import alipay_bp  # noqa: E402
 app.register_blueprint(alipay_bp)
 logger.info("[Startup] alipay_bp registered OK")
 
+from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
+app.register_blueprint(toutiao_bp)
+logger.info("[Startup] toutiao_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
@@ -749,6 +753,11 @@ def postVideo():
                 content_statement=data.get('contentStatement', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
+                # 今日头条特有参数
+                enable_generate_image=data.get('enableGenerateImage', True),
+                collection_id=data.get('collection', ''),
+                extend_link=data.get('extendLink', False),
+                extend_link_url=data.get('extendLinkUrl', ''),
             ))
         else:
             result = publish_fn(
@@ -785,6 +794,11 @@ def postVideo():
                 content_statement=data.get('contentStatement', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
+                # 今日头条特有参数
+                enable_generate_image=data.get('enableGenerateImage', True),
+                collection_id=data.get('collection', ''),
+                extend_link=data.get('extendLink', False),
+                extend_link_url=data.get('extendLinkUrl', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -1265,14 +1279,14 @@ if __name__ == "__main__":
         logger.info(f"[Startup] DB verification FAILED: {_e}")
         logger.info(f"[Startup] SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 
-    # 启动后台任务：补全存量视频素材 duration=0 的数据
+    # 启动后台任务：补全存量视频素材 duration=0 的数据，以及缺失 orientation 的数据
     # （草稿/历史恢复走 DB 直读，绕过了「素材库选中→probe」，
     #  导致历史 duration=0 的数据漏识别，发布校验被跳过）
     try:
         from services.duration_repair import start_repair_in_background
         start_repair_in_background()
     except Exception as _e:
-        logger.warning("[Startup] 时长补全任务启动失败（不影响主服务）: %s", _e)
+        logger.warning("[Startup] 补全任务启动失败（不影响主服务）: %s", _e)
 
     port = int(os.environ.get("SAU_PORT", "5409"))
     if port == 5409:

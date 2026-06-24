@@ -28,7 +28,7 @@ from pathlib import Path
 
 from util._logger import get_channel_logger
 
-from services.ffmpeg_service import get_video_duration_safe
+from services.ffmpeg_service import get_video_duration_safe, get_video_dimensions_safe, calculate_orientation
 
 # 使用项目统一的日志体系（标准库 logging，按 channel 分文件），
 # 日志会写入 data/logs/{日期}/backend.log。
@@ -189,16 +189,162 @@ def repair_zero_durations() -> None:
         logger.exception("[DurationRepair] 批量补全任务异常: %s", exc)
 
 
-def start_repair_in_background() -> threading.Thread:
-    """在 daemon 线程中启动时长补全，立即返回。"""
-    thread = threading.Thread(
+# ---------------------------------------------------------------------------
+# 启动时批量补全 orientation
+# ---------------------------------------------------------------------------
+
+def _probe_orientation_one(conn, material_id: str, stored_path: str, file_type: str) -> tuple[bool, str, int, int]:
+    """识别单条素材的宽高并写库，返回 (是否成功, orientation, width, height)。
+
+    需要调用方先 :func:`_acquire` 拿到锁，结束后 :func:`_release`。
+    """
+    from storage import resolve_material_path
+
+    local = resolve_material_path(stored_path)
+    if not local or not Path(local).is_file():
+        logger.warning(
+            "[OrientationRepair] 文件不存在，跳过 material_id=%s path=%s",
+            material_id, stored_path,
+        )
+        return (False, '', 0, 0)
+
+    width, height = 0, 0
+    if file_type == "video":
+        width, height = get_video_dimensions_safe(local)
+    elif file_type == "image":
+        from services.image_service import get_image_dimensions
+        width, height = get_image_dimensions(local)
+
+    if width <= 0 or height <= 0:
+        return (False, '', width, height)
+
+    orientation = calculate_orientation(width, height)
+    conn.execute(
+        "UPDATE materials SET width = ?, height = ?, orientation = ? WHERE id = ?",
+        (width, height, orientation, material_id),
+    )
+    conn.commit()
+    return (True, orientation, width, height)
+
+
+def repair_missing_orientation() -> None:
+    """扫描所有 orientation 为空的素材，逐条识别宽高并补全。
+
+    设计要点：
+    - 在后台 daemon 线程中执行，不阻塞服务启动；
+    - 启动前 sleep 一小段，让 Waitress 先把端口起来、DB 先处理常规请求；
+    - 逐条打印进度（``1/N``），方便在启动日志里看到进展；
+    - 识别失败的条目跳过，不抛异常、不影响主服务；
+    - 与上传时 ``_async_probe_dimensions`` 通过 ``_inflight_ids`` 去重。
+    """
+    import time
+
+    time.sleep(3.0)  # 让 Waitress 先起来，且让 duration repair 先启动
+
+    try:
+        from conf import BASE_DIR
+        db_path = BASE_DIR / "db" / "database.db"
+        if not db_path.exists():
+            logger.info("[OrientationRepair] 数据库不存在，跳过 orientation 补全")
+            return
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        rows = conn.execute(
+            "SELECT id, stored_path, original_filename, file_type "
+            "FROM materials "
+            "WHERE orientation IS NULL OR orientation = ''"
+        ).fetchall()
+
+        total = len(rows)
+        if total == 0:
+            logger.info("[OrientationRepair] 无需补全，所有素材 orientation 均已识别")
+            conn.close()
+            return
+
+        logger.info(
+            "[OrientationRepair] 检测到 %d 个素材缺失 orientation，开始后台补全...",
+            total,
+        )
+
+        ok, fail, skip = 0, 0, 0
+        for idx, row in enumerate(rows, start=1):
+            material_id = row["id"]
+            name = row["original_filename"] or row["stored_path"]
+            logger.info(
+                "[OrientationRepair] (%d/%d) 正在识别: %s",
+                idx, total, name,
+            )
+
+            if not _acquire(material_id):
+                # 正被上传/其他流程 probe，跳过
+                skip += 1
+                logger.debug(
+                    "[OrientationRepair] (%d/%d) 跳过（正在识别中）: %s",
+                    idx, total, name,
+                )
+                continue
+
+            try:
+                success, orientation, width, height = _probe_orientation_one(
+                    conn, material_id, row["stored_path"], row["file_type"]
+                )
+                if success:
+                    ok += 1
+                    logger.info(
+                        "[OrientationRepair] (%d/%d) 识别成功: %s → %s (%dx%d)",
+                        idx, total, name, orientation, width, height,
+                    )
+                else:
+                    fail += 1
+                    logger.warning(
+                        "[OrientationRepair] (%d/%d) 识别失败: %s",
+                        idx, total, name,
+                    )
+            except Exception as exc:
+                fail += 1
+                logger.exception(
+                    "[OrientationRepair] (%d/%d) 识别异常: %s → %s",
+                    idx, total, name, exc,
+                )
+            finally:
+                _release(material_id)
+
+        logger.info(
+            "[OrientationRepair] 补全完成: 共 %d 个，成功 %d，失败 %d，跳过 %d",
+            total, ok, fail, skip,
+        )
+        conn.close()
+
+    except Exception as exc:
+        # 后台任务绝不能把主进程拖崩
+        logger.exception("[OrientationRepair] 批量补全任务异常: %s", exc)
+
+
+def start_repair_in_background() -> list[threading.Thread]:
+    """在 daemon 线程中启动时长补全和 orientation 补全，立即返回。"""
+    threads = []
+
+    duration_thread = threading.Thread(
         target=repair_zero_durations,
         daemon=True,
         name="duration-repair",
     )
-    thread.start()
+    duration_thread.start()
+    threads.append(duration_thread)
     logger.info("[Startup] 时长补全后台任务已启动")
-    return thread
+
+    orientation_thread = threading.Thread(
+        target=repair_missing_orientation,
+        daemon=True,
+        name="orientation-repair",
+    )
+    orientation_thread.start()
+    threads.append(orientation_thread)
+    logger.info("[Startup] orientation 补全后台任务已启动")
+
+    return threads
 
 
 # ---------------------------------------------------------------------------

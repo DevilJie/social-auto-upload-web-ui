@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify
-from services.ffmpeg_service import get_video_duration_safe
+from services.ffmpeg_service import get_video_duration_safe, get_video_dimensions_safe, calculate_orientation
 
 materials_bp = Blueprint("materials", __name__, url_prefix="/api/materials")
 
@@ -122,6 +122,36 @@ def _async_probe_duration(material_id: str, source_path: str):
         print(f"[materials] duration probe failed for {material_id}: {e}")
 
 
+def _async_probe_dimensions(material_id: str, source_path: str, file_type: str):
+    """后台异步识别素材宽高并写库，同时计算 orientation。失败不影响上传响应。"""
+    try:
+        from storage import resolve_material_path
+        local = resolve_material_path(source_path)
+        if not local or not os.path.isfile(local):
+            return
+
+        width, height = 0, 0
+        if file_type == "video":
+            width, height = get_video_dimensions_safe(local)
+        elif file_type == "image":
+            from services.image_service import get_image_dimensions
+            width, height = get_image_dimensions(local)
+
+        if width <= 0 or height <= 0:
+            return
+
+        orientation = calculate_orientation(width, height)
+        conn = _get_db()
+        conn.execute(
+            "UPDATE materials SET width = ?, height = ?, orientation = ? WHERE id = ?",
+            (width, height, orientation, material_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[materials] dimensions probe failed for {material_id}: {e}")
+
+
 @materials_bp.route("/upload", methods=["POST"])
 def upload():
     """统一文件上传（流式：避免大文件 OOM）"""
@@ -188,6 +218,13 @@ def upload():
                 args=(file_id, relative_path),
                 daemon=True,
             ).start()
+
+        # 异步识别素材宽高 + orientation（视频和图片都需要）
+        threading.Thread(
+            target=_async_probe_dimensions,
+            args=(file_id, relative_path, file_type),
+            daemon=True,
+        ).start()
 
         url = storage.get_url(relative_path)
         print(f"[materials] 上传完成: {file_id}")

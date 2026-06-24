@@ -345,6 +345,11 @@ def merge_chunks():
         threading.Thread(target=_async_probe_duration,
                          args=(material_id, relative_path), daemon=True).start()
 
+    # 异步识别素材宽高 + orientation（视频和图片都需要）
+    from blueprints.materials_bp import _async_probe_dimensions
+    threading.Thread(target=_async_probe_dimensions,
+                     args=(material_id, relative_path, file_type), daemon=True).start()
+
     from storage import get_storage
     storage = get_storage()
     url = storage.get_url(relative_path)

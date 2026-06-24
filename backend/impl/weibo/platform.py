@@ -8,9 +8,13 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._utils import save_login_result, scrape_weibo_profile
+from .._utils import (
+    get_account_name_by_cookie_file,
+    save_login_result,
+    scrape_weibo_profile,
+)
 from ..base_platform import BasePlatform
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 from . import categories as _weibo_categories
 
@@ -243,7 +247,7 @@ class WeiboPlatform(BasePlatform):
         """
         dry_run = kwargs.get("dry_run", False)
         if dry_run:
-            logger.info("[weibo] dry-run skip (publish_image)")
+            logger.info("[发布图集] dry-run 模式, 跳过实际发布 (publish_image)")
             return True
         asyncio.run(self._upload_all_images(**kwargs))
         return True
@@ -258,6 +262,15 @@ class WeiboPlatform(BasePlatform):
         与 video 版 _upload_all 的关键区别:**单层账号循环** (图集是一账号
         一次发完所有图),不是 files × accounts 笛卡尔积。
         """
+        logger.info("=" * 60)
+        logger.info("[发布图集] 开始微博图集发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         files = kwargs.get("files", []) or []
         account_file = kwargs.get("account_file", []) or []
         title = kwargs.get("title", "")
@@ -271,10 +284,18 @@ class WeiboPlatform(BasePlatform):
         _ = kwargs.get("schedule_time_str")  # noqa
         _ = kwargs.get("cover_path")  # noqa
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 图片数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 类型声明: %s", ai_content or "无")
+
         # 入口校验:微博图集服务端硬上限 18 张
         if len(files) > 18:
             raise ValueError(
-                f"[weibo] 图集最多 18 张,当前 {len(files)} 张"
+                f"[发布图集] 图集最多 18 张,当前 {len(files)} 张"
             )
 
         file_path_list = [str(f) for f in files]
@@ -283,15 +304,23 @@ class WeiboPlatform(BasePlatform):
         ]
 
         # 单层账号循环(不是笛卡尔积!)
-        for cookie_path in account_paths:
-            await self._upload_one_image(
-                title=title,
-                file_path_list=file_path_list,
-                tags=tags,
-                account_file=cookie_path,
-                desc=desc,
-                ai_content=ai_content,
-            )
+        for cookie_index, cookie_path in enumerate(account_paths):
+            cookie_name = Path(cookie_path).name
+            nick = get_account_name_by_cookie_file(cookie_name)
+            with bind_account_name(nick or "-"):
+                logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                await self._upload_one_image(
+                    title=title,
+                    file_path_list=file_path_list,
+                    tags=tags,
+                    account_file=cookie_path,
+                    desc=desc,
+                    ai_content=ai_content,
+                )
+
+        logger.info("=" * 60)
+        logger.info("[发布图集] 图集发布流程完成!")
+        logger.info("=" * 60)
 
     # ------------------------------------------------------------------
     # Internal: upload one image album to one account
@@ -318,6 +347,7 @@ class WeiboPlatform(BasePlatform):
         7. _wait_for_image_publish_success 等成功信号
         8. 保存 cookie
         """
+        logger.info("[上传图集] 开始上传图集 (%d 张图片)", len(file_path_list))
         browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(
@@ -342,28 +372,33 @@ class WeiboPlatform(BasePlatform):
                     ).first.wait_for(state="attached", timeout=15000)
                 except Exception as e:
                     raise RuntimeError(
-                        f"[weibo] 创作卡片未渲染(cookie 失效/未登录?): {e}"
+                        f"[发布图集] 创作卡片未渲染(cookie 失效/未登录?): {e}"
                     )
                 await asyncio.sleep(2)  # 等图片工具/声明 trigger 完全渲染
 
                 # 1. 上传图片
+                logger.info("[上传图集] 开始上传图片...")
                 await self._upload_images(page, file_path_list)
 
                 # 2. 填正文 + 标签
+                logger.info("[填写简介] 开始填写微博正文...")
                 await self._set_description(page, desc, title, tags)
 
                 # 3. 内容声明 (复用 video 版)
+                logger.info("[内容声明] 开始设置内容声明: %s", ai_content or "无")
                 await self._set_content_statement(page, ai_content)
 
                 # 4. 发送
+                logger.info("[发布] 正在点击发送按钮...")
                 await self._click_send(page)
 
                 # 5. 等成功信号
                 await self._wait_for_image_publish_success(page)
+                logger.info("[发布] 图集发布成功!")
 
                 # 6. 保存 cookie
                 await context.storage_state(path=account_file)
-                logger.info("[weibo] cookie 已更新")
+                logger.info("[发布] Cookie状态已更新")
                 await asyncio.sleep(2)
             finally:
                 await context.close()
@@ -392,10 +427,10 @@ class WeiboPlatform(BasePlatform):
         → 启用);最多 5 分钟。
         """
         if not files:
-            logger.warning("[weibo] 无图片可上传")
+            logger.warning("[上传图集] 无图片可上传")
             return
 
-        logger.info("[weibo] 准备上传 %d 张图片", len(files))
+        logger.info("[上传图集] 准备上传 %d 张图片", len(files))
 
         # 0. 安装 MutationObserver 兜底(参考 video 版 _upload_video_file)
         await page.evaluate(r"""() => {
@@ -457,13 +492,13 @@ class WeiboPlatform(BasePlatform):
             }
             return 'patched';
         }""")
-        logger.info("[weibo] img patch status: %s", patch_status)
+        logger.info("[发布] img patch status: %s", patch_status)
 
         # 2. 找「图片」trigger
         # selector:文本 "图片" 在 woo-pop-wrap 内,且 sibling 包含 image upload input
         img_trigger = page.get_by_text("图片", exact=True).first
         if await img_trigger.count() == 0:
-            raise RuntimeError("[weibo] 未找到「图片」工具图标")
+            raise RuntimeError("[发布] 未找到「图片」工具图标")
 
         # 3. 优先直接 set_input_files(接受 hidden input)
         target_input_sel = (
@@ -473,9 +508,9 @@ class WeiboPlatform(BasePlatform):
             target_input = page.locator(target_input_sel).first
             await target_input.wait_for(state="attached", timeout=10000)
             await target_input.set_input_files(files)
-            logger.info("[weibo] 已通过 set_input_files 提交 %d 张图", len(files))
+            logger.info("[发布] 已通过 set_input_files 提交 %d 张图", len(files))
         except Exception as e:
-            logger.info("[weibo] 直接 set_input_files 失败: %s", e)
+            logger.info("[发布] 直接 set_input_files 失败: %s", e)
 
             # 兜底 1: expect_file_chooser + 点击 trigger
             try:
@@ -483,9 +518,9 @@ class WeiboPlatform(BasePlatform):
                     await img_trigger.click(force=True)
                 fc = await fc_info.value
                 await fc.set_files(files)
-                logger.info("[weibo] 已通过 expect_file_chooser 提交")
+                logger.info("[发布] 已通过 expect_file_chooser 提交")
             except Exception as e2:
-                logger.info("[weibo] expect_file_chooser 失败: %s", e2)
+                logger.info("[发布] expect_file_chooser 失败: %s", e2)
                 # 兜底 2: 等带标记的 input 出现(patch 命中)
                 marked_sel = (
                     "input[type='file'][data-weibo-img-upload='1'],"
@@ -501,10 +536,10 @@ class WeiboPlatform(BasePlatform):
                     await asyncio.sleep(0.5)
                 if found is not None:
                     await found.set_input_files(files)
-                    logger.info("[weibo] 已通过 patched input 提交")
+                    logger.info("[发布] 已通过 patched input 提交")
                 else:
                     raise RuntimeError(
-                        f"[weibo] 30s 内未找到可用的 file input"
+                        f"[发布] 30s 内未找到可用的 file input"
                     )
 
         # 4. 等待上传完成 — 轮询「发送」按钮 enabled(最稳判定)
@@ -514,13 +549,13 @@ class WeiboPlatform(BasePlatform):
             try:
                 disabled = await send_btn.get_attribute("disabled")
                 if disabled is None:
-                    logger.info("[weibo] 图片已上传,发送按钮已启用")
+                    logger.info("[发布] 图片已上传,发送按钮已启用")
                     return
             except Exception:
                 pass
             await asyncio.sleep(2)
 
-        raise RuntimeError("[weibo] 5 分钟内图片未上传完成(发送按钮未启用)")
+        raise RuntimeError("[发布] 5 分钟内图片未上传完成(发送按钮未启用)")
 
     # ------------------------------------------------------------------
     # Helper: click 发送 button
@@ -537,7 +572,7 @@ class WeiboPlatform(BasePlatform):
         try:
             await send_btn.wait_for(state="visible", timeout=10000)
         except Exception as e:
-            raise RuntimeError(f"[weibo] 未找到「发送」按钮: {e}")
+            raise RuntimeError(f"[发布] 未找到「发送」按钮: {e}")
 
         # 轮询 disabled(最长 60s)
         for _ in range(60):
@@ -546,10 +581,10 @@ class WeiboPlatform(BasePlatform):
                 break
             await asyncio.sleep(1)
         else:
-            raise RuntimeError("[weibo] 「发送」按钮一直 disabled,表单未就绪")
+            raise RuntimeError("[发布] 「发送」按钮一直 disabled,表单未就绪")
 
         await send_btn.click()
-        logger.info("[weibo] 已点击「发送」按钮")
+        logger.info("[发布] 已点击「发送」按钮")
 
     # ------------------------------------------------------------------
     # Helper: wait for image publish success signal
@@ -578,7 +613,7 @@ class WeiboPlatform(BasePlatform):
                 disabled = await send_btn.get_attribute("disabled")
                 send_disabled = disabled is not None
                 if textarea_empty or send_disabled:
-                    logger.info("[weibo] 图集发布成功(textarea 空=%s, send 禁用=%s)",
+                    logger.info("[发布] 图集发布成功(textarea 空=%s, send 禁用=%s)",
                                 textarea_empty, send_disabled)
                     return
             except Exception:
@@ -586,7 +621,7 @@ class WeiboPlatform(BasePlatform):
             await asyncio.sleep(2)
 
         raise RuntimeError(
-            f"[weibo] 等待图集发布完成超时({timeout_s}s)"
+            f"[发布] 等待图集发布完成超时({timeout_s}s)"
         )
 
     # ------------------------------------------------------------------
@@ -595,6 +630,15 @@ class WeiboPlatform(BasePlatform):
 
     async def _upload_all(self, **kwargs):
         """Create a browser per file+account combo and upload."""
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始微博视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", []) or []
         tags = kwargs.get("tags", []) or []
@@ -606,6 +650,19 @@ class WeiboPlatform(BasePlatform):
         ai_content = kwargs.get("ai_content", "") or ""
         content_statement = kwargs.get("content_statement", "") or ""
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 分类: %s", category or "无")
+        logger.info("[发布参数] 类型声明: %s", ai_content or "无")
+        logger.info("[发布参数] 内容声明: %s", content_statement or "无")
+        logger.info("[发布策略] 发布策略: immediate")
+
         account_paths = [
             str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
         ]
@@ -615,20 +672,30 @@ class WeiboPlatform(BasePlatform):
         if thumbnail_portrait_path:
             thumbnail_portrait_path = str(thumbnail_portrait_path)
 
-        for file_path in file_paths:
-            for cookie_path in account_paths:
-                await self._upload_one_video(
-                    title=title,
-                    file_path=file_path,
-                    tags=tags,
-                    account_file=cookie_path,
-                    thumbnail_landscape_path=thumbnail_landscape_path,
-                    thumbnail_portrait_path=thumbnail_portrait_path,
-                    desc=desc,
-                    category=category,
-                    ai_content=ai_content,
-                    content_statement=content_statement,
-                )
+        for file_index, file_path in enumerate(file_paths):
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", file_index + 1, len(file_paths), file_path)
+            for cookie_index, cookie_path in enumerate(account_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                    await self._upload_one_video(
+                        title=title,
+                        file_path=file_path,
+                        tags=tags,
+                        account_file=cookie_path,
+                        thumbnail_landscape_path=thumbnail_landscape_path,
+                        thumbnail_portrait_path=thumbnail_portrait_path,
+                        desc=desc,
+                        category=category,
+                        ai_content=ai_content,
+                        content_statement=content_statement,
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
 
     # ------------------------------------------------------------------
     # Internal: upload one video to one account
@@ -663,7 +730,7 @@ class WeiboPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto(_WEIBO_UPLOAD_URL, timeout=60000)
                 await page.wait_for_load_state("domcontentloaded", timeout=30000)
-                logger.info("[weibo] 正在上传-------%s", title)
+                logger.info("[上传视频] 开始上传视频: %s", title)
 
                 # 注册 weibocdn 上传请求监听(spec line 7215-7216)
                 # 这是上传完成的权威信号; 同时打印每个分块请求便于诊断
@@ -679,7 +746,7 @@ class WeiboPlatform(BasePlatform):
                     ):
                         upload_req_count["n"] += 1
                         logger.info(
-                            "[weibo] ▲ #%d %s %s",
+                            "[上传视频] ▲ 请求 #%d %s %s",
                             upload_req_count["n"], request.method, url[:200],
                         )
 
@@ -697,7 +764,7 @@ class WeiboPlatform(BasePlatform):
                         except Exception as e:
                             body_preview = f"<body 读取失败: {e}>"
                         logger.info(
-                            "[weibo] ▼ #%d status=%d body=%s",
+                            "[上传视频] ▼ 响应 #%d status=%d body=%s",
                             upload_resp_count["n"], response.status,
                             body_preview,
                         )
@@ -706,42 +773,54 @@ class WeiboPlatform(BasePlatform):
                 page.on("response", _on_upload_response)
 
                 # 上传视频文件
+                logger.info("[上传视频] 正在上传视频文件...")
                 await self._upload_video_file(page, file_path)
 
                 # 等待视频真正上传完成(「上传中」spinner DOM 消失 = 上传完成)
                 await self._wait_for_upload_form(page)
+                logger.info("[上传视频] 视频上传成功!")
 
                 # 类型(原创/二创/转载)
+                logger.info("[类型声明] 开始设置类型(原创/二创/转载): %s", ai_content or "无")
                 await self._set_video_type(page, ai_content)
 
                 # 标题
+                logger.info("[填写标题] 开始填写标题: %s", title)
                 await self._set_title(page, title)
+                logger.info("[填写标题] 标题填写完成")
 
                 # 封面(ESC 关闭原生选择器 + 隐藏 input)
+                logger.info("[设置封面] 开始设置视频封面...")
                 await self._set_cover(
                     page,
                     thumbnail_landscape_path,
                     thumbnail_portrait_path,
                 )
+                logger.info("[设置封面] 封面设置完成")
 
                 # 分类(两级级联)
+                logger.info("[设置分类] 开始设置分类: %s", category or "无")
                 await self._set_category(page, category)
 
                 # 微博正文
+                logger.info("[填写简介] 开始填写微博正文...")
                 await self._set_description(page, desc, title, tags)
 
                 # 内容声明(可选)
+                logger.info("[内容声明] 开始设置内容声明: %s", content_statement or "无")
                 await self._set_content_statement(page, content_statement)
 
                 # 点发布
+                logger.info("[发布] 正在点击发布按钮...")
                 await self._click_publish(page)
 
                 # 等待发布成功标志
                 await self._wait_for_publish_success(page)
+                logger.info("[发布] 视频发布成功!")
 
                 # 保存 cookie
                 await context.storage_state(path=account_file)
-                logger.info("[weibo] cookie 已更新")
+                logger.info("[发布] Cookie状态已更新")
                 await asyncio.sleep(2)
             finally:
                 await context.close()
@@ -770,7 +849,7 @@ class WeiboPlatform(BasePlatform):
         """
         file_size = os.path.getsize(file_path)
         logger.info(
-            "[weibo] 准备上传视频: %s (%.1f MB)",
+            "[上传视频] 准备上传视频: %s (%.1f MB)",
             os.path.basename(file_path), file_size / 1024 / 1024,
         )
 
@@ -837,7 +916,7 @@ class WeiboPlatform(BasePlatform):
             }
             return 'patched';
         }""")
-        logger.info("[weibo] patch status: %s", patch_status)
+        logger.info("[上传视频] patch status: %s", patch_status)
 
         # 2. 找上传按钮
         upload_btn = page.locator("button[id^='video_button_upload']").first
@@ -846,7 +925,7 @@ class WeiboPlatform(BasePlatform):
                 "button", name="上传视频", exact=True,
             ).first
         if await upload_btn.count() == 0:
-            raise RuntimeError("[weibo] 未找到「上传视频」按钮")
+            raise RuntimeError("[上传视频] 未找到「上传视频」按钮")
 
         await upload_btn.wait_for(state="visible", timeout=10000)
 
@@ -859,20 +938,20 @@ class WeiboPlatform(BasePlatform):
                 await upload_btn.click(force=True)
             fc = await fc_info.value
             await fc.set_files(file_path)
-            logger.info("[weibo] 已通过 expect_file_chooser 提交视频")
+            logger.info("[上传视频] 已通过 expect_file_chooser 提交视频")
             triggered = True
         except Exception as e:
-            logger.info("[weibo] expect_file_chooser 方式失败: %s", e)
+            logger.info("[上传视频] expect_file_chooser 方式失败: %s", e)
 
         # 方式 B: 普通 click + 等带标记 input (patch 命中)
         if not triggered:
             try:
                 await upload_btn.click(force=True)
-                logger.info("[weibo] 已点击「上传视频」按钮(force=True)")
+                logger.info("[上传视频] 已点击「上传视频」按钮(force=True)")
             except Exception as e:
-                logger.warning("[weibo] force=True click 失败: %s", e)
+                logger.warning("[上传视频] force=True click 失败: %s", e)
                 await upload_btn.evaluate("el => el.click()")
-                logger.info("[weibo] 已点击「上传视频」按钮(JS .click())")
+                logger.info("[上传视频] 已点击「上传视频」按钮(JS .click())")
 
         # 4. 等带标记的 input 出现(patch 命中 或 MutationObserver 命中)
         marked_sel = (
@@ -886,16 +965,16 @@ class WeiboPlatform(BasePlatform):
                 count = await page.locator(marked_sel).count()
                 if count > 0:
                     found_input = page.locator(marked_sel).first
-                    logger.info("[weibo] 检测到标记的 file input(count=%d)", count)
+                    logger.info("[上传视频] 检测到标记的 file input(count=%d)", count)
                     break
             except Exception as e:
-                logger.warning("[weibo] locator count 异常: %s", e)
+                logger.warning("[上传视频] locator count 异常: %s", e)
             await asyncio.sleep(0.5)
 
         if found_input is not None:
             await found_input.set_input_files(file_path)
             logger.info(
-                "[weibo] 视频文件已通过 patched input 提交: %s",
+                "[上传视频] 视频文件已通过 patched input 提交: %s",
                 os.path.basename(file_path),
             )
             return
@@ -903,7 +982,7 @@ class WeiboPlatform(BasePlatform):
         # 5. 三重都失败
         all_count = await page.locator("input[type='file']").count()
         raise RuntimeError(
-            "[weibo] 30s 内未检测到带标记的 file input。"
+            "[上传视频] 30s 内未检测到带标记的 file input。"
             f"input[type=file] 总数: {all_count}。"
             "CloakBrowser 屏蔽了所有 click 路径,需要换策略。"
         )
@@ -963,16 +1042,16 @@ class WeiboPlatform(BasePlatform):
                 if uploading_gone or publish_visible:
                     if uploading_gone and publish_visible:
                         logger.info(
-                            "[weibo] 「上传中」DOM 已消失且「发布」按钮可见,"
+                            "[发布] 「上传中」DOM 已消失且「发布」按钮可见,"
                             "上传完成、表单可交互"
                         )
                     elif uploading_gone:
                         logger.info(
-                            "[weibo] 「上传中」DOM 已消失,上传完成"
+                            "[发布] 「上传中」DOM 已消失,上传完成"
                         )
                     else:
                         logger.info(
-                            "[weibo] 「上传中」DOM 仍存在,但「发布」按钮已可见,"
+                            "[发布] 「上传中」DOM 仍存在,但「发布」按钮已可见,"
                             "视为上传完成、表单可交互(转码阶段 spinner 暂未消失)"
                         )
                     return
@@ -983,7 +1062,7 @@ class WeiboPlatform(BasePlatform):
             try:
                 if await page.get_by_text("上传失败", exact=True).count() > 0:
                     raise RuntimeError(
-                        "[weibo] 视频上传失败(页面检测到「上传失败」文本)"
+                        "[发布] 视频上传失败(页面检测到「上传失败」文本)"
                     )
             except RuntimeError:
                 raise
@@ -996,7 +1075,7 @@ class WeiboPlatform(BasePlatform):
                 if remaining % 60 < 5 or remaining < 60:
                     uploading_count = await uploading_locator.count()
                     logger.info(
-                        "[weibo] 等待「上传中」消失或「发布」按钮可见... "
+                        "[发布] 等待「上传中」消失或「发布」按钮可见... "
                         "上传中=%d (剩余 %ds)",
                         uploading_count, remaining,
                     )
@@ -1011,7 +1090,7 @@ class WeiboPlatform(BasePlatform):
         except Exception:
             url = "(unknown)"
         raise RuntimeError(
-            f"[weibo] 等待视频上传完成超时({timeout_s}s = "
+            f"[发布] 等待视频上传完成超时({timeout_s}s = "
             f"{timeout_s // 60}min),「上传中」未消失且「发布」按钮未可见。"
             f"当前 URL: {url}"
         )
@@ -1032,7 +1111,7 @@ class WeiboPlatform(BasePlatform):
                 target = label
                 break
         if not target:
-            logger.warning("[weibo] 未知类型声明值: %s,跳过", ai_content)
+            logger.warning("[发布] 未知类型声明值: %s,跳过", ai_content)
             return
         # DOM: <label><input type="radio"><span>原创</span></label>
         # 标签内的 radio 的无障碍名取自兄弟 span 文本
@@ -1040,9 +1119,9 @@ class WeiboPlatform(BasePlatform):
         try:
             await radio.wait_for(state="visible", timeout=5000)
             await radio.click(force=True)
-            logger.info("[weibo] 已选类型: %s", target)
+            logger.info("[发布] 已选类型: %s", target)
         except Exception as e:
-            logger.warning("[weibo] 选择类型失败(%s): %s", target, e)
+            logger.warning("[发布] 选择类型失败(%s): %s", target, e)
 
     # ------------------------------------------------------------------
     # Helper: fill video title
@@ -1059,7 +1138,7 @@ class WeiboPlatform(BasePlatform):
         # 标题最多 30 字
         truncated = title.strip()[:30]
         await title_input.fill(truncated)
-        logger.info("[weibo] 已填标题: %s", truncated)
+        logger.info("[发布] 已填标题: %s", truncated)
 
     # ------------------------------------------------------------------
     # Helper: 根据页面封面区域宽高比选横版/竖版封面
@@ -1099,7 +1178,7 @@ class WeiboPlatform(BasePlatform):
                 state="attached", timeout=10000,
             )
         except Exception as e:
-            logger.warning("[weibo] 等「上传封面」链接超时: %s", e)
+            logger.warning("[发布] 等「上传封面」链接超时: %s", e)
 
         try:
             # link 的 xpath=../.. 是 inner 容器
@@ -1111,7 +1190,7 @@ class WeiboPlatform(BasePlatform):
                 state="attached", timeout=10000,
             )
         except Exception as e:
-            logger.warning("[weibo] 等封面 picture(img) 超时: %s", e)
+            logger.warning("[发布] 等封面 picture(img) 超时: %s", e)
 
         try:
             aspect, debug = await page.evaluate(r"""() => {
@@ -1182,26 +1261,26 @@ class WeiboPlatform(BasePlatform):
                 return [null, { reason: 'aspect div not found in ancestors', ...debug }];
             }""")
         except Exception as e:
-            logger.warning("[weibo] 读取封面区域宽高比失败: %s", e)
+            logger.warning("[发布] 读取封面区域宽高比失败: %s", e)
             aspect = None
             debug = None
 
         if debug:
-            logger.info("[weibo] 封面宽高比调试: %s", debug)
+            logger.info("[发布] 封面宽高比调试: %s", debug)
 
         if aspect is None:
-            logger.info("[weibo] 读不到封面框宽高比,默认横版")
+            logger.info("[发布] 读不到封面框宽高比,默认横版")
             return landscape_path or portrait_path
 
         if aspect < 100:
             logger.info(
-                "[weibo] 封面框为横版(padding-bottom=%.2f%%),用横版封面",
+                "[发布] 封面框为横版(padding-bottom=%.2f%%),用横版封面",
                 aspect,
             )
             return landscape_path or portrait_path
         else:
             logger.info(
-                "[weibo] 封面框为竖版(padding-bottom=%.2f%%),用竖版封面",
+                "[发布] 封面框为竖版(padding-bottom=%.2f%%),用竖版封面",
                 aspect,
             )
             return portrait_path or landscape_path
@@ -1233,7 +1312,7 @@ class WeiboPlatform(BasePlatform):
             portrait_path=thumbnail_portrait_path,
         )
         if not cover_path or not os.path.exists(cover_path):
-            logger.info("[weibo] 无封面文件,跳过封面上传")
+            logger.info("[发布] 无封面文件,跳过封面上传")
             return
 
         # 1. 点击「上传封面」(注意 a 标签无 href,用文本匹配)
@@ -1241,7 +1320,7 @@ class WeiboPlatform(BasePlatform):
         try:
             await upload_cover_link.wait_for(state="visible", timeout=10000)
         except Exception:
-            logger.warning("[weibo] 未找到「上传封面」入口,跳过封面")
+            logger.warning("[发布] 未找到「上传封面」入口,跳过封面")
             return
 
         # 2. 点击 + 立即 ESC 关掉原生选择器(spec 强调此坑)
@@ -1249,16 +1328,16 @@ class WeiboPlatform(BasePlatform):
         await asyncio.sleep(0.5)
         await page.keyboard.press("Escape")
         await asyncio.sleep(0.8)
-        logger.info("[weibo] 已点击上传封面并 ESC 关闭原生选择器")
+        logger.info("[发布] 已点击上传封面并 ESC 关闭原生选择器")
 
         # 3. 等待「编辑封面」弹层出现
         try:
             await page.get_by_text("编辑封面").first.wait_for(
                 state="visible", timeout=10000
             )
-            logger.info("[weibo] 封面编辑弹层已出现")
+            logger.info("[发布] 封面编辑弹层已出现")
         except Exception as e:
-            logger.warning("[weibo] 等待封面弹层超时: %s", e)
+            logger.warning("[发布] 等待封面弹层超时: %s", e)
             return
 
         # 4. 找到隐藏 input[type=file] 上传
@@ -1270,11 +1349,11 @@ class WeiboPlatform(BasePlatform):
         file_inputs = page.locator("input[type='file'][accept^='.jpg']")
         count = await file_inputs.count()
         if not count:
-            logger.warning("[weibo] 封面弹层未找到 input[type=file][accept^='.jpg']")
+            logger.warning("[发布] 封面弹层未找到 input[type=file][accept^='.jpg']")
             return
-        logger.info("[weibo] 找到 %d 个封面 file input", count)
+        logger.info("[发布] 找到 %d 个封面 file input", count)
         await file_inputs.first.set_input_files(cover_path)
-        logger.info("[weibo] 已上传封面文件: %s", os.path.basename(cover_path))
+        logger.info("[发布] 已上传封面文件: %s", os.path.basename(cover_path))
         # 等图片处理完(上传到 weibo + 裁剪器加载预览)。2s 实测不够,
         # 经常「完成」点了之后弹层关掉但封面没存上(2026-06-17)。
         await asyncio.sleep(4)
@@ -1287,9 +1366,9 @@ class WeiboPlatform(BasePlatform):
             # force=True 兜底:封面弹层是 fixed 定位,偶尔有透明遮罩
             # 拦截 pointer events,导致普通 click 一直 retry(2026-06-17 实测)
             await done_btn.click(force=True)
-            logger.info("[weibo] 已点击封面完成按钮")
+            logger.info("[发布] 已点击封面完成按钮")
         except Exception as e:
-            logger.warning("[weibo] 点击封面完成按钮失败: %s", e)
+            logger.warning("[发布] 点击封面完成按钮失败: %s", e)
 
         # 6. 关键: 等待「编辑封面」弹层真正关闭,否则它会盖住下面的
         #    「请选择合适的频道」下拉触发器和微博正文 textarea,导致后续步骤
@@ -1298,10 +1377,10 @@ class WeiboPlatform(BasePlatform):
             await page.get_by_text(
                 "编辑封面", exact=True,
             ).first.wait_for(state="hidden", timeout=15000)
-            logger.info("[weibo] 封面编辑弹层已关闭")
+            logger.info("[发布] 封面编辑弹层已关闭")
         except Exception as e:
             logger.warning(
-                "[weibo] 等待封面弹层关闭超时,尝试 ESC 强制关闭: %s", e,
+                "[发布] 等待封面弹层关闭超时,尝试 ESC 强制关闭: %s", e,
             )
             # ESC 兜底
             for _ in range(2):
@@ -1322,26 +1401,26 @@ class WeiboPlatform(BasePlatform):
         - ``None`` (跳过,使用默认)
         """
         if not category:
-            logger.info("[weibo] 未传分类,使用默认")
+            logger.info("[发布] 未传分类,使用默认")
             return
 
         if isinstance(category, str):
             parts = [p.strip() for p in category.split("|")]
             if len(parts) != 2:
-                logger.warning("[weibo] 分类字符串格式错误: %s", category)
+                logger.warning("[发布] 分类字符串格式错误: %s", category)
                 return
             channel_name, sub_name = parts
         elif isinstance(category, (list, tuple)) and len(category) == 2:
             channel_name, sub_name = category[0], category[1]
         else:
-            logger.warning("[weibo] 分类参数无法识别: %r", category)
+            logger.warning("[发布] 分类参数无法识别: %r", category)
             return
 
         # 查表验证
         found = _weibo_categories.lookup_sub_channel(channel_name, sub_name)
         if not found:
             logger.warning(
-                "[weibo] 分类未在静态表里命中: %s/%s,仍尝试在页面上点",
+                "[发布] 分类未在静态表里命中: %s/%s,仍尝试在页面上点",
                 channel_name, sub_name,
             )
 
@@ -1356,7 +1435,7 @@ class WeiboPlatform(BasePlatform):
         try:
             await trigger_text.first.wait_for(state="attached", timeout=10000)
         except Exception as e:
-            logger.warning("[weibo] 未找到分类下拉触发器(占位文本): %s", e)
+            logger.warning("[发布] 未找到分类下拉触发器(占位文本): %s", e)
             return
 
         # 1. 点开下拉 — 点父级 trigger (xpath=.. 是 Playwright 的"父节点"语法)
@@ -1376,7 +1455,7 @@ class WeiboPlatform(BasePlatform):
             await page.get_by_text(
                 channel_name, exact=True,
             ).first.click()
-            logger.info("[weibo] 已选一级频道: %s", channel_name)
+            logger.info("[发布] 已选一级频道: %s", channel_name)
             await asyncio.sleep(0.5)
 
             # 3. 等子分类列渲染: 目标 sub_name 应可见
@@ -1384,11 +1463,11 @@ class WeiboPlatform(BasePlatform):
             sub_locator = page.get_by_text(sub_name, exact=True)
             await sub_locator.last.wait_for(state="visible", timeout=5000)
             await sub_locator.last.click()
-            logger.info("[weibo] 已选二级子分类: %s", sub_name)
+            logger.info("[发布] 已选二级子分类: %s", sub_name)
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.warning(
-                "[weibo] 级联选择失败(channel=%s sub=%s): %s",
+                "[发布] 级联选择失败(channel=%s sub=%s): %s",
                 channel_name, sub_name, e,
             )
             # ESC 关掉下拉避免挡住后续操作
@@ -1423,7 +1502,7 @@ class WeiboPlatform(BasePlatform):
         await asyncio.sleep(0.2)
         await page.keyboard.type(text, delay=30)
         await page.keyboard.press("Space")
-        logger.info("[weibo] 已填正文(长度=%d)", len(text))
+        logger.info("[发布] 已填正文(长度=%d)", len(text))
 
     # ------------------------------------------------------------------
     # Helper: set 内容声明 (内容为自主创作/转载/AI生成/虚构演绎)
@@ -1448,7 +1527,7 @@ class WeiboPlatform(BasePlatform):
         try:
             await trigger.wait_for(state="visible", timeout=5000)
         except Exception as e:
-            logger.warning("[weibo] 未找到内容声明入口: %s", e)
+            logger.warning("[发布] 未找到内容声明入口: %s", e)
             return
 
         await trigger.click(force=True)
@@ -1459,11 +1538,11 @@ class WeiboPlatform(BasePlatform):
         try:
             await option.wait_for(state="visible", timeout=5000)
             await option.click()
-            logger.info("[weibo] 已选内容声明: %s", statement)
+            logger.info("[发布] 已选内容声明: %s", statement)
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.warning(
-                "[weibo] 选择内容声明失败(%s): %s", statement, e,
+                "[发布] 选择内容声明失败(%s): %s", statement, e,
             )
             # ESC 关闭弹出的内容声明面板
             await page.keyboard.press("Escape")
@@ -1485,7 +1564,7 @@ class WeiboPlatform(BasePlatform):
         try:
             await publish_btn.wait_for(state="visible", timeout=10000)
         except Exception as e:
-            raise RuntimeError(f"[weibo] 未找到发布按钮: {e}")
+            raise RuntimeError(f"[发布] 未找到发布按钮: {e}")
 
         # 轮询 disabled 属性(最长 60s)
         for _ in range(60):
@@ -1494,10 +1573,10 @@ class WeiboPlatform(BasePlatform):
                 break
             await asyncio.sleep(1)
         else:
-            raise RuntimeError("[weibo] 发布按钮一直 disabled,表单未就绪")
+            raise RuntimeError("[发布] 发布按钮一直 disabled,表单未就绪")
 
         await publish_btn.click()
-        logger.info("[weibo] 已点击发布按钮")
+        logger.info("[发布] 已点击发布按钮")
 
     # ------------------------------------------------------------------
     # Helper: wait for publish success signal
@@ -1515,14 +1594,14 @@ class WeiboPlatform(BasePlatform):
             await page.locator(
                 "text=视频已上传成功"
             ).first.wait_for(state="visible", timeout=timeout_s * 1000)
-            logger.info("[weibo] 发布成功(检测到「视频已上传成功」toast)")
+            logger.info("[发布] 发布成功(检测到「视频已上传成功」toast)")
         except Exception:
             # 兜底: 看 URL 是否跳走
             await asyncio.sleep(3)
             current = page.url
             if "weibo.com/upload/channel" not in current:
-                logger.info("[weibo] 发布成功(URL 已跳转: %s)", current)
+                logger.info("[发布] 发布成功(URL 已跳转: %s)", current)
             else:
                 raise RuntimeError(
-                    f"[weibo] 发布后未检测到成功信号,当前 URL: {current}"
+                    f"[发布] 发布后未检测到成功信号,当前 URL: {current}"
                 )

@@ -238,6 +238,7 @@
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
+                  v-if="!field.visibleWhen || form[field.visibleWhen.key] === field.visibleWhen.value"
                   class="setting-card"
                   :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
                 >
@@ -337,6 +338,7 @@
                   <AlipayCompilationSelect
                     v-else-if="field.type === 'compilationSelect'"
                     :account-id="selectedAccountId"
+                    :platform="selectedPlatform === 'toutiao' ? 'toutiao' : 'alipay'"
                     v-model="form[field.key]"
                     @change="(val) => handleAlipayCompilationChange(field.key, val)"
                   />
@@ -685,6 +687,11 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     authorStatement: accountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
     compilation: accountOv?.compilation ?? platformOv?.compilation ?? platformDefault?.compilation ?? '',
     compilationData: accountOv?.compilationData ?? platformOv?.compilationData ?? platformDefault?.compilationData ?? null,
+    // 今日头条
+    enableGenerateImage: accountOv?.enableGenerateImage ?? platformOv?.enableGenerateImage ?? platformDefault?.enableGenerateImage ?? true,
+    collection: accountOv?.collection ?? platformOv?.collection ?? platformDefault?.collection ?? '',
+    extendLink: accountOv?.extendLink ?? platformOv?.extendLink ?? platformDefault?.extendLink ?? false,
+    extendLinkUrl: accountOv?.extendLinkUrl ?? platformOv?.extendLinkUrl ?? platformDefault?.extendLinkUrl ?? '',
   }
 }
 
@@ -733,6 +740,7 @@ const platformConfigs = reactive({
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', videoFormat: '', tags: [] },
   weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [] },
   alipay: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', videoFormat: '', tags: [] },
+  toutiao: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', videoFormat: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1419,7 +1427,22 @@ onMounted(async () => {
 })
 
 async function publishAll() {
-  if (!commonConfig.videoLandscape && !commonConfig.videoPortrait) {
+  // 视频校验：扫全部 3 个源（commonConfig / platformOverrides / accountOverrides）
+  // 个性化模式下视频可能在 platformOverrides 里，commonConfig 为空是正常的，
+  // 只看 commonConfig 会误判为「未上传视频」。
+  const hasAnyVideo = (() => {
+    if (commonConfig.videoLandscape || commonConfig.videoPortrait) return true
+    for (const aid of publishAccountIds) {
+      const ov = accountOverrides[aid]
+      if (ov && (ov.videoLandscape || ov.videoPortrait)) return true
+    }
+    for (const pkey of Object.keys(platformOverrides)) {
+      const pov = platformOverrides[pkey]
+      if (pov && (pov.videoLandscape || pov.videoPortrait)) return true
+    }
+    return false
+  })()
+  if (!hasAnyVideo) {
     ElMessage.error('请先上传至少一个视频文件')
     return
   }
@@ -1683,6 +1706,11 @@ async function publishAll() {
         // 支付宝「作者声明」+「合集」单独透传(其他平台忽略)
         authorStatement: merged.authorStatement || '',
         compilation: merged.compilation || '',
+        // 今日头条特有字段
+        enableGenerateImage: merged.enableGenerateImage ?? true,
+        collection: merged.collection || '',
+        extendLink: merged.extendLink || false,
+        extendLinkUrl: merged.extendLinkUrl || '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',
@@ -1715,6 +1743,10 @@ async function publishAll() {
 
       // [DEBUG 2026-06-10] 详细日志：把要发的 publishData 关键字段打印
       console.log('[PublishCenter.publish] account=' + account.name + ' platform=' + group.key + ' fileList=' + JSON.stringify(publishData.fileList) + ' videoLandscape.id=' + (publishData.videoLandscape && publishData.videoLandscape.id) + ' videoPortrait.id=' + (publishData.videoPortrait && publishData.videoPortrait.id) + ' coverLandscape.id=' + (publishData.coverLandscape && publishData.coverLandscape.id) + ' coverPortrait.id=' + (publishData.coverPortrait && publishData.coverPortrait.id) + ' creationDeclaration=' + publishData.creationDeclaration + ' aiContent=' + publishData.aiContent)
+      // 今日头条特有参数日志
+      if (group.key === 'toutiao') {
+        console.log('[PublishCenter.publish] 今日头条参数: extendLink=' + publishData.extendLink + ' extendLinkUrl=' + publishData.extendLinkUrl + ' enableGenerateImage=' + publishData.enableGenerateImage + ' collection=' + publishData.collection)
+      }
       await http.post('/postVideo', publishData)
       publishResults.value.push({
         label: account.name,

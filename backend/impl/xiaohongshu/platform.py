@@ -10,9 +10,14 @@ from queue import Queue
 from conf import BASE_DIR
 
 from .._browser import create_browser, create_context, create_browser_sync, create_context_sync
-from .._utils import scrape_user_profile, save_login_result, parse_schedule_time
+from .._utils import (
+    get_account_name_by_cookie_file,
+    scrape_user_profile,
+    save_login_result,
+    parse_schedule_time,
+)
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("xiaohongshu")
@@ -221,6 +226,15 @@ class XiaohongshuPlatform(BasePlatform):
         - ``schedule_time_str`` (*str*, optional)
         - ``ai_content`` (*str*, optional) -- AI content declaration
         """
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始小红书视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", [])
@@ -248,6 +262,15 @@ class XiaohongshuPlatform(BasePlatform):
             # 已是绝对路径
             effective_cover = str(effective_cover)
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_files))
+        logger.info("[发布参数] 定时发布: %s", enable_timer)
+        logger.info("[发布参数] 封面: %s", effective_cover or "无")
+
         # Parse schedule times
         publish_datetimes = parse_schedule_time(
             schedule_time_str, len(file_paths), enable_timer,
@@ -262,35 +285,40 @@ class XiaohongshuPlatform(BasePlatform):
             if enable_timer and schedule_time_str
             else _PUBLISH_STRATEGY_IMMEDIATE
         )
+        logger.info("[发布策略] 发布策略: %s", strategy)
 
         for index, file_path in enumerate(file_paths):
-            for cookie_path in account_paths:
-                logger.info(f"[xhs] video file: {file_path}")
-                logger.info(f"[xhs] title: {title}")
-                logger.info(f"[xhs] desc: {desc}")
-                logger.info(f"[xhs] tags: {tags}")
-                logger.info(f"[xhs] cover path: {effective_cover}")
-                logger.info(f"[xhs] raw thumbnail={thumbnail_path}, landscape={thumbnail_landscape_path}, portrait={thumbnail_portrait_path}")
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(file_paths), file_path)
+            for cookie_index, cookie_path in enumerate(account_paths):
+                cookie_name = Path(cookie_path).name
+                nick = get_account_name_by_cookie_file(cookie_name)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
 
-                pub_date = (
-                    publish_datetimes
-                    if not isinstance(publish_datetimes, list)
-                    else publish_datetimes[index]
-                )
-
-                asyncio.run(
-                    _publish_single_video(
-                        title=title,
-                        file_path=str(file_path),
-                        tags=tags,
-                        publish_date=pub_date,
-                        account_file=str(cookie_path),
-                        thumbnail_path=effective_cover,
-                        desc=desc,
-                        ai_content=ai_content,
-                        publish_strategy=strategy,
+                    pub_date = (
+                        publish_datetimes
+                        if not isinstance(publish_datetimes, list)
+                        else publish_datetimes[index]
                     )
-                )
+
+                    asyncio.run(
+                        _publish_single_video(
+                            title=title,
+                            file_path=str(file_path),
+                            tags=tags,
+                            publish_date=pub_date,
+                            account_file=str(cookie_path),
+                            thumbnail_path=effective_cover,
+                            desc=desc,
+                            ai_content=ai_content,
+                            publish_strategy=strategy,
+                        )
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
         return True
 
     # ------------------------------------------------------------------
@@ -315,6 +343,15 @@ class XiaohongshuPlatform(BasePlatform):
         返回：
         - bool: 发布是否成功
         """
+        logger.info("=" * 60)
+        logger.info("[发布图集] 开始小红书图集发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get('title', '')
         files = kwargs.get('files', [])
         tags = kwargs.get('tags', [])[:10]  # 最多10个标签
@@ -327,12 +364,26 @@ class XiaohongshuPlatform(BasePlatform):
         dry_run = kwargs.get('dry_run', True)
 
         if not files:
-            logger.error("[xhs] 没有图片文件")
+            logger.error("[发布图集] 没有图片文件")
             return False
 
         if not account_files:
-            logger.error("[xhs] 没有账号文件")
+            logger.error("[发布图集] 没有账号文件")
             return False
+
+        # 截断标题
+        title = title[:20]
+
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 图片数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_files))
+        logger.info("[发布参数] 定时发布: %s", enableTimer)
+        logger.info("[发布参数] 原创声明: %s", is_original)
+        logger.info("[发布参数] AI内容声明: %s", ai_content or "无")
+        logger.info("[发布策略] 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
         # 截断标题
         title = title[:20]
@@ -351,31 +402,38 @@ class XiaohongshuPlatform(BasePlatform):
         success_count = 0
         total = len(account_paths)
         for index, cookie_path in enumerate(account_paths):
-            pub_date = (
-                publish_datetimes
-                if not isinstance(publish_datetimes, list)
-                else publish_datetimes[index]
-            )
-            try:
-                result = await _publish_single_image(
-                    title=title,
-                    files=files,
-                    tags=tags,
-                    account_file=cookie_path,
-                    desc=desc,
-                    enableTimer=enableTimer,
-                    schedule_time_str=schedule_time_str,
-                    publish_date=pub_date,
-                    ai_content=ai_content,
-                    is_original=is_original,
-                    dry_run=dry_run,
+            cookie_name = Path(cookie_path).name
+            nick = get_account_name_by_cookie_file(cookie_name)
+            with bind_account_name(nick or "-"):
+                logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", index + 1, total, nick or "未知")
+                pub_date = (
+                    publish_datetimes
+                    if not isinstance(publish_datetimes, list)
+                    else publish_datetimes[index]
                 )
-                if result:
-                    success_count += 1
-            except Exception as e:
-                logger.error(f"[xhs] 账号 {cookie_path} 发布失败: {e}")
+                try:
+                    result = await _publish_single_image(
+                        title=title,
+                        files=files,
+                        tags=tags,
+                        account_file=cookie_path,
+                        desc=desc,
+                        enableTimer=enableTimer,
+                        schedule_time_str=schedule_time_str,
+                        publish_date=pub_date,
+                        ai_content=ai_content,
+                        is_original=is_original,
+                        dry_run=dry_run,
+                    )
+                    if result:
+                        success_count += 1
+                except Exception as e:
+                    logger.error("[发布图集] 账号 %s 发布失败: %s", cookie_path, e)
 
-        logger.info(f"[xhs] 图文发布完成: {success_count}/{total} 成功")
+        logger.info("[发布图集] 图集发布完成: %d/%d 成功", success_count, total)
+        logger.info("=" * 60)
+        logger.info("[发布图集] 图集发布流程完成!")
+        logger.info("=" * 60)
         return success_count > 0
 
 
@@ -414,7 +472,7 @@ async def _publish_single_video(
                 publish_strategy=publish_strategy,
             )
             await context.storage_state(path=account_file)
-            logger.info("[xhs] cookie updated")
+            logger.info("[发布] Cookie状态已更新")
         finally:
             await context.close()
     finally:
@@ -443,45 +501,50 @@ async def _publish_single_image(
             page = await context.new_page()
 
             # Navigate to image publish page
-            logger.info(f"[xhs] navigating to image publish page")
+            logger.info("[上传图集] 正在打开图集发布页面...")
             await page.goto(_XHS_PUBLISH_IMAGE_URL, wait_until="networkidle")
             await asyncio.sleep(3)  # 等待页面完全加载
+            logger.info("[上传图集] 图集发布页面已打开")
 
             # 等待上传区域出现
-            logger.info("[xhs] waiting for upload area to load")
+            logger.info("[上传图集] 等待上传区域加载...")
             try:
                 await page.wait_for_selector('.upload-wrapper, .upload-input, input[type="file"]', timeout=15000)
-                logger.info("[xhs] upload area loaded")
+                logger.info("[上传图集] 上传区域已加载")
             except Exception as e:
-                logger.warning(f"[xhs] upload area not found, trying to continue: {e}")
+                logger.warning("[上传图集] 未找到上传区域, 尝试继续: %s", e)
 
             # Upload images
             file_paths = [str(f) for f in files]
             if not await _upload_images(page, file_paths):
-                logger.error("[xhs] image upload failed")
+                logger.error("[上传图集] 图片上传失败")
                 return False
 
             # Wait for page readiness
             await asyncio.sleep(2)
 
             # Fill title, description, tags
-            logger.info(f"[xhs] filling title, desc and tags")
+            logger.info("[填写标题] 开始填写标题、简介与标签...")
             await _fill_title(page, title)
             await _fill_desc(page, desc)
             await _fill_tags(page, tags)
 
             # Set original declaration (原创声明)
             if is_original:
+                logger.info("[原创声明] 开始设置原创声明...")
                 await _set_original_declaration(page)
 
             # Set content declaration (内容类型声明)
             if ai_content:
+                logger.info("[内容声明] 开始设置内容类型声明: %s", ai_content)
                 await _set_content_declaration(page, ai_content)
 
             # Set schedule time
             is_scheduled = enableTimer and publish_date and publish_date != 0
             if is_scheduled:
+                logger.info("[定时发布] 开始设置定时发布...")
                 await _set_schedule_time(page, publish_date)
+                logger.info("[定时发布] 定时发布设置完成")
 
             # Wait for publish button to hydrate
             await _wait_for_page_ready(page)
@@ -489,33 +552,34 @@ async def _publish_single_image(
             if not dry_run:
                 # Click publish
                 btn_text = "定时发布" if is_scheduled else "发布"
+                logger.info("[发布] 正在点击发布按钮...")
                 await _click_publish_button(page, btn_text)
 
                 # Wait for page navigation after click
                 current_url = page.url
                 await asyncio.sleep(3)
                 new_url = page.url
-                logger.info(f"[xhs] url changed: {current_url} -> {new_url}")
+                logger.info("[发布] 页面URL变化: %s -> %s", current_url, new_url)
 
                 if "success" in new_url.lower() or "publish/publish" not in new_url:
-                    logger.info(f"[xhs] image published successfully: {title}")
+                    logger.info("[发布] 图集发布成功: %s", title)
                 else:
-                    logger.error(f"[xhs] page did not navigate to success: {new_url}")
+                    logger.error("[发布] 页面未跳转到成功页: %s", new_url)
                     return False
             else:
-                logger.info(f"[xhs] image publish dry-run complete: {title}")
+                logger.info("[发布] [演练模式] 图集发布演练完成: %s", title)
 
             # Save cookies
             await context.storage_state(path=account_file)
-            logger.info("[xhs] cookie updated")
+            logger.info("[发布] Cookie状态已更新")
             return True
         except Exception as e:
-            logger.error(f"[xhs] image publish error: {e}")
+            logger.error("[发布图集] 图集发布出错: %s", e)
             return False
         finally:
             await context.close()
     except Exception as e:
-        logger.error(f"[xhs] image publish browser error: {e}")
+        logger.error("[发布图集] 图集发布浏览器错误: %s", e)
         return False
     finally:
         await browser.close()
@@ -533,7 +597,7 @@ async def _wait_for_page_ready(page, timeout: int = 120) -> bool:
     ``<xhs-publish-btn>`` host element — it flips from "true" to "false"
     once the video has finished server-side processing.
     """
-    logger.info("[xhs] waiting for page to be fully ready after upload...")
+    logger.info("[发布就绪] 等待上传后页面完全就绪...")
     start = time.time()
     last_log = 0
     while time.time() - start < timeout:
@@ -542,17 +606,17 @@ async def _wait_for_page_ready(page, timeout: int = 120) -> bool:
             disabled = await el.first.get_attribute("submit-disabled")
             if disabled == "false":
                 elapsed = int(time.time() - start)
-                logger.info(f"[xhs] page ready (submit-disabled=false, waited {elapsed}s)")
+                logger.info("[发布就绪] 页面已就绪 (submit-disabled=false, 等待 %ds)", elapsed)
                 return True
         elapsed = int(time.time() - start)
         if elapsed - last_log >= 15:
-            logger.info(f"[xhs] still waiting for page to be ready... ({elapsed}s)")
+            logger.info("[发布就绪] 仍在等待页面就绪... (%ds)", elapsed)
             last_log = elapsed
         await asyncio.sleep(1)
-    logger.error(f"[xhs] page never became ready after {timeout}s")
+    logger.error("[发布就绪] 页面在 %ds 后仍未就绪", timeout)
     try:
         await page.screenshot(path="debug_page_not_ready.png")
-        logger.info("[xhs] saved debug_page_not_ready.png")
+        logger.info("[发布就绪] 已保存 debug_page_not_ready.png")
     except Exception:
         pass
     return False
@@ -575,9 +639,10 @@ async def _upload_video_content(
 ):
     """All browser interaction for a single XHS video upload."""
 
-    logger.info(f"[xhs] starting upload: {title}")
+    logger.info("[上传视频] 开始上传视频: %s", title)
     await page.goto(_XHS_PUBLISH_VIDEO_URL)
     await page.wait_for_url(_XHS_PUBLISH_VIDEO_URL)
+    logger.info("[上传视频] 正在上传视频文件...")
 
     # --- Upload video file ---
     await page.locator(
@@ -617,40 +682,45 @@ async def _upload_video_content(
 
                 if uploading_count == 0 and not publish_disabled:
                     logger.info(
-                        "[xhs] video uploaded successfully "
-                        "(uploading gone, publish button enabled)"
+                        "[上传视频] 视频上传成功 "
+                        "(上传完成, 发布按钮已可用)"
                     )
                     break
 
                 logger.info(
-                    f"[xhs] still uploading "
-                    f"(uploading_nodes={uploading_count}, "
-                    f"publish_disabled={publish_disabled}), "
-                    f"waiting..."
+                    "[上传视频] 仍在上传中 "
+                    "(uploading_nodes=%s, publish_disabled=%s), 等待...",
+                    uploading_count, publish_disabled,
                 )
             except Exception as e:
-                logger.info(f"[xhs] upload status check: {e}")
+                logger.info("[上传视频] 上传状态检查: %s", e)
             await asyncio.sleep(2)
     finally:
         await cdp.detach()
 
     # --- Fill title (20 char limit) ---
-    logger.info("[xhs] filling title, desc and tags")
+    logger.info("[填写标题] 开始填写标题、简介与标签...")
     await _fill_title(page, title)
     await _fill_desc(page, desc)
     await _fill_tags(page, tags)
+    logger.info("[填写标题] 标题: %s", title)
 
     # --- Set cover / thumbnail ---
+    logger.info("[设置封面] 开始设置视频封面...")
     await _set_thumbnail(page, thumbnail_path)
 
     # --- Set schedule time ---
     if publish_strategy == _PUBLISH_STRATEGY_SCHEDULED and publish_date != 0:
+        logger.info("[定时发布] 开始设置定时发布...")
         await _set_schedule_time(page, publish_date)
+        logger.info("[定时发布] 定时发布设置完成")
 
     # --- Set AI content declaration ---
+    logger.info("[内容声明] 开始设置内容类型声明: %s", ai_content)
     await _set_content_declaration(page, ai_content)
 
     # --- Set original declaration (原创声明) ---
+    logger.info("[原创声明] 开始设置原创声明...")
     await _set_original_declaration(page)
 
     # --- Wait for publish button to hydrate ---
@@ -658,18 +728,19 @@ async def _upload_video_content(
 
     # --- Click publish ---
     btn_text = "定时发布" if publish_strategy == _PUBLISH_STRATEGY_SCHEDULED else "发布"
+    logger.info("[发布] 正在点击发布按钮...")
     await _click_publish_button(page, btn_text)
 
     # Wait for page navigation after click
     current_url = page.url
     await asyncio.sleep(3)
     new_url = page.url
-    logger.info(f"[xhs] url changed: {current_url} -> {new_url}")
+    logger.info("[发布] 页面URL变化: %s -> %s", current_url, new_url)
 
     if "success" in new_url.lower() or "publish/publish" not in new_url:
-        logger.info("[xhs] video published successfully")
+        logger.info("[发布] 视频发布成功! 页面跳转到: %s", new_url)
     else:
-        logger.error(f"[xhs] page did not navigate to success: {new_url}")
+        logger.error("[发布] 页面未跳转到成功页: %s", new_url)
 
 
 # ======================================================================
@@ -706,21 +777,21 @@ async def _click_publish_button(page, btn_text: str) -> None:
                 break
 
         if not btn_node_id:
-            logger.error("[xhs] CDP: publish button not found in flattened DOM")
+            logger.error("[发布] CDP: 在扁平化DOM中未找到发布按钮")
             return
 
         await cdp.send("DOM.scrollIntoViewIfNeeded", {"nodeId": btn_node_id})
         box_model = await cdp.send("DOM.getBoxModel", {"nodeId": btn_node_id})
         if not box_model or "model" not in box_model:
-            logger.error("[xhs] CDP: could not get box model for publish button")
+            logger.error("[发布] CDP: 无法获取发布按钮的盒子模型")
             return
         quad = box_model["model"]["content"]
         # content quad: [x1,y1, x2,y2, x3,y3, x4,y4]
         x = (quad[0] + quad[4]) / 2
         y = (quad[1] + quad[5]) / 2
-        logger.info(f"[xhs] CDP: clicking publish button at ({x:.0f}, {y:.0f})")
+        logger.info("[发布] CDP: 在 (%.0f, %.0f) 处点击发布按钮", x, y)
         await page.mouse.click(x, y)
-        logger.info("[xhs] publish clicked via CDP flattened DOM")
+        logger.info("[发布] 已通过CDP扁平化DOM点击发布按钮")
     finally:
         await cdp.detach()
 
@@ -775,10 +846,10 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
     if not thumbnail_path:
         return
     if not os.path.exists(thumbnail_path):
-        logger.info(f"[xhs] thumbnail not found: {thumbnail_path}, skipping")
+        logger.info("[封面] 封面不存在: %s, 跳过", thumbnail_path)
         return
 
-    logger.info("[xhs] setting cover image")
+    logger.info("[封面] 开始设置封面图片")
 
     try:
         # The cover editor modal opens only after hovering the cover
@@ -790,14 +861,14 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
             await cover_loc.wait_for(state="attached", timeout=10_000)
             await cover_loc.hover()
             await page.wait_for_timeout(1000)
-            logger.info("[xhs] hovered cover preview, looking for operator...")
+            logger.info("[封面] 已悬停封面预览, 查找操作按钮...")
 
             # Step 2: click the operator overlay
             op_loc = page.locator("div.operator.pointer").first
             await op_loc.click(force=True, timeout=5_000)
-            logger.info("[xhs] clicked cover operator overlay")
+            logger.info("[封面] 已点击封面操作遮罩")
         except Exception as e:
-            logger.info(f"[xhs] cover hover/click failed: {e}, skipping")
+            logger.info("[封面] 封面悬停/点击失败: %s, 跳过", e)
             return
 
         # Find the cover modal — retry once with an extra click if needed
@@ -817,7 +888,7 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
             if modal:
                 break
             if attempt == 0:
-                logger.info("[xhs] cover modal not found on attempt 1, retrying...")
+                logger.info("[封面] 第1次未找到封面弹窗, 重试...")
                 try:
                     await cover_loc.hover()
                     await page.wait_for_timeout(500)
@@ -826,10 +897,10 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
                     pass
 
         if not modal:
-            logger.info("[xhs] cover modal not found after retries, skipping")
+            logger.info("[封面] 重试后仍未找到封面弹窗, 跳过")
             try:
                 await page.screenshot(path="debug_cover_modal_missing.png")
-                logger.info("[xhs] saved debug_cover_modal_missing.png")
+                logger.info("[封面] 已保存 debug_cover_modal_missing.png")
             except Exception:
                 pass
             return
@@ -837,7 +908,7 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
         # Set the file directly on the hidden file input
         file_input = modal.locator('input[type="file"][accept*="image"]').first
         await file_input.wait_for(state="attached", timeout=10000)
-        logger.info(f"[xhs] uploading cover: {os.path.basename(thumbnail_path)}")
+        logger.info("[封面] 正在上传封面: %s", os.path.basename(thumbnail_path))
         await file_input.set_input_files(thumbnail_path)
         await page.wait_for_timeout(3000)
 
@@ -857,13 +928,13 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
             await confirm_button.click()
             try:
                 await modal.wait_for(state="hidden", timeout=15000)
-                logger.info("[xhs] cover set successfully")
+                logger.info("[封面] 封面设置成功")
             except Exception:
-                logger.info("[xhs] cover modal did not close, continuing anyway")
+                logger.info("[封面] 封面弹窗未关闭, 继续执行")
         else:
-            logger.info("[xhs] confirm button not found, skipping cover")
+            logger.info("[封面] 未找到确定按钮, 跳过封面")
     except Exception as e:
-        logger.info(f"[xhs] cover upload failed: {e}")
+        logger.info("[封面] 封面上传失败: %s", e)
 
 
 async def _upload_images(page, files: list[str]) -> bool:
@@ -882,11 +953,11 @@ async def _upload_images(page, files: list[str]) -> bool:
         True if all images were uploaded successfully, False otherwise.
     """
     if not files:
-        logger.warning("[xhs] no images to upload")
+        logger.warning("[上传图集] 没有图片可上传")
         return False
 
     try:
-        logger.info(f"[xhs] uploading {len(files)} images")
+        logger.info("[上传图集] 正在上传 %d 张图片...", len(files))
 
         # 等待页面加载完成
         await asyncio.sleep(2)
@@ -898,9 +969,9 @@ async def _upload_images(page, files: list[str]) -> bool:
         # 等待 input 出现
         try:
             await file_input.wait_for(state="attached", timeout=10000)
-            logger.info("[xhs] found upload input")
+            logger.info("[上传图集] 已找到上传input")
         except Exception:
-            logger.info("[xhs] upload input not found, trying other selectors")
+            logger.info("[上传图集] 未找到上传input, 尝试其他选择器")
 
         # 如果找不到，尝试其他选择器
         if await file_input.count() == 0:
@@ -914,12 +985,12 @@ async def _upload_images(page, files: list[str]) -> bool:
 
         if await file_input.count() > 0:
             # 使用找到的 input 元素上传文件
-            logger.info(f"[xhs] uploading via file input")
+            logger.info("[上传图集] 通过file input上传")
             await file_input.first.set_input_files(files)
-            logger.info(f"[xhs] uploaded {len(files)} images via file input")
+            logger.info("[上传图集] 已通过file input上传 %d 张图片", len(files))
         else:
             # 使用 expect_file_chooser 模式作为备选
-            logger.info("[xhs] trying file chooser approach")
+            logger.info("[上传图集] 尝试文件选择器方式")
             upload_btn = page.locator('button:has-text("上传图片")')
 
             if await upload_btn.count() == 0:
@@ -929,53 +1000,53 @@ async def _upload_images(page, files: list[str]) -> bool:
                 upload_btn = page.locator('button.bg-red').first
 
             if await upload_btn.count() > 0:
-                logger.info("[xhs] clicking upload button")
+                logger.info("[上传图集] 点击上传按钮")
                 async with page.expect_file_chooser(timeout=10000) as fc_info:
                     await upload_btn.click()
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(files)
-                logger.info(f"[xhs] uploaded {len(files)} images via file chooser")
+                logger.info("[上传图集] 已通过文件选择器上传 %d 张图片", len(files))
             else:
                 # 最后尝试直接设置所有 file input
                 all_inputs = await page.query_selector_all('input[type="file"]')
-                logger.info(f"[xhs] found {len(all_inputs)} file inputs")
+                logger.info("[上传图集] 找到 %d 个file input", len(all_inputs))
                 if all_inputs:
                     await all_inputs[0].set_input_files(files)
-                    logger.info(f"[xhs] uploaded {len(files)} images via first file input")
+                    logger.info("[上传图集] 已通过第一个file input上传 %d 张图片", len(files))
                 else:
-                    logger.error("[xhs] could not find any upload mechanism")
+                    logger.error("[上传图集] 未找到任何上传机制")
                     return False
 
         # Wait for images to finish uploading (check image count)
         expected_count = len(files)
         timeout_per_image = 30
         max_wait = max(120, min(expected_count * timeout_per_image, 600))
-        logger.info(f"[xhs] waiting for {expected_count} images to upload (max {max_wait}s)")
+        logger.info("[上传图集] 等待 %d 张图片上传完成 (最多 %ds)", expected_count, max_wait)
 
         for i in range(max_wait):
             # 检查已上传的图片数量
             # 小红书的图片预览区域
             uploaded = await page.query_selector_all('.upload-wrapper img, .image-item img, .preview img, [class*="image"] img')
             if len(uploaded) >= expected_count:
-                logger.info(f"[xhs] all {expected_count} images uploaded")
+                logger.info("[上传图集] 全部 %d 张图片上传完成", expected_count)
                 return True
             if i % 10 == 0:
-                logger.info(f"[xhs] uploading images: {len(uploaded)}/{expected_count}")
+                logger.info("[上传图集] 正在上传图片: %d/%d", len(uploaded), expected_count)
             await asyncio.sleep(1)
 
         logger.warning(
-            f"[xhs] image upload timeout, uploaded {len(uploaded)}/{expected_count}"
+            "[上传图集] 图片上传超时, 已上传 %d/%d", len(uploaded), expected_count
         )
         return len(uploaded) > 0
 
     except Exception as e:
-        logger.error(f"[xhs] image upload failed: {e}")
+        logger.error("[上传图集] 图片上传失败: %s", e)
         return False
 
 
 async def _set_schedule_time(page, publish_date) -> None:
     """Enable timed publishing and set the target date/time."""
-    logger.info(f"[xhs] setting schedule time: {publish_date}")
+    logger.info("[定时发布] 设置定时发布时间: %s", publish_date)
     await (
         page.locator(".custom-switch-card")
         .filter(has_text="定时发布")
@@ -994,7 +1065,7 @@ async def _set_content_declaration(page, ai_content: str) -> None:
     if not ai_content:
         return
 
-    logger.info(f"[xhs] setting content declaration: {ai_content}")
+    logger.info("[内容声明] 设置内容类型声明: %s", ai_content)
     try:
         # Click the declaration dropdown trigger
         select_wrapper = page.locator(
@@ -1012,13 +1083,13 @@ async def _set_content_declaration(page, ai_content: str) -> None:
         )
         if await target_option.count() > 0:
             await target_option.first.click()
-            logger.info(f"[xhs] content declaration set: {ai_content}")
+            logger.info("[内容声明] 内容类型声明已设置: %s", ai_content)
         else:
-            logger.info(f"[xhs] declaration option not found: {ai_content}")
+            logger.info("[内容声明] 未找到声明选项: %s", ai_content)
 
         await asyncio.sleep(1)
     except Exception as exc:
-        logger.info(f"[xhs] content declaration failed (non-fatal): {exc}")
+        logger.info("[内容声明] 内容声明设置失败 (非致命): %s", exc)
 
 
 async def _set_original_declaration(page) -> None:
@@ -1030,7 +1101,7 @@ async def _set_original_declaration(page) -> None:
     3. Check the checkbox
     4. Click '声明原创' button
     """
-    logger.info("[xhs] setting original declaration")
+    logger.info("[原创声明] 开始设置原创声明")
     try:
         # Find the 原创声明 switch
         switch_card = page.locator(".custom-switch-card").filter(
@@ -1038,14 +1109,14 @@ async def _set_original_declaration(page) -> None:
         )
         switch = switch_card.locator(".d-switch")
         if await switch.count() == 0:
-            logger.info("[xhs] original declaration switch not found, skipping")
+            logger.info("[原创声明] 未找到原创声明开关, 跳过")
             return
 
         # Check if already enabled (the d-switch-checked class)
         switch_box = switch.first
         classes = await switch_box.get_attribute("class") or ""
         if "d-switch-checked" in classes:
-            logger.info("[xhs] original declaration already enabled")
+            logger.info("[原创声明] 原创声明已开启")
             return
 
         await switch_box.click()
@@ -1054,7 +1125,7 @@ async def _set_original_declaration(page) -> None:
         # Agreement modal should appear
         modal = page.locator("div.d-modal.d-modal-centered")
         if await modal.count() == 0:
-            logger.info("[xhs] original declaration modal not found, skipping")
+            logger.info("[原创声明] 未找到原创声明弹窗, 跳过")
             return
         modal = modal.first
 
@@ -1069,9 +1140,9 @@ async def _set_original_declaration(page) -> None:
         if await confirm_btn.count() > 0:
             await confirm_btn.first.click()
             await page.wait_for_timeout(1000)
-            logger.info("[xhs] original declaration set")
+            logger.info("[原创声明] 原创声明已设置")
         else:
-            logger.info("[xhs] 声明原创 button not found")
+            logger.info("[原创声明] 未找到声明原创按钮")
 
     except Exception as exc:
-        logger.info(f"[xhs] original declaration failed (non-fatal): {exc}")
+        logger.info("[原创声明] 原创声明设置失败 (非致命): %s", exc)

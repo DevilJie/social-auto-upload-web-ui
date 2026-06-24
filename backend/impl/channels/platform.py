@@ -14,12 +14,17 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
 logger = get_channel_logger("channels")
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, save_login_result, scrape_tencent_profile
+from .._utils import (
+    get_account_name_by_cookie_file,
+    parse_schedule_time,
+    save_login_result,
+    scrape_tencent_profile,
+)
 from ..base_platform import BasePlatform
 
 # ---------------------------------------------------------------------------
@@ -227,7 +232,7 @@ async def _fill_title_and_tags(page, title: str, tags: list[str]) -> None:
     for tag in tags:
         await page.keyboard.type("#" + tag)
         await page.keyboard.press("Space")
-    logger.info(f"[channels] added {len(tags)} hashtags to description editor")
+    logger.info(f"[填写标题] added {len(tags)} hashtags to description editor")
 
 
 async def _fill_description(page, desc: str) -> None:
@@ -239,7 +244,7 @@ async def _fill_description(page, desc: str) -> None:
         return
     await page.locator("div.input-editor").click()
     await page.keyboard.type(desc)
-    logger.info(f"[channels] added description ({len(desc)} chars)")
+    logger.info(f"[填写简介] added description ({len(desc)} chars)")
 
 
 async def _set_short_title(page, title: str, short_title: str | None = None) -> None:
@@ -259,7 +264,7 @@ async def _set_short_title(page, title: str, short_title: str | None = None) -> 
         short_title_element = page.locator(selector).first
         if await short_title_element.count():
             await short_title_element.fill(value)
-            logger.info(f"[channels] short title filled: {value!r} ({selector})")
+            logger.info(f"[填写标题] short title filled: {value!r} ({selector})")
             return
     # 兜底：旧版按「短标题」文字 + 兄弟 input
     try:
@@ -271,11 +276,11 @@ async def _set_short_title(page, title: str, short_title: str | None = None) -> 
         )
         if await legacy.count():
             await legacy.fill(value)
-            logger.info(f"[channels] short title filled (legacy): {value!r}")
+            logger.info(f"[填写标题] short title filled (legacy): {value!r}")
             return
     except Exception:
         pass
-    logger.info("[channels] short title input not found, skipping")
+    logger.info("[填写标题] short title input not found, skipping")
 
 
 async def _apply_collection(page) -> None:
@@ -356,10 +361,10 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
             publish_button = page.get_by_role("button", name="发表")
             button_class = await publish_button.get_attribute("class")
             if button_class and "weui-desktop-btn_disabled" not in button_class:
-                logger.info("[channels] video upload complete")
+                logger.info("[上传视频] video upload complete")
                 break
 
-            logger.info("[channels] uploading video...")
+            logger.info("[上传视频] uploading video...")
             await asyncio.sleep(2)
 
             # Check for upload errors
@@ -368,14 +373,14 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
                 'div.media-status-content div.tag-inner:has-text("删除")'
             ).count()
             if upload_failed and delete_button:
-                logger.info("[channels] upload error detected, retrying")
+                logger.info("[上传视频] upload error detected, retrying")
                 await page.locator(
                     'div.media-status-content div.tag-inner:has-text("删除")'
                 ).click()
                 await page.get_by_role("button", name="删除", exact=True).click()
                 await _upload_video_file(page, file_path)
         except Exception:
-            logger.info("[channels] uploading video...")
+            logger.info("[上传视频] uploading video...")
             await asyncio.sleep(2)
 
 
@@ -418,7 +423,7 @@ async def _wait_for_cover_ready(page, *, action: str = "") -> None:
     if not blocking:
         return
 
-    logger.info(f"[channels] 封面阻塞提示出现({action}):「{blocking}」，开始无限等待...")
+    logger.info(f"[设置封面] 封面阻塞提示出现({action}):「{blocking}」，开始无限等待...")
     waited = 0
     while True:
         await asyncio.sleep(1)
@@ -437,10 +442,10 @@ async def _wait_for_cover_ready(page, *, action: str = "") -> None:
         except Exception:
             still_blocking = None
         if not still_blocking:
-            logger.info(f"[channels] 封面阻塞提示已消失，等待耗时 {waited}s，继续执行({action})")
+            logger.info(f"[设置封面] 封面阻塞提示已消失，等待耗时 {waited}s，继续执行({action})")
             return
         if waited % 10 == 0:
-            logger.info(f"[channels] 封面阻塞等待中({action}):「{still_blocking}」... ({waited}s)")
+            logger.info(f"[设置封面] 封面阻塞等待中({action}):「{still_blocking}」... ({waited}s)")
 
 
 async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_path: str | None = None, thumbnail_portrait_path: str | None = None) -> None:
@@ -457,7 +462,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     if not thumbnail_path and not thumbnail_landscape_path and not thumbnail_portrait_path:
         return
 
-    logger.info("[channels] setting cover image")
+    logger.info("[设置封面] setting cover image")
 
     # Step 1: check if cover preview area exists, then find visible cover type
     cover_preview = page.locator('div:has(> .label):has-text("封面预览")').first
@@ -466,9 +471,9 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
         if await cover_preview.count():
             await cover_preview.wait_for(state="visible", timeout=5000)
             has_cover_preview = True
-            logger.info("[channels] found cover preview area")
+            logger.info("[设置封面] found cover preview area")
     except Exception:
-        logger.info("[channels] no cover preview area found, trying direct cover detection")
+        logger.info("[设置封面] no cover preview area found, trying direct cover detection")
 
     # Step 2: click cover entry - try vertical first, then horizontal
     cover_entry_selectors = [
@@ -487,13 +492,13 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             await candidate.wait_for(state="visible", timeout=3000)
             cover_entry = candidate
             cover_type = ctype
-            logger.info(f"[channels] cover entry found: {selector} ({ctype})")
+            logger.info(f"[设置封面] cover entry found: {selector} ({ctype})")
             break
         except Exception:
             continue
 
     if not cover_entry:
-        logger.info("[channels] WARNING: no cover entry found, skipping cover")
+        logger.info("[设置封面] WARNING: no cover entry found, skipping cover")
         return
 
     # Determine which thumbnail to use based on cover type
@@ -503,7 +508,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     elif cover_type == 'vertical' and thumbnail_portrait_path:
         effective_thumbnail = thumbnail_portrait_path
     if not effective_thumbnail:
-        logger.info(f"[channels] no thumbnail for {cover_type} cover, skipping")
+        logger.info(f"[设置封面] no thumbnail for {cover_type} cover, skipping")
         return
 
     cover_dialog_selectors = [
@@ -519,7 +524,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             try:
                 dialog = page.locator(selector).filter(has_text=text_hint).first
                 if await dialog.count() and await dialog.is_visible():
-                    logger.info(f"[channels] found cover dialog (text: {text_hint})")
+                    logger.info(f"[设置封面] found cover dialog (text: {text_hint})")
                     return dialog
             except Exception:
                 continue
@@ -527,7 +532,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
         try:
             fallback = page.locator("div.weui-desktop-dialog").first
             if await fallback.count() and await fallback.is_visible():
-                logger.info("[channels] using fallback dialog match")
+                logger.info("[设置封面] using fallback dialog match")
                 return fallback
         except Exception:
             pass
@@ -538,7 +543,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     # （「文件上传中...」/「预览图生成中...」）拦截，对话框不会弹出。
     # 因此每轮重试都先 hover/click → 阻塞等待 popover 消失 → 再查对话框，
     # 直到对话框出现为止。
-    logger.info("[channels] 开始点击封面入口，直到封面对话框出现（无限重试）")
+    logger.info("[设置封面] 开始点击封面入口，直到封面对话框出现（无限重试）")
     cover_dialog = None
     attempt = 0
     while cover_dialog is None:
@@ -560,12 +565,12 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             # 查对话框
             cover_dialog = await _find_cover_dialog()
         except Exception as retry_exc:
-            logger.info(f"[channels] 封面入口重试异常(第{attempt}轮): {retry_exc}")
+            logger.info(f"[设置封面] 封面入口重试异常(第{attempt}轮): {retry_exc}")
 
         if cover_dialog is None:
             if attempt == 1 or attempt % 5 == 0:
                 logger.info(
-                    f"[channels] 封面对话框未出现，继续重试点击封面入口(第{attempt}轮)"
+                    f"[上传视频] 封面对话框未出现，继续重试点击封面入口(第{attempt}轮)"
                 )
             await page.wait_for_timeout(1000)
 
@@ -582,7 +587,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             locator = cover_dialog.locator(selector).first
             if await locator.count():
                 file_input = locator
-                logger.info(f"[channels] found file input: {selector}")
+                logger.info(f"[设置封面] found file input: {selector}")
                 break
         except Exception:
             continue
@@ -593,7 +598,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
                 "div.weui-desktop-dialog input[type='file']"
             ).first
             if not await file_input.count():
-                logger.info("[channels] WARNING: no file input for cover, skipping")
+                logger.info("[设置封面] WARNING: no file input for cover, skipping")
                 return
         except Exception:
             return
@@ -601,7 +606,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     await file_input.wait_for(state="attached", timeout=10000)
     # 上传封面文件前再次阻塞等待（预览图生成中等提示可能此时出现）
     await _wait_for_cover_ready(page, action="上传封面文件前")
-    logger.info(f"[channels] uploading cover ({cover_type}): {effective_thumbnail}")
+    logger.info(f"[设置封面] uploading cover ({cover_type}): {effective_thumbnail}")
     await file_input.set_input_files(effective_thumbnail)
     await page.wait_for_timeout(2000)
 
@@ -612,7 +617,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     if await crop_dialog.count():
         try:
             await crop_dialog.wait_for(state="visible", timeout=10000)
-            logger.info("[channels] crop dialog appeared")
+            logger.info("[设置封面] crop dialog appeared")
             for selector in (
                 'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确定")',
                 'button:has-text("确定")',
@@ -622,13 +627,13 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
                     btn = crop_dialog.locator(selector).first
                     if await btn.count() and await btn.is_visible():
                         await btn.click()
-                        logger.info(f"[channels] crop confirmed: {selector}")
+                        logger.info(f"[设置封面] crop confirmed: {selector}")
                         await page.wait_for_timeout(1000)
                         break
                 except Exception:
                     continue
         except Exception as exc:
-            logger.info(f"[channels] WARNING: crop confirm error: {exc}")
+            logger.info(f"[设置封面] WARNING: crop confirm error: {exc}")
 
     # Step 6: confirm cover dialog
     confirmed = False
@@ -643,7 +648,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             btn = cover_dialog.locator(selector).first
             if await btn.count() and await btn.is_visible():
                 await btn.click()
-                logger.info(f"[channels] cover confirmed: {selector}")
+                logger.info(f"[设置封面] cover confirmed: {selector}")
                 confirmed = True
                 await page.wait_for_timeout(1000)
                 break
@@ -651,9 +656,9 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             continue
 
     if not confirmed:
-        logger.info("[channels] WARNING: cover confirm button not found")
+        logger.info("[设置封面] WARNING: cover confirm button not found")
 
-    logger.info("[channels] cover image set complete")
+    logger.info("[设置封面] cover image set complete")
 
 
 async def _set_schedule_time(page, publish_date) -> None:
@@ -700,7 +705,7 @@ async def _submit_publish(page, is_draft: bool = False) -> None:
                 if await draft_button.count():
                     await draft_button.click()
                 await page.wait_for_url("**/post/list**", timeout=30000)
-                logger.info("[channels] draft saved successfully")
+                logger.info("[发布] draft saved successfully")
             else:
                 publish_button = page.locator(
                     'div.form-btns button:has-text("发表")'
@@ -708,19 +713,19 @@ async def _submit_publish(page, is_draft: bool = False) -> None:
                 if await publish_button.count():
                     await publish_button.click()
                 await page.wait_for_url(TENCENT_MANAGE_URL, timeout=30000)
-                logger.info("[channels] video published successfully")
+                logger.info("[发布] video published successfully")
             break
         except Exception as exc:
             current_url = page.url
             if is_draft:
                 if "post/list" in current_url or "draft" in current_url:
-                    logger.info("[channels] draft saved successfully")
+                    logger.info("[发布] draft saved successfully")
                     break
             else:
                 if TENCENT_MANAGE_URL in current_url:
-                    logger.info("[channels] video published successfully")
+                    logger.info("[发布] video published successfully")
                     break
-            logger.info(f"[channels] publish in progress... ({exc})")
+            logger.info(f"[发布] publish in progress... ({exc})")
             await asyncio.sleep(0.5)
 
 
@@ -758,14 +763,14 @@ class ChannelsPlatform(BasePlatform):
                 "status": "qrcode",
                 "qrcode": qrcode_src,
             }))
-            logger.info("[channels] QR code ready, waiting for scan")
+            logger.info("[发布] QR code ready, waiting for scan")
 
             # Poll for login completion（无限等，浏览器由用户自己关）
             poll_interval = 3
             scanned_logged = False
             while True:
                 if await _is_login_completed(page):
-                    logger.info(f"[channels] login successful, redirected to: {page.url}")
+                    logger.info(f"[发布] login successful, redirected to: {page.url}")
                     await asyncio.sleep(2)
                     await save_login_result(
                         context,
@@ -780,11 +785,11 @@ class ChannelsPlatform(BasePlatform):
                     return
 
                 if not scanned_logged and await _is_qrcode_scanned(page):
-                    logger.info("[channels] QR code scanned, awaiting confirmation")
+                    logger.info("[发布] QR code scanned, awaiting confirmation")
                     scanned_logged = True
 
                 if await _is_qrcode_expired(page):
-                    logger.info("[channels] QR code expired, refreshing")
+                    logger.info("[发布] QR code expired, refreshing")
                     await _refresh_qrcode(page)
                     await asyncio.sleep(1)
                     try:
@@ -798,7 +803,7 @@ class ChannelsPlatform(BasePlatform):
 
                 await asyncio.sleep(poll_interval)
         except Exception as exc:
-            logger.info(f"[channels] login error: {exc}")
+            logger.info(f"[发布] login error: {exc}")
             status_queue.put(json.dumps({
                 "status": "failed",
                 "message": str(exc),
@@ -912,7 +917,7 @@ class ChannelsPlatform(BasePlatform):
             await context.close()
             return name, avatar
         except Exception as exc:
-            logger.info(f"[channels] sync_profile error: {exc}")
+            logger.info(f"[发布] sync_profile error: {exc}")
             return "", ""
         finally:
             try:
@@ -973,6 +978,15 @@ class ChannelsPlatform(BasePlatform):
         - ``desc`` (*str*, optional)
         - ``schedule_time_str`` (*str*, optional)
         """
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始视频号视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", [])
@@ -989,6 +1003,19 @@ class ChannelsPlatform(BasePlatform):
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
 
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_files))
+        logger.info("[发布参数] 定时发布: %s", enable_timer)
+        logger.info("[发布参数] 草稿模式: %s", is_draft)
+        logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 创作声明: %s", category or "无")
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
+
         # Resolve file paths
         # files 已是绝对路径（app.py 通过 _resolve_material_path 处理过）
         resolved_files = [str(f) for f in files]
@@ -1003,19 +1030,6 @@ class ChannelsPlatform(BasePlatform):
         if thumbnail_portrait_path:
             thumbnail_portrait_path = str(thumbnail_portrait_path)
 
-        logger.info(
-            "[channels] publish_video kwargs: "
-            f"title={title!r}, files={resolved_files}, tags={tags}, "
-            f"account_file={account_files}, category={category!r}, "
-            f"enableTimer={enable_timer}, videos_per_day={videos_per_day}, "
-            f"daily_times={daily_times}, start_days={start_days}, "
-            f"is_draft={is_draft}, desc={desc!r}, "
-            f"thumbnail_path={thumbnail_path!r}, "
-            f"thumbnail_landscape_path={thumbnail_landscape_path!r}, "
-            f"thumbnail_portrait_path={thumbnail_portrait_path!r}, "
-            f"schedule_time_str={schedule_time_str!r}"
-        )
-
         publish_datetimes = parse_schedule_time(
             schedule_time_str,
             len(resolved_files),
@@ -1025,75 +1039,85 @@ class ChannelsPlatform(BasePlatform):
             start_days,
         )
         logger.info(
-            f"[channels] parse_schedule_time 结果: schedule_time_str={schedule_time_str!r} "
-            f"-> publish_datetimes={publish_datetimes}"
+            "[发布策略] 定时时间解析: schedule_time_str=%r -> publish_datetimes=%s",
+            schedule_time_str, publish_datetimes,
         )
 
         # Run the async upload in a new event loop (same pattern as legacy)
         async def _do_upload():
             for index, file_path in enumerate(resolved_files):
+                logger.info("-" * 40)
+                logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(resolved_files), file_path)
                 publish_date = publish_datetimes[index]
-                for cookie_path in resolved_accounts:
-                    logger.info(f"[channels] uploading: {file_path}")
-                    logger.info(f"[channels] title: {title}")
-                    logger.info(f"[channels] desc: {desc}")
-                    logger.info(f"[channels] tags: {tags}")
+                for cookie_index, cookie_path in enumerate(resolved_accounts):
+                    cookie_name = Path(cookie_path).name
+                    nick = get_account_name_by_cookie_file(cookie_name)
+                    with bind_account_name(nick or "-"):
+                        logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(resolved_accounts), nick or "未知")
+                        logger.info("[上传视频] 开始上传视频: %s", file_path)
+                        logger.info("[上传视频] 标题: %s", title)
+                        logger.info("[上传视频] 简介: %s", desc)
+                        logger.info("[上传视频] 标签: %s", tags)
 
-                    browser = await self.create_browser(headless=False)
-                    try:
-                        context = await self.create_context(
-                            browser, storage_state=cookie_path
-                        )
-                        page = await context.new_page()
-
-                        # Open upload page
-                        await page.goto(TENCENT_UPLOAD_URL, timeout=60000)
+                        browser = await self.create_browser(headless=False)
                         try:
-                            await page.wait_for_url(
-                                TENCENT_UPLOAD_URL, timeout=60000
+                            context = await self.create_context(
+                                browser, storage_state=cookie_path
                             )
-                        except Exception:
-                            pass
+                            page = await context.new_page()
 
-                        # Upload video file
-                        await _upload_video_file(page, file_path)
+                            # Open upload page
+                            await page.goto(TENCENT_UPLOAD_URL, timeout=60000)
+                            try:
+                                await page.wait_for_url(
+                                    TENCENT_UPLOAD_URL, timeout=60000
+                                )
+                            except Exception:
+                                pass
 
-                        # Fill metadata
-                        # title → 短标题输入框（_set_short_title，稍后填）
-                        # 正文/描述区 → desc + tags
-                        await _fill_description(page, desc)
-                        await _fill_title_and_tags(page, title, tags)
-                        await _apply_collection(page)
-                        await _apply_original_statement(page, category)
+                            # Upload video file
+                            await _upload_video_file(page, file_path)
 
-                        # Wait for upload to finish (auto-retries on error)
-                        await _wait_for_upload_complete(page, file_path)
+                            # Fill metadata
+                            # title → 短标题输入框（_set_short_title，稍后填）
+                            # 正文/描述区 → desc + tags
+                            await _fill_description(page, desc)
+                            await _fill_title_and_tags(page, title, tags)
+                            await _apply_collection(page)
+                            await _apply_original_statement(page, category)
 
-                        # Set cover image
-                        await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
+                            # Wait for upload to finish (auto-retries on error)
+                            await _wait_for_upload_complete(page, file_path)
 
-                        # Set schedule if needed
-                        if enable_timer and publish_date != 0:
-                            await _set_schedule_time(page, publish_date)
+                            # Set cover image
+                            await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
 
-                        # Set short title
-                        await _set_short_title(page, title)
+                            # Set schedule if needed
+                            if enable_timer and publish_date != 0:
+                                await _set_schedule_time(page, publish_date)
 
-                        # Submit
-                        await _submit_publish(page, is_draft)
+                            # Set short title
+                            await _set_short_title(page, title)
 
-                        # Update stored cookies
-                        await context.storage_state(path=cookie_path)
-                        logger.info("[channels] cookies updated")
-                    finally:
-                        try:
-                            await context.close()
-                        except Exception:
-                            pass
-                        try:
-                            await browser.close()
-                        except Exception:
-                            pass
+                            # Submit
+                            await _submit_publish(page, is_draft)
+
+                            # Update stored cookies
+                            await context.storage_state(path=cookie_path)
+                            logger.info("[发布] Cookie状态已更新")
+                        finally:
+                            try:
+                                await context.close()
+                            except Exception:
+                                pass
+                            try:
+                                await browser.close()
+                            except Exception:
+                                pass
 
         asyncio.run(_do_upload())
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
         return True

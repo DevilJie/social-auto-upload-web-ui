@@ -12,11 +12,16 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 logger = get_channel_logger("kuaishou")
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import parse_schedule_time, save_login_result, scrape_user_profile
+from .._utils import (
+    get_account_name_by_cookie_file,
+    parse_schedule_time,
+    save_login_result,
+    scrape_user_profile,
+)
 from ..base_platform import BasePlatform
 
 # ---------------------------------------------------------------------------
@@ -28,6 +33,11 @@ _KS_UPLOAD_URL = "https://cp.kuaishou.com/article/publish/video"
 _KS_MANAGE_URL_PATTERN = "**/article/manage/video?status=2&from=publish**"
 _KS_UPLOAD_URL_PATTERN = "**/article/publish/video**"
 _COOKIE_INVALID_SELECTOR = "div.names div.container div.name:text('机构服务')"
+
+# 特殊作者声明值：表示「无需添加声明」(与前端 config/platforms.js DECLARATION_NONE 对齐)。
+# 取此值或空时跳过 _set_author_declaration，不去快手发布页查找下拉选项，
+# 避免因页面上无匹配项而 wait_for 超时。视频和图集发布共用此约定。
+_DECLARATION_NONE = "内容无需添加声明"
 
 
 class KuaishouPlatform(BasePlatform):
@@ -263,45 +273,61 @@ class KuaishouPlatform(BasePlatform):
         activities = kwargs.get("activities", []) or []
         dry_run = kwargs.get("dry_run", True)
 
-        logger.info(
-            "[kuaishou] publish_image kwargs: "
-            f"title={title!r}, files={files}, tags={tags}, "
-            f"account_file={account_file}, desc={desc!r}, "
-            f"cover_path={cover_path!r}, "
-            f"ai_content={kwargs.get('ai_content', '')!r}, "
-            f"author_declaration={kwargs.get('author_declaration', '')!r}, "
-            f"resolved author_declaration={author_declaration!r}, "
-            f"music_id={music_id!r}, music_title={music_title!r}, "
-            f"enableTimer={enable_timer}, schedule_time_str={schedule_time_str!r}, "
-            f"dry_run={dry_run}"
-        )
+        logger.info("=" * 60)
+        logger.info("[发布图集] 开始快手图集发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 图片数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 封面: %s", cover_path or "无")
+        logger.info("[发布参数] 作者声明: %s", author_declaration or "无")
+        logger.info("[发布参数] 音乐ID: %s, 音乐标题: %s", music_id or "无", music_title or "无")
+        logger.info("[发布参数] 定时发布: %s", enable_timer)
+        logger.info("[发布策略] 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
         file_paths = [str(f) for f in files]
 
         if cover_path and not Path(cover_path).is_file():
-            logger.warning("Cover file not found: %s", cover_path)
+            logger.warning("[发布参数] 封面文件不存在: %s", cover_path)
             cover_path = ""
 
         if activities:
             activity_tags = " ".join([f"#{act}" for act in activities])
             desc = f"{desc} {activity_tags}".strip()
 
-        for cookie_path in account_paths:
-            await self._upload_image_note(
-                title=title,
-                file_paths=file_paths,
-                tags=tags,
-                account_file=cookie_path,
-                desc=desc,
-                cover_path=cover_path,
-                author_declaration=author_declaration,
-                music_id=music_id,
-                music_title=music_title,
-                enable_timer=enable_timer,
-                schedule_time_str=schedule_time_str,
-                dry_run=dry_run,
-            )
+        for cookie_index, cookie_path in enumerate(account_paths):
+            cookie_name = Path(cookie_path).name
+            nick = get_account_name_by_cookie_file(cookie_name)
+            with bind_account_name(nick or "-"):
+                logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_paths), nick or "未知")
+                await self._upload_image_note(
+                    title=title,
+                    file_paths=file_paths,
+                    tags=tags,
+                    account_file=cookie_path,
+                    desc=desc,
+                    cover_path=cover_path,
+                    author_declaration=author_declaration,
+                    music_id=music_id,
+                    music_title=music_title,
+                    enable_timer=enable_timer,
+                    schedule_time_str=schedule_time_str,
+                    dry_run=dry_run,
+                )
+
+        logger.info("=" * 60)
+        logger.info("[发布图集] 图集发布流程完成!")
+        logger.info("=" * 60)
         return True
 
     async def _upload_image_note(
@@ -310,6 +336,7 @@ class KuaishouPlatform(BasePlatform):
         enable_timer=False, schedule_time_str="", dry_run=True,
     ):
         """Upload image note to one Kuaishou account."""
+        logger.info("[上传图集] 开始上传图集 (%d 张图片)", len(file_paths))
         browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(browser, storage_state=account_file)
@@ -317,7 +344,7 @@ class KuaishouPlatform(BasePlatform):
                 page = await context.new_page()
 
                 # 1. 打开图文 tab
-                logger.info("Navigating to Kuaishou image upload page")
+                logger.info("[上传图集] 正在打开图集上传页面...")
                 await page.goto(
                     "https://cp.kuaishou.com/article/publish/video?tabType=2",
                     wait_until="domcontentloaded", timeout=60000,
@@ -325,10 +352,11 @@ class KuaishouPlatform(BasePlatform):
                 await page.wait_for_url(
                     "**/article/publish/video?tabType=2**", timeout=60000,
                 )
+                logger.info("[上传图集] 图集上传页面已打开")
                 await asyncio.sleep(2)
 
                 # 2. 上传图片（file chooser 多选）
-                logger.info("Uploading %d images", len(file_paths))
+                logger.info("[上传图集] 正在上传 %d 张图片...", len(file_paths))
                 upload_btn = page.locator("button[class^='_upload-btn']:visible").first
                 await upload_btn.wait_for(state="visible", timeout=10000)
                 async with page.expect_file_chooser() as fc_info:
@@ -338,9 +366,9 @@ class KuaishouPlatform(BasePlatform):
                 await asyncio.sleep(2)
 
                 # 3. 等编辑页加载（URL 不会变，等描述输入框出现即可）
-                logger.info("Waiting for edit page to load...")
+                logger.info("[上传图集] 等待编辑页加载...")
                 await page.locator("#work-description-edit").wait_for(state="visible", timeout=30000)
-                logger.info("Edit page loaded, URL: %s", page.url)
+                logger.info("[上传图集] 编辑页已加载, URL: %s", page.url)
                 await asyncio.sleep(1)
 
                 # 4. 关闭引导弹层
@@ -348,7 +376,7 @@ class KuaishouPlatform(BasePlatform):
 
                 # 5. 填描述（标题拼首行 + 描述 + 标签）
                 full_desc = f"{title}\n\n{desc}" if title else desc
-                logger.info("Filling description: %s", full_desc[:50])
+                logger.info("[填写简介] 开始填写简介: %s", full_desc[:50])
                 desc_editor = page.locator("#work-description-edit").first
                 await desc_editor.wait_for(state="visible", timeout=15000)
                 await desc_editor.click()
@@ -360,19 +388,24 @@ class KuaishouPlatform(BasePlatform):
                     await page.keyboard.press("Space")
                 await asyncio.sleep(0.5)
 
-                logger.info("Description filled. cover_path=%s, music_id=%s", cover_path, music_id)
+                logger.info("[填写简介] 简介填写完成. 封面=%s, 音乐ID=%s", cover_path, music_id)
 
                 # 6. 设置封面
                 if cover_path:
+                    logger.info("[设置封面] 开始设置封面...")
                     await self._set_image_cover(page, cover_path)
 
                 # 7. 设置音乐
                 if music_id:
+                    logger.info("[设置音乐] 开始设置音乐: %s", music_id)
                     await self._set_image_music(page, music_id, music_title)
 
-                # 8. 作者声明
-                if author_declaration:
+                # 8. 作者声明（值为「无需声明」或空时跳过，不去页面找下拉项）
+                if author_declaration and author_declaration != _DECLARATION_NONE:
+                    logger.info("[作者声明] 开始设置作者声明: %s", author_declaration)
                     await self._set_author_declaration(page, author_declaration)
+                elif author_declaration == _DECLARATION_NONE:
+                    logger.info("[作者声明] 选择「内容无需添加声明」，跳过设置")
 
                 # 9. 定时发布
                 if enable_timer and schedule_time_str:
@@ -380,26 +413,30 @@ class KuaishouPlatform(BasePlatform):
                         schedule_time_str, 1, enable_timer, 1, None, 0
                     )[0]
                     if publish_date != 0:
+                        logger.info("[定时发布] 开始设置定时发布...")
                         await self._set_schedule_time(page, publish_date)
+                        logger.info("[定时发布] 定时发布设置完成")
 
-                logger.info("Form filling completed. dry_run=%s", dry_run)
+                logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
+                    logger.info("[发布] 正在点击发布按钮...")
                     publish_btn = page.get_by_text("发布", exact=True)
                     await publish_btn.first.click()
                     await page.wait_for_url(
                         "**/article/manage/video?status=2&from=publish**",
                         timeout=60000,
                     )
-                    logger.info("Published successfully")
+                    logger.info("[发布] 图集发布成功!")
                     await context.storage_state(path=account_file)
+                    logger.info("[发布] Cookie状态已更新")
                 else:
-                    logger.info("========================================")
-                    logger.info("点击发布！发布成功！（dry_run）")
-                    logger.info("========================================")
+                    logger.info("=" * 40)
+                    logger.info("[发布] [演练模式] 模拟点击发布! 发布成功!")
+                    logger.info("=" * 40)
                     # dry_run 模式保留浏览器窗口，方便核对表单填写结果
                     logger.info(
-                        "[kuaishou] dry_run=True，保留浏览器窗口供核对表单（不关闭 context/browser）"
+                        "[发布] dry_run=True, 保留浏览器窗口供核对表单 (不关闭 context/browser)"
                     )
             finally:
                 if not dry_run:
@@ -441,6 +478,15 @@ class KuaishouPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def _publish_video_async(self, **kwargs):
+        logger.info("=" * 60)
+        logger.info("[发布视频] 开始快手视频发布流程")
+        logger.info("=" * 60)
+
+        # 打印所有接收到的参数
+        logger.info("[发布参数] 接收到的所有参数:")
+        for key, value in kwargs.items():
+            logger.info("[发布参数]   %s = %s (类型: %s)", key, value, type(value).__name__)
+
         title = kwargs.get("title", "")
         files = kwargs.get("files", [])
         tags = kwargs.get("tags", []) or []
@@ -458,45 +504,59 @@ class KuaishouPlatform(BasePlatform):
         # （参见 services/draft_merge.py DECLARATION_PLATFORMS['kuaishou']='aiContent'）
         # author_declaration 仅作别名兼容旧调用
         author_declaration = kwargs.get("ai_content", "") or kwargs.get("author_declaration", "")
-        logger.info(
-            f"[kuaishou] _publish_video_async kwargs: "
-            f"ai_content={kwargs.get('ai_content', '')!r}, "
-            f"author_declaration={kwargs.get('author_declaration', '')!r}, "
-            f"resolved author_declaration={author_declaration!r}"
-        )
 
         # 优先使用竖版封面，其次横版，最后通用封面
         cover_path = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
+
+        # 打印发布参数摘要
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 文件数量: %d", len(files))
+        logger.info("[发布参数] 标签: %s", tags)
+        logger.info("[发布参数] 视频简介: %s", desc[:50] if desc else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_files))
+        logger.info("[发布参数] 定时发布: %s", enable_timer)
+        logger.info("[发布参数] 封面: %s", cover_path or "无")
+        logger.info("[发布参数] 作者声明: %s", author_declaration or "无")
 
         publish_dates = parse_schedule_time(
             schedule_time_str, len(files), enable_timer,
             videos_per_day, daily_times, start_days,
         )
+        logger.info("[发布策略] 发布策略: %s", "scheduled" if enable_timer and schedule_time_str else "immediate")
 
         # 构建封面完整路径
         if cover_path:
             # cover_path 已是绝对路径
             cover_path = str(cover_path)
-            logger.info(f"[kuaishou] cover path: {cover_path}")
+            logger.info("[发布参数] 封面路径: %s", cover_path)
 
         for idx, file_name in enumerate(files):
             # file_name 已是绝对路径
             video_path = str(file_name)
             pub_date = publish_dates[idx] if idx < len(publish_dates) else 0
+            logger.info("-" * 40)
+            logger.info("[发布进度] 处理第 %d/%d 个视频: %s", idx + 1, len(files), video_path)
 
-            for cookie_file in account_files:
+            for cookie_index, cookie_file in enumerate(account_files):
                 cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-                await self._upload_single(
-                    video_path=video_path,
-                    cookie_path=cookie_path,
-                    title=title,
-                    desc=desc,
-                    tags=tags,
-                    thumbnail_path=cover_path,
-                    author_declaration=author_declaration,
-                    publish_date=pub_date,
-                    enable_timer=enable_timer,
-                )
+                nick = get_account_name_by_cookie_file(cookie_file)
+                with bind_account_name(nick or "-"):
+                    logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(account_files), nick or "未知")
+                    await self._upload_single(
+                        video_path=video_path,
+                        cookie_path=cookie_path,
+                        title=title,
+                        desc=desc,
+                        tags=tags,
+                        thumbnail_path=cover_path,
+                        author_declaration=author_declaration,
+                        publish_date=pub_date,
+                        enable_timer=enable_timer,
+                    )
+
+        logger.info("=" * 60)
+        logger.info("[发布视频] 视频发布流程完成!")
+        logger.info("=" * 60)
 
     # ------------------------------------------------------------------
     # Single upload
@@ -522,7 +582,8 @@ class KuaishouPlatform(BasePlatform):
 
             await page.goto(_KS_UPLOAD_URL)
             await page.wait_for_url(_KS_UPLOAD_URL_PATTERN)
-            logger.info(f"[kuaishou] uploading: {title}")
+            logger.info("[上传视频] 开始上传视频: %s", title)
+            logger.info("[上传视频] 正在上传视频文件...")
 
             # ------ Upload video via file chooser ------
             upload_button = page.locator("button[class^='_upload-btn']")
@@ -532,6 +593,7 @@ class KuaishouPlatform(BasePlatform):
                 await upload_button.click()
             file_chooser = await fc_info.value
             await file_chooser.set_files(video_path)
+            logger.info("[上传视频] 视频文件已选择，等待上传完成...")
 
             await asyncio.sleep(2)
 
@@ -547,16 +609,17 @@ class KuaishouPlatform(BasePlatform):
             await self._close_guide_overlay(page)
 
             # ------ Fill description + tags ------
-            logger.info("[kuaishou] filling description and tags")
+            logger.info("[填写简介] 开始填写简介与标签...")
             await page.get_by_text("描述").locator("xpath=following-sibling::div").click()
             await page.keyboard.press("Backspace")
             await page.keyboard.press("Control+KeyA")
             await page.keyboard.press("Delete")
             await page.keyboard.type(desc or title)
             await page.keyboard.press("Enter")
+            logger.info("[填写简介] 简介填写完成")
 
             for tag in tags[:3]:
-                logger.info(f"[kuaishou] adding tag: #{tag}")
+                logger.info("[填写标签] 添加标签: #%s", tag)
                 await page.keyboard.type(f"#{tag} ")
                 await asyncio.sleep(2)
 
@@ -565,12 +628,12 @@ class KuaishouPlatform(BasePlatform):
             while True:
                 try:
                     if await page.locator("text=上传中").count() == 0:
-                        logger.info("[kuaishou] video upload complete")
+                        logger.info("[上传视频] 视频上传成功!")
                         break
                     if retry % 15 == 0:
-                        logger.info("[kuaishou] still uploading... (retry=%d)", retry)
+                        logger.info("[上传视频] 仍在上传中... (第 %d 次重试)", retry)
                     if await page.locator("text=上传失败").count():
-                        logger.info("[kuaishou] upload failed, retrying...")
+                        logger.info("[上传视频] 上传失败，正在重试...")
                         await page.locator(
                             'div.progress-div [class^="upload-btn-input"]'
                         ).set_input_files(video_path)
@@ -580,21 +643,29 @@ class KuaishouPlatform(BasePlatform):
                 retry += 1
 
             # ------ Set thumbnail ------
-            logger.info(f"[kuaishou] thumbnail_path: {thumbnail_path}")
+            logger.info("[设置封面] 封面路径: %s", thumbnail_path)
             if thumbnail_path:
+                logger.info("[设置封面] 开始设置视频封面...")
                 await self._set_thumbnail(page, thumbnail_path)
+                logger.info("[设置封面] 封面设置完成")
             else:
-                logger.info("[kuaishou] no thumbnail_path provided, skipping cover setting")
+                logger.info("[设置封面] 未提供封面路径, 跳过封面设置")
 
-            # ------ Set author declaration ------
-            if author_declaration:
+            # ------ Set author declaration（值为「无需声明」或空时跳过）------
+            if author_declaration and author_declaration != _DECLARATION_NONE:
+                logger.info("[作者声明] 开始设置作者声明: %s", author_declaration)
                 await self._set_author_declaration(page, author_declaration)
+            elif author_declaration == _DECLARATION_NONE:
+                logger.info("[作者声明] 选择「内容无需添加声明」，跳过设置")
 
             # ------ Set schedule time ------
             if enable_timer and publish_date and publish_date != 0:
+                logger.info("[定时发布] 开始设置定时发布...")
                 await self._set_schedule_time(page, publish_date)
+                logger.info("[定时发布] 定时发布设置完成")
 
             # ------ Click publish ------
+            logger.info("[发布] 正在点击发布按钮...")
             while True:
                 try:
                     publish_btn = page.get_by_text("发布", exact=True)
@@ -607,10 +678,10 @@ class KuaishouPlatform(BasePlatform):
                         await confirm_btn.click()
 
                     await page.wait_for_url(_KS_MANAGE_URL_PATTERN, timeout=5000)
-                    logger.info("[kuaishou] video published successfully")
+                    logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
                     break
                 except Exception as exc:
-                    logger.info(f"[kuaishou] publish retry: {exc}")
+                    logger.info("[发布] 发布重试: %s", exc)
                     await asyncio.sleep(1)
 
             upload_success = True
@@ -618,7 +689,7 @@ class KuaishouPlatform(BasePlatform):
             if upload_success:
                 try:
                     await context.storage_state(path=cookie_path)
-                    logger.info("[kuaishou] cookie updated")
+                    logger.info("[发布] Cookie状态已更新")
                 except Exception:
                     pass
                 await asyncio.sleep(2)
@@ -677,44 +748,44 @@ class KuaishouPlatform(BasePlatform):
         Flow: hover cover area -> click "封面设置" -> modal ->
         "上传封面" tab -> upload image -> confirm.
         """
-        logger.info(f"[kuaishou] setting thumbnail: {thumbnail_path}")
+        logger.info("[封面] 开始设置视频封面: %s", thumbnail_path)
         try:
             # 1. Hover over cover area to reveal "封面设置" overlay
             cover_area = page.locator("div[class*='default-cover']").first
-            logger.info(f"[kuaishou] hovering over cover area...")
+            logger.info("[封面] 正在悬停封面区域...")
             await cover_area.hover()
             await asyncio.sleep(1.5)
 
             # 2. Click "封面设置" text to open modal
             cover_editor = page.locator("div[class*='cover-full-editor']").first
-            logger.info(f"[kuaishou] clicking '封面设置'...")
+            logger.info("[封面] 正在点击 '封面设置'...")
             await cover_editor.wait_for(state="visible", timeout=10000)
             await cover_editor.click()
 
             # 3. Wait for modal
             modal = page.locator('div[role="document"].ant-modal:visible')
-            logger.info(f"[kuaishou] waiting for modal...")
+            logger.info("[封面] 等待弹窗出现...")
             await modal.wait_for(state="visible", timeout=30000)
             await asyncio.sleep(1)
 
             # 4. Click "上传封面" tab
             upload_tab = modal.locator("div[class*='header-title-item']").nth(1)
-            logger.info(f"[kuaishou] clicking '上传封面' tab...")
+            logger.info("[封面] 正在点击 '上传封面' tab...")
             await upload_tab.wait_for(state="visible", timeout=10000)
             await upload_tab.click()
             await asyncio.sleep(1)
 
             # 5. Find hidden file input and upload image
             file_input = modal.locator("input[type='file']")
-            logger.info(f"[kuaishou] uploading cover image...")
+            logger.info("[封面] 正在上传封面图片...")
             await file_input.wait_for(state="attached", timeout=30000)
             await file_input.set_input_files(thumbnail_path)
-            logger.info(f"[kuaishou] cover image uploaded, waiting for processing...")
+            logger.info("[封面] 封面图片已上传, 等待处理...")
             await asyncio.sleep(3)
 
             # 6. Click "确认" or "完成" button
             confirm_btn = modal.locator("button:has-text('确认'), button:has-text('完成')").first
-            logger.info(f"[kuaishou] clicking confirm button...")
+            logger.info("[封面] 正在点击确认按钮...")
             await confirm_btn.wait_for(state="visible", timeout=10000)
             await confirm_btn.click()
             await asyncio.sleep(2)
@@ -725,9 +796,9 @@ class KuaishouPlatform(BasePlatform):
             except Exception:
                 pass
 
-            logger.info("[kuaishou] thumbnail set successfully")
+            logger.info("[封面] 封面设置成功")
         except Exception as exc:
-            logger.info(f"[kuaishou] thumbnail failed (non-fatal): {exc}")
+            logger.info("[封面] 封面设置失败 (非致命): %s", exc)
 
     # ------------------------------------------------------------------
     # Helper: set image cover (image note)
@@ -736,7 +807,7 @@ class KuaishouPlatform(BasePlatform):
     @staticmethod
     async def _set_image_cover(page, cover_path: str):
         """点击「编辑封面」按钮 → 上传封面图 → 确认。"""
-        logger.info("[kuaishou] setting image cover: %s", cover_path)
+        logger.info("[封面] 开始设置图集封面: %s", cover_path)
         try:
             edit_btn = page.get_by_text("编辑封面", exact=True)
             await edit_btn.wait_for(state="visible", timeout=10000)
@@ -766,9 +837,9 @@ class KuaishouPlatform(BasePlatform):
                 await modal.wait_for(state="hidden", timeout=30000)
             except Exception:
                 pass
-            logger.info("[kuaishou] image cover set successfully")
+            logger.info("[封面] 图集封面设置成功")
         except Exception as exc:
-            logger.info(f"[kuaishou] image cover failed (non-fatal): {exc}")
+            logger.info("[封面] 图集封面设置失败 (非致命): %s", exc)
 
     # ------------------------------------------------------------------
     # Helper: set image music (image note)
@@ -777,7 +848,7 @@ class KuaishouPlatform(BasePlatform):
     @staticmethod
     async def _set_image_music(page, music_id: str, music_title: str = ""):
         """点击「添加音乐」→ 抽屉内搜索 → 按 musicId/music_title 匹配 → 点「添加」。"""
-        logger.info("[kuaishou] setting image music: id=%s, title=%s", music_id, music_title)
+        logger.info("[设置音乐] 开始设置图集音乐: id=%s, 标题=%s", music_id, music_title)
         try:
             # 点击「添加音乐」按钮（和音乐搜索组件保持一致：找 div:text-is 的父级）
             text_div = page.locator("div:text-is('添加音乐')").first
@@ -811,21 +882,21 @@ class KuaishouPlatform(BasePlatform):
                 all_cards = drawer.locator("div[class*='item'], div[class*='card']")
                 if await all_cards.count():
                     target_card = all_cards.first
-                    logger.warning("[kuaishou] music title not exact match, using first card")
+                    logger.warning("[设置音乐] 音乐标题未精确匹配, 使用第一个卡片")
 
             if target_card and await target_card.count():
                 add_btn = target_card.locator("div:has-text('添加'), button:has-text('添加')").last
                 await add_btn.click(force=True)
                 await asyncio.sleep(2)
-                logger.info("[kuaishou] music added")
+                logger.info("[设置音乐] 音乐已添加")
             else:
-                logger.warning("[kuaishou] no music card found")
+                logger.warning("[设置音乐] 未找到音乐卡片")
 
             close_btn = page.locator("div.ant-drawer-close").first
             if await close_btn.count():
                 await close_btn.click(force=True)
         except Exception as exc:
-            logger.info(f"[kuaishou] image music failed (non-fatal): {exc}")
+            logger.info("[设置音乐] 图集音乐设置失败 (非致命): %s", exc)
 
     # ------------------------------------------------------------------
     # Helper: set author declaration (ant-select dropdown)
@@ -846,8 +917,18 @@ class KuaishouPlatform(BasePlatform):
                 <span class="ant-select-selection-placeholder">为作品添加补充说明</span>
               </div>
             </div>
+
+        行为约定:
+        - author_declaration 为空或等于 _DECLARATION_NONE 时直接跳过(已在上层守卫,此处防御)。
+        - 打开下拉框后若没有匹配的选项(快手改版/该账号无此声明),主动收起下拉框并跳过,
+          不视为错误 —— 用户要求「没找到匹配项就不强制选择」。
         """
-        logger.info(f"[kuaishou] setting author declaration: {author_declaration}")
+        # 防御:空或「无需声明」直接跳过(正常情况下上层调用点已守卫)
+        if not author_declaration or author_declaration == _DECLARATION_NONE:
+            logger.info("[作者声明] 无需设置作者声明，跳过")
+            return
+
+        logger.info("[作者声明] 开始设置作者声明: %s", author_declaration)
         try:
             select_clicked = False
 
@@ -895,21 +976,32 @@ class KuaishouPlatform(BasePlatform):
                         break
 
             if not select_clicked:
-                logger.info("[kuaishou] author declaration dropdown not found, skipping")
+                logger.info("[作者声明] 未找到作者声明下拉框, 跳过")
                 return
 
             await asyncio.sleep(1)
 
             # Select matching option
+            # 先用短超时探测匹配项是否存在;不存在则收起下拉框并跳过(非错误)。
             option = page.locator(
                 f"div.ant-select-item-option:has-text('{author_declaration}')"
             ).first
-            await option.wait_for(state="visible", timeout=5000)
+            if not await option.count():
+                logger.info(
+                    "[作者声明] 下拉框中未找到匹配选项「%s」，收起并跳过",
+                    author_declaration,
+                )
+                # 点击空白处收起下拉框，避免遮挡后续操作
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                return
             await option.click()
-            logger.info(f"[kuaishou] author declaration set: {author_declaration}")
+            logger.info("[作者声明] 作者声明已设置: %s", author_declaration)
             await asyncio.sleep(1)
         except Exception as exc:
-            logger.info(f"[kuaishou] author declaration failed (non-fatal): {exc}")
+            logger.info("[作者声明] 作者声明设置失败 (非致命): %s", exc)
 
     # ------------------------------------------------------------------
     # Helper: set schedule time (ant-radio + ant-picker)
@@ -918,7 +1010,7 @@ class KuaishouPlatform(BasePlatform):
     @staticmethod
     async def _set_schedule_time(page, publish_date):
         """Set scheduled publish time via ant-radio and ant-picker."""
-        logger.info(f"[kuaishou] setting schedule time: {publish_date}")
+        logger.info("[定时发布] 设置定时发布时间: %s", publish_date)
         date_str = publish_date.strftime("%Y-%m-%d %H:%M:%S")
 
         # Select the "scheduled" radio option (second one)

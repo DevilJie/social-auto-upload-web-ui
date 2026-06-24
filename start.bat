@@ -1,7 +1,5 @@
 @echo off
-:: 强制切换 UTF-8 编码(避免 Windows 默认 GBK 编码导致中文乱码)
-:: 一些 cmd 宿主(chcp 输出被吞)会忽略>nul,这里不重定向 2>&1 让错误可见
-chcp 65001 >nul
+chcp 65001 >nul 2>&1
 setlocal EnableDelayedExpansion
 
 :: ============================================================
@@ -39,15 +37,7 @@ if not exist "%BACKEND_DIR%" (
     rem 首次使用：没有项目代码，从 GitHub 克隆
     where git >nul 2>&1
     if !errorlevel! neq 0 (
-        echo.
-        echo   [错误] 未找到 git，且当前目录没有项目代码
-        echo.
-        echo   解决方案（二选一）:
-        echo     1) 安装 git for Windows 后重试: https://git-scm.com/download/win
-        echo     2) 手动从 GitHub 下载代码包（zip/tar.gz）并解压到当前目录
-        echo        下载地址: %REPO_URL%
-        echo        选择 "Download ZIP" 后解压即可
-        echo.
+        echo   X 未找到 git，无法克隆项目代码
         pause
         exit /b 1
     )
@@ -59,7 +49,7 @@ if not exist "%BACKEND_DIR%" (
     git fetch
     git fetch origin "%MAIN_BRANCH%"
     if !errorlevel! neq 0 (
-        echo   [错误] 无法连接 GitHub，请检查网络连接
+        echo   X 无法连接 GitHub，请检查网络连接
         echo     如果无法访问 GitHub，请手动下载项目代码到当前目录
         echo     仓库地址: %REPO_URL%
         pause
@@ -72,7 +62,7 @@ if not exist "%BACKEND_DIR%" (
     exit /b
 )
 
-:: 已有项目代码：检查 master 分支是否有更新（仅当 .git 存在时）
+:: 已有项目代码：检查 master 分支是否有更新
 if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
@@ -96,9 +86,6 @@ if exist "%PROJECT_ROOT%\.git" (
                 )
             )
         )
-    ) else (
-        echo   [提示] 未找到 git，跳过版本检查（使用现有代码继续启动）
-        echo.
     )
 )
 

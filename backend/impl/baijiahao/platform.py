@@ -199,6 +199,14 @@ class BaijiahaoPlatform(BasePlatform):
         - ``supplementary_declaration`` (*str*, optional)
         - ``ai_content`` (*bool*, optional)
         """
+        # ===== 前置校验:描述+标签总字符 ≤ 50(emoji 按 3 算),最多 10 标签 =====
+        desc = kwargs.get("desc", "") or ""
+        tags = kwargs.get("tags", []) or []
+        ok, err = self._validate_publish_params(desc, tags)
+        if not ok:
+            logger.error("[发布视频] 百家号前置校验失败: %s", err)
+            raise ValueError(err)
+
         asyncio.run(self._upload_all(**kwargs))
         return True
 
@@ -475,6 +483,45 @@ class BaijiahaoPlatform(BasePlatform):
                 await context.close()
         finally:
             await browser.close()
+
+    # ------------------------------------------------------------------
+    # Helper: 前置校验 - 描述+标签总字符 ≤50(emoji 按 3 算),最多 10 标签
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _count_chars(s: str) -> int:
+        """按百家号规则计算字符数:中文/字母=1,emoji=3。"""
+        n = 0
+        for ch in s:
+            # emoji 通常以 surrogate pair 或 grapheme cluster 出现,这里简化按 codepoint 判断
+            if ord(ch) > 0xFFFF:
+                n += 3
+            else:
+                n += 1
+        return n
+
+    @staticmethod
+    def _validate_publish_params(desc: str, tags: list) -> tuple[bool, str]:
+        """校验描述+标签,返回 (ok, msg)。
+
+        规则:
+        - 标签数 ≤ 10
+        - 描述 + ' ' + ' '.join(f'#{t}' for t in tags) 总字符数 ≤ 50(emoji=3)
+        """
+        if tags and len(tags) > 10:
+            return False, f"百家号最多 10 个标签,当前 {len(tags)} 个"
+
+        # 模拟前端拼装(与 _add_title_tags 行为一致)
+        parts = [desc or ""]
+        if tags:
+            parts.append(" ".join(f"#{t}" for t in tags))
+        full = " ".join(p for p in parts if p).strip()
+        char_count = BaijiahaoPlatform._count_chars(full)
+        if char_count > 50:
+            return False, (
+                f"百家号描述+标签总字符数 {char_count} 超过 50(emoji 按 3 算),请精简"
+            )
+        return True, ""
 
     # ------------------------------------------------------------------
     # Helper: wait for video upload to complete

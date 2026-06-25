@@ -1579,6 +1579,36 @@ async function publishAll() {
     errors.push({ type: '视频校验', accounts: accountsVideoInvalid })
   }
 
+  // ===== 百家号专属校验:描述+标签总字符 ≤ 50(emoji 按 3 算),最多 10 标签 =====
+  const baijiahaoAccountsNoTag = []   // 标签过多的账号
+  for (const group of accountGroups.value) {
+    if (group.key !== 'baijiahao') continue
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      const merged = resolveAccountConfig('baijiahao', account.id)
+      const desc = merged.description || ''
+      const tags = merged.tags || []
+      if (tags.length > 10) {
+        baijiahaoAccountsNoTag.push(`${account.name}(百家号) 最多 10 个标签,当前 ${tags.length} 个`)
+        continue
+      }
+      // 计算 desc + tags 拼接后的总字符数(emoji=3)
+      const parts = [desc]
+      if (tags.length > 0) parts.push(tags.map(t => `#${t}`).join(' '))
+      const full = parts.filter(Boolean).join(' ').trim()
+      let charCount = 0
+      for (const ch of full) {
+        charCount += ch.codePointAt(0) > 0xFFFF ? 3 : 1
+      }
+      if (charCount > 50) {
+        baijiahaoAccountsNoTag.push(`${account.name}(百家号) 描述+标签共 ${charCount} 字符,超过 50`)
+      }
+    }
+  }
+  if (baijiahaoAccountsNoTag.length > 0) {
+    errors.push({ type: '百家号描述/标签', accounts: baijiahaoAccountsNoTag })
+  }
+
   if (errors.length > 0) {
     const maxShow = 3
     const body = errors.map(e => {

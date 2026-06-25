@@ -10,7 +10,7 @@ VIDEO_LIMITS: dict[str, dict] = {
     "iqiyi":         {"min_duration": 5,    "max_duration": 3600,             "max_size": 16 * 1024**3},  # 5s~60min,  16G
     "douyin":        {"min_duration": 5,    "max_duration": 3600,             "max_size": 16 * 1024**3},  # 5s~60min,  16G
     "baijiahao":     {"min_duration": 5,    "max_duration": math.inf,         "max_size": 12 * 1024**3},  # 5s~无,   12G
-    "weibo":         {"min_duration": 15,   "max_duration": math.inf,         "max_size": 15 * 1024**3},  # 15s~无,  15G
+    "weibo":         {"min_duration": 0,    "max_duration": math.inf,         "max_size": 15 * 1024**3},  # 无时长下限,  15G
     "kuaishou":      {"min_duration": 5,    "max_duration": 3600,             "max_size": 12 * 1024**3},  # 5s~60min,  12G
     "bilibili":      {"min_duration": 5,    "max_duration": 36000,            "max_size": 16 * 1024**3},  # 5s~600min,16G
     "xiaohongshu":   {"min_duration": 5,    "max_duration": 14400,            "max_size": 20 * 1024**3},  # 5s~240min,20G

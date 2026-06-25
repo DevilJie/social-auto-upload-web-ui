@@ -98,24 +98,39 @@ export function validateVideoForPlatform(platformKey, durationSec, sizeBytes) {
 }
 
 /**
+ * 按平台规则计算字符数：BMP 字符 = 1，emoji 等非 BMP 字符 = 3。
+ * 用于标题/描述长度校验。JS 字符串的 .length 是 UTF-16 单元数（emoji 是 2），
+ * 也不能直接用 codepoint 数（emoji 是 1），所以用遍历算。
+ */
+function countCharsWithEmoji(s) {
+  if (!s) return 0
+  let n = 0
+  for (const ch of s) {
+    n += ch.codePointAt(0) > 0xFFFF ? 3 : 1
+  }
+  return n
+}
+
+/**
  * 校验标题是否符合平台限制
  * @param {string} platformKey
  * @param {string} title
- * @returns {{ ok: boolean, error: string, maxLength: number }}
+ * @returns {{ ok: boolean, error: string, maxLength: number, actualLength: number }}
  */
 export function validateTitleForPlatform(platformKey, title) {
   const limits = VIDEO_LIMITS[platformKey]
-  if (!limits) return { ok: true, error: '', maxLength: Infinity }
+  if (!limits) return { ok: true, error: '', maxLength: Infinity, actualLength: 0 }
   const name = PLATFORM_NAMES[platformKey] || platformKey
   const max = limits.maxTitleLength
-  if (max === Infinity) return { ok: true, error: '', maxLength: Infinity }
-  const len = (title || '').length
+  const len = countCharsWithEmoji(title)
+  if (max === Infinity) return { ok: true, error: '', maxLength: Infinity, actualLength: len }
   if (len > max) {
     return {
       ok: false,
       maxLength: max,
-      error: `${name}：标题 ${len} 字超过限制 (最多 ${max} 字)`,
+      actualLength: len,
+      error: `${name}：标题 ${len} 字超过限制 (最多 ${max} 字,emoji 按 3 算)`,
     }
   }
-  return { ok: true, error: '', maxLength: max }
+  return { ok: true, error: '', maxLength: max, actualLength: len }
 }

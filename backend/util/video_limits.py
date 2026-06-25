@@ -116,6 +116,8 @@ def validate_title_for_platform(platform_key: str, title: str) -> tuple[bool, st
     Returns:
         (ok, error_msg). error_msg 为空时表示通过。
         未配置的平台默认放行(无标题长度限制)。
+
+    字符计算规则:BMP 字符 = 1,emoji 等非 BMP 字符 = 3。
     """
     limits = VIDEO_LIMITS.get(platform_key)
     if limits is None:
@@ -126,9 +128,13 @@ def validate_title_for_platform(platform_key: str, title: str) -> tuple[bool, st
     if max_len == math.inf:
         return True, ""
 
-    title_len = len(title or "")
+    # 按 emoji=3 规则计算字符数
+    title_len = 0
+    for ch in (title or ""):
+        title_len += 3 if ord(ch) > 0xFFFF else 1
+
     if title_len > max_len:
         return False, (
-            f"{name}：标题 {title_len} 字超过限制 (最多 {max_len} 字)"
+            f"{name}：标题 {title_len} 字超过限制 (最多 {max_len} 字,emoji 按 3 算)"
         )
     return True, ""

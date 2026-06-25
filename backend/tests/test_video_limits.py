@@ -172,3 +172,45 @@ def test_validate_title_unknown_platform_ok():
     ok, msg = validate_title_for_platform("unknown_platform", "a" * 999)
     assert ok is True
     assert msg == ""
+
+
+# ----- 字符计数 emoji=3 规则 -----
+
+def test_validate_title_emoji_counts_3_per_char():
+    """emoji 每个计 3 字:7 个 emoji = 21 字,小红书 20 字限制应拦截"""
+    # 🎉 是非 BMP 字符(codepoint 0x1F389,> 0xFFFF)
+    title = "🎉" * 7  # 实际长度 21 字(7×3)
+    ok, msg = validate_title_for_platform("xiaohongshu", title)
+    assert ok is False
+    assert "21" in msg
+    assert "20" in msg
+
+
+def test_validate_title_mixed_ascii_emoji():
+    """6 个 ASCII + 5 个 emoji = 6 + 15 = 21 字,小红书 20 字限制应拦截"""
+    title = "a" * 6 + "🎉" * 5  # 21 字
+    ok, msg = validate_title_for_platform("xiaohongshu", title)
+    assert ok is False
+    assert "21" in msg
+
+
+def test_validate_title_emoji_exactly_at_limit():
+    """6 个 ASCII + 4 个 emoji = 6 + 12 = 18 字,应通过"""
+    title = "a" * 6 + "🎉" * 4  # 18 字
+    ok, msg = validate_title_for_platform("xiaohongshu", title)
+    assert ok is True
+
+
+def test_validate_title_tencent_emoji_count():
+    """腾讯视频:80 字限制,75 个 ASCII + 2 个 emoji = 75+6=81,应拦截"""
+    title = "a" * 75 + "🎉" * 2  # 81 字
+    ok, msg = validate_title_for_platform("tencent_video", title)
+    assert ok is False
+    assert "81" in msg
+
+
+def test_validate_title_tencent_emoji_ok():
+    """腾讯视频:80 字限制,74 个 ASCII + 2 个 emoji = 74+6=80,刚好通过"""
+    title = "a" * 74 + "🎉" * 2  # 80 字
+    ok, msg = validate_title_for_platform("tencent_video", title)
+    assert ok is True

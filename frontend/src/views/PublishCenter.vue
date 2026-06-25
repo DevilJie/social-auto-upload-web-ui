@@ -490,7 +490,7 @@ import { getFileUrl } from '@/utils/storage'
 import { http } from '@/utils/request'
 import { accountApi } from '@/api/account'
 import { platformList, getPlatformByKey, platformKeyToId, platformNameToKey } from '@/config/platforms'
-import { validateVideoForPlatform } from '@/config/videoLimits'
+import { validateVideoForPlatform, validateTitleForPlatform } from '@/config/videoLimits'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
@@ -1567,6 +1567,12 @@ async function publishAll() {
       if (!video || !video.duration || video.duration === 0) {
         // 未上传视频的账号：跳过（必填标题会先拦住）
         continue
+      }
+
+      // 标题长度校验（如小红书 ≤ 20 字）
+      const titleResult = validateTitleForPlatform(platformKey, merged.title)
+      if (!titleResult.ok) {
+        accountsVideoInvalid.push(`${account.name}(${group.name}): ${titleResult.error}`)
       }
 
       const result = validateVideoForPlatform(platformKey, video.duration, video.size || 0)

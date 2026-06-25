@@ -1,6 +1,9 @@
 """视频校验规则单元测试"""
 import math
-from util.video_limits import VIDEO_LIMITS, validate_video_for_platform, _format_size, _format_duration
+from util.video_limits import (
+    VIDEO_LIMITS, validate_video_for_platform, validate_title_for_platform,
+    _format_size, _format_duration,
+)
 
 
 # ----- 平台规则完整性 -----
@@ -116,3 +119,42 @@ def test_format_duration_inf_returns_unknown():
     assert _format_duration(float("inf")) == "未知"
     assert _format_duration(float("nan")) == "未知"
     assert _format_duration(-10) == "未知"
+
+
+# ----- 标题长度校验 -----
+
+def test_xiaohongshu_title_max_20():
+    """小红书标题最多 20 字"""
+    assert VIDEO_LIMITS["xiaohongshu"]["max_title_length"] == 20
+
+
+def test_validate_title_xiaohongshu_ok():
+    ok, msg = validate_title_for_platform("xiaohongshu", "a" * 20)
+    assert ok is True
+    assert msg == ""
+
+
+def test_validate_title_xiaohongshu_over_20():
+    ok, msg = validate_title_for_platform("xiaohongshu", "a" * 21)
+    assert ok is False
+    assert "20" in msg
+    assert "21" in msg
+
+
+def test_validate_title_xiaohongshu_empty():
+    ok, msg = validate_title_for_platform("xiaohongshu", "")
+    assert ok is True
+
+
+def test_validate_title_other_platform_unlimited():
+    """未限制标题长度的平台(除小红书外)默认放行"""
+    for k in ("douyin", "weibo", "kuaishou", "alipay"):
+        ok, _ = validate_title_for_platform(k, "a" * 500)
+        assert ok is True, f"{k} 应该有无限标题长度"
+
+
+def test_validate_title_unknown_platform_ok():
+    """未配置的平台:放行"""
+    ok, msg = validate_title_for_platform("unknown_platform", "a" * 999)
+    assert ok is True
+    assert msg == ""

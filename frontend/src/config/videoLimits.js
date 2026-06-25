@@ -9,18 +9,18 @@ const MB = 1024 * 1024
 const GB = 1024 * 1024 * 1024
 
 export const VIDEO_LIMITS = {
-  tencent_video: { minDuration: 5,    maxDuration: 5400,         maxSize: 20 * GB },
-  iqiyi:         { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB },
-  douyin:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB },
-  baijiahao:     { minDuration: 5,    maxDuration: Infinity,     maxSize: 12 * GB },
-  weibo:         { minDuration: 0,    maxDuration: Infinity,     maxSize: 15 * GB },
-  kuaishou:      { minDuration: 5,    maxDuration: 3600,         maxSize: 12 * GB },
-  bilibili:      { minDuration: 5,    maxDuration: 36000,        maxSize: 16 * GB },
-  xiaohongshu:   { minDuration: 5,    maxDuration: 14400,        maxSize: 20 * GB },
-  channels:      { minDuration: 5,    maxDuration: 28800,        maxSize: 20 * GB },
-  tiktok:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB },
-  youtube:       { minDuration: 5,    maxDuration: 36000,        maxSize: 16 * GB },
-  alipay:        { minDuration: 5,    maxDuration: Infinity,     maxSize: 8 * GB },   // 文档:≤8G,时长不限
+  tencent_video: { minDuration: 5,    maxDuration: 5400,         maxSize: 20 * GB, maxTitleLength: Infinity },
+  iqiyi:         { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
+  douyin:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
+  baijiahao:     { minDuration: 5,    maxDuration: Infinity,     maxSize: 12 * GB, maxTitleLength: Infinity },
+  weibo:         { minDuration: 0,    maxDuration: Infinity,     maxSize: 15 * GB, maxTitleLength: Infinity },
+  kuaishou:      { minDuration: 5,    maxDuration: 3600,         maxSize: 12 * GB, maxTitleLength: Infinity },
+  bilibili:      { minDuration: 5,    maxDuration: 36000,        maxSize: 16 * GB, maxTitleLength: Infinity },
+  xiaohongshu:   { minDuration: 5,    maxDuration: 14400,        maxSize: 20 * GB, maxTitleLength: 20 },
+  channels:      { minDuration: 5,    maxDuration: 28800,        maxSize: 20 * GB, maxTitleLength: Infinity },
+  tiktok:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
+  youtube:       { minDuration: 5,    maxDuration: 36000,        maxSize: 16 * GB, maxTitleLength: Infinity },
+  alipay:        { minDuration: 5,    maxDuration: Infinity,     maxSize: 8 * GB,  maxTitleLength: Infinity },   // 文档:≤8G,时长不限
 }
 
 const PLATFORM_NAMES = {
@@ -95,4 +95,27 @@ export function validateVideoForPlatform(platformKey, durationSec, sizeBytes) {
     }
   }
   return { ok: true, error: '' }
+}
+
+/**
+ * 校验标题是否符合平台限制
+ * @param {string} platformKey
+ * @param {string} title
+ * @returns {{ ok: boolean, error: string, maxLength: number }}
+ */
+export function validateTitleForPlatform(platformKey, title) {
+  const limits = VIDEO_LIMITS[platformKey]
+  if (!limits) return { ok: true, error: '', maxLength: Infinity }
+  const name = PLATFORM_NAMES[platformKey] || platformKey
+  const max = limits.maxTitleLength
+  if (max === Infinity) return { ok: true, error: '', maxLength: Infinity }
+  const len = (title || '').length
+  if (len > max) {
+    return {
+      ok: false,
+      maxLength: max,
+      error: `${name}：标题 ${len} 字超过限制 (最多 ${max} 字)`,
+    }
+  }
+  return { ok: true, error: '', maxLength: max }
 }

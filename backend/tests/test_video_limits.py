@@ -27,9 +27,9 @@ def test_baijiahao_unlimited_duration():
     assert VIDEO_LIMITS["baijiahao"]["max_duration"] == math.inf
 
 
-def test_weibo_min_15_seconds():
-    """微博最小 15 秒"""
-    assert VIDEO_LIMITS["weibo"]["min_duration"] == 15
+def test_weibo_no_min_duration():
+    """微博无最小时长限制"""
+    assert VIDEO_LIMITS["weibo"]["min_duration"] == 0
 
 
 # ----- validate_video_for_platform 逻辑 -----
@@ -41,10 +41,10 @@ def test_validate_ok_within_range():
 
 
 def test_validate_fail_below_min_duration():
-    ok, msg = validate_video_for_platform("weibo", 10, 100 * 1024**2)
+    """微博已放开最小时长,改用有最低时长限制的平台(抖音 min=5)测"""
+    ok, msg = validate_video_for_platform("douyin", 3, 100 * 1024**2)
     assert ok is False
-    assert "微博" in msg
-    assert "15" in msg
+    assert "抖音" in msg
 
 
 def test_validate_fail_above_max_duration():

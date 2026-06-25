@@ -9,7 +9,7 @@ const MB = 1024 * 1024
 const GB = 1024 * 1024 * 1024
 
 export const VIDEO_LIMITS = {
-  tencent_video: { minDuration: 5,    maxDuration: 5400,         maxSize: 20 * GB, maxTitleLength: Infinity },
+  tencent_video: { minDuration: 5,    maxDuration: 5400,         maxSize: 20 * GB, maxTitleLength: 80 },
   iqiyi:         { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
   douyin:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
   baijiahao:     { minDuration: 5,    maxDuration: Infinity,     maxSize: 12 * GB, maxTitleLength: Infinity },

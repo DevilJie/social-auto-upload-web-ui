@@ -23,6 +23,20 @@ def test_tencent_video_rules():
     assert limit["min_duration"] == 5
     assert limit["max_duration"] == 5400  # 90 * 60
     assert limit["max_size"] == 20 * 1024**3
+    assert limit["max_title_length"] == 80  # 腾讯视频标题 ≤ 80 字
+
+
+def test_validate_title_tencent_video_ok():
+    ok, msg = validate_title_for_platform("tencent_video", "a" * 80)
+    assert ok is True
+    assert msg == ""
+
+
+def test_validate_title_tencent_video_over_80():
+    ok, msg = validate_title_for_platform("tencent_video", "a" * 81)
+    assert ok is False
+    assert "80" in msg
+    assert "81" in msg
 
 
 def test_baijiahao_unlimited_duration():

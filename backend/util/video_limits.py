@@ -6,7 +6,7 @@ import math
 # 单位：秒 / bytes
 # 数字必须与 docs/superpowers/specs/2026-06-19-video-validation-and-required-fields-design.md 第 2 节一致
 VIDEO_LIMITS: dict[str, dict] = {
-    "tencent_video": {"min_duration": 5,    "max_duration": 5400,             "max_size": 20 * 1024**3, "max_title_length": math.inf},  # 5s~90min,  20G
+    "tencent_video": {"min_duration": 5,    "max_duration": 5400,             "max_size": 20 * 1024**3, "max_title_length": 80},           # 5s~90min,  20G,标题≤80字
     "iqiyi":         {"min_duration": 5,    "max_duration": 3600,             "max_size": 16 * 1024**3, "max_title_length": math.inf},  # 5s~60min,  16G
     "douyin":        {"min_duration": 5,    "max_duration": 3600,             "max_size": 16 * 1024**3, "max_title_length": math.inf},  # 5s~60min,  16G
     "baijiahao":     {"min_duration": 5,    "max_duration": math.inf,         "max_size": 12 * 1024**3, "max_title_length": math.inf},  # 5s~无,   12G

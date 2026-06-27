@@ -21,6 +21,7 @@ logger = get_channel_logger("bilibili")
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -910,9 +911,8 @@ class BilibiliPlatform(BasePlatform):
         ).first
         if await desc_editor.count() > 0 and await desc_editor.is_visible():
             await desc_editor.click()
-            await page.keyboard.press("Control+KeyA")
-            await page.keyboard.press("Delete")
-            await page.keyboard.type(safe_desc, delay=10)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_and_type(page, safe_desc, delay=10)
         else:
             logger.info("[填写简介] description editor not found")
 

@@ -12,6 +12,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser, create_context, create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     scrape_user_profile,
     save_login_result,
@@ -942,11 +943,8 @@ async def _fill_desc(page, desc: str) -> None:
         logger.info("[填写描述] 描述含 #xxx,已规范化补空格: %r -> %r", desc, normalized)
     desc_el = page.locator('p[data-placeholder*="输入正文描述"]')
     await desc_el.click()
-    await page.keyboard.press("Backspace")
-    await page.keyboard.press("Control+KeyA")
-    await page.keyboard.press("Delete")
-    # type 带 delay 逐字符输入(更像真人,给 contenteditable 输入框处理时间)
-    await page.keyboard.type(normalized, delay=30)
+    # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+    await clear_and_type(page, normalized, delay=30)
     # 等待描述内容被输入框完全消化(contenteditable 异步更新,立即按空格可能丢失)
     await asyncio.sleep(1)
     # 描述输入完后触发一个空格(而非回车),让描述与后续 # 标签之间有分隔,

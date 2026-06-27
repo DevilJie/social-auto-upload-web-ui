@@ -597,9 +597,8 @@ class DouyinPlatform(BasePlatform):
         ).first
         await description_editor.wait_for(state="visible", timeout=10000)
         await description_editor.click()
-        await page.keyboard.press("Control+KeyA")
-        await page.keyboard.press("Delete")
-        # 修：strip 描述尾随空白，避免与首 tag 前的空格形成双空格，
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, description.strip())
         # 抖音编辑器会把 trailing space 后当成"句末"导致后续 hashtag 不识别
         clean_description = (description or "").rstrip()
         if clean_description:

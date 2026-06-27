@@ -15,6 +15,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -621,8 +622,8 @@ class TiktokPlatform(BasePlatform):
         logger.info("[填写标题] [_add_title_tags] clicking editor")
         await editor.click()
         logger.info("[填写标题] [_add_title_tags] clearing editor")
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Delete")
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, "")
 
         clean_title = (title or "").rstrip()
         if clean_title:

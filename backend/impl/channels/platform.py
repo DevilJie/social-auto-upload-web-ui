@@ -20,6 +20,7 @@ logger = get_channel_logger("channels")
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -243,7 +244,8 @@ async def _fill_description(page, desc: str) -> None:
     if not desc:
         return
     await page.locator("div.input-editor").click()
-    await page.keyboard.type(desc)
+    # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+    await clear_and_type(page, desc)
     logger.info(f"[填写简介] added description ({len(desc)} chars)")
 
 

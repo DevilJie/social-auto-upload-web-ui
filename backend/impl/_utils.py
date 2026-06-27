@@ -9,6 +9,7 @@ All functions use standard Playwright Page/Context APIs only.
 
 import asyncio
 import json
+import platform as _platform
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -892,3 +893,62 @@ PLATFORM_SCRAPE_FNS = {
     12: scrape_alipay_profile,      # Alipay
     13: scrape_toutiao_profile,     # Toutiao
 }
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform input helpers
+# ---------------------------------------------------------------------------
+
+_IS_MAC = _platform.system() == "Darwin"
+
+# 全选快捷键:Mac 用 Meta(Cmd)+A,其他系统用 Control+A
+_SELECT_ALL_KEY = "Meta+a" if _IS_MAC else "Control+a"
+
+
+async def clear_input(page, element=None):
+    """清空输入框内容(跨平台兼容)。
+
+    对 input/textarea 元素用 fill("") 清空(最稳定);
+    对 contenteditable 元素用 Ctrl/Cmd+A + Delete 清空。
+
+    Args:
+        page: Playwright page 对象
+        element: 可选,要清空的元素 locator。为 None 时对当前焦点元素操作。
+    """
+    if element is not None:
+        # 尝试用 fill("") 清空(input/textarea 最稳定)
+        try:
+            tag = await element.evaluate("el => el.tagName.toLowerCase()")
+            if tag in ("input", "textarea"):
+                await element.fill("")
+                return
+        except Exception:
+            pass
+        # contenteditable 或其他:点击聚焦 + 全选 + 删除
+        await element.click()
+        await asyncio.sleep(0.1)
+
+    # 全选 + 删除(跨平台)
+    await page.keyboard.press(_SELECT_ALL_KEY)
+    await asyncio.sleep(0.05)
+    await page.keyboard.press("Delete")
+    await asyncio.sleep(0.05)
+
+
+async def clear_and_type(page, text: str, element=None, delay: int = 0):
+    """清空输入框后输入新内容(跨平台兼容)。
+
+    先调用 clear_input 清空,再用 keyboard.type 输入。
+
+    Args:
+        page: Playwright page 对象
+        text: 要输入的文本
+        element: 可选,要操作的元素 locator
+        delay: 每字符延迟(ms),0 表示瞬间输入
+    """
+    await clear_input(page, element)
+    if text:
+        if delay > 0:
+            await page.keyboard.type(text, delay=delay)
+        else:
+            await page.keyboard.type(text)

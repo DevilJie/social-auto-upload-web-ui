@@ -18,6 +18,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -629,8 +630,8 @@ class DouyinPlatform(BasePlatform):
         publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
         await asyncio.sleep(1)
         await page.locator('.semi-input[placeholder="日期和时间"]').click()
-        await page.keyboard.press("Control+KeyA")
-        await page.keyboard.type(str(publish_date_hour))
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, str(publish_date_hour))
         await page.keyboard.press("Enter")
         await asyncio.sleep(1)
 

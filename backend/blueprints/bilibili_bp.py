@@ -1,14 +1,14 @@
 """B 站创作者平台相关 API 代理。
 
-仿 xiaohongshu_bp.py 的 DOM 解析模式:用 CloakBrowser 打开 B 站视频上传页 →
-直接点「请选择合集」入口 → 解析下拉 DOM 的 season-item-title 文本(合集名) →
+用 CloakBrowser 打开 B 站视频上传页 → 上传视频触发页面跳转到发布表单(不等上传完成) →
+点「请选择合集」入口 → 解析下拉 DOM 的 season-item-title 文本(合集名) →
 返回给前端下拉选项。
 
-B 站合集入口在上传页面打开时就存在,不需要先上传视频。
 开发阶段:有头模式,便于观察。
 """
 
 import asyncio
+import os
 import sqlite3
 from pathlib import Path
 
@@ -26,6 +26,23 @@ bilibili_bp = Blueprint('bilibili', __name__, url_prefix='/api/bilibili')
 
 # B 站视频上传页(与 impl/bilibili/platform.py 同源)
 _BILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
+
+# 测试视频候选路径(BASE_DIR 已是 .../data)
+_TEST_VIDEO_CANDIDATES = [
+    str(BASE_DIR / "materials" / "2026" / "06" / "19" / "legacy-e751bf81.mp4"),
+    str(Path(__file__).parent.parent / "scripts" / "legacy_fixture" / "videoFile" / "11111111-2222-3333-4444-555555555555_test1.mp4"),
+]
+
+
+def _pick_test_video() -> str:
+    """挑一个真实存在且非空(>100字节)的测试视频文件。"""
+    for p in _TEST_VIDEO_CANDIDATES:
+        try:
+            if os.path.isfile(p) and os.path.getsize(p) > 100:
+                return p
+        except OSError:
+            continue
+    return ""
 
 
 def _get_cookie_path(cookie_file: str) -> str:
@@ -120,14 +137,18 @@ def list_collections():
 
 
 async def _fetch_collections_via_browser(cookie_file: str) -> dict:
-    """打开 B 站视频上传页,直接点「请选择合集」解析下拉 DOM 拿合集列表。
+    """打开 B 站视频上传页,上传视频触发页面跳转到发布表单,然后解析合集下拉 DOM。
 
-    B 站合集入口在上传页面打开时就存在,不需要先上传视频。
+    B 站需要上传视频才能跳转到发布界面(合集入口在发布表单里),
+    但不需要等上传完成 —— 上传开始后页面就跳转,标题输入框出现即代表发布表单就绪。
+
     流程:
       1. 用账号 cookie 打开 B 站视频上传页
-      2. 直接点击「请选择合集」入口,展开合集选择浮层
-      3. 直接解析浮层 DOM 的 season-item-title 文本(合集名)
-      4. 不点选(仅取列表),返回结果
+      2. 上传测试视频(通过 iframe 或主页面的 input)
+      3. 等标题输入框出现(= 页面跳转到发布表单,不需要等上传完成)
+      4. 点击「请选择合集」入口,展开合集选择浮层
+      5. 直接解析浮层 DOM 的 season-item-title 文本(合集名)
+      6. 不点选(仅取列表),返回结果
 
     DOM 结构(需求文档):
       season-list > season-content > seasons > season-item > season-item-title(合集名)
@@ -153,7 +174,41 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
             except Exception as e:
                 logger.info(f"[合集列表] 页面加载(非致命): {e}")
 
-            # 2. 直接点击「请选择合集」入口(不需要上传视频,合集入口在页面打开时就存在)
+            # 2. 上传测试视频触发页面跳转到发布表单(不等上传完成)
+            # 完全复用 platform.py 的 _upload_video_file 同款逻辑
+            test_video = _pick_test_video()
+            if not test_video:
+                return {"success": False, "error": "未找到测试视频文件"}
+            logger.info(f"[合集列表] 上传测试视频触发页面跳转: {test_video}")
+
+            file_input = None
+            try:
+                upload_frame = page.frame_locator('iframe[name="videoUpload"]')
+                input_in_frame = upload_frame.locator('input[type="file"]')
+                await input_in_frame.wait_for(state="attached", timeout=5000)
+                file_input = input_in_frame
+            except Exception:
+                pass
+            if file_input is None:
+                file_input = page.locator(
+                    'input[type="file"][accept*="video"], input[type="file"]'
+                ).first
+                await file_input.wait_for(state="attached", timeout=10000)
+            await file_input.set_input_files(test_video)
+            logger.info("[合集列表] 视频已选择,等待页面跳转到发布表单...")
+
+            # 3. 等标题输入框出现(= 发布表单就绪,不需要等上传完成)
+            title_input = page.locator('input[placeholder*="标题"]').first
+            for _ in range(120):  # 最多等 60s
+                if await title_input.count() > 0:
+                    break
+                await asyncio.sleep(0.5)
+            else:
+                return {"success": False, "error": "页面未跳转到发布表单(标题输入框未出现)"}
+            logger.info("[合集列表] 发布表单已就绪")
+            await asyncio.sleep(1)
+
+            # 4. 点击「请选择合集」入口
             logger.info("[合集列表] 点击「请选择合集」入口...")
             entry = page.get_by_text("请选择合集", exact=True)
             if await entry.count() == 0:
@@ -162,8 +217,7 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
             logger.info("[合集列表] 已点击,等待合集浮层弹出...")
             await asyncio.sleep(1.5)
 
-            # 3. 解析下拉 DOM —— season-item-title 是组件库固定语义 class(非 data-v 随机串)
-            # DOM 结构: season-list > season-content > seasons > season-item > p.season-item-title
+            # 5. 解析下拉 DOM —— season-item-title 是组件库固定语义 class(非 data-v 随机串)
             titles = page.locator(".season-item-title")
             ready = False
             for _ in range(20):  # 最多等 10s
@@ -181,7 +235,6 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
                 name = (await titles.nth(i).inner_text()).strip()
                 if not name:
                     continue
-                # 排除「创建合集」按钮文案
                 if name in ("创建合集", "请选择合集"):
                     continue
                 items.append({"name": name})

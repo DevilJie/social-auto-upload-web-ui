@@ -192,8 +192,8 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
     """
     cookie_path = _get_cookie_path(cookie_file)
 
-    # 有头模式:便于观察浏览器自动化过程,验证合集列表获取逻辑
-    browser = await create_browser(headless=False)
+    # 无头模式:合集 DOM 解析逻辑已验证通过,无需观察
+    browser = await create_browser(headless=True)
     try:
         context = await create_context(browser, storage_state=cookie_path)
         try:

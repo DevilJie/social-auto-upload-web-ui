@@ -123,7 +123,7 @@ class ZhihuPlatform(BasePlatform):
     async def sync_profile(self, cookie_file: str) -> tuple:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
-        browser = await self.create_browser(headless=True)
+        browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()

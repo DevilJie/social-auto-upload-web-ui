@@ -515,7 +515,8 @@ class DouyinPlatform(BasePlatform):
                 logger.info("[发布调试] 视频文件(file_path): %s", file_path)
                 logger.info("[发布调试] 描述(desc)        : %s", desc[:100] if desc else "(无)")
                 logger.info("[发布调试] 标签(tags)        : %s (共 %d 个)", tags, len(tags))
-                logger.info("[发布调试] 封面(thumbnail)   : %s", thumbnail_path or "(无)")
+                logger.info("[发布调试] 横版封面(landscape): %s", thumbnail_landscape_path or "(无)")
+                logger.info("[发布调试] 竖版封面(portrait) : %s", thumbnail_portrait_path or "(无)")
                 logger.info("[发布调试] 发布策略(strategy): %s", publish_strategy)
                 logger.info("[发布调试] 定时时间(publish_date): %s", publish_date)
                 logger.info("[发布调试] 官方活动(activities): %s", activities or "(无)")
@@ -629,11 +630,9 @@ class DouyinPlatform(BasePlatform):
         await description_editor.wait_for(state="visible", timeout=10000)
         await description_editor.click()
         # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
-        await clear_and_type(page, description.strip())
-        # 抖音编辑器会把 trailing space 后当成"句末"导致后续 hashtag 不识别
+        # 只输入一次,不要重复输入
         clean_description = (description or "").rstrip()
-        if clean_description:
-            await page.keyboard.type(clean_description)
+        await clear_and_type(page, clean_description)
 
         await page.keyboard.press("Space")
         # 修：标签循环用单空格分隔，首 tag 前明确加一个空格

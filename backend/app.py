@@ -1378,21 +1378,21 @@ if __name__ == "__main__":
                             if not Path(cookie_path).exists():
                                 with _sqlite.connect(str(db_path)) as conn:
                                     conn.execute(
-                                        "UPDATE user_info SET status='invalid' WHERE id=?",
+                                        "UPDATE user_info SET status=0 WHERE id=?",
                                         (acc_id,),
                                     )
                                     conn.commit()
-                                logger.info(f"[Startup] 账号 {nick}(id={acc_id}) cookie 文件不存在,标记失效")
+                                logger.info(f"[Startup] 账号 {nick}(id={acc_id}) cookie 文件不存在,标记无效")
                                 continue
                             ok = _asyncio.run(platform.check_cookie(cookie_file))
-                            new_status = "valid" if ok else "invalid"
+                            new_status = 1 if ok else 0
                             with _sqlite.connect(str(db_path)) as conn:
                                 conn.execute(
                                     "UPDATE user_info SET status=? WHERE id=?",
                                     (new_status, acc_id),
                                 )
                                 conn.commit()
-                            logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测完成: {new_status}")
+                            logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测完成: {'有效' if ok else '无效'}")
                         except Exception as e:
                             logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测异常: {e}")
                     logger.info("[Startup] 所有账号检测完成")

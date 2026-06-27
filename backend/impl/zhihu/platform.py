@@ -224,12 +224,6 @@ class ZhihuPlatform(BasePlatform):
             ]
             file_paths = [str(f) for f in files]
 
-            thumbnail_path = (
-                thumbnail_landscape if video_format != "portrait" else thumbnail_portrait
-            )
-            if not thumbnail_path:
-                thumbnail_path = thumbnail_landscape or thumbnail_portrait
-
             publish_datetimes = parse_schedule_time(
                 schedule_time_str,
                 len(file_paths),
@@ -245,6 +239,27 @@ class ZhihuPlatform(BasePlatform):
                     "[发布进度] 处理第 %d/%d 个视频: %s",
                     index + 1, len(file_paths), file_path,
                 )
+                # 严格按素材表的视频方向选封面（spec: 视频格式由素材库 orientation 字段区分）
+                video_orientation = _get_video_orientation(file_path)
+                if video_orientation == "vertical":
+                    picked_thumb = thumbnail_portrait or thumbnail_landscape
+                    picked_label = "竖版"
+                elif video_orientation == "horizontal":
+                    picked_thumb = thumbnail_landscape or thumbnail_portrait
+                    picked_label = "横版"
+                else:
+                    # 素材表无方向记录，兜底用前端 videoFormat
+                    if video_format == "portrait":
+                        picked_thumb = thumbnail_portrait or thumbnail_landscape
+                        picked_label = "竖版(前端)"
+                    else:
+                        picked_thumb = thumbnail_landscape or thumbnail_portrait
+                        picked_label = "横版(前端)"
+                logger.info(
+                    "[发布参数] 视频方向=%s, 选用%s封面: %s",
+                    video_orientation or "未知", picked_label, picked_thumb or "无",
+                )
+
                 publish_date = (
                     publish_datetimes[index]
                     if isinstance(publish_datetimes, list)
@@ -267,7 +282,7 @@ class ZhihuPlatform(BasePlatform):
                             category=category,
                             creation_declaration=creation_declaration,
                             desc=desc,
-                            thumbnail_path=thumbnail_path,
+                            thumbnail_path=picked_thumb,
                         )
 
             logger.info("=" * 60)
@@ -358,10 +373,10 @@ class ZhihuPlatform(BasePlatform):
                 except Exception:
                     pass
 
-                # 10. 点击发布按钮
-                submitted = await self._click_submit(page, is_scheduled)
+                # 10. 点击发布按钮（监听 /api/v4/content/publish 响应判断结果）
+                submitted, submit_msg = await self._click_submit(page, is_scheduled)
                 if submitted:
-                    logger.info("[上传视频] 发布成功（页面跳转）")
+                    logger.info(f"[上传视频] ✓ 发布成功: {submit_msg}")
                     try:
                         await page.screenshot(
                             path=str(log_dir / "zhihu_after_submit.png"),
@@ -369,7 +384,19 @@ class ZhihuPlatform(BasePlatform):
                         )
                     except Exception:
                         pass
+                else:
+                    logger.info(f"[上传视频] ✗ 发布失败: {submit_msg}")
+                    # 发布失败也保留现场日志，方便排查
+                    try:
+                        await page.screenshot(
+                            path=str(log_dir / "zhihu_submit_failed.png"),
+                            full_page=True,
+                        )
+                    except Exception:
+                        pass
 
+                # upload_success 跟踪「浏览器流程跑完」（用于决定是否更新 cookie），
+                # 与「发布是否成功」解耦：cookie 仍有效应当保存。
                 upload_success = True
             finally:
                 if upload_success:
@@ -811,31 +838,50 @@ class ZhihuPlatform(BasePlatform):
 
     @staticmethod
     async def _set_category(page, category: str):
-        """所属领域下拉（spec 第 58-63 行）。"""
+        """所属领域下拉（spec 第 58-63 行）。
+
+        知乎 Select 触发后下拉是 portal 渲染，options 不在 .VideoUploadForm-item
+        子树内。点 trigger 时若被遮挡，加 force=True 兜底。
+        """
         if not category:
             return
 
         logger.info(f"[所属领域] 设置: {category}")
         try:
-            # 在「所属领域」区域内点击 Select 触发下拉
+            # 在「所属领域」区域内找 Select 触发按钮
             area = page.locator(
                 '.VideoUploadForm-item:has(.VideoUploadForm-itemTitle:has-text("所属领域"))'
             ).first
-            trigger = area.locator('.Select-button, button[role="combobox"]').first
+            await area.wait_for(state="visible", timeout=10000)
+            trigger = area.locator('button[role="combobox"], .Select-button').first
             await trigger.wait_for(state="visible", timeout=10000)
-            await trigger.click()
+            try:
+                await trigger.click(timeout=5000)
+            except Exception:
+                # 兜底：force click 绕开遮挡
+                logger.info("[所属领域] 普通点击失败，尝试 force click")
+                await trigger.click(force=True, timeout=5000)
             await asyncio.sleep(1)
 
+            # 下拉 options（portal 渲染，不在 area 子树内，从全页找）
             option = page.locator(
                 f'.VideoUploadForm-selectList .Select-option:has-text("{category}"), '
-                f'.Select-list .Select-option:has-text("{category}")'
+                f'.Select-list .Select-option:has-text("{category}"), '
+                f'div[role="listbox"] button[role="option"]:has-text("{category}")'
             ).first
-            await option.wait_for(state="visible", timeout=5000)
-            await option.click()
-            logger.info(f"[所属领域] 已选择: {category}")
+            await option.wait_for(state="visible", timeout=10000)
+            try:
+                await option.click(timeout=5000)
+            except Exception:
+                await option.click(force=True, timeout=5000)
+            logger.info(f"[所属领域] ✓ 已选择: {category}")
             await asyncio.sleep(0.5)
         except Exception as exc:
             logger.info(f"[所属领域] 设置失败（非致命）: {exc}")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
 
     @staticmethod
     async def _set_schedule_time(page, publish_date):
@@ -984,11 +1030,13 @@ class ZhihuPlatform(BasePlatform):
             logger.info(f"[定时发布] 设置失败: {exc}")
 
     @staticmethod
-    async def _click_submit(page, is_scheduled: bool) -> bool:
+    async def _click_submit(page, is_scheduled: bool) -> tuple[bool, str]:
         """点击右下角发布按钮（spec 第 99-104 行）。
 
-        按钮文案因模式而异：「发布视频」/「定时发布」。
-        成功判定：页面 URL 跳转。
+        发布结果判定：监听 ``/api/v4/content/publish`` 响应，
+        ``code == 0`` 为成功；否则返回后端 ``message``。
+        Returns:
+            (success, message)
         """
         button_text = "定时发布" if is_scheduled else "发布视频"
         logger.info(f"[上传视频] 准备点击发布按钮: {button_text}")
@@ -1006,21 +1054,34 @@ class ZhihuPlatform(BasePlatform):
             logger.info(f"[上传视频] 找不到「{button_text}」按钮，尝试通用提交")
             submit = page.locator('.VideoUploadForm-submitButton').first
 
-        original_url = page.url
+        # 监听发布 API 响应；click 后端会发 POST /api/v4/content/publish
         try:
-            await submit.click()
+            async with page.expect_response(
+                lambda r: "/api/v4/content/publish" in r.url, timeout=60000
+            ) as resp_info:
+                try:
+                    await submit.click()
+                except Exception as exc:
+                    logger.info(f"[上传视频] 点击发布按钮失败: {exc}")
+                    return False, f"点击发布按钮失败: {exc}"
+            response = await resp_info.value
         except Exception as exc:
-            logger.info(f"[上传视频] 点击发布按钮失败: {exc}")
-            return False
+            logger.info(f"[上传视频] 等待发布 API 响应超时: {exc}")
+            return False, "等待发布 API 响应超时"
 
-        # 等待 URL 跳转 = 发布成功（spec 第 106 行）
-        for _ in range(60):
-            await asyncio.sleep(2)
-            if page.url != original_url and "upload-video" not in page.url:
-                logger.info(f"[上传视频] 页面已跳转: {page.url}")
-                return True
-        logger.info("[上传视频] 等待 URL 跳转超时（60 × 2s），发布可能失败")
-        return False
+        try:
+            data = await response.json()
+        except Exception as exc:
+            logger.info(f"[上传视频] 发布响应解析失败: {exc}")
+            return False, "发布响应解析失败"
+
+        code = data.get("code")
+        msg = data.get("message") or data.get("toast_message") or "发布失败"
+        if code == 0:
+            logger.info(f"[上传视频] ✓ 发布成功 (code=0)")
+            return True, "发布成功"
+        logger.info(f"[上传视频] ✗ 发布失败 code={code} message={msg}")
+        return False, msg
 
 
 # ---------------------------------------------------------------------------
@@ -1040,3 +1101,37 @@ def _extract_month(text: str) -> str:
     if not m:
         m = _re_module.search(r'\d{4}\s*年\s*(\d{1,2})', text or '')
     return m.group(1) if m else '0'
+
+
+def _get_video_orientation(file_path: str) -> str:
+    """查询素材表 materials.orientation 字段。
+
+    spec 要求：封面要严格按视频实际方向（横/竖）上传，方向以素材库
+    orientation 字段为准（horizontal/vertical/square）。返回空串表示
+    未查到，调用方兜底用前端 videoFormat。
+    """
+    import sqlite3
+    try:
+        db_path = Path(BASE_DIR) / "db" / "database.db"
+        # 文件名通常是 <material_id>.mp4，直接用 id 查更快；同时兜底 stored_path
+        m = _re_module.search(r'([a-f0-9-]{36})', file_path or '')
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            if m:
+                row = conn.execute(
+                    "SELECT orientation FROM materials WHERE id = ?",
+                    (m.group(1),),
+                ).fetchone()
+                if row:
+                    return row["orientation"] or ""
+            # 兜底：按 stored_path 全路径或后缀匹配
+            row = conn.execute(
+                "SELECT orientation FROM materials WHERE stored_path = ?",
+                (file_path,),
+            ).fetchone()
+            if row:
+                return row["orientation"] or ""
+        return ""
+    except Exception as e:
+        logger.info(f"[发布参数] 查询视频方向失败: {e}")
+        return ""

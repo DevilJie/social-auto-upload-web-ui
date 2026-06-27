@@ -1343,6 +1343,65 @@ if __name__ == "__main__":
     except Exception as _e:
         logger.warning("[Startup] 补全任务启动失败（不影响主服务）: %s", _e)
 
+    # 账号登录状态检查机制:如果设置为「启动时检测」,后台异步检测所有账号 cookie
+    try:
+        from impl.settings import read_setting
+        _check_mode = read_setting("accountCheckMode", "pre-publish")
+        if _check_mode == "startup":
+            logger.info("[Startup] 账号检查模式=启动时检测,开始后台异步检测所有账号...")
+            import threading as _threading
+
+            def _check_all_accounts():
+                import asyncio as _asyncio
+                import sqlite3 as _sqlite
+                try:
+                    db_path = _get_db_path()
+                    with _sqlite.connect(str(db_path)) as conn:
+                        rows = conn.execute(
+                            "SELECT id, type, filePath, userName FROM user_info"
+                        ).fetchall()
+                    logger.info(f"[Startup] 共 {len(rows)} 个账号待检测")
+                    from impl.registry import get_platform
+                    for row in rows:
+                        acc_id, acc_type, cookie_file, nick = row
+                        try:
+                            platform_cls = get_platform(acc_type)
+                            if not platform_cls:
+                                continue
+                            platform = platform_cls()
+                            cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
+                            if not Path(cookie_path).exists():
+                                with _sqlite.connect(str(db_path)) as conn:
+                                    conn.execute(
+                                        "UPDATE user_info SET status='invalid' WHERE id=?",
+                                        (acc_id,),
+                                    )
+                                    conn.commit()
+                                logger.info(f"[Startup] 账号 {nick}(id={acc_id}) cookie 文件不存在,标记失效")
+                                continue
+                            ok = _asyncio.run(platform.check_cookie(cookie_file))
+                            new_status = "valid" if ok else "invalid"
+                            with _sqlite.connect(str(db_path)) as conn:
+                                conn.execute(
+                                    "UPDATE user_info SET status=? WHERE id=?",
+                                    (new_status, acc_id),
+                                )
+                                conn.commit()
+                            logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测完成: {new_status}")
+                        except Exception as e:
+                            logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测异常: {e}")
+                    logger.info("[Startup] 所有账号检测完成")
+                except Exception as e:
+                    logger.info(f"[Startup] 账号检测线程异常: {e}")
+
+            _t = _threading.Thread(target=_check_all_accounts, daemon=True)
+            _t.start()
+            logger.info("[Startup] 账号检测后台线程已启动")
+        else:
+            logger.info("[Startup] 账号检查模式=发布前检测,跳过启动时检测")
+    except Exception as _e:
+        logger.warning("[Startup] 账号检查模式读取失败（不影响主服务）: %s", _e)
+
     port = int(os.environ.get("SAU_PORT", "5409"))
     if port == 5409:
         try:

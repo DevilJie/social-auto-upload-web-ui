@@ -706,6 +706,7 @@ def get_settings():
             "autoFillTitle": "true",
             "autoSaveDraft": "true",
             "autoSaveInterval": "10",
+            "accountCheckMode": "pre-publish",
             "portraitRatio": "9:16",
             "landscapeRatio": "16:9",
         }

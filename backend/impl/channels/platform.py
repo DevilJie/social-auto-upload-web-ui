@@ -38,7 +38,7 @@ TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
 
 # 调试开关:True = 走到发布按钮时只输出参数日志、不实际点击发布(便于检查内容);
 # False = 正常点击发布。验证完发布内容无误后改回 False 即可。
-_PUBLISH_DRY_RUN = True
+_PUBLISH_DRY_RUN = False
 
 
 def _format_short_title(origin_title: str) -> str:

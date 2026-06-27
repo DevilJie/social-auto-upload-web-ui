@@ -9,6 +9,7 @@ from queue import Queue
 from conf import BASE_DIR
 
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     save_login_result,
     scrape_weibo_profile,
@@ -1500,7 +1501,8 @@ class WeiboPlatform(BasePlatform):
         # 微博 textarea 不是标准 input,fill 不一定生效,用 click+type
         await textarea.click()
         await asyncio.sleep(0.2)
-        await page.keyboard.type(text, delay=30)
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, text, delay=30)
         await page.keyboard.press("Space")
         logger.info("[发布] 已填正文(长度=%d)", len(text))
 

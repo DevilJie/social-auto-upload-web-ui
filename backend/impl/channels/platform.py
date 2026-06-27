@@ -20,6 +20,7 @@ logger = get_channel_logger("channels")
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -34,6 +35,10 @@ from ..base_platform import BasePlatform
 TENCENT_LOGIN_URL = "https://channels.weixin.qq.com"
 TENCENT_UPLOAD_URL = "https://channels.weixin.qq.com/platform/post/create"
 TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
+
+# 调试开关:True = 走到发布按钮时只输出参数日志、不实际点击发布(便于检查内容);
+# False = 正常点击发布。验证完发布内容无误后改回 False 即可。
+_PUBLISH_DRY_RUN = False
 
 
 def _format_short_title(origin_title: str) -> str:
@@ -243,7 +248,8 @@ async def _fill_description(page, desc: str) -> None:
     if not desc:
         return
     await page.locator("div.input-editor").click()
-    await page.keyboard.type(desc)
+    # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+    await clear_and_type(page, desc)
     logger.info(f"[填写简介] added description ({len(desc)} chars)")
 
 
@@ -283,18 +289,42 @@ async def _set_short_title(page, title: str, short_title: str | None = None) -> 
     logger.info("[填写标题] short title input not found, skipping")
 
 
-async def _apply_collection(page) -> None:
-    """Select the first available collection if there is more than one."""
-    collection_elements = (
-        page.get_by_text("添加到合集")
-        .locator("xpath=following-sibling::div")
-        .locator(".option-list-wrap > div")
-    )
-    if await collection_elements.count() > 1:
-        await page.get_by_text("添加到合集").locator(
-            "xpath=following-sibling::div"
-        ).click()
-        await collection_elements.first.click()
+async def _apply_collection(page, collection_name: str = "") -> None:
+    """选择指定合集(按名称匹配);无名称时选第一个可用合集。
+
+    DOM 定位(禁用 data-v 随机串):
+      入口:「选择合集」文案(get_by_text)
+      下拉选项:option-item > item > div.name(合集名)
+    """
+    # 点击「选择合集」展开下拉
+    entry = page.get_by_text("选择合集", exact=True)
+    if await entry.count() == 0:
+        logger.info("[设置合集] 未找到「选择合集」入口,跳过")
+        return
+    await entry.first.click()
+    await asyncio.sleep(1)
+
+    # 解析下拉选项
+    names = page.locator(".option-item .item .name")
+    count = await names.count()
+    if count == 0:
+        logger.info("[设置合集] 无可用合集,跳过")
+        return
+
+    if collection_name:
+        # 按名称匹配
+        for i in range(count):
+            name = (await names.nth(i).inner_text()).strip()
+            if name == collection_name:
+                await names.nth(i).locator("xpath=ancestor::div[contains(@class,'option-item')][1]").first.click()
+                logger.info("[设置合集] 已选择合集: %s", collection_name)
+                return
+        logger.warning("[设置合集] 未找到合集: %s", collection_name)
+    else:
+        # 选第一个可用合集(原有逻辑)
+        if count > 1:
+            await names.nth(1).locator("xpath=ancestor::div[contains(@class,'option-item')][1]").first.click()
+            logger.info("[设置合集] 已选择第一个可用合集")
 
 
 async def _apply_original_statement(page, category: str | None = None) -> None:
@@ -828,9 +858,8 @@ class ChannelsPlatform(BasePlatform):
     async def check_cookie(self, cookie_file: str) -> bool:
         """Check whether the saved cookie file is still valid.
 
-        Opens the Channels upload page and checks whether the login form
-        (``扫码登录``) or the authenticated UI (``发表视频`` / ``微信小店``)
-        is visible.
+        访问 https://channels.weixin.qq.com/platform,
+        如果页面停留没有重定向到登录页,就代表登录成功。
         """
         logger.info("=== check_cookie 开始 === cookie_file=%s", cookie_file)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
@@ -851,37 +880,26 @@ class ChannelsPlatform(BasePlatform):
 
             try:
                 page = await context.new_page()
-                logger.info("check_cookie: page created, 正在跳转到: %s", TENCENT_UPLOAD_URL)
+                # 访问 /platform 页面(不是 /platform/post/create)
+                check_url = "https://channels.weixin.qq.com/platform"
+                logger.info("check_cookie: 正在跳转到: %s", check_url)
 
-                await page.goto(TENCENT_UPLOAD_URL, wait_until="domcontentloaded")
+                await page.goto(check_url, wait_until="domcontentloaded")
                 logger.info("check_cookie: domcontentloaded 完成")
 
-                await asyncio.sleep(2)
-                await page.wait_for_load_state("networkidle")
-                logger.info("check_cookie: networkidle 完成")
+                await asyncio.sleep(3)
 
                 final_url = page.url
                 logger.info("check_cookie: 最终 URL = %s", final_url)
 
-                try:
-                    title = await page.title()
-                    logger.info("check_cookie: 页面标题 = %s", title)
-                except Exception as e:
-                    logger.warning("check_cookie: 获取页面标题失败: %s", e)
-
-                # 关键检查：如果跳转到 login.html 说明 cookie 失效
-                if "login.html" in final_url:
-                    logger.info("check_cookie: [FAIL] 已跳转到登录页，Cookie 失效 | URL: %s", final_url)
+                # 如果重定向到登录页(含 login),说明 cookie 失效
+                if "login" in final_url.lower():
+                    logger.info("check_cookie: [FAIL] 已重定向到登录页，Cookie 失效 | URL: %s", final_url)
                     return False
 
-                # 如果停留在 channels.weixin.qq.com（没有跳转到 login.html）说明 cookie 有效
-                if "channels.weixin.qq.com" in final_url:
-                    logger.info("check_cookie: [SUCCESS] 停留在 channels.weixin.qq.com，Cookie 有效 | URL: %s", final_url)
-                    return True
-
-                # 其他情况（跳转到其他域名）说明 cookie 失效
-                logger.info("check_cookie: [FAIL] 已跳转到外部域名，Cookie 失效 | URL: %s", final_url)
-                return False
+                # 如果页面停留(没有重定向到登录页),说明 cookie 有效
+                logger.info("check_cookie: [SUCCESS] 页面停留未重定向，Cookie 有效 | URL: %s", final_url)
+                return True
             except Exception as exc:
                 logger.error("check_cookie: [EXCEPTION] 发生异常: %s", exc)
                 import traceback
@@ -1002,6 +1020,8 @@ class ChannelsPlatform(BasePlatform):
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path")
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
+        # 视频号合集(账号级)
+        channels_collection_name = kwargs.get("channels_collection_name", "")
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1083,7 +1103,7 @@ class ChannelsPlatform(BasePlatform):
                             # 正文/描述区 → desc + tags
                             await _fill_description(page, desc)
                             await _fill_title_and_tags(page, title, tags)
-                            await _apply_collection(page)
+                            await _apply_collection(page, channels_collection_name)
                             await _apply_original_statement(page, category)
 
                             # Wait for upload to finish (auto-retries on error)
@@ -1098,6 +1118,32 @@ class ChannelsPlatform(BasePlatform):
 
                             # Set short title
                             await _set_short_title(page, title)
+
+                            # 调试:输出本次发布的全部参数
+                            logger.info("=" * 60)
+                            logger.info("[发布调试] ===== 本次发布参数汇总 (dry_run=%s) =====", _PUBLISH_DRY_RUN)
+                            logger.info("[发布调试] 标题(title)       : %s", title)
+                            logger.info("[发布调试] 视频文件(file_path): %s", file_path)
+                            logger.info("[发布调试] 描述(desc)        : %s", desc[:100] if desc else "(无)")
+                            logger.info("[发布调试] 标签(tags)        : %s (共 %d 个)", tags, len(tags))
+                            logger.info("[发布调试] 横版封面(landscape): %s", thumbnail_landscape_path or "(无)")
+                            logger.info("[发布调试] 竖版封面(portrait) : %s", thumbnail_portrait_path or "(无)")
+                            logger.info("[发布调试] 合集(collection)  : %s", channels_collection_name or "(无)")
+                            logger.info("[发布调试] 创作声明(category): %s", category or "(无)")
+                            logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
+                            logger.info("[发布调试] ========================================")
+                            logger.info("=" * 60)
+
+                            if _PUBLISH_DRY_RUN:
+                                logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击发布,流程到此结束(不发布)")
+                                logger.info("[发布调试] DRY_RUN: 浏览器保持打开,等待你手动关闭窗口后再结束...")
+                                try:
+                                    while browser.is_connected():
+                                        await asyncio.sleep(1)
+                                    logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
+                                except Exception:
+                                    pass
+                                return
 
                             # Submit
                             await _submit_publish(page, is_draft)

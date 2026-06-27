@@ -5,6 +5,7 @@
 """
 
 import os
+import re
 import sqlite3
 from pathlib import Path
 import sys
@@ -16,6 +17,11 @@ if str(BACKEND_DIR) not in sys.path:
 from conf import BASE_DIR
 
 DB_PATH = BASE_DIR / "db" / "database.db"
+
+# 描述里独立 #xxx 话题计数正则(与 douyin/platform.py、xiaohongshu/platform.py 同语义)
+_HASHTAG_PATTERN = re.compile(r"(?:^|\s)#[^\s#]+", re.MULTILINE)
+DOUYIN_HASHTAG_RE = _HASHTAG_PATTERN
+XHS_HASHTAG_RE = _HASHTAG_PATTERN
 
 
 def _get_account_by_id(account_id):
@@ -212,12 +218,30 @@ def validate_draft_for_publish(draft):
                 if not merged.get(decl_field):
                     errors.append(f'账号 {account_id}({platform}) 缺 {decl_field}')
 
-        # 抖音活动+标签 ≤ 5
+        # 抖音话题总数 ≤ 5(描述 #xxx + 官方活动 + 标签)
+        # 与 douyin/platform.py 的 _validate_publish_params、前端 PublishCenter 同语义
         if platform == 'douyin':
+            desc_text = merged.get('description') or ''
+            dh_len = len(DOUYIN_HASHTAG_RE.findall(desc_text))
             ac_len = len(merged.get('activityId') or [])
             tg_len = len(merged.get('tags') or [])
-            if ac_len + tg_len > 5:
-                errors.append(f'账号 {account_id}(douyin) 活动({ac_len})+标签({tg_len}) 超过 5')
+            if dh_len + ac_len + tg_len > 5:
+                errors.append(
+                    f'账号 {account_id}(douyin) 话题({dh_len + ac_len + tg_len})超过 5'
+                    f'(描述#{dh_len} + 活动{ac_len} + 标签{tg_len})'
+                )
+
+        # 小红书话题总数 ≤ 10(描述 #xxx + 标签)
+        # 与 xiaohongshu/platform.py 的前置校验、前端 PublishCenter 同语义
+        if platform == 'xiaohongshu':
+            desc_text = merged.get('description') or ''
+            dh_len = len(XHS_HASHTAG_RE.findall(desc_text))
+            tg_len = len(merged.get('tags') or [])
+            if dh_len + tg_len > 10:
+                errors.append(
+                    f'账号 {account_id}(xiaohongshu) 话题({dh_len + tg_len})超过 10'
+                    f'(描述#{dh_len} + 标签{tg_len})'
+                )
 
     return errors
 
@@ -364,4 +388,16 @@ def build_platform_kwargs(merged, common, account):
         'tag_value': merged.get('tagValue', '') or '',
         'mini_link': mini_link,
         'mix_id': merged.get('mixId', '') or '',
+        # 小红书合集(账号级):用 xhs_ 前缀避免与头条 collection_id 冲突
+        'xhs_collection_id': merged.get('collectionId', '') or '',
+        'xhs_collection_name': merged.get('collectionName', '') or '',
+        # 小红书内容来源声明(平台级)
+        'xhs_source_type': merged.get('xhsSourceType', '') or '',
+        'xhs_shoot_location': merged.get('xhsShootLocation', '') or '',
+        'xhs_shoot_date': merged.get('xhsShootDate', '') or '',
+        'xhs_repost_source': merged.get('xhsRepostSource', '') or '',
+        # B 站合集(账号级)
+        'bili_collection_name': merged.get('biliCollectionName', '') or '',
+        # 视频号合集(账号级)
+        'channels_collection_name': merged.get('channelsCollectionName', '') or '',
     }

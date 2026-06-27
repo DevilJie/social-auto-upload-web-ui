@@ -66,6 +66,18 @@
       </div>
       <div class="setting-row">
         <div class="setting-info">
+          <span class="setting-label">账号登录状态检查机制</span>
+          <span class="setting-desc">选择账号 Cookie 有效性的检测时机。两个机制互斥，只能生效一个</span>
+        </div>
+        <div class="setting-control">
+          <el-select v-model="settings.accountCheckMode" style="width: 220px">
+            <el-option label="发布前检测（默认）" value="pre-publish" />
+            <el-option label="项目启动时后台检测" value="startup" />
+          </el-select>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
           <span class="setting-label">竖版封面比例</span>
           <span class="setting-desc">封面裁剪编辑器中竖版封面的裁剪比例</span>
         </div>
@@ -434,6 +446,7 @@ const settings = reactive({
   autoFillTitle: true,
   autoSaveDraft: true,
   autoSaveInterval: 10,
+  accountCheckMode: 'pre-publish',
   portraitRatio: '9:16',
   landscapeRatio: '16:9',
   storage: {
@@ -492,6 +505,7 @@ const fetchSettings = async () => {
       if (res.data.autoFillTitle !== undefined) settings.autoFillTitle = res.data.autoFillTitle
       if (res.data.autoSaveDraft !== undefined) settings.autoSaveDraft = res.data.autoSaveDraft
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
+      if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
       if (res.data.portraitRatio !== undefined) settings.portraitRatio = res.data.portraitRatio
       if (res.data.landscapeRatio !== undefined) settings.landscapeRatio = res.data.landscapeRatio
       if (res.data.storage) {
@@ -533,6 +547,7 @@ const handleSave = async () => {
       autoFillTitle: settings.autoFillTitle,
       autoSaveDraft: settings.autoSaveDraft,
       autoSaveInterval: settings.autoSaveInterval,
+      accountCheckMode: settings.accountCheckMode,
       portraitRatio: settings.portraitRatio,
       landscapeRatio: settings.landscapeRatio,
       storage: settings.storage,
@@ -541,6 +556,11 @@ const handleSave = async () => {
     if (res.code === 200) {
       appStore.setPortraitRatio(settings.portraitRatio)
       appStore.setLandscapeRatio(settings.landscapeRatio)
+      // 同步到 Pinia store + localStorage(之前漏了这三项,导致开关不生效)
+      appStore.setAutoFillTitle(settings.autoFillTitle)
+      appStore.setAutoSaveDraft(settings.autoSaveDraft)
+      appStore.setAutoSaveInterval(settings.autoSaveInterval)
+      appStore.setAccountCheckMode(settings.accountCheckMode)
       localStorage.setItem('global_user_email', settings.feedbackEmail || '')
       ElMessage.success('设置已保存')
     } else {

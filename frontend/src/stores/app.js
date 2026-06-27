@@ -116,6 +116,22 @@ export const useAppStore = defineStore('app', () => {
   // 平台 key 数组,如 ['xiaohongshu', 'youtube']
   const disabledPlatforms = ref([])
 
+  // ========== 账号登录状态检查机制 ==========
+  // 'startup' = 项目启动时后台自动检测; 'pre-publish' = 发布前检测(默认)
+  const accountCheckMode = ref('pre-publish')
+
+  const setAccountCheckMode = (value) => {
+    accountCheckMode.value = value
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.accountCheckMode = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const loadAccountCheckMode = () => {
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    accountCheckMode.value = settings.accountCheckMode || 'pre-publish'
+  }
+
   // 判断某平台 key 是否被拉黑
   const isPlatformDisabled = (key) => disabledPlatforms.value.includes(key)
 
@@ -176,6 +192,9 @@ export const useAppStore = defineStore('app', () => {
     disabledPlatforms,
     isPlatformDisabled,
     addDisabledPlatforms,
-    removeDisabledPlatform
+    removeDisabledPlatform,
+    accountCheckMode,
+    setAccountCheckMode,
+    loadAccountCheckMode
   }
 })

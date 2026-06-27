@@ -12,12 +12,13 @@ VIDEO_LIMITS: dict[str, dict] = {
     "baijiahao":     {"min_duration": 5,    "max_duration": math.inf,         "max_size": 12 * 1024**3, "max_title_length": math.inf},  # 5s~无,   12G
     "weibo":         {"min_duration": 0,    "max_duration": math.inf,         "max_size": 15 * 1024**3, "max_title_length": math.inf},  # 无时长下限,  15G
     "kuaishou":      {"min_duration": 5,    "max_duration": 3600,             "max_size": 12 * 1024**3, "max_title_length": math.inf},  # 5s~60min,  12G
-    "bilibili":      {"min_duration": 5,    "max_duration": 36000,            "max_size": 16 * 1024**3, "max_title_length": math.inf},  # 5s~600min,16G
+    "bilibili":      {"min_duration": 5,    "max_duration": 36000,            "max_size": 16 * 1024**3, "max_title_length": 80, "max_desc_length": 2000},  # 5s~600min,16G,标题≤80字,简介≤2000字(emoji=3)
     "xiaohongshu":   {"min_duration": 5,    "max_duration": 14400,            "max_size": 20 * 1024**3, "max_title_length": 20},          # 5s~240min,20G,标题≤20字
     "channels":      {"min_duration": 5,    "max_duration": 28800,            "max_size": 20 * 1024**3, "max_title_length": math.inf},  # 5s~480min,20G
     "tiktok":        {"min_duration": 5,    "max_duration": 3600,             "max_size": 16 * 1024**3, "max_title_length": math.inf},  # 5s~60min,  16G
     "youtube":       {"min_duration": 5,    "max_duration": 36000,            "max_size": 16 * 1024**3, "max_title_length": math.inf},  # 5s~600min,16G
     "alipay":        {"min_duration": 5,    "max_duration": math.inf,         "max_size": 8 * 1024**3,  "max_title_length": math.inf},   # 5s~无,    8G(文档:≤8G,时长不限)
+    "zhihu":         {"min_duration": 0,    "max_duration": math.inf,         "max_size": math.inf,     "max_title_length": math.inf},   # 文档:时长大小不限
 }
 
 
@@ -34,6 +35,7 @@ _PLATFORM_NAMES = {
     "tiktok": "TikTok",
     "youtube": "YouTube",
     "alipay": "支付宝",
+    "zhihu": "知乎",
 }
 
 
@@ -136,5 +138,37 @@ def validate_title_for_platform(platform_key: str, title: str) -> tuple[bool, st
     if title_len > max_len:
         return False, (
             f"{name}：标题 {title_len} 字超过限制 (最多 {max_len} 字,emoji 按 3 算)"
+        )
+    return True, ""
+
+
+def validate_desc_for_platform(platform_key: str, desc: str) -> tuple[bool, str]:
+    """校验视频简介是否符合平台限制(如 B 站 ≤ 2000 字,emoji 按 3 算)。
+
+    Args:
+        platform_key: 平台 key
+        desc: 简介内容
+
+    Returns:
+        (ok, error_msg). error_msg 为空时表示通过。
+        未配置的平台默认放行。
+    """
+    limits = VIDEO_LIMITS.get(platform_key)
+    if limits is None:
+        return True, ""
+
+    name = _PLATFORM_NAMES.get(platform_key, platform_key)
+    max_len = limits.get("max_desc_length", math.inf)
+    if max_len == math.inf:
+        return True, ""
+
+    # 按 emoji=3 规则计算字符数
+    desc_len = 0
+    for ch in (desc or ""):
+        desc_len += 3 if ord(ch) > 0xFFFF else 1
+
+    if desc_len > max_len:
+        return False, (
+            f"{name}：简介 {desc_len} 字超过限制 (最多 {max_len} 字,emoji 按 3 算)"
         )
     return True, ""

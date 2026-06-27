@@ -21,6 +21,7 @@ logger = get_channel_logger("bilibili")
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -32,6 +33,45 @@ BILIBILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
 BILIBILI_MANAGE_URL = "https://member.bilibili.com/platform/upload-manager/article"
 BILIBILI_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
 BILIBILI_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
+
+# B 站视频上传/表单渲染的最大等待时长 —— 视频可能很大、网络可能很慢,
+# 给足 4 小时(14400s),按 0.5s 轮询即 28800 次。宁可久等也不误判超时。
+_UPLOAD_WAIT_SECONDS = 4 * 60 * 60  # 4 小时
+_UPLOAD_WAIT_POLLS = _UPLOAD_WAIT_SECONDS * 2  # 0.5s/次 → 28800 次
+
+# 调试开关:True = 走到提交按钮时只输出参数日志、不实际点击提交(便于检查内容);
+# False = 正常点击提交。验证完发布内容无误后改回 False 即可。
+_PUBLISH_DRY_RUN = False
+
+# B 站标题禁止的字符:emoji(非 BMP 字符) + HTML 危险字符(<>\"'&)。
+# 其他字符(中文、英文、数字、全角/半角标点、常见符号)全部允许。
+_BILI_TITLE_FORBIDDEN_RE = re.compile(
+    '[\u2600-\u27bf\ufe00-\ufe0f\u200d\u20e3\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufff0-\uffff'
+    '\U0001f000-\U0001faff'
+    '<>"\'&]',
+)
+
+
+def _sanitize_title(text: str) -> str:
+    """去掉 B 站标题里的 emoji 和 HTML 危险字符,其他字符保留。"""
+    if not text:
+        return text
+    return _BILI_TITLE_FORBIDDEN_RE.sub('', text)
+
+
+def _truncate_desc_by_length(text: str, max_len: int = 2000) -> str:
+    """按 emoji=3 规则截断简介,确保总字符数 ≤ max_len。"""
+    if not text:
+        return text
+    result = []
+    total = 0
+    for ch in text:
+        cost = 3 if ord(ch) > 0xFFFF else 1
+        if total + cost > max_len:
+            break
+        result.append(ch)
+        total += cost
+    return "".join(result)
 
 # Default category tid (music)
 BILIBILI_DEFAULT_TID = 3
@@ -281,6 +321,8 @@ class BilibiliPlatform(BasePlatform):
             # 创作声明直接在主页面设置，保留参数接收以兼容 app.py 调用
             ai_content = kwargs.get("ai_content", "")
             creation_declaration = kwargs.get("creation_declaration", "")
+            # B 站合集(账号级)
+            bili_collection_name = kwargs.get("bili_collection_name", "")
 
             # 打印发布参数摘要
             logger.info("[发布参数] 标题: %s", title)
@@ -339,6 +381,7 @@ class BilibiliPlatform(BasePlatform):
                             desc=desc,
                             thumbnail_path=thumbnail_path,
                             creation_declaration=creation_declaration,
+                            bili_collection_name=bili_collection_name,
                         )
 
             logger.info("=" * 60)
@@ -363,6 +406,7 @@ class BilibiliPlatform(BasePlatform):
         desc: str = "",
         thumbnail_path: str | None = None,
         creation_declaration: str = "",
+        bili_collection_name: str = "",
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
         log_dir = Path(BASE_DIR / "logs")
@@ -395,20 +439,20 @@ class BilibiliPlatform(BasePlatform):
                 await self._wait_upload_complete(page)
                 await asyncio.sleep(3)
 
-                # 2.5 等待页面就绪：B 站"推荐标签"区域（div.tag-wrp 下
-                # 的 .hot-tag-container）出现后才说明表单已渲染完整，
-                # 此时再开始填充标题/分类/标签等，否则可能因为表单
-                # 元素未就绪而操作失败
-                # 阻塞等待（10 分钟）—— 不设短超时，宁可等也不跳过
-                hot_tag = page.locator(
-                    'div.tag-wrp div.hot-tag-container'
-                ).first
-                await hot_tag.wait_for(
-                    state="attached", timeout=600000
-                )
+                # 2.5 等待页面就绪：标题输入框出现即代表表单已渲染完整。
+                # 用 placeholder 定位(禁用 class)，超时 4 小时。
+                logger.info("[上传视频] 等待发布表单渲染(标题输入框,最多 4 小时)...")
+                title_input = page.locator('input[placeholder*="标题"]').first
+                form_ready = False
+                for _ in range(_UPLOAD_WAIT_POLLS):
+                    if await title_input.count() > 0:
+                        form_ready = True
+                        break
+                    await asyncio.sleep(0.5)
+                if not form_ready:
+                    raise TimeoutError("发布表单未渲染(标题输入框未出现,超 4 小时)")
                 logger.info(
-                    "[上传视频] hot-tag-container ready, "
-                    "form is interactive"
+                    "[上传视频] 发布表单已渲染(标题输入框就绪)"
                 )
 
                 # Pre-form screenshot
@@ -458,6 +502,38 @@ class BilibiliPlatform(BasePlatform):
                     path=str(log_dir / "bilibili_before_submit.png"),
                     full_page=True,
                 )
+
+                # 9.5 Set collection (合集)
+                if bili_collection_name:
+                    logger.info("[设置合集] 开始设置合集: %s", bili_collection_name)
+                    await self._set_collection(page, bili_collection_name)
+
+                # 调试:输出本次发布的全部参数(便于人工核对填写是否正确)
+                logger.info("=" * 60)
+                logger.info("[发布调试] ===== 本次发布参数汇总 (dry_run=%s) =====", _PUBLISH_DRY_RUN)
+                logger.info("[发布调试] 标题(title)       : %s", title)
+                logger.info("[发布调试] 视频文件(file_path): %s", file_path)
+                logger.info("[发布调试] 简介(desc)        : %s", desc[:100] if desc else "(无)")
+                logger.info("[发布调试] 标签(tags)        : %s (共 %d 个)", tags, len(tags))
+                logger.info("[发布调试] 分区(category)    : %s", category)
+                logger.info("[发布调试] 封面(thumbnail)   : %s", thumbnail_path or "(无)")
+                logger.info("[发布调试] 创作声明(creation): %s", creation_declaration or "(无)")
+                logger.info("[发布调试] 定时时间(publish_date): %s", publish_date)
+                logger.info("[发布调试] 发布策略(strategy): %s", publish_strategy)
+                logger.info("[发布调试] 合集(collection)  : %s", bili_collection_name or "(无)")
+                logger.info("[发布调试] ========================================")
+                logger.info("=" * 60)
+
+                if _PUBLISH_DRY_RUN:
+                    logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击提交,流程到此结束(不发布)")
+                    logger.info("[发布调试] DRY_RUN: 浏览器保持打开,等待你手动关闭窗口后再结束...")
+                    try:
+                        while browser.is_connected():
+                            await asyncio.sleep(1)
+                        logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
+                    except Exception:
+                        pass
+                    return
 
                 # 10. Submit
                 logger.info("[上传视频] submitting video")
@@ -593,96 +669,48 @@ class BilibiliPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_upload_complete(page):
-        """Wait until the video upload is fully complete and the form
-        is interactive.
+        """Wait until the video upload is fully complete.
 
-        "上传完成" 文字出现只是上传成功的标志之一，但封面区需要
-        等整个上传流程（含后处理如转码）才能点击。需要满足：
-        1. "上传完成" 文字出现
-        2. 上传进度条/转码状态消失
-        3. 封面区域 (`div.cover-main`) 出现并可见
+        唯一就绪标志:必须出现「上传完成」文案(DOM 里的 <span>上传完成</span>)。
+        用 get_by_text("上传完成") 定位,禁用 class/data-v 定位。
+        超时 4 小时,0.5s 轮询。
         """
-        retry_count = 0
-        while True:
+        logger.info("[上传视频] 等待视频上传完成(最多 4 小时)...")
+        done_text = page.get_by_text("上传完成", exact=True)
+        for i in range(_UPLOAD_WAIT_POLLS):
             try:
-                # Check 1: "上传完成" 文字出现（iframe 或主页）
-                done_found = False
-                try:
-                    upload_frame = page.frame_locator(
-                        'iframe[name="videoUpload"]'
+                if await done_text.count() > 0:
+                    await asyncio.sleep(2)  # 等稳定
+                    elapsed = i * 0.5
+                    logger.info(
+                        "[上传视频] 检测到「上传完成」,上传成功 (耗时 %.0f 秒)",
+                        elapsed,
                     )
-                    done_text = upload_frame.locator("text=上传完成")
-                    if (
-                        await done_text.count() > 0
-                        and await done_text.first.is_visible()
-                    ):
-                        done_found = True
-                except Exception:
-                    pass
-                if not done_found:
-                    done_text_main = page.locator("text=上传完成")
-                    if (
-                        await done_text_main.count() > 0
-                        and await done_text_main.first.is_visible()
-                    ):
-                        done_found = True
-
-                if done_found:
-                    # Check 2: 等待转码中/进度条消失
-                    transcoding_locators = [
-                        'text=转码中',
-                        'text=正在转码',
-                        'text=处理中',
-                        '.bp-upload-progress',
-                        '[class*="progress"]:has-text("100")',
-                    ]
-                    still_transcoding = False
-                    for sel in transcoding_locators:
-                        try:
-                            loc = page.locator(sel)
-                            if await loc.count() > 0 and await loc.first.is_visible():
-                                still_transcoding = True
-                                break
-                        except Exception:
-                            continue
-
-                    if not still_transcoding:
-                        # Check 3: 封面区域出现且可交互
-                        cover_main = page.locator('div.cover-main').first
-                        if (
-                            await cover_main.count() > 0
-                            and await cover_main.is_visible()
-                        ):
-                            logger.info(
-                                "[上传视频] video upload complete, "
-                                "cover area ready"
-                            )
-                            return
-
-                # Check for upload failure
-                fail_text = page.locator("text=上传失败")
+                    return
+                # 检测上传失败
+                fail_text = page.get_by_text("上传失败", exact=True)
                 if await fail_text.count() > 0:
+                    raise RuntimeError("视频上传失败:检测到「上传失败」文案")
+                if i % 60 == 0 and i > 0:  # 每 30 秒打一次日志
                     logger.info(
-                        "[上传视频] upload failed detected"
+                        "[上传视频] 仍在上传中... (%.0f 秒)", i * 0.5
                     )
-
-                if retry_count % 10 == 0:
-                    logger.info(
-                        f"[上传视频] upload in progress... ({retry_count * 3}s)"
-                    )
-
-                await asyncio.sleep(3)
+            except RuntimeError:
+                raise
             except Exception as exc:
-                logger.info(f"[上传视频] upload status check error: {exc}")
-                await asyncio.sleep(3)
-            retry_count += 1
-
-        # (no timeout — wait indefinitely until upload complete signals appear)
+                if i % 60 == 0 and i > 0:
+                    logger.info("[上传视频] 上传状态检查: %s", exc)
+            await asyncio.sleep(0.5)
+        raise TimeoutError("视频上传超时(超过 4 小时):未检测到「上传完成」")
 
     @staticmethod
     async def _fill_title(page, title: str):
-        """Fill the video title (max 80 chars)."""
-        logger.info(f"[填写标题] 开始填写标题: {title[:30]}")
+        """Fill the video title (max 80 chars, no emoji/special chars)."""
+        # 先去掉 emoji 和特殊字符,再截断 80 字
+        safe_title = _sanitize_title(title)[:80]
+        if safe_title != title:
+            logger.info("[填写标题] 标题已过滤特殊字符: %r -> %r", title, safe_title)
+        logger.info("[填写标题] 开始填写标题: %s", safe_title[:30])
         title_input = page.locator(
             'input[placeholder*="标题"], input[placeholder*="Title"], '
             '.video-title input, [class*="title"] input[type="text"]'
@@ -690,7 +718,7 @@ class BilibiliPlatform(BasePlatform):
         await title_input.wait_for(state="visible", timeout=15000)
         await title_input.click()
         await title_input.fill("")
-        await title_input.fill(title[:80])
+        await title_input.fill(safe_title)
 
     @staticmethod
     async def _set_category(page, category):
@@ -866,9 +894,13 @@ class BilibiliPlatform(BasePlatform):
 
     @staticmethod
     async def _fill_desc(page, desc: str):
-        """Fill the video description."""
+        """Fill the video description (max 2000 chars, emoji=3)."""
         if not desc:
             return
+        # 按 emoji=3 规则截断到 2000 字
+        safe_desc = _truncate_desc_by_length(desc, 2000)
+        if len(safe_desc) != len(desc):
+            logger.info("[填写简介] 简介已截断(emoji=3): %d -> %d 字符", len(desc), len(safe_desc))
 
         logger.info("[填写简介] filling description")
         desc_editor = page.locator(
@@ -879,9 +911,8 @@ class BilibiliPlatform(BasePlatform):
         ).first
         if await desc_editor.count() > 0 and await desc_editor.is_visible():
             await desc_editor.click()
-            await page.keyboard.press("Control+KeyA")
-            await page.keyboard.press("Delete")
-            await page.keyboard.type(desc, delay=10)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_and_type(page, safe_desc, delay=10)
         else:
             logger.info("[填写简介] description editor not found")
 
@@ -1162,6 +1193,63 @@ class BilibiliPlatform(BasePlatform):
                 f"[上传视频] creation declaration failed (non-fatal): "
                 f"{exc}"
             )
+
+    @staticmethod
+    async def _set_collection(page, collection_name: str) -> None:
+        """点击「请选择合集」并选择指定合集。
+
+        DOM 定位(禁用 data-v 随机串):
+          - 入口:「请选择合集」文案(get_by_text)
+          - 下拉选项:season-item-title 是组件库固定语义 class(非随机串),
+            按合集名称文本匹配后点击该选项。
+          - 失败不阻塞发布(合集是可选项)。
+        """
+        if not collection_name:
+            return
+
+        try:
+            # 1. 点击「请选择合集」入口
+            entry = page.get_by_text("请选择合集", exact=True)
+            if await entry.count() == 0:
+                logger.warning("[设置合集] 未找到「请选择合集」入口,跳过")
+                return
+            await entry.first.click()
+            await asyncio.sleep(1.5)
+            logger.info("[设置合集] 已点击「请选择合集」")
+
+            # 2. 在下拉浮层里按合集名称匹配选项
+            # season-item-title 是组件库固定语义 class(非 data-v 随机串)
+            option_items = page.locator(".season-item-title")
+            # 等下拉出现(最多 10s)
+            ready = False
+            for _ in range(20):
+                if await option_items.count() > 0:
+                    ready = True
+                    break
+                await asyncio.sleep(0.5)
+            if not ready:
+                logger.warning("[设置合集] 下拉浮层未出现,跳过")
+                return
+
+            count = await option_items.count()
+            for i in range(count):
+                name = (await option_items.nth(i).inner_text()).strip()
+                if name == collection_name:
+                    # 点击合集项(点 season-item-title 的父级 season-item 更稳)
+                    parent = option_items.nth(i).locator("xpath=ancestor::div[contains(@class,'season-item')][1]")
+                    try:
+                        await parent.first.click(timeout=3000)
+                    except Exception:
+                        await option_items.nth(i).click()
+                    logger.info("[设置合集] 已选择合集: %s", collection_name)
+                    await asyncio.sleep(1)
+                    return
+
+            logger.warning("[设置合集] 未找到合集: %s", collection_name)
+            # 关闭下拉
+            await page.keyboard.press("Escape")
+        except Exception as e:
+            logger.warning("[设置合集] 合集设置失败(非致命): %s", e)
 
     @staticmethod
     async def _set_schedule_time(page, publish_date):

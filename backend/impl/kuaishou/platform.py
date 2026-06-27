@@ -17,6 +17,7 @@ logger = get_channel_logger("kuaishou")
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -611,10 +612,8 @@ class KuaishouPlatform(BasePlatform):
             # ------ Fill description + tags ------
             logger.info("[填写简介] 开始填写简介与标签...")
             await page.get_by_text("描述").locator("xpath=following-sibling::div").click()
-            await page.keyboard.press("Backspace")
-            await page.keyboard.press("Control+KeyA")
-            await page.keyboard.press("Delete")
-            await page.keyboard.type(desc or title)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_and_type(page, desc or title)
             await page.keyboard.press("Enter")
             logger.info("[填写简介] 简介填写完成")
 
@@ -1024,7 +1023,7 @@ class KuaishouPlatform(BasePlatform):
             'div.ant-picker-input input[placeholder="选择日期时间"]'
         ).click()
         await asyncio.sleep(1)
-        await page.keyboard.press("Control+KeyA")
-        await page.keyboard.type(date_str)
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, date_str)
         await page.keyboard.press("Enter")
         await asyncio.sleep(1)

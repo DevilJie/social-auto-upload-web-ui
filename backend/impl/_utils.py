@@ -9,6 +9,7 @@ All functions use standard Playwright Page/Context APIs only.
 
 import asyncio
 import json
+import platform as _platform
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -698,6 +699,94 @@ async def scrape_toutiao_profile(page):
     return name, avatar
 
 
+async def scrape_zhihu_profile(page):
+    """知乎专用 scraper。
+
+    抓取流程（详见对接文档）：
+    1. 当前页应该是 ``https://www.zhihu.com/settings/account`` 或类似页面，
+       页面右上角已有头像按钮。
+    2. 点击右上角头像按钮 (``.AppHeader-profileEntry``) 弹出下拉菜单。
+    3. 点击菜单中的「我的主页」链接 (``a[href^="/people/"]``)。
+    4. 等待跳转到 ``https://www.zhihu.com/people/<id>`` 后：
+       - 昵称：``span.ProfileHeader-name``
+       - 头像：``.UserAvatar-inner`` 或 ``img.Avatar`` 的 ``src``
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        await asyncio.sleep(2)
+
+        # 1. 点击右上角头像按钮展开下拉菜单
+        try:
+            avatar_btn = page.locator(
+                'button.AppHeader-profileEntry, .AppHeader-userInfo .AppHeader-profileEntry'
+            ).first
+            if await avatar_btn.count() == 0:
+                avatar_btn = page.locator('.AppHeader-profileEntry').first
+            await avatar_btn.wait_for(state="visible", timeout=8000)
+            await avatar_btn.click()
+            await asyncio.sleep(1)
+        except Exception as e:
+            logger.info(f"[zhihu] 点击头像下拉失败 (可能已在主页): {e}")
+
+        # 2. 点击「我的主页」链接
+        # href 在 DOM 里是完整 URL (https://www.zhihu.com/people/xxx)，
+        # 不能用 [href^="/people/"] 匹配；用文案「我的主页」+ 排除关怀版
+        # (/aria/people/) 最稳。
+        profile_link = page.locator(
+            '.AppHeaderProfileMenu-item:has-text("我的主页"), '
+            'a.Menu-item:has-text("我的主页")'
+        ).first
+        navigated = False
+        try:
+            await profile_link.wait_for(state="visible", timeout=5000)
+            href = await profile_link.get_attribute("href") or ""
+            await profile_link.click()
+            logger.info(f"[zhihu] 点击「我的主页」成功，href={href}")
+            navigated = True
+        except Exception as e:
+            logger.info(f"[zhihu] 点击「我的主页」失败: {e}")
+
+        # 3. 等待跳转完成（URL 应包含 /people/）
+        if navigated:
+            try:
+                await page.wait_for_url("**/people/**", timeout=15000)
+            except Exception:
+                pass
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        await asyncio.sleep(2)
+
+        # 4. 抓取昵称和头像
+        try:
+            name_el = page.locator('span.ProfileHeader-name, h1.ProfileHeader-title').first
+            if await name_el.count() > 0:
+                name = (await name_el.text_content() or "").strip()
+        except Exception as e:
+            logger.info(f"[zhihu] 昵称抓取失败: {e}")
+
+        try:
+            avatar_el = page.locator(
+                '.UserAvatar-inner, .ProfileHeader-avatar img.Avatar'
+            ).first
+            if await avatar_el.count() > 0:
+                avatar = (await avatar_el.get_attribute("src") or "").strip()
+        except Exception as e:
+            logger.info(f"[zhihu] 头像抓取失败: {e}")
+
+        logger.info(
+            f"[zhihu] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[zhihu] profile scrape error: {e}")
+
+    return name, avatar
+
+
 # ---------------------------------------------------------------------------
 # Schedule time parser
 # Source: original postVideo.py schedule parser
@@ -872,6 +961,7 @@ PLATFORM_SYNC_URLS = {
     11: "https://weibo.com/set/index",
     12: "https://c.alipay.com/page/life-account/index",
     13: "https://mp.toutiao.com/profile_v4/index",
+    14: "https://www.zhihu.com/settings/account",
 }
 
 
@@ -891,4 +981,64 @@ PLATFORM_SCRAPE_FNS = {
     11: scrape_weibo_profile,       # Weibo
     12: scrape_alipay_profile,      # Alipay
     13: scrape_toutiao_profile,     # Toutiao
+    14: scrape_zhihu_profile,       # Zhihu
 }
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform input helpers
+# ---------------------------------------------------------------------------
+
+_IS_MAC = _platform.system() == "Darwin"
+
+# 全选快捷键:Mac 用 Meta(Cmd)+A,其他系统用 Control+A
+_SELECT_ALL_KEY = "Meta+a" if _IS_MAC else "Control+a"
+
+
+async def clear_input(page, element=None):
+    """清空输入框内容(跨平台兼容)。
+
+    对 input/textarea 元素用 fill("") 清空(最稳定);
+    对 contenteditable 元素用 Ctrl/Cmd+A + Delete 清空。
+
+    Args:
+        page: Playwright page 对象
+        element: 可选,要清空的元素 locator。为 None 时对当前焦点元素操作。
+    """
+    if element is not None:
+        # 尝试用 fill("") 清空(input/textarea 最稳定)
+        try:
+            tag = await element.evaluate("el => el.tagName.toLowerCase()")
+            if tag in ("input", "textarea"):
+                await element.fill("")
+                return
+        except Exception:
+            pass
+        # contenteditable 或其他:点击聚焦 + 全选 + 删除
+        await element.click()
+        await asyncio.sleep(0.1)
+
+    # 全选 + 删除(跨平台)
+    await page.keyboard.press(_SELECT_ALL_KEY)
+    await asyncio.sleep(0.05)
+    await page.keyboard.press("Delete")
+    await asyncio.sleep(0.05)
+
+
+async def clear_and_type(page, text: str, element=None, delay: int = 0):
+    """清空输入框后输入新内容(跨平台兼容)。
+
+    先调用 clear_input 清空,再用 keyboard.type 输入。
+
+    Args:
+        page: Playwright page 对象
+        text: 要输入的文本
+        element: 可选,要操作的元素 locator
+        delay: 每字符延迟(ms),0 表示瞬间输入
+    """
+    await clear_input(page, element)
+    if text:
+        if delay > 0:
+            await page.keyboard.type(text, delay=delay)
+        else:
+            await page.keyboard.type(text)

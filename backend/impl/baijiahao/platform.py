@@ -19,6 +19,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -584,13 +585,11 @@ class BaijiahaoPlatform(BasePlatform):
             logger.warning("[填写标题] 未找到描述输入框，跳过填充")
             return
 
-        # 1. 输入描述文本
+        # 1. 清空编辑器 + 输入描述文本(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
         await editor.click()
         await asyncio.sleep(0.3)
-        await page.keyboard.press("Control+a")
-        await asyncio.sleep(0.1)
+        await clear_and_type(page, desc_text, delay=50)
         if desc_text:
-            await page.keyboard.type(desc_text, delay=50)
             logger.info("[填写标题] 已填充作品描述: %s", desc_text)
 
         # 2. 逐个输入 #话题 并从下拉列表选择第一个

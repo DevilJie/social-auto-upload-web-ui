@@ -380,7 +380,9 @@ fi
 CLOAKBROWSER_DIR="$HOME/.cloakbrowser"
 if [[ -n "${CLOAKBROWSER_BINARY_PATH:-}" ]]; then
     print_ok "CloakBrowser (本地依赖)"
-elif ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome >/dev/null 2>&1; then
+elif [[ -f "$("$VENV_PYTHON" -c 'import cloakbrowser.download as d; print(d.get_binary_path())' 2>/dev/null)" ]]; then
+    print_ok "CloakBrowser 已安装"
+else
     echo -e "  ${CYAN}📥 首次使用，下载 CloakBrowser 浏览器${NC}"
 
     # 从 Python 获取下载信息
@@ -437,8 +439,6 @@ print(d.get_binary_path())
         printf "\r  ${CROSS} CloakBrowser 解压失败\n"
         exit 1
     fi
-else
-    print_ok "CloakBrowser 已安装"
 fi
 
 # ============================================================

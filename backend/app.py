@@ -130,6 +130,18 @@ from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
 app.register_blueprint(toutiao_bp)
 logger.info("[Startup] toutiao_bp registered OK")
 
+from blueprints.xiaohongshu_bp import xiaohongshu_bp  # noqa: E402
+app.register_blueprint(xiaohongshu_bp)
+logger.info("[Startup] xiaohongshu_bp registered OK")
+
+from blueprints.bilibili_bp import bilibili_bp  # noqa: E402
+app.register_blueprint(bilibili_bp)
+logger.info("[Startup] bilibili_bp registered OK")
+
+from blueprints.channels_bp import channels_bp  # noqa: E402
+app.register_blueprint(channels_bp)
+logger.info("[Startup] channels_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
@@ -185,11 +197,11 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
-    11: 'weibo', 12: 'alipay',
+    11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu',
 }
 
 
@@ -693,6 +705,19 @@ def postVideo():
         logger.info(f"发布视频校验失败: {err}")
         return jsonify({"code": 400, "msg": err}), 400
 
+    # 标题长度校验（如小红书 ≤ 20 字，B 站 ≤ 80 字，emoji 按 3 算）
+    from util.video_limits import validate_title_for_platform, validate_desc_for_platform
+    ok, err = validate_title_for_platform(platform.platform_key, data.get('title', '') or '')
+    if not ok:
+        logger.info(f"发布标题校验失败: {err}")
+        return jsonify({"code": 400, "msg": err}), 400
+
+    # 简介长度校验（如 B 站 ≤ 2000 字，emoji 按 3 算）
+    ok, err = validate_desc_for_platform(platform.platform_key, data.get('description', '') or '')
+    if not ok:
+        logger.info(f"发布简介校验失败: {err}")
+        return jsonify({"code": 400, "msg": err}), 400
+
     try:
         # Resolve file paths through storage abstraction
         file_list = [_resolve_material_path(f) for f in data.get('fileList', [])]
@@ -759,6 +784,20 @@ def postVideo():
                 collection_id=data.get('collection', ''),
                 extend_link=data.get('extendLink', False),
                 extend_link_url=data.get('extendLinkUrl', ''),
+                # 视频素材方向(horizontal/vertical/square),小红书据此选封面
+                video_orientation=data.get('videoOrientation', ''),
+                # 小红书合集(账号级配置,用 xhs_ 前缀避免与头条 collection_id 冲突)
+                xhs_collection_id=data.get('collectionId', ''),
+                xhs_collection_name=data.get('collectionName', ''),
+                # 小红书内容来源声明(平台级):自主拍摄/来源转载
+                xhs_source_type=data.get('xhsSourceType', ''),
+                xhs_shoot_location=data.get('xhsShootLocation', ''),
+                xhs_shoot_date=data.get('xhsShootDate', ''),
+                xhs_repost_source=data.get('xhsRepostSource', ''),
+                # B 站合集(账号级)
+                bili_collection_name=data.get('biliCollectionName', ''),
+                # 视频号合集(账号级)
+                channels_collection_name=data.get('channelsCollectionName', ''),
             ))
         else:
             result = publish_fn(
@@ -801,6 +840,20 @@ def postVideo():
                 collection_id=data.get('collection', ''),
                 extend_link=data.get('extendLink', False),
                 extend_link_url=data.get('extendLinkUrl', ''),
+                # 视频素材方向(horizontal/vertical/square),小红书据此选封面
+                video_orientation=data.get('videoOrientation', ''),
+                # 小红书合集(账号级配置,用 xhs_ 前缀避免与头条 collection_id 冲突)
+                xhs_collection_id=data.get('collectionId', ''),
+                xhs_collection_name=data.get('collectionName', ''),
+                # 小红书内容来源声明(平台级):自主拍摄/来源转载
+                xhs_source_type=data.get('xhsSourceType', ''),
+                xhs_shoot_location=data.get('xhsShootLocation', ''),
+                xhs_shoot_date=data.get('xhsShootDate', ''),
+                xhs_repost_source=data.get('xhsRepostSource', ''),
+                # B 站合集(账号级)
+                bili_collection_name=data.get('biliCollectionName', ''),
+                # 视频号合集(账号级)
+                channels_collection_name=data.get('channelsCollectionName', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -1289,6 +1342,70 @@ if __name__ == "__main__":
         start_repair_in_background()
     except Exception as _e:
         logger.warning("[Startup] 补全任务启动失败（不影响主服务）: %s", _e)
+
+    # 账号登录状态检查机制:如果设置为「启动时检测」,后台异步检测所有账号 cookie
+    try:
+        _check_mode = "pre-publish"
+        try:
+            with _sqlite.connect(str(_get_db_path())) as _c:
+                _row = _c.execute("SELECT value FROM settings WHERE key='accountCheckMode'").fetchone()
+                if _row:
+                    _check_mode = _row[0]
+        except Exception:
+            pass
+        if _check_mode == "startup":
+            logger.info("[Startup] 账号检查模式=启动时检测,开始后台异步检测所有账号...")
+            import threading as _threading
+
+            def _check_all_accounts():
+                import asyncio as _asyncio
+                import sqlite3 as _sqlite
+                try:
+                    db_path = _get_db_path()
+                    with _sqlite.connect(str(db_path)) as conn:
+                        rows = conn.execute(
+                            "SELECT id, type, filePath, userName FROM user_info"
+                        ).fetchall()
+                    logger.info(f"[Startup] 共 {len(rows)} 个账号待检测")
+                    from impl.registry import get_platform
+                    for row in rows:
+                        acc_id, acc_type, cookie_file, nick = row
+                        try:
+                            platform = get_platform(acc_type)
+                            if not platform:
+                                continue
+                            cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
+                            if not Path(cookie_path).exists():
+                                with _sqlite.connect(str(db_path)) as conn:
+                                    conn.execute(
+                                        "UPDATE user_info SET status=0 WHERE id=?",
+                                        (acc_id,),
+                                    )
+                                    conn.commit()
+                                logger.info(f"[Startup] 账号 {nick}(id={acc_id}) cookie 文件不存在,标记无效")
+                                continue
+                            ok = _asyncio.run(platform.check_cookie(cookie_file))
+                            new_status = 1 if ok else 0
+                            with _sqlite.connect(str(db_path)) as conn:
+                                conn.execute(
+                                    "UPDATE user_info SET status=? WHERE id=?",
+                                    (new_status, acc_id),
+                                )
+                                conn.commit()
+                            logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测完成: {'有效' if ok else '无效'}")
+                        except Exception as e:
+                            logger.info(f"[Startup] 账号 {nick}(id={acc_id}) 检测异常: {e}")
+                    logger.info("[Startup] 所有账号检测完成")
+                except Exception as e:
+                    logger.info(f"[Startup] 账号检测线程异常: {e}")
+
+            _t = _threading.Thread(target=_check_all_accounts, daemon=True)
+            _t.start()
+            logger.info("[Startup] 账号检测后台线程已启动")
+        else:
+            logger.info("[Startup] 账号检查模式=发布前检测,跳过启动时检测")
+    except Exception as _e:
+        logger.warning("[Startup] 账号检查模式读取失败（不影响主服务）: %s", _e)
 
     port = int(os.environ.get("SAU_PORT", "5409"))
     if port == 5409:

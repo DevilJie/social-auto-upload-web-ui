@@ -1,14 +1,14 @@
 """B 站创作者平台相关 API 代理。
 
-仿 xiaohongshu_bp.py 的 DOM 解析模式:用 CloakBrowser 打开 B 站视频发布页 →
-上传测试视频触发表单渲染 → 点「请选择合集」入口 → 解析下拉 DOM 的
-season-item-title 文本(合集名) → 返回给前端下拉选项。
+仿 xiaohongshu_bp.py 的 DOM 解析模式:用 CloakBrowser 打开 B 站视频上传页 →
+直接点「请选择合集」入口 → 解析下拉 DOM 的 season-item-title 文本(合集名) →
+返回给前端下拉选项。
 
+B 站合集入口在上传页面打开时就存在,不需要先上传视频。
 开发阶段:有头模式,便于观察。
 """
 
 import asyncio
-import os
 import sqlite3
 from pathlib import Path
 
@@ -26,27 +26,6 @@ bilibili_bp = Blueprint('bilibili', __name__, url_prefix='/api/bilibili')
 
 # B 站视频上传页(与 impl/bilibili/platform.py 同源)
 _BILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
-
-# 4 小时上传等待
-_UPLOAD_WAIT_SECONDS = 4 * 60 * 60
-_UPLOAD_WAIT_POLLS = _UPLOAD_WAIT_SECONDS * 2  # 0.5s/次
-
-# 测试视频候选路径(BASE_DIR 已是 .../data)
-_TEST_VIDEO_CANDIDATES = [
-    str(BASE_DIR / "materials" / "2026" / "06" / "19" / "legacy-e751bf81.mp4"),
-    str(Path(__file__).parent.parent / "scripts" / "legacy_fixture" / "videoFile" / "11111111-2222-3333-4444-555555555555_test1.mp4"),
-]
-
-
-def _pick_test_video() -> str:
-    """挑一个真实存在且非空(>100字节)的测试视频文件。"""
-    for p in _TEST_VIDEO_CANDIDATES:
-        try:
-            if os.path.isfile(p) and os.path.getsize(p) > 100:
-                return p
-        except OSError:
-            continue
-    return ""
 
 
 def _get_cookie_path(cookie_file: str) -> str:
@@ -141,15 +120,14 @@ def list_collections():
 
 
 async def _fetch_collections_via_browser(cookie_file: str) -> dict:
-    """打开 B 站视频上传页,点「请选择合集」后直接解析下拉 DOM 拿合集列表。
+    """打开 B 站视频上传页,直接点「请选择合集」解析下拉 DOM 拿合集列表。
 
+    B 站合集入口在上传页面打开时就存在,不需要先上传视频。
     流程:
       1. 用账号 cookie 打开 B 站视频上传页
-      2. 上传测试视频触发表单渲染(合集入口要表单渲染后才出现)
-      3. 等待发布表单就绪(标题输入框出现)
-      4. 点击「请选择合集」入口,展开合集选择浮层
-      5. 直接解析浮层 DOM 的 season-item-title 文本(合集名)
-      6. 不点选(仅取列表),返回结果
+      2. 直接点击「请选择合集」入口,展开合集选择浮层
+      3. 直接解析浮层 DOM 的 season-item-title 文本(合集名)
+      4. 不点选(仅取列表),返回结果
 
     DOM 结构(需求文档):
       season-list > season-content > seasons > season-item > season-item-title(合集名)
@@ -175,65 +153,7 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
             except Exception as e:
                 logger.info(f"[合集列表] 页面加载(非致命): {e}")
 
-            # 1.5 上传测试视频触发表单渲染
-            # B 站视频上传的 input 在 iframe[name="videoUpload"] 里,
-            # 与 platform.py 的 _upload_video_file 保持一致的 iframe 回退策略。
-            test_video = _pick_test_video()
-            if not test_video:
-                return {
-                    "success": False,
-                    "error": "未找到可用的测试视频文件,无法触发上传表单渲染",
-                }
-            logger.info(f"[合集列表] 上传测试视频: {test_video}")
-            try:
-                uploaded = False
-                # 先尝试 iframe 内的 input
-                try:
-                    upload_frame = page.frame_locator('iframe[name="videoUpload"]')
-                    file_input = upload_frame.locator(
-                        'input[type="file"][accept*="video"], input[type="file"]'
-                    ).first
-                    await file_input.set_input_files(test_video)
-                    uploaded = True
-                    logger.info("[合集列表] 通过 iframe 上传成功")
-                except Exception:
-                    pass
-                # 回退:主页面的 input
-                if not uploaded:
-                    file_input = page.locator(
-                        'input[type="file"][accept*="video"], input[type="file"]'
-                    ).first
-                    await file_input.set_input_files(test_video)
-                    logger.info("[合集列表] 通过主页面 input 上传成功")
-            except Exception as e:
-                return {"success": False, "error": f"测试视频上传失败: {e}"}
-
-            # 等待「上传完成」(B 站上传完成标志)
-            logger.info("[合集列表] 等待视频上传完成(最多 4 小时)...")
-            done_text = page.get_by_text("上传完成", exact=True)
-            for _ in range(_UPLOAD_WAIT_POLLS):
-                if await done_text.count() > 0:
-                    break
-                await asyncio.sleep(0.5)
-            else:
-                return {"success": False, "error": "视频上传超时(超过 4 小时)"}
-            logger.info("[合集列表] 上传完成")
-
-            # 等待发布表单渲染(标题输入框出现即代表表单就绪)
-            logger.info("[合集列表] 等待发布表单渲染(标题输入框,最多 4 小时)...")
-            title_input = page.locator('input[placeholder*="标题"]').first
-            form_ready = False
-            for _ in range(_UPLOAD_WAIT_POLLS):
-                if await title_input.count() > 0:
-                    form_ready = True
-                    break
-                await asyncio.sleep(0.5)
-            if not form_ready:
-                return {"success": False, "error": "发布表单未渲染(标题输入框未出现)"}
-            logger.info("[合集列表] 发布表单已渲染")
-            await asyncio.sleep(2)
-
-            # 2. 点击「请选择合集」入口
+            # 2. 直接点击「请选择合集」入口(不需要上传视频,合集入口在页面打开时就存在)
             logger.info("[合集列表] 点击「请选择合集」入口...")
             entry = page.get_by_text("请选择合集", exact=True)
             if await entry.count() == 0:

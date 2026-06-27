@@ -1345,8 +1345,14 @@ if __name__ == "__main__":
 
     # 账号登录状态检查机制:如果设置为「启动时检测」,后台异步检测所有账号 cookie
     try:
-        from impl.settings import read_setting
-        _check_mode = read_setting("accountCheckMode", "pre-publish")
+        _check_mode = "pre-publish"
+        try:
+            with _sqlite.connect(str(_get_db_path())) as _c:
+                _row = _c.execute("SELECT value FROM settings WHERE key='accountCheckMode'").fetchone()
+                if _row:
+                    _check_mode = _row[0]
+        except Exception:
+            pass
         if _check_mode == "startup":
             logger.info("[Startup] 账号检查模式=启动时检测,开始后台异步检测所有账号...")
             import threading as _threading
@@ -1365,10 +1371,9 @@ if __name__ == "__main__":
                     for row in rows:
                         acc_id, acc_type, cookie_file, nick = row
                         try:
-                            platform_cls = get_platform(acc_type)
-                            if not platform_cls:
+                            platform = get_platform(acc_type)
+                            if not platform:
                                 continue
-                            platform = platform_cls()
                             cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
                             if not Path(cookie_path).exists():
                                 with _sqlite.connect(str(db_path)) as conn:

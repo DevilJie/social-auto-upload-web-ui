@@ -31,7 +31,7 @@ DB_PATH = BASE_DIR / "db" / "database.db"
 _PLATFORM_ID_TO_NAME = {
     1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站",
     6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频",
-    10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条",
+    10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎",
 }
 
 # 平台 key(拼音) → 中文名称。修复 publish_details.platform 历史脏数据:
@@ -42,7 +42,7 @@ _PLATFORM_KEY_TO_NAME = {
     "kuaishou": "快手", "bilibili": "B站", "baijiahao": "百家号",
     "tiktok": "TikTok", "youtube": "YouTube",
     "tencent_video": "腾讯视频", "iqiyi": "爱奇艺",
-    "weibo": "微博", "alipay": "支付宝", "toutiao": "今日头条",
+    "weibo": "微博", "alipay": "支付宝", "toutiao": "今日头条", "zhihu": "知乎",
 }
 
 # SSE 订阅者
@@ -220,7 +220,7 @@ def create_task():
     platform_map = {
         1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站",
         6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频",
-        10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条",
+        10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎",
     }
     platform_type = data['platformType']
 
@@ -1000,7 +1000,7 @@ def _extract_channels_summary(draft_data):
         'kuaishou': '快手', 'bilibili': 'B站', 'baijiahao': '百家号',
         'tiktok': 'TikTok', 'youtube': 'YouTube', 'iqiyi': '爱奇艺',
         'tencent_video': '腾讯视频',
-        'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条',
+        'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条', 'zhihu': '知乎',
     }
 
     try:
@@ -1017,7 +1017,7 @@ def _extract_channels_summary(draft_data):
             'kuaishou': 4, 'bilibili': 5,
             'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
             'tencent_video': 9, 'iqiyi': 10,
-            'weibo': 11, 'alipay': 12, 'toutiao': 13,
+            'weibo': 11, 'alipay': 12, 'toutiao': 13, 'zhihu': 14,
         }.items()}
 
         platform_counts = {}

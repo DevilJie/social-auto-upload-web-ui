@@ -53,13 +53,13 @@ class ZhihuPlatform(BasePlatform):
             try:
                 page = await context.new_page()
                 await page.goto(ZHIHU_LOGIN_URL)
-                logger.info("[zhihu] 等待用户完成登录（检测右上角头像按钮）")
+                logger.info("[登录] 等待用户完成登录（检测右上角头像按钮）")
 
                 # 头像按钮出现 = 登录成功。不设超时，用户自己关浏览器取消。
                 await page.locator(".AppHeader-profileEntry").first.wait_for(
                     timeout=999999999
                 )
-                logger.info("[zhihu] 检测到头像按钮，登录成功")
+                logger.info("[登录] 检测到头像按钮，登录成功")
 
                 await save_login_result(
                     context,
@@ -106,9 +106,9 @@ class ZhihuPlatform(BasePlatform):
                     pass
                 profile_entry = page.locator(".AppHeader-profileEntry").first
                 if await profile_entry.count() > 0:
-                    logger.info("[zhihu] cookie valid")
+                    logger.info("[校验Cookie] cookie 有效")
                     return True
-                logger.info("[zhihu] cookie expired")
+                logger.info("[校验Cookie] cookie 已失效")
                 return False
             finally:
                 await page.close()
@@ -133,7 +133,7 @@ class ZhihuPlatform(BasePlatform):
                 )
                 return await scrape_zhihu_profile(page)
             except Exception as e:
-                logger.info(f"[zhihu] sync profile failed: {e}")
+                logger.info(f"[同步资料] 失败: {e}")
                 return "", ""
             finally:
                 await page.close()
@@ -375,7 +375,7 @@ class ZhihuPlatform(BasePlatform):
                 if upload_success:
                     try:
                         await context.storage_state(path=account_file)
-                        logger.info("[上传视频] cookie updated")
+                        logger.info("[上传视频] cookie 已更新")
                     except Exception:
                         pass
                 try:
@@ -387,7 +387,7 @@ class ZhihuPlatform(BasePlatform):
                 await browser.close()
             except Exception:
                 pass
-            logger.info("[上传视频] browser closed")
+            logger.info("[上传视频] 浏览器已关闭")
 
     # ------------------------------------------------------------------
     # Upload sub-steps
@@ -395,15 +395,110 @@ class ZhihuPlatform(BasePlatform):
 
     @staticmethod
     async def _upload_video_file(page, file_path: str):
-        logger.info("[上传视频] 正在上传视频文件...")
-        file_input = page.locator('input[type="file"][accept*="video"]').first
+        """上传视频文件 — 多策略探测 input=file。
+
+        知乎上传页 ``input[type=file]`` 可能存在 iframe 内或主页，
+        accept 属性也可能不一致；先 JS 探测一遍把页面上所有 file input
+        的属性打到日志，再按 iframe→[accept*=video]→任意 input→点击
+        可见上传按钮的顺序逐级兜底。每一步都打日志便于排查。
+        """
+        log_dir = Path(BASE_DIR / "logs")
+        logger.info("[上传视频] 正在上传视频文件: %s", file_path)
+
         try:
-            await file_input.wait_for(state="attached", timeout=10000)
+            await page.screenshot(
+                path=str(log_dir / "zhihu_upload_before.png"), full_page=True
+            )
         except Exception:
-            file_input = page.locator('input[type="file"]').first
-            await file_input.wait_for(state="attached", timeout=10000)
+            pass
+
+        try:
+            inputs_info = await page.evaluate("""() => {
+                const inputs = [...document.querySelectorAll('input[type="file"]')];
+                return inputs.map(inp => ({
+                    accept: inp.accept || '',
+                    name: inp.name || '',
+                    multiple: inp.multiple,
+                }));
+            }""")
+            logger.info("[上传视频] 页面 file input 探测: %s", inputs_info)
+        except Exception as e:
+            logger.info("[上传视频] file input 探测失败: %s", e)
+
+        file_input = None
+
+        # 策略 1: iframe 里找（参考 bilibili 的 iframe[name="videoUpload"]）
+        try:
+            upload_frame = page.frame_locator(
+                'iframe[name="videoUpload"], '
+                'iframe[name*="upload"], '
+                'iframe[title*="upload" i], '
+                'iframe[src*="upload" i]'
+            )
+            input_in_frame = upload_frame.locator('input[type="file"]').first
+            await input_in_frame.wait_for(state="attached", timeout=3000)
+            file_input = input_in_frame
+            logger.info("[上传视频] ✓ iframe 内找到 file input")
+        except Exception:
+            logger.info("[上传视频] iframe 内未找到 file input，转主页面")
+
+        # 策略 2: 主页面 input[accept*=video]
+        if file_input is None:
+            try:
+                candidate = page.locator(
+                    'input[type="file"][accept*="video"], '
+                    'input[type="file"][accept*="mp4"]'
+                ).first
+                await candidate.wait_for(state="attached", timeout=5000)
+                file_input = candidate
+                logger.info("[上传视频] ✓ 主页面 video input 命中")
+            except Exception:
+                logger.info("[上传视频] 主页面未找到 [accept*=video] input")
+
+        # 策略 3: 主页面任意 file input（兜底）
+        if file_input is None:
+            try:
+                candidate = page.locator('input[type="file"]').first
+                await candidate.wait_for(state="attached", timeout=5000)
+                file_input = candidate
+                logger.info("[上传视频] ✓ 兜底命中主页面第一个 file input")
+            except Exception:
+                logger.info("[上传视频] 主页面无任何 file input")
+
+        # 策略 4: 点击可见的上传按钮/dropzone 后再找 input
+        if file_input is None:
+            try:
+                logger.info("[上传视频] 尝试点击页面上可见的上传按钮")
+                upload_btn = page.locator(
+                    'button:has-text("上传视频"), '
+                    'div[role="button"]:has-text("上传"), '
+                    '[class*="UploadDropzone"], [class*="upload-dropzone"], '
+                    'div:has-text("选择文件"):not(:has(*)), '
+                    'div:has-text("拖拽"):not(:has(*))'
+                ).first
+                await upload_btn.wait_for(state="visible", timeout=5000)
+                await upload_btn.click()
+                await asyncio.sleep(1)
+                file_input = page.locator('input[type="file"]').first
+                await file_input.wait_for(state="attached", timeout=5000)
+                logger.info("[上传视频] ✓ 点击上传按钮后找到 file input")
+            except Exception as e:
+                logger.info("[上传视频] 上传按钮兜底失败: %s", e)
+
+        if file_input is None:
+            try:
+                await page.screenshot(
+                    path=str(log_dir / "zhihu_upload_no_input.png"),
+                    full_page=True,
+                )
+            except Exception:
+                pass
+            raise RuntimeError(
+                "未找到视频上传 input，请查看 logs/zhihu_upload_before.png"
+            )
+
         await file_input.set_input_files(file_path)
-        logger.info("[上传视频] 视频文件已选择, 等待上传完成")
+        logger.info("[上传视频] 视频文件已选择，等待上传完成")
 
     @staticmethod
     async def _wait_upload_complete(page):

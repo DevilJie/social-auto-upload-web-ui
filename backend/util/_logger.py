@@ -17,7 +17,7 @@ from conf import BASE_DIR
 
 CHANNELS = ["backend", "bilibili", "douyin", "kuaishou", "xiaohongshu",
            "iqiyi", "tencent_video", "youtube", "baijiahao", "tiktok",
-           "channels", "weibo", "alipay", "toutiao"]
+           "channels", "weibo", "alipay", "toutiao", "zhihu"]
 
 # 发布账号昵称的上下文变量。每条日志会自动带上当前上下文中的昵称，
 # 这样在并发发布多个账号时，深层助手日志也能正确归属到对应账号。

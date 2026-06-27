@@ -612,10 +612,8 @@ class KuaishouPlatform(BasePlatform):
             # ------ Fill description + tags ------
             logger.info("[填写简介] 开始填写简介与标签...")
             await page.get_by_text("描述").locator("xpath=following-sibling::div").click()
-            await page.keyboard.press("Backspace")
-            await page.keyboard.press("Control+KeyA")
-            await page.keyboard.press("Delete")
-            await page.keyboard.type(desc or title)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_and_type(page, desc or title)
             await page.keyboard.press("Enter")
             logger.info("[填写简介] 简介填写完成")
 

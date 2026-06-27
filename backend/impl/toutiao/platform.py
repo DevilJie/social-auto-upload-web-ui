@@ -20,6 +20,7 @@ from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -442,9 +443,8 @@ class ToutiaoPlatform(BasePlatform):
                                 if await desc_el.count():
                                     await desc_el.click()
                                     await asyncio.sleep(0.5)
-                                    await page.keyboard.press("Control+KeyA")
-                                    await page.keyboard.press("Delete")
-                                    await page.keyboard.type(desc[:400])
+                                    # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+                                    await clear_and_type(page, desc[:400])
                                     desc_filled = True
                                     logger.info("[填写简介] 视频简介填写成功!")
                                     break

@@ -138,6 +138,10 @@ from blueprints.bilibili_bp import bilibili_bp  # noqa: E402
 app.register_blueprint(bilibili_bp)
 logger.info("[Startup] bilibili_bp registered OK")
 
+from blueprints.channels_bp import channels_bp  # noqa: E402
+app.register_blueprint(channels_bp)
+logger.info("[Startup] channels_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
@@ -792,6 +796,8 @@ def postVideo():
                 xhs_repost_source=data.get('xhsRepostSource', ''),
                 # B 站合集(账号级)
                 bili_collection_name=data.get('biliCollectionName', ''),
+                # 视频号合集(账号级)
+                channels_collection_name=data.get('channelsCollectionName', ''),
             ))
         else:
             result = publish_fn(
@@ -846,6 +852,8 @@ def postVideo():
                 xhs_repost_source=data.get('xhsRepostSource', ''),
                 # B 站合集(账号级)
                 bili_collection_name=data.get('biliCollectionName', ''),
+                # 视频号合集(账号级)
+                channels_collection_name=data.get('channelsCollectionName', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

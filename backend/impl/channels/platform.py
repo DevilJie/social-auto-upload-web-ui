@@ -36,6 +36,10 @@ TENCENT_LOGIN_URL = "https://channels.weixin.qq.com"
 TENCENT_UPLOAD_URL = "https://channels.weixin.qq.com/platform/post/create"
 TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
 
+# 调试开关:True = 走到发布按钮时只输出参数日志、不实际点击发布(便于检查内容);
+# False = 正常点击发布。验证完发布内容无误后改回 False 即可。
+_PUBLISH_DRY_RUN = True
+
 
 def _format_short_title(origin_title: str) -> str:
     """Format a title for the Channels short-title field (max 16 chars)."""
@@ -285,18 +289,42 @@ async def _set_short_title(page, title: str, short_title: str | None = None) -> 
     logger.info("[填写标题] short title input not found, skipping")
 
 
-async def _apply_collection(page) -> None:
-    """Select the first available collection if there is more than one."""
-    collection_elements = (
-        page.get_by_text("添加到合集")
-        .locator("xpath=following-sibling::div")
-        .locator(".option-list-wrap > div")
-    )
-    if await collection_elements.count() > 1:
-        await page.get_by_text("添加到合集").locator(
-            "xpath=following-sibling::div"
-        ).click()
-        await collection_elements.first.click()
+async def _apply_collection(page, collection_name: str = "") -> None:
+    """选择指定合集(按名称匹配);无名称时选第一个可用合集。
+
+    DOM 定位(禁用 data-v 随机串):
+      入口:「选择合集」文案(get_by_text)
+      下拉选项:option-item > item > div.name(合集名)
+    """
+    # 点击「选择合集」展开下拉
+    entry = page.get_by_text("选择合集", exact=True)
+    if await entry.count() == 0:
+        logger.info("[设置合集] 未找到「选择合集」入口,跳过")
+        return
+    await entry.first.click()
+    await asyncio.sleep(1)
+
+    # 解析下拉选项
+    names = page.locator(".option-item .item .name")
+    count = await names.count()
+    if count == 0:
+        logger.info("[设置合集] 无可用合集,跳过")
+        return
+
+    if collection_name:
+        # 按名称匹配
+        for i in range(count):
+            name = (await names.nth(i).inner_text()).strip()
+            if name == collection_name:
+                await names.nth(i).locator("xpath=ancestor::div[contains(@class,'option-item')][1]").first.click()
+                logger.info("[设置合集] 已选择合集: %s", collection_name)
+                return
+        logger.warning("[设置合集] 未找到合集: %s", collection_name)
+    else:
+        # 选第一个可用合集(原有逻辑)
+        if count > 1:
+            await names.nth(1).locator("xpath=ancestor::div[contains(@class,'option-item')][1]").first.click()
+            logger.info("[设置合集] 已选择第一个可用合集")
 
 
 async def _apply_original_statement(page, category: str | None = None) -> None:
@@ -1004,6 +1032,8 @@ class ChannelsPlatform(BasePlatform):
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path")
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
+        # 视频号合集(账号级)
+        channels_collection_name = kwargs.get("channels_collection_name", "")
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1085,7 +1115,7 @@ class ChannelsPlatform(BasePlatform):
                             # 正文/描述区 → desc + tags
                             await _fill_description(page, desc)
                             await _fill_title_and_tags(page, title, tags)
-                            await _apply_collection(page)
+                            await _apply_collection(page, channels_collection_name)
                             await _apply_original_statement(page, category)
 
                             # Wait for upload to finish (auto-retries on error)
@@ -1100,6 +1130,32 @@ class ChannelsPlatform(BasePlatform):
 
                             # Set short title
                             await _set_short_title(page, title)
+
+                            # 调试:输出本次发布的全部参数
+                            logger.info("=" * 60)
+                            logger.info("[发布调试] ===== 本次发布参数汇总 (dry_run=%s) =====", _PUBLISH_DRY_RUN)
+                            logger.info("[发布调试] 标题(title)       : %s", title)
+                            logger.info("[发布调试] 视频文件(file_path): %s", file_path)
+                            logger.info("[发布调试] 描述(desc)        : %s", desc[:100] if desc else "(无)")
+                            logger.info("[发布调试] 标签(tags)        : %s (共 %d 个)", tags, len(tags))
+                            logger.info("[发布调试] 横版封面(landscape): %s", thumbnail_landscape_path or "(无)")
+                            logger.info("[发布调试] 竖版封面(portrait) : %s", thumbnail_portrait_path or "(无)")
+                            logger.info("[发布调试] 合集(collection)  : %s", channels_collection_name or "(无)")
+                            logger.info("[发布调试] 创作声明(category): %s", category or "(无)")
+                            logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
+                            logger.info("[发布调试] ========================================")
+                            logger.info("=" * 60)
+
+                            if _PUBLISH_DRY_RUN:
+                                logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击发布,流程到此结束(不发布)")
+                                logger.info("[发布调试] DRY_RUN: 浏览器保持打开,等待你手动关闭窗口后再结束...")
+                                try:
+                                    while browser.is_connected():
+                                        await asyncio.sleep(1)
+                                    logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
+                                except Exception:
+                                    pass
+                                return
 
                             # Submit
                             await _submit_publish(page, is_draft)

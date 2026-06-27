@@ -250,6 +250,14 @@
               </div>
             </template>
 
+            <!-- 视频号专属卡片(合集为账号级,选中账号后才显示) -->
+            <template v-if="selectedPlatform === 'channels' && selectedAccountId">
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择合集</div>
+                <ChannelsCollectionSelect :account-id="selectedAccountId" v-model="form.channelsCollectionName" :data="form.channelsCollectionData" @change="handleChannelsCollectionChange" />
+              </div>
+            </template>
+
             <!-- settingsFields（排除已在通用字段渲染的） -->
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
@@ -541,6 +549,7 @@ import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import DouyinMixSelect from '@/components/douyin/MixSelect.vue'
 import XhsCollectionSelect from '@/components/xiaohongshu/CollectionSelect.vue'
 import BiliCollectionSelect from '@/components/bilibili/CollectionSelect.vue'
+import ChannelsCollectionSelect from '@/components/channels/CollectionSelect.vue'
 import XhsPoiSelect from '@/components/xiaohongshu/PoiSelect.vue'
 import AlipayCompilationSelect from '@/components/alipay/CompilationSelect.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
@@ -757,6 +766,9 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // B 站合集(账号级)
     biliCollectionName: accountOv?.biliCollectionName ?? platformOv?.biliCollectionName ?? platformDefault?.biliCollectionName ?? '',
     biliCollectionData: accountOv?.biliCollectionData ?? platformOv?.biliCollectionData ?? platformDefault?.biliCollectionData ?? null,
+    // 视频号合集(账号级)
+    channelsCollectionName: accountOv?.channelsCollectionName ?? platformOv?.channelsCollectionName ?? platformDefault?.channelsCollectionName ?? '',
+    channelsCollectionData: accountOv?.channelsCollectionData ?? platformOv?.channelsCollectionData ?? platformDefault?.channelsCollectionData ?? null,
   }
 }
 
@@ -797,7 +809,7 @@ const platformConfigs = reactive({
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [], channelsCollectionName: '', channelsCollectionData: null },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '', tags: [] },
@@ -1059,6 +1071,15 @@ function handleBiliCollectionChange(col) {
     form.biliCollectionData = col
   } else {
     form.biliCollectionData = null
+  }
+}
+
+// 视频号合集选择回调
+function handleChannelsCollectionChange(col) {
+  if (col) {
+    form.channelsCollectionData = col
+  } else {
+    form.channelsCollectionData = null
   }
 }
 
@@ -1950,6 +1971,8 @@ async function publishAll() {
         mix_id: merged.mixId || '',
         // B 站合集(账号级配置)
         biliCollectionName: merged.biliCollectionName || '',
+        // 视频号合集(账号级配置)
+        channelsCollectionName: merged.channelsCollectionName || '',
         // 小红书合集(账号级配置):collectionId 给后端定位,collectionName 兜底匹配
         collectionId: merged.collectionId || '',
         collectionName: merged.collectionName || '',

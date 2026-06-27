@@ -29,6 +29,11 @@ logger = get_channel_logger("zhihu")
 
 ZHIHU_LOGIN_URL = "https://www.zhihu.com/settings/account"
 ZHIHU_UPLOAD_URL = "https://www.zhihu.com/upload-video?entry=navPanel"
+ZHIHU_CREATOR_URL = "https://www.zhihu.com/creator"
+
+# 调试开关：True = 提交前只 dump 表单状态、不实际点击发布按钮。
+# 验证完表单内容后改回 False 即恢复正常发布。
+DEBUG_DRY_RUN_SUBMIT = False
 
 
 class ZhihuPlatform(BasePlatform):
@@ -147,7 +152,7 @@ class ZhihuPlatform(BasePlatform):
 
     async def open_creator_center(self, cookie_file: str) -> None:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        url = ZHIHU_UPLOAD_URL
+        url = ZHIHU_CREATOR_URL
 
         def _launch():
             browser = create_browser_sync(headless=False)
@@ -194,6 +199,13 @@ class ZhihuPlatform(BasePlatform):
             logger.info("=" * 60)
             logger.info("[发布视频] 开始知乎视频发布流程")
             logger.info("=" * 60)
+
+            # DEBUG：dump 所有收到的 kwargs（值被截断到 100 字符），便于排查前端到底传了什么
+            for _k, _v in kwargs.items():
+                _vs = repr(_v)
+                if len(_vs) > 100:
+                    _vs = _vs[:100] + "..."
+                logger.info("[发布参数 RAW] %s = %s", _k, _vs)
 
             title = kwargs.get("title", "")
             files = kwargs.get("files", [])
@@ -273,6 +285,8 @@ class ZhihuPlatform(BasePlatform):
                             "[发布进度] 发布到第 %d/%d 个账号 (%s)",
                             cookie_index + 1, len(cookie_paths), nick or "未知",
                         )
+                        # _upload_single_video 在发布失败时直接 raise，
+                        # 异常会传到 publish_video → app.py 的 except → 500+msg
                         await self._upload_single_video(
                             title=title,
                             file_path=file_path,
@@ -307,7 +321,11 @@ class ZhihuPlatform(BasePlatform):
         creation_declaration: str = "内容无需标注",
         desc: str = "",
         thumbnail_path: str | None = None,
-    ):
+    ) -> str:
+        """Returns:
+            空串 = 发布成功
+            非空串 = 错误消息（用于 publish_video 聚合后抛给 app.py）
+        """
         log_dir = Path(BASE_DIR / "logs")
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -405,16 +423,20 @@ class ZhihuPlatform(BasePlatform):
                         logger.info("[上传视频] cookie 已更新")
                     except Exception:
                         pass
+                if not DEBUG_DRY_RUN_SUBMIT:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+        finally:
+            if not DEBUG_DRY_RUN_SUBMIT:
                 try:
-                    await context.close()
+                    await browser.close()
                 except Exception:
                     pass
-        finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
-            logger.info("[上传视频] 浏览器已关闭")
+                logger.info("[上传视频] 浏览器已关闭")
+            else:
+                logger.info("[上传视频] ⏸ DEBUG 模式：保留浏览器打开，便于现场检查")
 
     # ------------------------------------------------------------------
     # Upload sub-steps
@@ -676,17 +698,57 @@ class ZhihuPlatform(BasePlatform):
             if not preview_found:
                 logger.info("[设置封面] 等待 30s 仍未检测到封面上传成功标志")
 
-            # 5. 点击「确认选择」
+            # 5. 点击「确认选择」— 多策略确保点中
             confirm_btn = page.locator(
                 '.Modal-content button:has-text("确认选择"), '
                 '[role="dialog"] button:has-text("确认选择"), '
                 '.Modal-content button.Button--primary:has-text("确认"), '
-                '[role="dialog"] button.Button--primary:has-text("确认")'
+                '[role="dialog"] button.Button--primary:has-text("确认"), '
+                'button.Button--primary:has-text("确认选择")'
             ).first
             await confirm_btn.wait_for(state="visible", timeout=15000)
-            await confirm_btn.click()
-            logger.info("[设置封面] ✓ 已点击「确认选择」")
-            await asyncio.sleep(2)
+            clicked = False
+            for attempt, kwargs_click in enumerate([
+                {"timeout": 5000},
+                {"timeout": 5000, "force": True},
+            ]):
+                try:
+                    await confirm_btn.click(**kwargs_click)
+                    clicked = True
+                    logger.info(f"[设置封面] ✓ 已点击「确认选择」(attempt={attempt + 1})")
+                    break
+                except Exception as e:
+                    logger.info(f"[设置封面] 点击 attempt={attempt + 1} 失败: {e}")
+            if not clicked:
+                # 最后兜底：JS 直接 dispatch click
+                try:
+                    await confirm_btn.evaluate("el => el.click()")
+                    clicked = True
+                    logger.info("[设置封面] ✓ JS evaluate click 命中")
+                except Exception as e:
+                    logger.info(f"[设置封面] JS evaluate click 失败: {e}")
+
+            # 6. 等模态框消失（确认弹窗关闭 = 真正生效）；超时则 Escape 兜底
+            modal_closed = False
+            for _ in range(15):
+                try:
+                    still_open = await page.locator(
+                        '.Modal-content:visible, [role="dialog"]:visible'
+                    ).count()
+                    if still_open == 0:
+                        modal_closed = True
+                        logger.info("[设置封面] ✓ 弹窗已关闭")
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+            if not modal_closed:
+                logger.info("[设置封面] 弹窗 15s 未关，Escape 兜底")
+                try:
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(1)
+                except Exception:
+                    pass
 
         except Exception as exc:
             logger.info(f"[设置封面] 设置封面失败（非致命）: {exc}")
@@ -726,9 +788,11 @@ class ZhihuPlatform(BasePlatform):
     async def _fill_desc_and_tags(page, desc: str, tags: list):
         """简介 ≤2000 字符（spec 第 39 行），标签用 #xxx + 空格激活（spec 第 42 行）。
 
-        知乎简介是 contenteditable 富文本编辑器，标签需要 # 开头并跟随空格
-        触发话题联想，逐个输入保证每个标签都被识别。
+        知乎简介是 contenteditable 富文本编辑器。简介 + 标签都用剪贴板粘贴
+        （Ctrl+V），不再逐字 keyboard.type —— 后者在标签场景下 React 监听
+        可能丢字符。每个标签末尾带空格触发话题联想。
         """
+        import json as _json
         import re as _re
 
         full_text = desc or ""
@@ -753,27 +817,43 @@ class ZhihuPlatform(BasePlatform):
         await editor.wait_for(state="visible", timeout=15000)
         await editor.click()
 
+        async def _paste(text: str):
+            """通过剪贴板粘贴到当前焦点元素。"""
+            try:
+                await page.evaluate(
+                    "async (s) => { await navigator.clipboard.writeText(s); }",
+                    text,
+                )
+                await page.keyboard.press("Control+V")
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.info(f"[填写简介] 粘贴失败，回退 type: {e}")
+                await page.keyboard.type(text)
+
+        # 1. 粘贴简介
         if full_text:
-            await page.keyboard.type(full_text, delay=10)
+            await _paste(full_text)
             await asyncio.sleep(0.3)
 
+        # 2. 逐个逐字输入标签：press_sequentially 自动 focus，delay=150ms 每字符
         for tag in parsed_tags:
-            await page.keyboard.type(f" #{tag}", delay=30)
-            await asyncio.sleep(0.3)
-            await page.keyboard.type(" ", delay=30)
+            text = f" #{tag}"
+            logger.info(f"[填写标签] 逐字输入: '{text}'")
+            await editor.press_sequentially(text, delay=150)
+            await asyncio.sleep(2)
+            await page.keyboard.press(" ")
             await asyncio.sleep(0.5)
+            logger.info(f"[填写标签] 已输入空格激活: '{text}'")
 
     @staticmethod
     async def _set_video_mark(page, creation_declaration: str):
         """视频标记弹窗（spec 第 45-52 行）。
 
-        点击 ``VideoUploadForm-videoTypeSelectOverlay`` 唤起弹窗 → 点选匹配项
-        → 点击「确认」。默认「内容无需标注」无需打开弹窗。
+        即使默认「内容无需标注」也要打开弹窗 + 点确认（显式确认状态）。
+        只有当用户选了非默认项时才点选项。
         """
-        if not creation_declaration or creation_declaration == "内容无需标注":
-            logger.info("[视频标记] 默认「内容无需标注」，跳过")
-            return
-
+        if not creation_declaration:
+            creation_declaration = "内容无需标注"
         logger.info(f"[视频标记] 设置视频标记: {creation_declaration}")
 
         try:
@@ -791,14 +871,17 @@ class ZhihuPlatform(BasePlatform):
             ).first
             await modal.wait_for(state="visible", timeout=10000)
 
-            option = modal.locator(
-                f'.VideoUploadForm-videoTypeModalOption:has-text("{creation_declaration}")'
-            ).first
-            await option.wait_for(state="visible", timeout=5000)
-            await option.click()
-            logger.info(f"[视频标记] 已选择: {creation_declaration}")
-            await asyncio.sleep(0.5)
+            # 非默认才点选项（默认是预先勾选状态，无需点）
+            if creation_declaration != "内容无需标注":
+                option = modal.locator(
+                    f'.VideoUploadForm-videoTypeModalOption:has-text("{creation_declaration}")'
+                ).first
+                await option.wait_for(state="visible", timeout=5000)
+                await option.click()
+                logger.info(f"[视频标记] 已选择: {creation_declaration}")
+                await asyncio.sleep(0.5)
 
+            # 不论默认还是非默认，都要点「确认」显式提交
             confirm = modal.locator(
                 '.VideoUploadForm-videoTypeModalActions button:has-text("确认"), '
                 '.ModalButtonGroup button.Button--blue:has-text("确认")'
@@ -840,46 +923,66 @@ class ZhihuPlatform(BasePlatform):
     async def _set_category(page, category: str):
         """所属领域下拉（spec 第 58-63 行）。
 
-        知乎 Select 触发后下拉是 portal 渲染，options 不在 .VideoUploadForm-item
-        子树内。点 trigger 时若被遮挡，加 force=True 兜底。
+        spec DOM:trigger 是 ``button[role=combobox]`` 在 ``.VideoUploadForm-select``
+        内（id 形如 PopoverN-toggle）；点击后渲染 ``Popover-content`` 包着
+        ``[role=listbox]`` 内的 ``button[role=option]``。options 是 portal
+        渲染（不在原 .VideoUploadForm-item 子树里），从全页找。
         """
         if not category:
             return
 
         logger.info(f"[所属领域] 设置: {category}")
         try:
-            # 在「所属领域」区域内找 Select 触发按钮
+            # 1. 定位「所属领域」区域（按 itemTitle 文本锚点）
             area = page.locator(
-                '.VideoUploadForm-item:has(.VideoUploadForm-itemTitle:has-text("所属领域"))'
+                '.VideoUploadForm-item',
+                has=page.locator('.VideoUploadForm-itemTitle:has-text("所属领域")'),
             ).first
             await area.wait_for(state="visible", timeout=10000)
-            trigger = area.locator('button[role="combobox"], .Select-button').first
+
+            # 2. 区域内的 combobox 按钮（id=PopoverN-toggle，N 会变，不用 id）
+            trigger = area.locator('button[role="combobox"]').first
             await trigger.wait_for(state="visible", timeout=10000)
-            try:
-                await trigger.click(timeout=5000)
-            except Exception:
-                # 兜底：force click 绕开遮挡
-                logger.info("[所属领域] 普通点击失败，尝试 force click")
-                await trigger.click(force=True, timeout=5000)
+
+            # 3. 点击打开下拉；先普通点击，失败 force click 兜底
+            for attempt in range(2):
+                try:
+                    await trigger.click(timeout=5000, force=(attempt == 1))
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        logger.info(f"[所属领域] 普通点击失败，尝试 force click: {e}")
+                    else:
+                        raise
             await asyncio.sleep(1)
 
-            # 下拉 options（portal 渲染，不在 area 子树内，从全页找）
-            option = page.locator(
-                f'.VideoUploadForm-selectList .Select-option:has-text("{category}"), '
-                f'.Select-list .Select-option:has-text("{category}"), '
-                f'div[role="listbox"] button[role="option"]:has-text("{category}")'
+            # 4. 等下拉 [role=listbox] 出现（portal 渲染，全页搜）
+            listbox = page.locator(
+                '.Popover-content [role="listbox"], div[role="listbox"]'
+            ).first
+            await listbox.wait_for(state="visible", timeout=10000)
+
+            # 5. 在 listbox 里找匹配文案的 option
+            option = listbox.locator(
+                f'button[role="option"]:has-text("{category}")'
             ).first
             await option.wait_for(state="visible", timeout=10000)
-            try:
-                await option.click(timeout=5000)
-            except Exception:
-                await option.click(force=True, timeout=5000)
+            for attempt in range(2):
+                try:
+                    await option.click(timeout=5000, force=(attempt == 1))
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        logger.info(f"[所属领域] option 普通点击失败，force 重试: {e}")
+                    else:
+                        raise
             logger.info(f"[所属领域] ✓ 已选择: {category}")
             await asyncio.sleep(0.5)
         except Exception as exc:
             logger.info(f"[所属领域] 设置失败（非致命）: {exc}")
             try:
                 await page.keyboard.press("Escape")
+                await asyncio.sleep(0.3)
             except Exception:
                 pass
 
@@ -1033,11 +1136,18 @@ class ZhihuPlatform(BasePlatform):
     async def _click_submit(page, is_scheduled: bool) -> tuple[bool, str]:
         """点击右下角发布按钮（spec 第 99-104 行）。
 
-        发布结果判定：监听 ``/api/v4/content/publish`` 响应，
-        ``code == 0`` 为成功；否则返回后端 ``message``。
+        发布成功判定（唯一依据）：监听 ``POST /api/v4/content/publish`` 响应，
+        ``code == 0`` 才算成功；其它情况（含超时、非 0 code、响应缺失）全部
+        视为失败。返回后端的 ``message`` 作为失败原因。
         Returns:
             (success, message)
         """
+        # DEBUG：dry-run 模式下只 dump 表单，不实际发布
+        if DEBUG_DRY_RUN_SUBMIT:
+            await ZhihuPlatform._dump_form_state(page)
+            logger.info("[上传视频] ⏸ DEBUG_DRY_RUN_SUBMIT=True，跳过实际点击发布")
+            return True, "dry-run"
+
         button_text = "定时发布" if is_scheduled else "发布视频"
         logger.info(f"[上传视频] 准备点击发布按钮: {button_text}")
 
@@ -1054,10 +1164,12 @@ class ZhihuPlatform(BasePlatform):
             logger.info(f"[上传视频] 找不到「{button_text}」按钮，尝试通用提交")
             submit = page.locator('.VideoUploadForm-submitButton').first
 
-        # 监听发布 API 响应；click 后端会发 POST /api/v4/content/publish
+        # 监听 POST /api/v4/content/publish 响应
         try:
             async with page.expect_response(
-                lambda r: "/api/v4/content/publish" in r.url, timeout=60000
+                lambda r: "/api/v4/content/publish" in r.url
+                          and r.request.method == "POST",
+                timeout=60000,
             ) as resp_info:
                 try:
                     await submit.click()
@@ -1078,10 +1190,89 @@ class ZhihuPlatform(BasePlatform):
         code = data.get("code")
         msg = data.get("message") or data.get("toast_message") or "发布失败"
         if code == 0:
-            logger.info(f"[上传视频] ✓ 发布成功 (code=0)")
+            logger.info("[上传视频] ✓ 发布成功 (code=0)")
             return True, "发布成功"
+        # 失败直接 raise，app.py 的 except Exception 会接住返回 500+msg 给前端
         logger.info(f"[上传视频] ✗ 发布失败 code={code} message={msg}")
-        return False, msg
+        raise RuntimeError(f"知乎发布失败 code={code} message={msg}")
+
+    @staticmethod
+    async def _dump_form_state(page):
+        """调试用：把上传表单当前所有字段值打到日志，便于人工核对。
+
+        知乎表单不是标准 form，元素散落在多个 VideoUploadForm-item 里，
+        且部分是 contenteditable 富文本，统一用 page.evaluate 抓。
+        """
+        try:
+            state = await page.evaluate(r"""() => {
+                const get = (sel) => {
+                    const el = document.querySelector(sel);
+                    return el ? (el.value || el.innerText || el.textContent || '').trim() : null;
+                };
+                // 标题
+                let title = '';
+                const titleTa = document.querySelector('textarea[name="title"], .TitleArea textarea');
+                if (titleTa) title = titleTa.value;
+                // 简介（contenteditable）
+                let desc = '';
+                const descEd = document.querySelector('.EditorArea [contenteditable="true"], .Editable [contenteditable="true"]');
+                if (descEd) desc = descEd.innerText;
+                // 视频标记 - 找 VideoUploadForm-selectContainer 第一个里 Select-button 的 span
+                let videoMark = '';
+                const markBtn = document.querySelector('.VideoUploadForm-videoTypeSelectOverlay');
+                // 视频标记 Select button span 文本
+                const markSelects = document.querySelectorAll('.VideoUploadForm-selectContainer--modalTrigger .Select-button span, .VideoUploadForm-selectContainer--modalTrigger button[role="combobox"] span');
+                if (markSelects.length) videoMark = markSelects[0].innerText.trim();
+                // 原创视频 checkbox
+                let original = null;
+                const origCb = document.querySelector('.VideoUploadForm-typeContainer input[type="checkbox"]');
+                if (origCb) original = origCb.checked;
+                // 所属领域
+                let category = '';
+                const catItems = document.querySelectorAll('.VideoUploadForm-item');
+                for (const it of catItems) {
+                    const t = it.querySelector('.VideoUploadForm-itemTitle');
+                    if (t && t.textContent.trim() === '所属领域') {
+                        const span = it.querySelector('.Select-button span, button[role="combobox"] span');
+                        if (span) category = span.textContent.trim();
+                        break;
+                    }
+                }
+                // 定时发布开关
+                let scheduled = null;
+                const schedCb = document.querySelector('.VideoUploadForm-scheduledPublish--switch input[type="checkbox"]');
+                if (schedCb) scheduled = schedCb.checked;
+                let scheduleTime = '';
+                if (scheduled) {
+                    const dp = document.querySelector('.DatePicker-Button');
+                    if (dp) scheduleTime += dp.textContent.trim() + ' ';
+                    const combos = document.querySelectorAll('.DateTimePicker button[role="combobox"] span');
+                    const times = [...combos].map(s => s.textContent.trim());
+                    scheduleTime += times.join(':');
+                }
+                // 封面：VideoUploadForm-image 是否有 img
+                let cover = '';
+                const coverImg = document.querySelector('.VideoUploadForm-image');
+                if (coverImg) cover = coverImg.getAttribute('src') || '(无 src)';
+                return {
+                    title,
+                    desc_preview: desc.slice(0, 80),
+                    desc_len: desc.length,
+                    videoMark,
+                    original,
+                    category,
+                    scheduled,
+                    scheduleTime,
+                    cover,
+                    url: location.href,
+                };
+            }""")
+            logger.info("[DEBUG 表单状态] " + "=" * 40)
+            for k, v in state.items():
+                logger.info(f"[DEBUG 表单状态] {k}: {v}")
+            logger.info("[DEBUG 表单状态] " + "=" * 40)
+        except Exception as e:
+            logger.info(f"[DEBUG 表单状态] 抓取失败: {e}")
 
 
 # ---------------------------------------------------------------------------

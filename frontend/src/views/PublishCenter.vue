@@ -1669,7 +1669,7 @@ async function publishAll() {
     publishProgress.value = Math.floor((i / allTasks.length) * 100)
 
     // DEBUG: dump merged 关键字段，便于排查前端到底有没有 category
-    console.log('[ZHIHU DEBUG] platform=' + group.key + ' merged.category=' + JSON.stringify(merged.category) + ' platformConfigs[zhihu].category=' + JSON.stringify(platformConfigs['zhihu']?.category) + ' form.category=' + JSON.stringify(form.category))
+    console.log('[ZHIHU DEBUG] platform=' + group.key + ' form.category=' + JSON.stringify(form.category) + ' platformConfigs[zhihu].category=' + JSON.stringify(platformConfigs['zhihu']?.category) + ' accountOverrides[account.id]?.category=' + JSON.stringify(accountOverrides[account.id]?.category) + ' merged.category=' + JSON.stringify(merged.category))
 
     const videoFormat = merged.videoFormat || ''
 
@@ -1720,13 +1720,15 @@ async function publishAll() {
         startDays: 0,
         // 修：账号级填的 zone 才能进 publishData
         // 微博分类走 cascader(数组 [channel_name, sub_name])
-        // 知乎用 settingsFields.category(中文字符串)，绕开 mergeConfig 链路直接
-        // 从 platformConfigs/accountOverrides 兜底拿，避免字段丢失
+        // 知乎用 settingsFields.category(中文字符串)，4 重兜底直接读
+        // 真实状态源，避免 watch/mergeConfig 链路丢字段：
+        //   form.category > accountOverrides > platformConfigs > merged
         // 其他平台用 zone(B 站分区 tid)或数值兜底
         category: group.key === 'weibo'
           ? (Array.isArray(merged.weiboCategory) ? merged.weiboCategory : [])
           : group.key === 'zhihu'
-          ? (accountOverrides[account.id]?.category
+          ? (form.category
+              ?? accountOverrides[account.id]?.category
               ?? platformConfigs['zhihu']?.category
               ?? merged.category
               ?? '')

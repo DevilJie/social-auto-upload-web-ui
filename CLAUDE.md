@@ -67,6 +67,48 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 If your implementation solution is overly complicated, stop development immediately. Then use the Context7 MCP service to check the latest technical documentation and implement it in a more elegant way.
 
+## 6. Playwright 自动化输入技巧（contenteditable 富文本）
+
+向 contenteditable 富文本输入标签、话题等需要触发 React onChange/onComposition 的内容时，**逐字符输入**比剪贴板粘贴可靠很多。
+
+### 推荐：`locator.press_sequentially(text, delay=N)`
+
+```python
+editor = page.locator('.EditorArea [contenteditable="true"]')
+await editor.press_sequentially(" #新疆", delay=150)  # 自动 focus，逐字符
+await asyncio.sleep(2)  # 等待 React 监听完成
+await page.keyboard.press(" ")  # 激活联想（如话题标签）
+```
+
+**优点**：
+- **自动 focus 到该元素**，不用先 `editor.click()`
+- **正确触发 React 合成事件**（compositionstart / input / change），比 `keyboard.type` 更可靠
+- `delay` 控制每个字符间隔（ms），150ms 既人眼可辨又不太慢
+
+### 不推荐：`page.keyboard.type(text, delay=N)`
+
+- 不会自动 focus，需要先 click
+- 在 React 富文本上可能丢 onChange 事件
+- 官方推荐改用 `press_sequentially`
+
+### 激活"#"话题标签的标准流程
+
+知乎/微博等内容平台的 `#xxx` 话题标签需要空格触发联想。完整流程：
+
+```python
+for tag in parsed_tags:
+    text = f" #{tag}"
+    await editor.press_sequentially(text, delay=150)  # 1. 逐字符输入 #xxx
+    await asyncio.sleep(2)                            # 2. 等 React 监听完成
+    await page.keyboard.press(" ")                    # 3. 单独按空格激活话题
+    await asyncio.sleep(0.5)                          # 4. 等激活动画
+```
+
+**常见误区**：
+- ❌ 用 `clipboard.writeText` + `Control+V` 粘贴整段：React 监听经常丢字符
+- ❌ 把空格和 `#xxx` 一起粘贴：无法触发联想
+- ❌ 按完空格立刻进行下一步：标签芯片还没渲染
+
 
 
 ---

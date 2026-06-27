@@ -176,6 +176,8 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
                 logger.info(f"[合集列表] 页面加载(非致命): {e}")
 
             # 1.5 上传测试视频触发表单渲染
+            # B 站视频上传的 input 在 iframe[name="videoUpload"] 里,
+            # 与 platform.py 的 _upload_video_file 保持一致的 iframe 回退策略。
             test_video = _pick_test_video()
             if not test_video:
                 return {
@@ -184,8 +186,25 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
                 }
             logger.info(f"[合集列表] 上传测试视频: {test_video}")
             try:
-                file_input = page.locator('input[type="file"][accept*="video"]').first
-                await file_input.set_input_files(test_video)
+                uploaded = False
+                # 先尝试 iframe 内的 input
+                try:
+                    upload_frame = page.frame_locator('iframe[name="videoUpload"]')
+                    file_input = upload_frame.locator(
+                        'input[type="file"][accept*="video"], input[type="file"]'
+                    ).first
+                    await file_input.set_input_files(test_video)
+                    uploaded = True
+                    logger.info("[合集列表] 通过 iframe 上传成功")
+                except Exception:
+                    pass
+                # 回退:主页面的 input
+                if not uploaded:
+                    file_input = page.locator(
+                        'input[type="file"][accept*="video"], input[type="file"]'
+                    ).first
+                    await file_input.set_input_files(test_video)
+                    logger.info("[合集列表] 通过主页面 input 上传成功")
             except Exception as e:
                 return {"success": False, "error": f"测试视频上传失败: {e}"}
 
@@ -199,6 +218,19 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
             else:
                 return {"success": False, "error": "视频上传超时(超过 4 小时)"}
             logger.info("[合集列表] 上传完成")
+
+            # 等待发布表单渲染(标题输入框出现即代表表单就绪)
+            logger.info("[合集列表] 等待发布表单渲染(标题输入框,最多 4 小时)...")
+            title_input = page.locator('input[placeholder*="标题"]').first
+            form_ready = False
+            for _ in range(_UPLOAD_WAIT_POLLS):
+                if await title_input.count() > 0:
+                    form_ready = True
+                    break
+                await asyncio.sleep(0.5)
+            if not form_ready:
+                return {"success": False, "error": "发布表单未渲染(标题输入框未出现)"}
+            logger.info("[合集列表] 发布表单已渲染")
             await asyncio.sleep(2)
 
             # 2. 点击「请选择合集」入口

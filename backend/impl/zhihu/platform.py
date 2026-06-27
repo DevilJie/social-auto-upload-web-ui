@@ -322,32 +322,32 @@ class ZhihuPlatform(BasePlatform):
                 await self._wait_upload_complete(page)
                 await asyncio.sleep(2)
 
-                # 3. 填写标题（≤50 字符）— 先填表，避免封面弹窗异常时遮挡表单
+                # 3. 设置封面（spec 第 28-34 行；任何异常 Escape 关弹窗，不阻塞）
+                if thumbnail_path:
+                    await self._set_thumbnail(page, thumbnail_path)
+
+                # 4. 填写标题（≤50 字符）
                 await self._fill_title(page, title)
 
-                # 4. 填写简介 + 标签（≤2000 字符，标签用 #xxx + 空格激活）
+                # 5. 填写简介 + 标签（≤2000 字符，标签用 #xxx + 空格激活）
                 await self._fill_desc_and_tags(page, desc, tags)
 
-                # 5. 视频标记（弹窗）
+                # 6. 视频标记（弹窗）
                 await self._set_video_mark(page, creation_declaration)
 
-                # 6. 原创视频开关（默认开启，确保勾选状态）
+                # 7. 原创视频开关（默认开启，确保勾选状态）
                 await self._ensure_original_checked(page)
 
-                # 7. 所属领域
+                # 8. 所属领域
                 if category:
                     await self._set_category(page, category)
 
-                # 8. 定时发布
+                # 9. 定时发布
                 is_scheduled = (
                     isinstance(publish_date, int) and publish_date != 0
                 ) or (not isinstance(publish_date, int) and publish_date)
                 if is_scheduled:
                     await self._set_schedule_time(page, publish_date)
-
-                # 9. 设置封面（放最后；任何异常都先 Escape 关弹窗，不影响提交）
-                if thumbnail_path:
-                    await self._set_thumbnail(page, thumbnail_path)
 
                 # 提交前截图
                 try:

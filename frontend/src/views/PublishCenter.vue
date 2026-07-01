@@ -805,7 +805,7 @@ const platformConfigs = reactive({
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [], channelsCollectionName: '', channelsCollectionData: null },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, location: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', videoFormat: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', videoFormat: '', tags: [] },
@@ -2071,6 +2071,8 @@ async function publishAll() {
         biliCollectionName: merged.biliCollectionName || '',
         // 视频号合集(账号级配置)
         channelsCollectionName: merged.channelsCollectionName || '',
+        // 视频号位置(平台级,空=不显示位置)
+        channelsLocationName: merged.location || '',
         // 小红书合集(账号级配置):collectionId 给后端定位,collectionName 兜底匹配
         collectionId: merged.collectionId || '',
         collectionName: merged.collectionName || '',

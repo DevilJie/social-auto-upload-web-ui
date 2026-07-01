@@ -798,6 +798,8 @@ def postVideo():
                 bili_collection_name=data.get('biliCollectionName', ''),
                 # 视频号合集(账号级)
                 channels_collection_name=data.get('channelsCollectionName', ''),
+                # 视频号位置(平台级,空=不显示位置)
+                channels_location_name=data.get('channelsLocationName', ''),
             ))
         else:
             result = publish_fn(
@@ -854,6 +856,8 @@ def postVideo():
                 bili_collection_name=data.get('biliCollectionName', ''),
                 # 视频号合集(账号级)
                 channels_collection_name=data.get('channelsCollectionName', ''),
+                # 视频号位置(平台级,空=不显示位置)
+                channels_location_name=data.get('channelsLocationName', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

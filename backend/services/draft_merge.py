@@ -400,4 +400,6 @@ def build_platform_kwargs(merged, common, account):
         'bili_collection_name': merged.get('biliCollectionName', '') or '',
         # 视频号合集(账号级)
         'channels_collection_name': merged.get('channelsCollectionName', '') or '',
+        # 视频号位置(平台级,空=不显示位置)
+        'channels_location_name': merged.get('channelsLocationName', '') or '',
     }

@@ -76,8 +76,9 @@ export const PLATFORMS = {
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+      { key: 'location', label: '位置', type: 'input', placeholder: '请输入位置(留空=不显示位置)' },
     ],
-    defaultSettings: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '', location: '' },
   },
   DOUYIN: {
     id: 3,

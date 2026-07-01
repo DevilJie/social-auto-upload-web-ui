@@ -327,6 +327,60 @@ async def _apply_collection(page, collection_name: str = "") -> None:
             logger.info("[设置合集] 已选择第一个可用合集")
 
 
+async def _apply_location(page, location_name: str = "") -> None:
+    """选择指定位置(按名称精确匹配);空字符串时跳过,保持默认「不显示位置」。
+
+    DOM(用户实际抓取,weui 框架):
+      入口: div.post-position-wrap (整个位置卡,点击展开搜索面板)
+      搜索框: input[placeholder="搜索附近位置"] (.weui-desktop-form__input)
+      下拉: div.common-option-list-wrap .option-item
+        - 第一项 .option-item.active 永远是「不显示位置」(遍历时跳过 index 0)
+        - 每项内 .location-item-info .name 是位置名
+        - 已选项内含 .yes-icon svg
+
+    策略(与 _apply_collection 一致):
+      - 空值 → 直接 return(视频号默认就是「不显示位置」)
+      - 找不到精确匹配 → warning + return(保持当前状态)
+    """
+    if not location_name:
+        return  # 空值跳过,默认就是「不显示位置」
+
+    # 1. 点击位置卡片展开搜索面板
+    position_wrap = page.locator("div.post-position-wrap").first
+    if await position_wrap.count() == 0:
+        logger.info("[设置位置] 未找到位置卡片,跳过")
+        return
+    await position_wrap.click()
+    await asyncio.sleep(1)
+
+    # 2. 在搜索框输入关键字(打字机效果,触发视频号自身的搜索请求)
+    search_input = page.locator('input[placeholder="搜索附近位置"]').first
+    if await search_input.count() == 0:
+        logger.warning("[设置位置] 未找到位置搜索框,跳过")
+        return
+    await search_input.click()
+    await clear_and_type(page, location_name, delay=50)
+    await asyncio.sleep(2)  # 等下拉刷新
+
+    # 3. 在下拉项里找精确匹配(index 0 是「不显示位置」,跳过)
+    options = page.locator("div.common-option-list-wrap .option-item")
+    count = await options.count()
+    for i in range(1, count):  # 跳过 index 0
+        opt = options.nth(i)
+        name_el = opt.locator(".location-item-info .name").first
+        if await name_el.count() == 0:
+            continue
+        try:
+            name = (await name_el.inner_text()).strip()
+        except Exception:
+            continue
+        if name == location_name:
+            await opt.click()
+            logger.info("[设置位置] 已选择位置: %s", location_name)
+            return
+    logger.warning("[设置位置] 未找到位置: %s", location_name)
+
+
 async def _apply_original_statement(page, category: str | None = None) -> None:
     """Mark the video as original if the option is available."""
     # Simple checkbox
@@ -1056,6 +1110,8 @@ class ChannelsPlatform(BasePlatform):
         schedule_time_str = kwargs.get("schedule_time_str", "")
         # 视频号合集(账号级)
         channels_collection_name = kwargs.get("channels_collection_name", "")
+        # 视频号位置(平台级,空字符串=不显示位置)
+        channels_location_name = kwargs.get("channels_location_name", "")
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1138,6 +1194,7 @@ class ChannelsPlatform(BasePlatform):
                             await _fill_description(page, desc)
                             await _fill_title_and_tags(page, title, tags)
                             await _apply_collection(page, channels_collection_name)
+                            await _apply_location(page, channels_location_name)
                             await _apply_original_statement(page, category)
 
                             # Wait for upload to finish (auto-retries on error)
@@ -1163,6 +1220,7 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("[发布调试] 横版封面(landscape): %s", thumbnail_landscape_path or "(无)")
                             logger.info("[发布调试] 竖版封面(portrait) : %s", thumbnail_portrait_path or "(无)")
                             logger.info("[发布调试] 合集(collection)  : %s", channels_collection_name or "(无)")
+                            logger.info("[发布调试] 位置(location)     : %s", channels_location_name or "(无)")
                             logger.info("[发布调试] 创作声明(category): %s", category or "(无)")
                             logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
                             logger.info("[发布调试] ========================================")

@@ -331,7 +331,7 @@ async def _apply_location(page, location_name: str = "") -> None:
     """选择指定位置(按名称精确匹配);空字符串时跳过,保持默认「不显示位置」。
 
     DOM(用户实际抓取,weui 框架):
-      入口: div.post-position-wrap (整个位置卡,点击展开搜索面板)
+      入口: div.position-display-wrap (显示当前位置的内层卡片,点击展开搜索面板)
       搜索框: input[placeholder="搜索附近位置"] (.weui-desktop-form__input)
       下拉: div.common-option-list-wrap .option-item
         - 第一项 .option-item.active 永远是「不显示位置」(遍历时跳过 index 0)
@@ -346,7 +346,7 @@ async def _apply_location(page, location_name: str = "") -> None:
         return  # 空值跳过,默认就是「不显示位置」
 
     # 1. 点击位置卡片展开搜索面板
-    position_wrap = page.locator("div.post-position-wrap").first
+    position_wrap = page.locator("div.position-display-wrap").first
     if await position_wrap.count() == 0:
         logger.info("[设置位置] 未找到位置卡片,跳过")
         return
@@ -1169,7 +1169,9 @@ class ChannelsPlatform(BasePlatform):
                         logger.info("[上传视频] 简介: %s", desc)
                         logger.info("[上传视频] 标签: %s", tags)
 
-                        browser = await self.create_browser(headless=False)
+                        browser = await self.create_browser(
+                            headless=False, humanize=True
+                        )
                         try:
                             context = await self.create_context(
                                 browser, storage_state=cookie_path

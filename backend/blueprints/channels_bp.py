@@ -220,14 +220,14 @@ async def _fetch_locations_via_browser(cookie_file: str, keyword: str) -> dict:
     """打开视频号发布页,点位置卡 → 输入关键字 → 解析下拉 DOM 拿位置列表。
 
     DOM(用户实际抓取,weui 框架):
-      入口: div.post-position-wrap (整个位置卡,点击展开搜索面板)
+      入口: div.position-display-wrap (显示当前位置的内层卡片,点击展开搜索面板)
       搜索框: input[placeholder="搜索附近位置"] (.weui-desktop-form__input)
       下拉: div.common-option-list-wrap .option-item
         - 第一项 .option-item.active 永远是「不显示位置」(遍历时跳过 index 0)
         - 每项内 .location-item-info .name 是位置名,.desc 是地址
 
     与 _fetch_collections_via_browser 的差异:
-      - 入口不是 get_by_text,而是 div.post-position-wrap
+      - 入口不是 get_by_text,而是 div.position-display-wrap
       - 必须输入 keyword 触发后端搜索(合集是直接拉全量)
       - 选项 .name 在 .location-item-info 下(合集在 .item 下)
       - 多了 .desc 地址字段
@@ -251,9 +251,9 @@ async def _fetch_locations_via_browser(cookie_file: str, keyword: str) -> dict:
             except Exception as e:
                 logger.info(f"[位置搜索] 页面加载(非致命): {e}")
 
-            # 2. 等待位置卡 div.post-position-wrap 出现并点击展开
+            # 2. 等待位置卡 div.position-display-wrap 出现并点击展开
             logger.info("[位置搜索] 等待位置卡出现...")
-            position_wrap = page.locator("div.post-position-wrap").first
+            position_wrap = page.locator("div.position-display-wrap").first
             ready = False
             for _ in range(60):  # 最多等 30s
                 if await position_wrap.count() > 0:
@@ -261,7 +261,7 @@ async def _fetch_locations_via_browser(cookie_file: str, keyword: str) -> dict:
                     break
                 await asyncio.sleep(0.5)
             if not ready:
-                return {"success": False, "error": "页面加载超时,未找到位置卡(div.post-position-wrap)"}
+                return {"success": False, "error": "页面加载超时,未找到位置卡(div.position-display-wrap)"}
             logger.info("[位置搜索] 点击位置卡展开搜索面板...")
             await position_wrap.click()
             await asyncio.sleep(1)

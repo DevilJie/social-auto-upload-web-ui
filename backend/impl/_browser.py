@@ -34,6 +34,8 @@ def init():
 async def create_browser(
     headless: bool | None = None,
     login_mode: bool = False,
+    humanize: bool = False,
+    human_preset: str = "default",
 ):
     """异步入口：创建 stealth Chromium 浏览器。
 
@@ -41,6 +43,11 @@ async def create_browser(
 
     login_mode=True 时，自动监听浏览器关闭事件：用户手动关浏览器会
     cancel 当前 asyncio task，使 login 流程立即终止。
+
+    humanize=True 时启用 CloakBrowser 拟人化操作层（贝塞尔鼠标轨迹、
+    逐键打字、平滑滚动等），仅建议在发布动作开启——会让操作明显变慢，
+    login/check_cookie/sync_profile 等高频轻量调用保持关闭更稳妥。
+    human_preset: 'default'(正常人速度) 或 'careful'(更慢更谨慎)。
     """
     if headless is None:
         headless = LOGIN_HEADLESS if login_mode else LOCAL_CHROME_HEADLESS
@@ -48,6 +55,8 @@ async def create_browser(
     browser = await launch_async(
         headless=headless,
         args=["--start-maximized"],
+        humanize=humanize,
+        human_preset=human_preset,
     )
 
     if login_mode:

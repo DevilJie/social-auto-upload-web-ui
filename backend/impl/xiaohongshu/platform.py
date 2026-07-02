@@ -10,7 +10,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._browser import create_browser, create_context, create_browser_sync, create_context_sync
+from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
@@ -366,6 +366,10 @@ class XiaohongshuPlatform(BasePlatform):
                             tags=tags,
                             publish_date=pub_date,
                             account_file=str(cookie_path),
+                            # 不开 humanize:no_viewport=True 与拟人化鼠标轨迹冲突,
+                            # 会抛 "Viewport size not available"
+                            create_browser_fn=self.create_browser,
+                            create_context_fn=self.create_context,
                             thumbnail_path=effective_cover,
                             desc=desc,
                             ai_content=ai_content,
@@ -480,6 +484,10 @@ class XiaohongshuPlatform(BasePlatform):
                         files=files,
                         tags=tags,
                         account_file=cookie_path,
+                        # 不开 humanize:no_viewport=True 与拟人化鼠标轨迹冲突,
+                        # 会抛 "Viewport size not available"
+                        create_browser_fn=self.create_browser,
+                        create_context_fn=self.create_context,
                         desc=desc,
                         enableTimer=enableTimer,
                         schedule_time_str=schedule_time_str,
@@ -510,6 +518,8 @@ async def _publish_single_video(
     tags: list,
     publish_date,
     account_file: str,
+    create_browser_fn,
+    create_context_fn,
     thumbnail_path: str = "",
     desc: str = "",
     ai_content: str = "",
@@ -521,11 +531,16 @@ async def _publish_single_video(
     xhs_shoot_date: str = "",
     xhs_repost_source: str = "",
 ):
-    """Upload and publish one video to Xiaohongshu using CloakBrowser."""
+    """Upload and publish one video to Xiaohongshu using CloakBrowser.
 
-    browser = await create_browser(headless=False)
+    浏览器创建统一走 ``create_browser_fn`` / ``create_context_fn``，由调用方
+    (XiaohongshuPlatform.publish_video) 传入 ``self.create_browser``，确保
+    与其他平台一致地经过 BasePlatform 统一入口。
+    """
+
+    browser = await create_browser_fn(headless=False)
     try:
-        context = await create_context(browser, storage_state=account_file)
+        context = await create_context_fn(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()
@@ -569,6 +584,8 @@ async def _publish_single_image(
     files: list,
     tags: list,
     account_file: str,
+    create_browser_fn,
+    create_context_fn,
     desc: str = "",
     enableTimer: bool = False,
     schedule_time_str: str = "",
@@ -577,10 +594,15 @@ async def _publish_single_image(
     is_original: bool = False,
     dry_run: bool = True,
 ) -> bool:
-    """Upload and publish one image set to Xiaohongshu using CloakBrowser."""
-    browser = await create_browser(headless=False)
+    """Upload and publish one image set to Xiaohongshu using CloakBrowser.
+
+    浏览器创建统一走 ``create_browser_fn`` / ``create_context_fn``，由调用方
+    (XiaohongshuPlatform.publish_image) 传入 ``self.create_browser``，确保
+    与其他平台一致地经过 BasePlatform 统一入口。
+    """
+    browser = await create_browser_fn(headless=False)
     try:
-        context = await create_context(browser, storage_state=account_file)
+        context = await create_context_fn(browser, storage_state=account_file)
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()

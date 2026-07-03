@@ -8,7 +8,6 @@
 """
 
 import asyncio
-import os
 import sqlite3
 from pathlib import Path
 
@@ -16,9 +15,9 @@ from flask import Blueprint, request, jsonify
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from conf import BASE_DIR
 from util._logger import get_channel_logger
 from impl._browser import create_browser, create_context
+from services.test_video import get_test_video
 
 logger = get_channel_logger("bilibili")
 
@@ -26,23 +25,6 @@ bilibili_bp = Blueprint('bilibili', __name__, url_prefix='/api/bilibili')
 
 # B 站视频上传页(与 impl/bilibili/platform.py 同源)
 _BILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
-
-# 测试视频候选路径(BASE_DIR 已是 .../data)
-_TEST_VIDEO_CANDIDATES = [
-    str(BASE_DIR / "materials" / "2026" / "06" / "19" / "legacy-e751bf81.mp4"),
-    str(Path(__file__).parent.parent / "scripts" / "legacy_fixture" / "videoFile" / "11111111-2222-3333-4444-555555555555_test1.mp4"),
-]
-
-
-def _pick_test_video() -> str:
-    """挑一个真实存在且非空(>100字节)的测试视频文件。"""
-    for p in _TEST_VIDEO_CANDIDATES:
-        try:
-            if os.path.isfile(p) and os.path.getsize(p) > 100:
-                return p
-        except OSError:
-            continue
-    return ""
 
 
 def _get_cookie_path(cookie_file: str) -> str:
@@ -176,7 +158,7 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
 
             # 2. 上传测试视频触发页面跳转到发布表单(不等上传完成)
             # 完全复用 platform.py 的 _upload_video_file 同款逻辑
-            test_video = _pick_test_video()
+            test_video = get_test_video()
             if not test_video:
                 return {"success": False, "error": "未找到测试视频文件"}
             logger.info(f"[合集列表] 上传测试视频触发页面跳转: {test_video}")

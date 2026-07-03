@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from conf import BASE_DIR
 from util._logger import get_channel_logger
 from impl._browser import create_browser, create_context
+from services.test_video import get_test_video
 
 logger = get_channel_logger("xiaohongshu")
 
@@ -42,25 +43,6 @@ _POI_API_FRAGMENT = "/web_api/sns/v1/local/poi/creator/search"
 # 这里给足 4 小时(14400s),按 0.5s 轮询即 28800 次。宁可久等也不误判超时。
 _UPLOAD_WAIT_SECONDS = 4 * 60 * 60  # 4 小时
 _UPLOAD_WAIT_POLLS = _UPLOAD_WAIT_SECONDS * 2  # 0.5s/次 → 28800 次
-
-# 触发发布表单渲染用的测试视频(上传后页面才会出现「内容来源声明」等控件)。
-# BASE_DIR 已是 .../data,故直接拼 materials/...;再用 fixture 兜底。
-_TEST_VIDEO_CANDIDATES = [
-    str(BASE_DIR / "materials" / "2026" / "06" / "19" / "legacy-e751bf81.mp4"),
-    str(Path(__file__).parent.parent / "scripts" / "legacy_fixture" / "videoFile" / "11111111-2222-3333-4444-555555555555_test1.mp4"),
-]
-
-
-def _pick_test_video() -> str:
-    """挑一个真实存在且非空(>100字节)的测试视频文件。"""
-    import os
-    for p in _TEST_VIDEO_CANDIDATES:
-        try:
-            if os.path.isfile(p) and os.path.getsize(p) > 100:
-                return p
-        except OSError:
-            continue
-    return ""
 
 
 def _upload_test_video(page, video_path: str):
@@ -209,7 +191,7 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
                 logger.info(f"[合集列表] 页面加载(非致命): {e}")
 
             # 1.5 先上传一个测试视频 —— 合集入口要表单渲染后才出现。
-            test_video = _pick_test_video()
+            test_video = get_test_video()
             if not test_video:
                 return {
                     "success": False,
@@ -382,7 +364,7 @@ async def _fetch_poi_via_browser(cookie_file: str, keyword: str) -> dict:
 
             # 1.5 先上传一个测试视频 —— 否则发布页停在「上传区」,
             # 「内容来源声明/自主拍摄」等控件不会渲染出来。
-            test_video = _pick_test_video()
+            test_video = get_test_video()
             if not test_video:
                 return {
                     "success": False,

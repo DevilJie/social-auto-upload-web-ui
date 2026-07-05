@@ -15,6 +15,7 @@ from flask import Blueprint, request, jsonify
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from conf import BASE_DIR
 from util._logger import get_channel_logger
 from impl._browser import create_browser, create_context
 from services.test_video import get_test_video

@@ -195,17 +195,6 @@ def validate_draft_for_publish(draft):
         if not merged.get('title') or not str(merged['title']).strip():
             errors.append(f'账号 {account_id}({platform}) 缺标题')
 
-        # 视频格式
-        vf = merged.get('videoFormat')
-        if vf not in ('portrait', 'landscape'):
-            errors.append(f'账号 {account_id}({platform}) 缺视频格式')
-
-        # 封面 per-videoFormat
-        if vf == 'portrait' and not merged.get('coverPortrait'):
-            errors.append(f'账号 {account_id}({platform}) 缺竖版封面')
-        if vf == 'landscape' and not merged.get('coverLandscape'):
-            errors.append(f'账号 {account_id}({platform}) 缺横版封面')
-
         # 声明字段
         decl_field = DECLARATION_PLATFORMS.get(platform)
         if decl_field:
@@ -304,21 +293,12 @@ def build_platform_kwargs(merged, common, account):
     merged = merged or {}
     common = common or {}
 
-    video_format = merged.get('videoFormat') or ''
-
-    # 视频文件路径（按 videoFormat 选）
-    if video_format == 'portrait':
-        selected_video = _resolve_stored_path(merged.get('videoPortrait')) \
-            or _resolve_stored_path(common.get('videoPortrait'))
-    elif video_format == 'landscape':
-        selected_video = _resolve_stored_path(merged.get('videoLandscape')) \
-            or _resolve_stored_path(common.get('videoLandscape'))
-    else:
-        # 无 videoFormat：先后再竖
-        selected_video = _resolve_stored_path(merged.get('videoLandscape')) \
-            or _resolve_stored_path(common.get('videoLandscape')) \
-            or _resolve_stored_path(merged.get('videoPortrait')) \
-            or _resolve_stored_path(common.get('videoPortrait'))
+    # 视频文件路径:横版优先,无则竖版(不再区分横竖,上传了即可发;
+    # 实际方向由素材表 materials.orientation 决定,各平台 impl 自行读取)
+    selected_video = _resolve_stored_path(merged.get('videoLandscape')) \
+        or _resolve_stored_path(common.get('videoLandscape')) \
+        or _resolve_stored_path(merged.get('videoPortrait')) \
+        or _resolve_stored_path(common.get('videoPortrait'))
 
     # 封面路径
     cover_landscape = _resolve_stored_path(merged.get('coverLandscape')) \

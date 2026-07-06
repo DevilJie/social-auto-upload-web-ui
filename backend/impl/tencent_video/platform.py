@@ -17,7 +17,7 @@ from conf import BASE_DIR
 
 from util._logger import bind_account_name, get_channel_logger
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import get_account_name_by_cookie_file, parse_schedule_time, save_login_result
+from .._utils import clear_and_type, get_account_name_by_cookie_file, parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("tencent_video")
@@ -449,13 +449,8 @@ class TencentVideoPlatform(BasePlatform):
 
         await title_div.wait_for(state="visible", timeout=10000)
         await title_div.click()
-        # Clear existing content
-        await page.keyboard.press("Control+KeyA")
-        await asyncio.sleep(0.2)
-        await page.keyboard.press("Delete")
-        await asyncio.sleep(0.2)
-        # Type the title (max 80 chars per the platform)
-        await page.keyboard.type(title[:80])
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, title[:80])
         logger.info("[填写标题] 标题已填写: %s", title[:80])
 
     @staticmethod

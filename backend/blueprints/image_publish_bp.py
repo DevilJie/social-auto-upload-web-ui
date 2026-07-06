@@ -465,7 +465,7 @@ def execute_publish():
     # 平台名映射（与 /publish 一致，用于在 publish_details.platform 存可读名）
     platform_name_map = {1: '小红书', 2: '视频号', 3: '抖音', 4: '快手', 5: 'B站',
                          6: '百家号', 7: 'TikTok', 8: 'YouTube', 9: '腾讯视频', 10: '爱奇艺',
-                         11: '微博', 12: '支付宝'}  # 新增
+                         11: '微博', 12: '支付宝', 13: '今日头条', 14: '知乎'}
     platform_label = platform_name_map.get(int(platform_type), str(platform_type))
 
     now = datetime.now().isoformat()

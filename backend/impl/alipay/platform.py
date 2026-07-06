@@ -38,6 +38,7 @@ from util._logger import bind_account_name, get_channel_logger
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     save_login_result,
     scrape_alipay_profile,
@@ -1130,7 +1131,8 @@ class AlipayPlatform(BasePlatform):
         if text:
             await textarea.click()
             await asyncio.sleep(0.2)
-            await page.keyboard.type(text, delay=30)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_and_type(page, text, delay=30)
             await page.keyboard.press("Space")
             logger.info("[上传视频] 已填描述(长度=%d)", len(text))
             await asyncio.sleep(0.3)

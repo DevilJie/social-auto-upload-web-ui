@@ -17,6 +17,7 @@ logger = get_channel_logger("kuaishou")
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
     save_login_result,
@@ -33,6 +34,9 @@ _KS_UPLOAD_URL = "https://cp.kuaishou.com/article/publish/video"
 _KS_MANAGE_URL_PATTERN = "**/article/manage/video?status=2&from=publish**"
 _KS_UPLOAD_URL_PATTERN = "**/article/publish/video**"
 _COOKIE_INVALID_SELECTOR = "div.names div.container div.name:text('机构服务')"
+
+# 快手平台最多添加 4 个标签(图集和视频统一)
+_KS_MAX_TAGS = 4
 
 # 特殊作者声明值：表示「无需添加声明」(与前端 config/platforms.js DECLARATION_NONE 对齐)。
 # 取此值或空时跳过 _set_author_declaration，不去快手发布页查找下拉选项，
@@ -277,6 +281,16 @@ class KuaishouPlatform(BasePlatform):
         logger.info("[发布图集] 开始快手图集发布流程")
         logger.info("=" * 60)
 
+        # 标签上限校验:快手最多 4 个
+        if len(tags) > _KS_MAX_TAGS:
+            logger.error(
+                "[发布校验] 快手标签超过上限: 当前 %d 个, 最多 %d 个",
+                len(tags), _KS_MAX_TAGS,
+            )
+            raise ValueError(
+                f"快手标签最多 {_KS_MAX_TAGS} 个, 当前 {len(tags)} 个"
+            )
+
         # 打印所有接收到的参数
         logger.info("[发布参数] 接收到的所有参数:")
         for key, value in kwargs.items():
@@ -383,9 +397,12 @@ class KuaishouPlatform(BasePlatform):
                 await page.keyboard.press("Control+KeyA")
                 await page.keyboard.press("Delete")
                 await page.keyboard.type(full_desc[:500])
-                for tag in (tags or [])[:3]:
-                    await page.keyboard.type(f" #{tag}")
-                    await page.keyboard.press("Space")
+                # 标签输入(打字机 + 等下拉 + 选 _active_ 高亮项 + 空格兜底)
+                # 图集路径已定位 #work-description-edit,传 element 让 helper 用
+                # press_sequentially 自动 focus + 触发 React onChange(最稳)。
+                await self._input_tags(
+                    page, tags or [], max_n=_KS_MAX_TAGS, element=desc_editor
+                )
                 await asyncio.sleep(0.5)
 
                 logger.info("[填写简介] 简介填写完成. 封面=%s, 音乐ID=%s", cover_path, music_id)
@@ -481,6 +498,17 @@ class KuaishouPlatform(BasePlatform):
         logger.info("=" * 60)
         logger.info("[发布视频] 开始快手视频发布流程")
         logger.info("=" * 60)
+
+        # 标签上限校验:快手最多 4 个
+        tags = kwargs.get("tags", []) or []
+        if len(tags) > _KS_MAX_TAGS:
+            logger.error(
+                "[发布校验] 快手标签超过上限: 当前 %d 个, 最多 %d 个",
+                len(tags), _KS_MAX_TAGS,
+            )
+            raise ValueError(
+                f"快手标签最多 {_KS_MAX_TAGS} 个, 当前 {len(tags)} 个"
+            )
 
         # 打印所有接收到的参数
         logger.info("[发布参数] 接收到的所有参数:")
@@ -611,17 +639,17 @@ class KuaishouPlatform(BasePlatform):
             # ------ Fill description + tags ------
             logger.info("[填写简介] 开始填写简介与标签...")
             await page.get_by_text("描述").locator("xpath=following-sibling::div").click()
-            await page.keyboard.press("Backspace")
-            await page.keyboard.press("Control+KeyA")
-            await page.keyboard.press("Delete")
-            await page.keyboard.type(desc or title)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_and_type(page, desc or title)
             await page.keyboard.press("Enter")
             logger.info("[填写简介] 简介填写完成")
 
-            for tag in tags[:3]:
-                logger.info("[填写标签] 添加标签: #%s", tag)
-                await page.keyboard.type(f"#{tag} ")
-                await asyncio.sleep(2)
+            # 标签输入(打字机 + 等下拉 + 选 _active_ 高亮项 + 空格兜底)
+            # 视频路径的容器是 get_by_text + xpath 形式,这里不传 element,
+            # _input_tags 内部用 page.keyboard.type(delay=150),要求描述框已聚焦
+            # (前面 614 行的 click 已经把焦点带过来了)。
+            await self._input_tags(page, tags, max_n=_KS_MAX_TAGS)
+
 
             # ------ Wait for upload to complete (no timeout — wait indefinitely) ------
             retry = 0
@@ -736,6 +764,108 @@ class KuaishouPlatform(BasePlatform):
                 await joyride.wait_for(state="hidden", timeout=5000)
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Helper: input tags (typewriter + dropdown select + space fallback)
+    # ------------------------------------------------------------------
+
+    async def _input_tags(self, page, tags, max_n: int = _KS_MAX_TAGS, *, element=None):
+        """逐字输入标签(打字机效果),然后等下拉出现 → 选默认高亮项(_active_)。
+        失败退路:按下空格确认(同 xhs/zhihu)。
+
+        CLAUDE.md L70-112 推荐 press_sequentially(..., delay=150) 配合单独 Space
+        触发话题联想。快手自带「打字机联想」机制,输入 #xxx 后会弹出下拉,
+        _active_ 项即默认高亮的推荐话题,选择该话题即可。
+
+        # 号通过 CDP ``Input.dispatchKeyEvent`` 直接发 keydown/keyup,显式指定
+        ``text='#' / key='#' / modifiers=8(Shift 位)``,绕过 Playwright 的 keyboard 抽象。
+        之所以不用 ``keyboard.press("Shift+3")`` 或 ``down/up`` 序列:
+        Playwright 这两个 API 在 Shift 修饰时实测只发出 key='3' 而不是 #,
+        快手页面因此识别成数字 3,无法触发 # 的话题识别与键盘样式。
+        CDP 层面我们直接告诉 Chromium "这次按键的 text 是 # 且带 Shift 修饰",
+        Chromium 会原样派发 DOM keydown 事件(event.key='#' + event.shiftKey=true)。
+
+        输入 # 之后必须等一小段(500ms)再继续输入标签内容,让 React 的
+        onKeyDown / onChange 处理完首轮 setState,激活 # 触发的「话题识别状态」:
+        此时输入框会把后续字符识别为「话题名」并渲染话题芯片样式 + 弹出联想下拉;
+        若立即接着打 tag,会被当作普通文本插入,样式不会切换。
+
+        Args:
+            page: Playwright 页面
+            tags: 标签数组(裸字符串)
+            max_n: 最多输入几个标签(快手目前是 4,见 _KS_MAX_TAGS)
+            element: 已定位好的输入框容器;若 None 则用 page.keyboard.type。
+                     传 element 时改用 press_sequentially(自动 focus,触发 React onChange)。
+        """
+        if not tags:
+            return
+        # CDP session 提到循环外,每个标签复用同一个连接
+        cdp = await page.context.new_cdp_session(page)
+        for tag in tags[:max_n]:
+            text = f"#{tag}"
+            # 1. 通过 CDP Input.dispatchKeyEvent 直接发 keydown/keyup,显式指定
+            #    text='#' / key='#' / modifiers=8(Shift 位),保证插入的字符是 #
+            #    且 React 能读到 event.key='#' + event.shiftKey=true。
+            #    之所以不用 keyboard.press("Shift+3") 或 down/up 序列:
+            #    Playwright 这两个 API 在 Shift 修饰时实测只发出 key='3' 而不是 #,
+            #    快手页面因此识别成数字 3,无法触发 # 的话题识别与键盘样式。
+            #    CDP 层面我们绕过 Playwright 的 keyboard 抽象,直接告诉 Chromium
+            #    "这次按键的 text 是 # 且带 Shift 修饰",Chromium 会原样派发 DOM
+            #    keydown 事件(event.key='#' + event.shiftKey=true)。
+            logger.info("[填写标签] CDP dispatchKeyEvent 输入 # (key='#' shiftKey=true)")
+            await cdp.send("Input.dispatchKeyEvent", {
+                "type": "keyDown",
+                "key": "#",
+                "code": "Digit3",
+                "text": "#",
+                "modifiers": 8,                # 8 = Shift(1 << 3)
+                "windowsVirtualKeyCode": 51,   # VK_3
+            })
+            await cdp.send("Input.dispatchKeyEvent", {
+                "type": "keyUp",
+                "key": "#",
+                "code": "Digit3",
+                "modifiers": 8,
+                "windowsVirtualKeyCode": 51,
+            })
+            # 2. 输入 # 后等一小会,让 React onKeyDown/onChange 完成首轮处理、
+            #    激活 # 触发的「话题识别状态」(渲染话题芯片样式 + 弹出联想下拉)
+            #    实测 500ms 比较稳:太短 React 内部 setState 还没提交,后续字符会被
+            #    当作普通文本插入;太长则下拉打开后又被关闭。
+            logger.info("[填写标签] 等待 React 完成 # 处理 (500ms)")
+            await asyncio.sleep(0.5)
+            # 3. 再用打字机逐字输入标签内容(150ms / 字符,触发 React 监听)
+            logger.info("[填写标签] 打字机输入标签内容 - press_sequentially: '%s'", tag)
+            if element is not None:
+                await element.press_sequentially(tag, delay=150)
+            else:
+                await page.keyboard.type(tag, delay=150)
+            # 3. 等 React 监听完成,激活下拉
+            await asyncio.sleep(2)
+
+            # 3. 检测下拉 + 点击 _active_ 高亮项
+            dropdown = page.locator('div[class*="_dropdown-container_"]').first
+            try:
+                await dropdown.wait_for(state="visible", timeout=3000)
+                active = page.locator(
+                    'div[class*="_topic-item_"][class*="_active_"]'
+                ).first
+                if await active.count() and await active.is_visible():
+                    try:
+                        tag_name_el = active.locator('span[class*="_at-tag-name_"]').first
+                        tag_name = (await tag_name_el.text_content() or "").strip()
+                    except Exception:
+                        tag_name = ""
+                    await active.click()
+                    logger.info("[填写标签] 选中下拉高亮项: #%s", tag_name or "?")
+                    await asyncio.sleep(0.5)
+                    continue  # 成功选中,跳过空格兜底
+            except Exception as exc:
+                logger.info("[填写标签] 下拉未出现 / 点击失败 (%s),改用空格确认", exc)
+
+            # 4. 退路:按下空格确认(同 xhs/zhihu),确保 #xxx 至少变成话题芯片
+            await page.keyboard.press("Space")
+            await asyncio.sleep(0.5)
 
     # ------------------------------------------------------------------
     # Helper: set thumbnail
@@ -1024,7 +1154,7 @@ class KuaishouPlatform(BasePlatform):
             'div.ant-picker-input input[placeholder="选择日期时间"]'
         ).click()
         await asyncio.sleep(1)
-        await page.keyboard.press("Control+KeyA")
-        await page.keyboard.type(date_str)
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, date_str)
         await page.keyboard.press("Enter")
         await asyncio.sleep(1)

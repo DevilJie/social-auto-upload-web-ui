@@ -1,6 +1,9 @@
 """视频校验规则单元测试"""
 import math
-from util.video_limits import VIDEO_LIMITS, validate_video_for_platform, _format_size, _format_duration
+from util.video_limits import (
+    VIDEO_LIMITS, validate_video_for_platform, validate_title_for_platform,
+    _format_size, _format_duration,
+)
 
 
 # ----- 平台规则完整性 -----
@@ -20,6 +23,20 @@ def test_tencent_video_rules():
     assert limit["min_duration"] == 5
     assert limit["max_duration"] == 5400  # 90 * 60
     assert limit["max_size"] == 20 * 1024**3
+    assert limit["max_title_length"] == 80  # 腾讯视频标题 ≤ 80 字
+
+
+def test_validate_title_tencent_video_ok():
+    ok, msg = validate_title_for_platform("tencent_video", "a" * 80)
+    assert ok is True
+    assert msg == ""
+
+
+def test_validate_title_tencent_video_over_80():
+    ok, msg = validate_title_for_platform("tencent_video", "a" * 81)
+    assert ok is False
+    assert "80" in msg
+    assert "81" in msg
 
 
 def test_baijiahao_unlimited_duration():
@@ -27,9 +44,9 @@ def test_baijiahao_unlimited_duration():
     assert VIDEO_LIMITS["baijiahao"]["max_duration"] == math.inf
 
 
-def test_weibo_min_15_seconds():
-    """微博最小 15 秒"""
-    assert VIDEO_LIMITS["weibo"]["min_duration"] == 15
+def test_weibo_no_min_duration():
+    """微博无最小时长限制"""
+    assert VIDEO_LIMITS["weibo"]["min_duration"] == 0
 
 
 # ----- validate_video_for_platform 逻辑 -----
@@ -41,10 +58,10 @@ def test_validate_ok_within_range():
 
 
 def test_validate_fail_below_min_duration():
-    ok, msg = validate_video_for_platform("weibo", 10, 100 * 1024**2)
+    """微博已放开最小时长,改用有最低时长限制的平台(抖音 min=5)测"""
+    ok, msg = validate_video_for_platform("douyin", 3, 100 * 1024**2)
     assert ok is False
-    assert "微博" in msg
-    assert "15" in msg
+    assert "抖音" in msg
 
 
 def test_validate_fail_above_max_duration():
@@ -116,3 +133,84 @@ def test_format_duration_inf_returns_unknown():
     assert _format_duration(float("inf")) == "未知"
     assert _format_duration(float("nan")) == "未知"
     assert _format_duration(-10) == "未知"
+
+
+# ----- 标题长度校验 -----
+
+def test_xiaohongshu_title_max_20():
+    """小红书标题最多 20 字"""
+    assert VIDEO_LIMITS["xiaohongshu"]["max_title_length"] == 20
+
+
+def test_validate_title_xiaohongshu_ok():
+    ok, msg = validate_title_for_platform("xiaohongshu", "a" * 20)
+    assert ok is True
+    assert msg == ""
+
+
+def test_validate_title_xiaohongshu_over_20():
+    ok, msg = validate_title_for_platform("xiaohongshu", "a" * 21)
+    assert ok is False
+    assert "20" in msg
+    assert "21" in msg
+
+
+def test_validate_title_xiaohongshu_empty():
+    ok, msg = validate_title_for_platform("xiaohongshu", "")
+    assert ok is True
+
+
+def test_validate_title_other_platform_unlimited():
+    """未限制标题长度的平台(除小红书外)默认放行"""
+    for k in ("douyin", "weibo", "kuaishou", "alipay"):
+        ok, _ = validate_title_for_platform(k, "a" * 500)
+        assert ok is True, f"{k} 应该有无限标题长度"
+
+
+def test_validate_title_unknown_platform_ok():
+    """未配置的平台:放行"""
+    ok, msg = validate_title_for_platform("unknown_platform", "a" * 999)
+    assert ok is True
+    assert msg == ""
+
+
+# ----- 字符计数 emoji=3 规则 -----
+
+def test_validate_title_emoji_counts_3_per_char():
+    """emoji 每个计 3 字:7 个 emoji = 21 字,小红书 20 字限制应拦截"""
+    # 🎉 是非 BMP 字符(codepoint 0x1F389,> 0xFFFF)
+    title = "🎉" * 7  # 实际长度 21 字(7×3)
+    ok, msg = validate_title_for_platform("xiaohongshu", title)
+    assert ok is False
+    assert "21" in msg
+    assert "20" in msg
+
+
+def test_validate_title_mixed_ascii_emoji():
+    """6 个 ASCII + 5 个 emoji = 6 + 15 = 21 字,小红书 20 字限制应拦截"""
+    title = "a" * 6 + "🎉" * 5  # 21 字
+    ok, msg = validate_title_for_platform("xiaohongshu", title)
+    assert ok is False
+    assert "21" in msg
+
+
+def test_validate_title_emoji_exactly_at_limit():
+    """6 个 ASCII + 4 个 emoji = 6 + 12 = 18 字,应通过"""
+    title = "a" * 6 + "🎉" * 4  # 18 字
+    ok, msg = validate_title_for_platform("xiaohongshu", title)
+    assert ok is True
+
+
+def test_validate_title_tencent_emoji_count():
+    """腾讯视频:80 字限制,75 个 ASCII + 2 个 emoji = 75+6=81,应拦截"""
+    title = "a" * 75 + "🎉" * 2  # 81 字
+    ok, msg = validate_title_for_platform("tencent_video", title)
+    assert ok is False
+    assert "81" in msg
+
+
+def test_validate_title_tencent_emoji_ok():
+    """腾讯视频:80 字限制,74 个 ASCII + 2 个 emoji = 74+6=80,刚好通过"""
+    title = "a" * 74 + "🎉" * 2  # 80 字
+    ok, msg = validate_title_for_platform("tencent_video", title)
+    assert ok is True

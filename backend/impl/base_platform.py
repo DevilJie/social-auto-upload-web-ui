@@ -31,11 +31,19 @@ class BasePlatform(ABC):
         self,
         headless: bool | None = None,
         login_mode: bool = False,
+        humanize: bool = False,
+        human_preset: str = "default",
     ):
-        """Create a stealth Chromium browser via CloakBrowser."""
+        """Create a stealth Chromium browser via CloakBrowser.
+
+        humanize=True 启用 CloakBrowser 拟人化操作层，仅建议在发布动作
+        开启（会让操作明显变慢，login/cookie 校验等场景保持默认关闭）。
+        """
         return await _create_browser(
             headless=headless,
             login_mode=login_mode,
+            humanize=humanize,
+            human_preset=human_preset,
         )
 
     async def create_context(

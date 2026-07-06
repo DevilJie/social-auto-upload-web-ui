@@ -72,6 +72,7 @@ import { useAccountStore } from '@/stores/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { PLATFORMS } from '@/config/platforms'
 import { useChannelForm } from '@/composables/useChannelForm'
+import { useAutoExtractHashtags } from '@/utils/hashtag'
 
 const props = defineProps({
   accountId: { type: [Number, Object], default: null },
@@ -138,6 +139,14 @@ function addTag() {
 }
 
 function removeTag(index) { form.tags.splice(index, 1) }
+
+// 自动提取描述中的 #xxx 到标签数组,小红书标签上限 10
+useAutoExtractHashtags({
+  form,
+  descKey: 'description',
+  tagKey: 'tags',
+  maxTags: 10,
+})
 
 defineExpose(publicApi)
 </script>

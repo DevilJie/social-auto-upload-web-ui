@@ -196,7 +196,7 @@ function platformTypeToKey(type) {
   const map = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou',
     5: 'bilibili', 6: 'baijiahao', 7: 'tiktok', 8: 'youtube',
-    9: 'tencent_video', 10: 'iqiyi', 11: 'weibo', 12: 'alipay', 13: 'toutiao',
+    9: 'tencent_video', 10: 'iqiyi', 11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu',
   }
   return map[type] || ''
 }
@@ -241,10 +241,10 @@ async function runConcurrentChecks() {
       resolvePromise = null
     }, 1200)
   } else {
-    // 有失效，进入修复阶段
+    // 有失效，进入修复阶段 —— 自动触发登录(不再等用户点“重新登录”)
     phase.value = 'fixing'
-    // 失效卡片的 fixStatus 置为 idle
-    invalidCards.value.forEach(c => { c.fixStatus = 'idle' })
+    // 所有失效账号同时打开登录浏览器(并发),用户在各自浏览器窗口扫码
+    invalidCards.value.forEach(c => { startRelogin(c) })
   }
 }
 

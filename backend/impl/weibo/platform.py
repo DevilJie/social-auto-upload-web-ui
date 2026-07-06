@@ -9,6 +9,7 @@ from queue import Queue
 from conf import BASE_DIR
 
 from .._utils import (
+    clear_and_type,
     get_account_name_by_cookie_file,
     save_login_result,
     scrape_weibo_profile,
@@ -649,6 +650,7 @@ class WeiboPlatform(BasePlatform):
         category = kwargs.get("category")
         ai_content = kwargs.get("ai_content", "") or ""
         content_statement = kwargs.get("content_statement", "") or ""
+        weibo_collection = kwargs.get("weibo_collection", "") or ""
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -661,6 +663,7 @@ class WeiboPlatform(BasePlatform):
         logger.info("[发布参数] 分类: %s", category or "无")
         logger.info("[发布参数] 类型声明: %s", ai_content or "无")
         logger.info("[发布参数] 内容声明: %s", content_statement or "无")
+        logger.info("[发布参数] 微博合集: %s", weibo_collection or "无")
         logger.info("[发布策略] 发布策略: immediate")
 
         account_paths = [
@@ -691,6 +694,7 @@ class WeiboPlatform(BasePlatform):
                         category=category,
                         ai_content=ai_content,
                         content_statement=content_statement,
+                        weibo_collection=weibo_collection,
                     )
 
         logger.info("=" * 60)
@@ -713,6 +717,7 @@ class WeiboPlatform(BasePlatform):
         category=None,
         ai_content="",
         content_statement="",
+        weibo_collection="",
     ):
         """Upload a single video to one Weibo account."""
         browser = await self.create_browser(headless=False)
@@ -801,6 +806,13 @@ class WeiboPlatform(BasePlatform):
                 # 分类(两级级联)
                 logger.info("[设置分类] 开始设置分类: %s", category or "无")
                 await self._set_category(page, category)
+
+                # 合集(可选):切换「加入合集」开关 + 勾选对应合集项
+                if weibo_collection:
+                    logger.info("[设置合集] 开始选择微博合集: %s", weibo_collection)
+                    await self._set_collection(page, weibo_collection)
+                else:
+                    logger.info("[设置合集] 未选择合集,跳过")
 
                 # 微博正文
                 logger.info("[填写简介] 开始填写微博正文...")
@@ -1475,6 +1487,103 @@ class WeiboPlatform(BasePlatform):
             await asyncio.sleep(0.3)
 
     # ------------------------------------------------------------------
+    # Helper: select 合集 (switch on + check the matching album)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _set_collection(page, collection_name: str):
+        """选择微博视频合集。
+
+        DOM(参考 weibo_bp.py 合集列表解析):
+          - 合集开关: label.woo-switch-main(默认关闭,需点击开启)
+            注意:页面有多个 woo-switch-main(允许划重点/允许他人剪辑/关联原视频等),
+            合集开关是「合集」标题旁边那个 —— 用文案定位其容器再定位开关。
+          - 开启后展开合集列表,每项: div._top2_* > label.woo-checkbox-main
+            + input[type=text][value="合集名(共N集)"]
+
+        流程:
+          1. 定位「合集」标题所在行 → 找该行内的 woo-switch-main → 点击开启
+          2. 等合集列表展开(input[type=text][value*="集"] 出现)
+          3. 遍历合集项,找到 value 匹配 collection_name 的 → 勾选其 checkbox
+        """
+        # 1. 定位合集开关:在「合集」文案所在的设置行内找 woo-switch-main
+        #    合集行的结构:div._switch_* > div(含「合集」文案) + div > label.woo-switch-main
+        logger.info("[设置合集] 定位合集开关...")
+        switch_clicked = False
+        try:
+            # 找所有含「合集」文本的行容器,再在其内部找开关
+            switch_labels = page.locator("label.woo-switch-main")
+            count = await switch_labels.count()
+            logger.info("[设置合集] 页面共 %d 个 woo-switch-main 开关", count)
+            # 合集开关特征:它的祖先行包含「合集」文案
+            for i in range(count):
+                label = switch_labels.nth(i)
+                # 向上找到包含「合集」文案的容器
+                has_collection_text = await label.evaluate(
+                    """el => {
+                        let node = el;
+                        for (let depth = 0; depth < 6 && node; depth++) {
+                            if (node.textContent && node.textContent.includes('合集') && !node.textContent.includes('允许')) {
+                                return true;
+                            }
+                            node = node.parentElement;
+                        }
+                        return false;
+                    }"""
+                )
+                if has_collection_text:
+                    await label.click()
+                    logger.info("[设置合集] 已点击第 %d 个开关(合集开关)", i)
+                    switch_clicked = True
+                    break
+        except Exception as e:
+            logger.warning("[设置合集] 点击合集开关失败: %s", e)
+
+        if not switch_clicked:
+            logger.warning("[设置合集] 未找到合集开关,跳过合集设置")
+            return
+
+        # 2. 等合集列表展开
+        await asyncio.sleep(1.5)
+        album_inputs = page.locator('input[type="text"][value*="集"]')
+        try:
+            await album_inputs.first.wait_for(state="attached", timeout=10000)
+        except Exception:
+            logger.warning("[设置合集] 切换开关后合集列表未展开,跳过")
+            return
+
+        # 3. 遍历合集项,找到名称匹配的勾选其 checkbox
+        #    DOM 结构:每个合集项是一个 div._top2_*,内部:
+        #      <label class="woo-checkbox-main">...</label>  ← 复选框(第一个子元素)
+        #      <div class="woo-box-item-flex">...<input value="合集名(共N集)">...</div>
+        #    用 xpath:先定位 value 匹配的 input → 向上找到 _top2_* 行 → 找行内 woo-checkbox-main
+        total = await album_inputs.count()
+        logger.info("[设置合集] 展开共 %d 个合集,查找: %s", total, collection_name)
+        for i in range(total):
+            try:
+                raw = await album_inputs.nth(i).get_attribute("value")
+                if not raw:
+                    continue
+                # value 形如 "AI(共0集)",取括号前的名称
+                name = raw.split("(")[0].split("（")[0].strip() if raw else ""
+                if name == collection_name:
+                    # 用 xpath 定位同行内的 checkbox:从 input 向上找祖先 _top2_* 行,
+                    # 再找该行内的 label.woo-checkbox-main
+                    checkbox = album_inputs.nth(i).locator(
+                        "xpath=ancestor::div[contains(@class,'_top2_')]"
+                        "//label[contains(@class,'woo-checkbox-main')]"
+                    ).first
+                    await checkbox.click()
+                    logger.info("[设置合集] 已勾选合集: %s", collection_name)
+                    await asyncio.sleep(0.5)
+                    return
+            except Exception as e:
+                logger.warning("[设置合集] 勾选第 %d 项失败: %s", i, e)
+                continue
+
+        logger.warning("[设置合集] 未找到匹配的合集: %s", collection_name)
+
+    # ------------------------------------------------------------------
     # Helper: fill 微博正文 (description + tags as #话题)
     # ------------------------------------------------------------------
 
@@ -1500,7 +1609,8 @@ class WeiboPlatform(BasePlatform):
         # 微博 textarea 不是标准 input,fill 不一定生效,用 click+type
         await textarea.click()
         await asyncio.sleep(0.2)
-        await page.keyboard.type(text, delay=30)
+        # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+        await clear_and_type(page, text, delay=30)
         await page.keyboard.press("Space")
         logger.info("[发布] 已填正文(长度=%d)", len(text))
 

@@ -18,6 +18,7 @@ import logoIqiyi from '@/assets/logos/aiqiyi.png'
 import logoWeibo from '@/assets/logos/weibo.png'
 import logoAlipay from '@/assets/logos/alipay.png'
 import logoToutiao from '@/assets/logos/toutiao.png'
+import logoZhihu from '@/assets/logos/zhihu.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 
@@ -47,11 +48,18 @@ export const PLATFORMS = {
         { label: '内容包含营销广告', value: '内容包含营销广告' },
         { label: '内容来源声明', value: '内容来源声明' },
       ] },
-      { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
+      // 内容来源声明联动字段(aiContent === '内容来源声明' 时显示)
+      { key: 'xhsSourceType', label: '内容来源类型', type: 'radio', options: [{ label: '自主拍摄', value: 'self' }, { label: '来源转载', value: 'repost' }], visibleWhen: { key: 'aiContent', value: '内容来源声明' } },
+      { key: 'xhsShootLocation', label: '拍摄地点', type: 'poiSelect', placeholder: '搜索拍摄地点', visibleWhen: { key: 'xhsSourceType', value: 'self' } },
+      { key: 'xhsShootDate', label: '拍摄日期', type: 'date', placeholder: '选择拍摄日期', visibleWhen: { key: 'xhsSourceType', value: 'self' } },
+      { key: 'xhsRepostSource', label: '转载来源', type: 'input', placeholder: '请输入媒体名称', visibleWhen: { key: 'xhsSourceType', value: 'repost' } },
+      // 原创声明:选择了「来源转载」时禁用(转载内容不能声明原创),并自动还原为非原创。
+      // disabledWhen 条件命中时单选项灰掉不可勾。
+      { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }], disabledWhen: { key: 'xhsSourceType', value: 'repost' } },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', enableTimer: false },
+    defaultSettings: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', videoFormat: '', enableTimer: false, xhsSourceType: '', xhsShootLocation: '', xhsShootDate: '', xhsRepostSource: '' },
   },
   CHANNELS: {
     id: 2,
@@ -453,6 +461,96 @@ export const PLATFORMS = {
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', videoFormat: '' },
+  },
+  ZHIHU: {
+    id: 14,
+    key: 'zhihu',
+    name: '知乎',
+    shortName: 'ZH',
+    letter: 'Z',
+    logo: logoZhihu,
+    color: '#0084FF',
+    bgColor: 'rgba(0, 132, 255, 0.15)',
+    cssClass: 'zhihu',
+    creatorUrl: 'https://www.zhihu.com/upload-video?entry=navPanel',
+    settingsFields: [
+      { key: 'creationDeclaration', label: '视频标记', type: 'select', placeholder: '请选择视频标记', options: [
+        { label: '内容无需标注', value: '内容无需标注' },
+        { label: '含 AI 生成内容', value: '含 AI 生成内容' },
+        { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+        { label: '内容含营销信息', value: '内容含营销信息' },
+        { label: '内容为转载', value: '内容为转载' },
+        { label: '个人观点仅供参考', value: '个人观点仅供参考' },
+      ] },
+      { key: 'category', label: '所属领域', type: 'select', placeholder: '选择领域', options: [
+        { label: '人文', value: '人文' },
+        { label: '体育竞技', value: '体育竞技' },
+        { label: '健康医学', value: '健康医学' },
+        { label: '其他', value: '其他' },
+        { label: '军事', value: '军事' },
+        { label: '动漫', value: '动漫' },
+        { label: '娱乐', value: '娱乐' },
+        { label: '宠物', value: '宠物' },
+        { label: '家居生活', value: '家居生活' },
+        { label: '家用电器', value: '家用电器' },
+        { label: '影视', value: '影视' },
+        { label: '心理学', value: '心理学' },
+        { label: '情感', value: '情感' },
+        { label: '故事', value: '故事' },
+        { label: '教育', value: '教育' },
+        { label: '数码', value: '数码' },
+        { label: '旅行', value: '旅行' },
+        { label: '时尚穿搭', value: '时尚穿搭' },
+        { label: '母婴亲子', value: '母婴亲子' },
+        { label: '汽车', value: '汽车' },
+        { label: '法律', value: '法律' },
+        { label: '游戏电竞', value: '游戏电竞' },
+        { label: '社会/时政', value: '社会/时政' },
+        { label: '社会学', value: '社会学' },
+        { label: '科学工程', value: '科学工程' },
+        { label: '科技互联网', value: '科技互联网' },
+        { label: '经济与管理', value: '经济与管理' },
+        { label: '美妆个护', value: '美妆个护' },
+        { label: '美食', value: '美食' },
+        { label: '职场', value: '职场' },
+        { label: '艺术', value: '艺术' },
+        { label: '运动健身', value: '运动健身' },
+        { label: '音乐', value: '音乐' },
+      ] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间',
+        disabledDate: (time) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const maxDate = new Date(today);
+          maxDate.setMonth(maxDate.getMonth() + 1);
+          return time.getTime() < today.getTime() || time.getTime() > maxDate.getTime();
+        },
+        disabledHours: (_role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (!isToday) return [];
+          return Array.from({ length: now.getHours() + 1 }, (_, i) => i);
+        },
+        disabledMinutes: (hour, _role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (isToday && hour === now.getHours()) {
+            return Array.from({ length: now.getMinutes() + 1 }, (_, i) => i);
+          }
+          return [];
+        },
+      },
+      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+    ],
+    defaultSettings: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', videoFormat: '' },
   },
 }
 

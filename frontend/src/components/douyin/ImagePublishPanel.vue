@@ -69,6 +69,7 @@ import DouyinMusicSelect from './MusicSelect.vue'
 import DouyinHotspotSelect from './HotspotSelect.vue'
 import DouyinTagSelect from './TagSelect.vue'
 import DouyinMixSelect from './MixSelect.vue'
+import { useAutoExtractHashtags } from '@/utils/hashtag'
 
 const props = defineProps({
   accountId: { type: [Number, Object], default: null },
@@ -156,6 +157,15 @@ function addTag() {
 }
 
 function removeTag(index) { form.tags.splice(index, 1) }
+
+// 自动提取描述中的 #xxx 到标签数组,抖音活动+标签上限 5
+useAutoExtractHashtags({
+  form,
+  descKey: 'description',
+  tagKey: 'tags',
+  maxTags: 5,
+  getReservedTagCount: () => (form.activityId?.length || 0),
+})
 
 // ===== Douyin-specific handlers =====
 function handleActivityChange(activity) {

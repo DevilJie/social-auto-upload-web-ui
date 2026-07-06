@@ -16,7 +16,7 @@
 
     <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">标签</div>
-      <div class="setting-hint">输入标签内容，按回车确认</div>
+      <div class="setting-hint">输入标签内容，按回车确认（最多 4 个）</div>
       <el-input v-model="tagInput" placeholder="输入标签内容，按回车添加" @keyup.enter="addTag" clearable :disabled="disabled" />
       <div v-if="form.tags && form.tags.length > 0" class="tags-list">
         <el-tag v-for="(tag, index) in form.tags" :key="index" closable @close="removeTag(index)" size="small" :disable-transitions="false">#{{ tag }}</el-tag>
@@ -57,6 +57,7 @@ import { useAccountStore } from '@/stores/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { PLATFORMS } from '@/config/platforms'
 import { useChannelForm } from '@/composables/useChannelForm'
+import { useAutoExtractHashtags } from '@/utils/hashtag'
 import KuaishouMusicSelect from './MusicSelect.vue'
 
 const props = defineProps({
@@ -123,6 +124,8 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
       const errors = []
       if (!merged.title || !merged.title.trim()) errors.push('标题不能为空')
       if (!merged.aiContent) errors.push('请选择自主声明')
+      const tc = merged.tags?.length || 0
+      if (tc > KS_MAX_TAGS) errors.push(`标签最多 ${KS_MAX_TAGS} 个,当前 ${tc} 个`)
       return { valid: errors.length === 0, errors }
     },
   },
@@ -130,16 +133,31 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
 
 const tagInput = ref('')
 
+// 快手标签上限(快手平台最多添加 4 个标签)
+const KS_MAX_TAGS = 4
+
 function addTag() {
   const tag = tagInput.value.trim()
   if (!tag) return
   if (!form.tags) form.tags = []
   if (form.tags.includes(tag)) { ElMessage.warning('标签已存在'); return }
+  if (form.tags.length >= KS_MAX_TAGS) {
+    ElMessage.warning(`标签最多 ${KS_MAX_TAGS} 个`)
+    return
+  }
   form.tags.push(tag)
   tagInput.value = ''
 }
 
 function removeTag(index) { form.tags.splice(index, 1) }
+
+// 自动提取描述中的 #xxx 到标签数组(快手最多 4 个)
+useAutoExtractHashtags({
+  form,
+  descKey: 'description',
+  tagKey: 'tags',
+  maxTags: KS_MAX_TAGS,
+})
 
 defineExpose(publicApi)
 </script>

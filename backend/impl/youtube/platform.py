@@ -23,7 +23,7 @@ logger = get_channel_logger("youtube")
 from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import get_account_name_by_cookie_file, parse_schedule_time, scrape_youtube_profile
+from .._utils import clear_input, get_account_name_by_cookie_file, parse_schedule_time, scrape_youtube_profile
 from ..base_platform import BasePlatform
 
 YOUTUBE_STUDIO_URL = "https://studio.youtube.com"
@@ -670,8 +670,8 @@ class YoutubePlatform(BasePlatform):
                 await date_input.wait_for(state="visible", timeout=5000)
                 await date_input.click()
                 await asyncio.sleep(0.3)
-                await page.keyboard.press("Control+a")
-                await asyncio.sleep(0.1)
+                # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+                await clear_input(page, date_input)
                 await date_input.press_sequentially(date_str, delay=30)
                 await asyncio.sleep(0.3)
                 await page.keyboard.press("Enter")
@@ -682,8 +682,7 @@ class YoutubePlatform(BasePlatform):
                 dropdown_text = date_trigger.locator(".dropdown-trigger-text").first
                 await dropdown_text.click(force=True)
                 await asyncio.sleep(0.3)
-                await page.keyboard.press("Control+a")
-                await asyncio.sleep(0.1)
+                await clear_input(page, dropdown_text)
                 await dropdown_text.press_sequentially(date_str, delay=30)
                 await asyncio.sleep(0.3)
                 await page.keyboard.press("Enter")
@@ -698,8 +697,8 @@ class YoutubePlatform(BasePlatform):
             await time_input.wait_for(state="visible", timeout=10000)
             await time_input.click()
             await asyncio.sleep(0.3)
-            await page.keyboard.press("Control+a")
-            await asyncio.sleep(0.1)
+            # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
+            await clear_input(page, time_input)
             await time_input.press_sequentially(time_str, delay=30)
             await asyncio.sleep(0.3)
             await page.keyboard.press("Enter")

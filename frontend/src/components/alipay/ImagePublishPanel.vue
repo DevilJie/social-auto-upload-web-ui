@@ -66,6 +66,7 @@ import { Headset } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { imagePublishApi } from '@/api/imagePublish'
 import { useChannelForm } from '@/composables/useChannelForm'
+import { useAutoExtractHashtags } from '@/utils/hashtag'
 import MusicDrawer from './MusicDrawer.vue'
 
 const props = defineProps({
@@ -145,6 +146,13 @@ function addTag() {
 }
 
 function removeTag(index) { form.tags.splice(index, 1) }
+
+// 自动提取描述中的 #xxx 到标签数组(alipay 发布时拼成 #话题1 #话题2)
+useAutoExtractHashtags({
+  form,
+  descKey: 'description',
+  tagKey: 'tags',
+})
 
 function openMusicDrawer() {
   musicDrawerVisible.value = true

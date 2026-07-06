@@ -290,6 +290,23 @@
               </div>
             </template>
 
+            <!-- 微博专属卡片(合集为账号级,选中账号后才显示) -->
+            <template v-if="selectedPlatform === 'weibo' && selectedAccountId">
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">加入合集</div>
+                <RemoteSearchSelect
+                  v-model="form.weiboCollectionName"
+                  :data="form.weiboCollectionData"
+                  :fetcher="fetchWeiboCollections"
+                  :field-map="{ label: 'name' }"
+                  search-mode="frontend"
+                  empty-behavior="load-all"
+                  placeholder="选择合集"
+                  @change="handleWeiboCollectionChange"
+                />
+              </div>
+            </template>
+
             <!-- settingsFields（排除已在通用字段渲染的） -->
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
@@ -583,6 +600,7 @@ import { biliApi } from '@/api/bilibili'
 import { douyinImageApi } from '@/api/douyinImage'
 import { alipayApi } from '@/api/alipay'
 import { toutiaoApi } from '@/api/toutiao'
+import { weiboApi } from '@/api/weibo'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
@@ -779,6 +797,7 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 微博
     videoType: accountOv?.videoType ?? platformOv?.videoType ?? platformDefault?.videoType ?? '',
     weiboCategory: accountOv?.weiboCategory ?? platformOv?.weiboCategory ?? platformDefault?.weiboCategory ?? [],
+    weiboCollectionName: accountOv?.weiboCollectionName ?? platformOv?.weiboCollectionName ?? platformDefault?.weiboCollectionName ?? '',
     contentStatement: accountOv?.contentStatement ?? platformOv?.contentStatement ?? platformDefault?.contentStatement ?? '',
     // 支付宝
     authorStatement: accountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
@@ -848,7 +867,7 @@ const platformConfigs = reactive({
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', tags: [] },
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', tags: [] },
-  weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [] },
+  weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [], weiboCollectionName: '', weiboCollectionData: null },
   alipay: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', tags: [] },
   toutiao: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', tags: [] },
   zhihu: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', tags: [] },
@@ -1136,6 +1155,25 @@ const compilationFieldMap = {
     return parts.join(' · ')
   },
   cover: 'coverUrl'
+}
+
+// 微博合集 —— RemoteSearchSelect 数据源(后端一次返回全量,前端过滤)
+async function fetchWeiboCollections(keyword) {
+  const resp = await weiboApi.getCollections(selectedAccountId.value)
+  const all = resp.data?.list || []
+  const kw = keyword?.trim().toLowerCase()
+  return {
+    list: kw ? all.filter(c => c.name?.toLowerCase().includes(kw)) : all
+  }
+}
+
+// 微博合集选择回调
+function handleWeiboCollectionChange(col) {
+  if (col) {
+    form.weiboCollectionData = col
+  } else {
+    form.weiboCollectionData = null
+  }
 }
 
 // 小红书合集选择回调:v-model 已把 collectionName 绑到 form.collectionName,
@@ -2144,6 +2182,8 @@ async function publishAll() {
           : (merged.aiContent || ''),
         // 微博「内容声明」单独透传
         contentStatement: group.key === 'weibo' ? (merged.contentStatement || '') : '',
+        // 微博「合集」单独透传(合集名称,后端切换开关+勾选对应项)
+        weiboCollection: group.key === 'weibo' ? (merged.weiboCollectionName || '') : '',
         // 支付宝「作者声明」+「合集」单独透传(其他平台忽略)
         authorStatement: merged.authorStatement || '',
         compilation: merged.compilation || '',

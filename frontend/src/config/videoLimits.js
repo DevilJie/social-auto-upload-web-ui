@@ -13,7 +13,7 @@ export const VIDEO_LIMITS = {
   iqiyi:         { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
   douyin:        { minDuration: 5,    maxDuration: 3600,         maxSize: 16 * GB, maxTitleLength: Infinity },
   baijiahao:     { minDuration: 5,    maxDuration: Infinity,     maxSize: 12 * GB, maxTitleLength: Infinity },
-  weibo:         { minDuration: 0,    maxDuration: Infinity,     maxSize: 15 * GB, maxTitleLength: Infinity },
+  weibo:         { minDuration: 0,    maxDuration: Infinity,     maxSize: 15 * GB, maxTitleLength: 30 },
   kuaishou:      { minDuration: 5,    maxDuration: 3600,         maxSize: 12 * GB, maxTitleLength: Infinity },
   bilibili:      { minDuration: 5,    maxDuration: 36000,        maxSize: 16 * GB, maxTitleLength: 80, maxDescLength: 2000 },
   xiaohongshu:   { minDuration: 5,    maxDuration: 14400,        maxSize: 20 * GB, maxTitleLength: 20 },

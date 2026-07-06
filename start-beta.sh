@@ -30,11 +30,36 @@ if [[ -d "$DEP_BIN_DIR" ]]; then
     export PATH="$DEP_BIN_DIR:$DEP_DIR/python/bin:$DEP_DIR/git/bin:$DEP_DIR/node/bin:$PATH"
 fi
 
-# CloakBrowser: 如果 dependency/cloakbrowser/ 下有 chrome 二进制，优先使用
+find_cloakbrowser_binary() {
+    local base_dir="$1"
+    local candidate
+
+    if [[ ! -d "$base_dir" ]]; then
+        return 1
+    fi
+
+    for candidate in \
+        "$base_dir/chrome" \
+        "$base_dir/chrome-bin/chrome" \
+        "$base_dir/Chromium.app/Contents/MacOS/Chromium" \
+        "$base_dir"/chromium-*/chrome \
+        "$base_dir"/chromium-*/chrome-bin/chrome \
+        "$base_dir"/chromium-*/Chromium.app/Contents/MacOS/Chromium; do
+        if [[ -f "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# CloakBrowser: 如果 dependency/cloakbrowser/ 下有浏览器二进制，优先使用
 CLOAKBROWSER_LOCAL="$DEP_DIR/cloakbrowser"
-if [[ -f "$CLOAKBROWSER_LOCAL/chrome" ]]; then
-    export CLOAKBROWSER_BINARY_PATH="$CLOAKBROWSER_LOCAL/chrome"
+if _chrome_bin=$(find_cloakbrowser_binary "$CLOAKBROWSER_LOCAL"); then
+    export CLOAKBROWSER_BINARY_PATH="$_chrome_bin"
 fi
+unset _chrome_bin
 
 # --- 项目代码管理（git clone / update）---
 REPO_URL="https://github.com/DevilJie/social-auto-upload-web-ui.git"
@@ -375,7 +400,7 @@ fi
 CLOAKBROWSER_DIR="$HOME/.cloakbrowser"
 if [[ -n "${CLOAKBROWSER_BINARY_PATH:-}" ]]; then
     print_ok "CloakBrowser (本地依赖)"
-elif ! ls "$CLOAKBROWSER_DIR"/chromium-*/chrome >/dev/null 2>&1; then
+elif ! _chrome_bin=$(find_cloakbrowser_binary "$CLOAKBROWSER_DIR"); then
     echo -e "  ${CYAN}📥 首次使用，下载 CloakBrowser 浏览器${NC}"
 
     # 从 Python 获取下载信息
@@ -396,7 +421,10 @@ print(d.get_binary_path())
     fi
 
     # 使用 curl 下载（带进度条）
-    TMP_FILE=$(mktemp /tmp/cloakbrowser-XXXXXX.tar.gz)
+    # macOS 的 mktemp 不接受模板中有非 X 字符（如 .tar.gz 后缀），
+    # 先建临时目录，文件放在目录里（路径兼容 Linux 和 macOS）。
+    TMP_DIR=$(mktemp -d /tmp/cloakbrowser-XXXXXX)
+    TMP_FILE="$TMP_DIR/cloakbrowser.archive"
     echo -e "  ${CYAN}⬇  下载地址: ${DOWNLOAD_URL}${NC}"
     echo ""
 
@@ -406,7 +434,7 @@ print(d.get_binary_path())
         echo ""
         echo -e "  ${WARN} 主下载失败，尝试 GitHub 备用地址..."
         if ! curl -L -# -o "$TMP_FILE" "$GITHUB_URL"; then
-            rm -f "$TMP_FILE"
+            rm -rf "$TMP_DIR"
             print_fail "CloakBrowser 下载失败，请检查网络连接"
             exit 1
         fi
@@ -416,20 +444,27 @@ print(d.get_binary_path())
     echo ""
     echo -n -e "  ${CYAN}📦 解压中...${NC}"
     mkdir -p "$BINARY_DIR"
-    tar -xzf "$TMP_FILE" -C "$BINARY_DIR" 2>/dev/null
-    rm -f "$TMP_FILE"
-
-    # 确保二进制文件可执行
-    chmod +x "$BINARY_PATH" 2>/dev/null
-    chmod +x "$BINARY_DIR"/chrome-bin/chrome 2>/dev/null
-
-    if [[ -f "$BINARY_PATH" ]] || ls "$BINARY_DIR"/chrome-bin/chrome >/dev/null 2>&1; then
-        printf "\r  ${CHECK} CloakBrowser 下载完成\n"
-    else
+    if ! tar -xzf "$TMP_FILE" -C "$BINARY_DIR"; then
+        rm -rf "$TMP_DIR"
         printf "\r  ${CROSS} CloakBrowser 解压失败\n"
         exit 1
     fi
+    rm -rf "$TMP_DIR"
+
+    # 确保实际存在的二进制文件可执行
+    if _chrome_bin=$(find_cloakbrowser_binary "$BINARY_DIR"); then
+        chmod +x "$_chrome_bin" 2>/dev/null || true
+        export CLOAKBROWSER_BINARY_PATH="$_chrome_bin"
+        printf "\r  ${CHECK} CloakBrowser 下载完成\n"
+    else
+        printf "\r  ${CROSS} CloakBrowser 解压失败\n"
+        print_warn "未找到 CloakBrowser 二进制文件: chrome、chrome-bin/chrome 或 Chromium.app/Contents/MacOS/Chromium"
+        exit 1
+    fi
+    unset _chrome_bin
 else
+    export CLOAKBROWSER_BINARY_PATH="$_chrome_bin"
+    unset _chrome_bin
     print_ok "CloakBrowser 已安装"
 fi
 
@@ -539,7 +574,12 @@ done
 
 echo -n "  等待前端就绪"
 for i in $(seq 1 30); do
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5173" 2>/dev/null || true)
+    # Vite 在 macOS 上可能只监听 localhost 的 IPv6 地址（::1），不监听 127.0.0.1。
+    # 使用 --noproxy 避免本机代理把 localhost 请求转走导致误判。
+    http_code=$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" "http://localhost:5173" 2>/dev/null || true)
+    if [[ "$http_code" != "200" ]]; then
+        http_code=$(curl --noproxy '*' -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:5173" 2>/dev/null || true)
+    fi
     if [[ "$http_code" == "200" ]]; then
         echo ""
         print_ok "前端就绪"

@@ -224,6 +224,39 @@ def _resolve_material_path(path_or_stored_path):
     return resolve_material_path(path_or_stored_path)
 
 
+def _resolve_video_format_from_db(file_list_raw):
+    """根据发布视频的 stored_path 查素材表 orientation,映射成 video_format。
+
+    素材表 materials.orientation: 'horizontal' / 'vertical' / 'square' / ''
+    映射:horizontal → landscape,vertical/square → portrait,空 → ''
+    (square 归竖版,因多数竖屏平台优先)
+
+    file_list_raw: 前端原始 fileList(stored_path 相对路径列表),取第一个。
+    返回 ('landscape' | 'portrait' | '')
+    """
+    if not file_list_raw:
+        return ''
+    first = file_list_raw[0]
+    if not isinstance(first, str) or not first:
+        return ''
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        row = conn.execute(
+            "SELECT orientation FROM materials WHERE stored_path = ?",
+            (first,),
+        ).fetchone()
+        conn.close()
+        orientation = (row[0] if row else '') or ''
+        if orientation == 'horizontal':
+            return 'landscape'
+        elif orientation in ('vertical', 'square'):
+            return 'portrait'
+        return ''
+    except Exception as e:
+        logger.info(f"查询素材 orientation 失败(降级忽略): {e}")
+        return ''
+
+
 # ── Account management ──────────────────────────────────────
 
 @app.route("/getAccounts", methods=['GET'])
@@ -734,6 +767,14 @@ def postVideo():
         elif thumbnail_portrait and not thumbnail_landscape:
             thumbnail_landscape = thumbnail_portrait
 
+        # 根据素材表 orientation 推导 video_format(横/竖),覆盖前端字段。
+        # 支付宝等平台据此选对应方向封面;前端 videoFormat/videoOrientation 不可信(已移除选择)。
+        db_video_format = _resolve_video_format_from_db(data.get('fileList', []))
+        if db_video_format:
+            data['videoFormat'] = db_video_format
+            data['videoOrientation'] = 'horizontal' if db_video_format == 'landscape' else 'vertical'
+            logger.info(f"[发布] 素材表 orientation 推导 video_format={db_video_format}")
+
         # Some platforms have sync publish_video, others async.
         # asyncio.run() only works with coroutines — calling it on a
         # sync function that already uses asyncio.run() internally
@@ -898,6 +939,13 @@ def postVideoBatch():
             file_list = [_resolve_material_path(f) for f in data.get('fileList', [])]
             thumbnail_landscape = _resolve_material_path(data.get('thumbnailLandscape', ''))
             thumbnail_portrait = _resolve_material_path(data.get('thumbnailPortrait', ''))
+
+            # 根据素材表 orientation 推导 video_format(横/竖),覆盖前端字段
+            db_video_format = _resolve_video_format_from_db(data.get('fileList', []))
+            if db_video_format:
+                data['videoFormat'] = db_video_format
+                data['videoOrientation'] = 'horizontal' if db_video_format == 'landscape' else 'vertical'
+                logger.info(f"[发布] 素材表 orientation 推导 video_format={db_video_format}")
 
             publish_fn = platform.publish_video
             if asyncio.iscoroutinefunction(publish_fn):

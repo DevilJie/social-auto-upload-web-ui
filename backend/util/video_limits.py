@@ -19,6 +19,8 @@ VIDEO_LIMITS: dict[str, dict] = {
     "youtube":       {"min_duration": 5,    "max_duration": 36000,            "max_size": 16 * 1024**3, "max_title_length": math.inf},  # 5s~600min,16G
     "alipay":        {"min_duration": 5,    "max_duration": math.inf,         "max_size": 8 * 1024**3,  "max_title_length": math.inf},   # 5s~无,    8G(文档:≤8G,时长不限)
     "zhihu":         {"min_duration": 0,    "max_duration": math.inf,         "max_size": math.inf,     "max_title_length": math.inf},   # 文档:时长大小不限
+    # CSDN: 视频大小≤2G, 时长不限, 标题≤30字
+    "csdn":          {"min_duration": 0,    "max_duration": math.inf,         "max_size": 2 * 1024**3,  "max_title_length": 30},
 }
 
 
@@ -36,6 +38,7 @@ _PLATFORM_NAMES = {
     "youtube": "YouTube",
     "alipay": "支付宝",
     "zhihu": "知乎",
+    "csdn": "CSDN",
 }
 
 

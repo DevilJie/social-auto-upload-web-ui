@@ -19,6 +19,7 @@ import logoWeibo from '@/assets/logos/weibo.png'
 import logoAlipay from '@/assets/logos/alipay.png'
 import logoToutiao from '@/assets/logos/toutiao.png'
 import logoZhihu from '@/assets/logos/zhihu.png'
+import logoCsdn from '@/assets/logos/csdn.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 
@@ -551,6 +552,22 @@ export const PLATFORMS = {
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
     defaultSettings: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', videoFormat: '' },
+  },
+  CSDN: {
+    id: 15,
+    key: 'csdn',
+    name: 'CSDN',
+    shortName: 'CSDN',
+    letter: 'C',
+    logo: logoCsdn,
+    color: '#FC5531',
+    bgColor: 'rgba(252, 85, 49, 0.15)',
+    cssClass: 'csdn',
+    creatorUrl: 'https://mp.csdn.net/',
+    settingsFields: [
+      { key: 'recommend', label: '是否推荐', type: 'switch', description: '勾选后发布的视频将被推荐' },
+    ],
+    defaultSettings: { title: '', description: '', recommend: false, scheduleTime: '' },
   },
 }
 

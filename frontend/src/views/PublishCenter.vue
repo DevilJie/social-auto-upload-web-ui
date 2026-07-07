@@ -817,6 +817,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 视频号位置(账号级,空=不显示位置)
     channelsLocationName: accountOv?.channelsLocationName ?? platformOv?.channelsLocationName ?? platformDefault?.channelsLocationName ?? '',
     channelsLocationData: accountOv?.channelsLocationData ?? platformOv?.channelsLocationData ?? platformDefault?.channelsLocationData ?? null,
+    // CSDN 是否推荐(平台级开关)
+    recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
   }
 }
 
@@ -871,6 +873,7 @@ const platformConfigs = reactive({
   alipay: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', tags: [] },
   toutiao: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', tags: [] },
   zhihu: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', tags: [] },
+  csdn: { title: '', description: '', recommend: false, scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -2192,6 +2195,8 @@ async function publishAll() {
         collection: merged.collection || '',
         extendLink: merged.extendLink || false,
         extendLinkUrl: merged.extendLinkUrl || '',
+        // CSDN 是否推荐
+        recommend: merged.recommend || false,
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

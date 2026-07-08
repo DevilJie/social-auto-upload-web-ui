@@ -61,7 +61,7 @@ if _chrome_bin=$(find_cloakbrowser_binary "$CLOAKBROWSER_LOCAL"); then
 fi
 unset _chrome_bin
 
-# --- 项目代码管理（git clone / update）---
+# --- 项目代码管理（git clone / 强制更新到最新）---
 REPO_URL="https://github.com/DevilJie/social-auto-upload-web-ui.git"
 MAIN_BRANCH="master"
 
@@ -83,28 +83,23 @@ if [[ ! -d "$BACKEND_DIR" ]]; then
         exit 1
     fi
     git checkout -f "$MAIN_BRANCH"
+    git reset --hard "origin/$MAIN_BRANCH"
     echo -e "${CHECK} 项目代码拉取完成"
     echo ""
     exec bash "$PROJECT_ROOT/start.sh"
 fi
 
-# 已有项目代码：强制更新
+# 已有项目代码：强制更新到最新版本（覆盖本地修改，不询问）
 if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
     cd "$PROJECT_ROOT"
-    git checkout "$MAIN_BRANCH" 2>/dev/null
+    echo -e "${CYAN}正在检查并更新到最新版本...${NC}"
+    git remote set-url origin "$REPO_URL" 2>/dev/null
     if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
-        LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
-        REMOTE=$(git rev-parse "origin/$MAIN_BRANCH" 2>/dev/null || echo "")
-        if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
-            echo ""
-            echo -e "${CYAN}发现新版本！是否更新？[Y/n]  更新将覆盖本地修改，未提交的代码将丢失${NC}"
-            read -r answer
-            if [[ ! "$answer" =~ ^[Nn]$ ]]; then
-                git reset --hard "origin/$MAIN_BRANCH"
-                echo -e "${CHECK} 更新完成，重新启动..."
-                exec bash "$PROJECT_ROOT/start.sh"
-            fi
-        fi
+        git checkout -f "$MAIN_BRANCH" 2>/dev/null
+        git reset --hard "origin/$MAIN_BRANCH"
+        echo -e "${CHECK} 已更新到最新版本"
+    else
+        print_warn "无法连接 GitHub 更新，继续使用本地版本"
     fi
 fi
 

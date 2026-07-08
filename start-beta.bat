@@ -29,7 +29,7 @@ if exist "%PROJECT_ROOT%\dependency\node" (
 if exist "%PROJECT_ROOT%\dependency\cloakbrowser\chrome.exe" (
     set "CLOAKBROWSER_BINARY_PATH=%PROJECT_ROOT%\dependency\cloakbrowser\chrome.exe"
 )
-:: --- 项目代码管理（git clone / update）---
+:: --- 项目代码管理（git clone / 强制更新到最新）---
 set "REPO_URL=https://github.com/DevilJie/social-auto-upload-web-ui.git"
 set "MAIN_BRANCH=beta"
 
@@ -56,35 +56,27 @@ if not exist "%BACKEND_DIR%" (
         exit /b 1
     )
     git checkout -f "%MAIN_BRANCH%"
+    git reset --hard "origin/%MAIN_BRANCH%"
     echo   √ 项目代码拉取完成
     echo.
     call "%PROJECT_ROOT%\start-beta.bat"
     exit /b
 )
 
-:: 已有项目代码：检查 beta 分支是否有更新
+:: 已有项目代码：强制更新到最新版本（覆盖本地修改，不询问）
 if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
         cd /d "%PROJECT_ROOT%"
-        git fetch
-        git checkout -f "%MAIN_BRANCH%"
+        echo   正在检查并更新到最新版本...
+        git remote set-url origin "%REPO_URL%" 2>nul
+        git fetch origin "%MAIN_BRANCH%" >nul 2>&1
         if !errorlevel! equ 0 (
-            for /f "tokens=*" %%l in ('git rev-parse "%MAIN_BRANCH%" 2^>nul') do set "LOCAL_HASH=%%l"
-            for /f "tokens=*" %%r in ('git rev-parse "origin/%MAIN_BRANCH%" 2^>nul') do set "REMOTE_HASH=%%r"
-            if defined REMOTE_HASH (
-                if not "!LOCAL_HASH!"=="!REMOTE_HASH!" (
-                    echo.
-                    <nul set /p "_=发现新版本！是否更新？（更新将覆盖本地修改，未提交的代码将丢失） [Y/n]："
-                    set /p "UPDATE_ANS="
-                    if /i not "!UPDATE_ANS!"=="n" (
-                        git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
-                        echo   √ 更新完成，重新启动...
-                        call "%PROJECT_ROOT%\start-beta.bat"
-                        exit /b
-                    )
-                )
-            )
+            git checkout -f "%MAIN_BRANCH%" >nul 2>&1
+            git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
+            echo   √ 已更新到最新版本
+        ) else (
+            echo   ! 无法连接 GitHub 更新，继续使用本地版本
         )
     )
 )

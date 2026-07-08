@@ -215,9 +215,9 @@ class BasePlatform(ABC):
             }))
             raise
 
-        # ---- Step 3: sync_profile（Playwright 验证 cookie 有效性 + 抓昵称头像）----
-        # 重要: 这一步是「验证 cookie」的关键。如果 cookie 失效, sync_profile
-        # 会触发跳转到登录页 / 返回空数据, name 为空——这种情况不能留 user_info。
+        # ---- Step 3: sync_profile（与账号列表「同步」按钮完全一致的调用）----
+        # 复用 platform.sync_profile —— 就是 /syncProfile 路由里调的同一个方法，
+        # 同一套 scrape 逻辑、同样的 headless 配置，不做任何特殊处理。
         name, avatar = "", ""
         sync_failed = False
         try:

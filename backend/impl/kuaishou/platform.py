@@ -7,6 +7,7 @@ Uses ``BasePlatform`` browser entry points and shared utilities from
 
 import asyncio
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -48,6 +49,24 @@ class KuaishouPlatform(BasePlatform):
     platform_id = 4
     platform_key = "kuaishou"
     platform_name = "快手"
+
+    # 支持 cookie 字符串导入账号
+    supports_cookie_import = True
+    platform_cookie_domain = ".kuaishou.com"
+
+    def _parse_cookie_to_storage_state(self, cookie_str):
+        cookies = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair: continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(), "value": value.strip(),
+                "domain": self.platform_cookie_domain, "path": "/",
+                "expires": expires, "httpOnly": True, "secure": False, "sameSite": "Lax",
+            })
+        return cookies, []
 
     # ------------------------------------------------------------------
     # Login — QR code scan via CloakBrowser

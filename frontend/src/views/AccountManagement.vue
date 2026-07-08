@@ -236,7 +236,7 @@
       :show-close="!importStarted || importDone"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
-      width="540px"
+      :width="importStarted ? '520px' : '660px'"
       align-center
       class="import-account-dialog"
       @close="closeImportDialog"
@@ -251,42 +251,71 @@
         </div>
       </template>
 
-      <!-- 输入阶段：选择平台 + 粘贴 cookie 字符串 -->
+      <!-- 输入阶段：左右分栏（左选平台 / 右输入 cookie） -->
       <template v-if="!importStarted">
-        <div class="import-form">
-          <div class="import-field">
-            <label class="import-label">
-              <span class="dot">●</span>选择平台
-            </label>
-            <el-select
-              v-model="importForm.platformId"
-              placeholder="请选择要导入的平台"
-              class="import-select"
-              size="large"
-              :disabled="!importSupportedPlatforms.length"
-            >
-              <el-option
-                v-for="p in importSupportedPlatforms"
+        <div class="import-form-split">
+          <!-- 左：平台扁平卡片列表 -->
+          <div class="split-left">
+            <div class="split-section-label">
+              <span class="dot">●</span>
+              <span>选择平台</span>
+            </div>
+            <el-input
+              v-model="platformSearch"
+              class="platform-search"
+              placeholder="搜索平台..."
+              :prefix-icon="Search"
+              clearable
+              size="small"
+            />
+            <div class="platform-list">
+              <div
+                v-for="p in filteredImportPlatforms"
                 :key="p.id"
-                :label="p.name"
-                :value="p.id"
-              />
-            </el-select>
+                :class="['platform-card-flat', { 'is-selected': importForm.platformId === p.id }]"
+                @click="importForm.platformId = p.id"
+              >
+                <div class="card-logo-wrap" :style="{ background: getPlatformBg(p.name) }">
+                  <img
+                    v-if="getPlatformLogo(p.name)"
+                    :src="getPlatformLogo(p.name)"
+                    :alt="p.name"
+                    class="card-logo"
+                  />
+                  <span v-else class="card-letter" :style="{ color: getPlatformColor(p.name) }">
+                    {{ p.letter }}
+                  </span>
+                </div>
+                <div class="card-text">
+                  <div class="card-name">{{ p.name }}</div>
+                </div>
+                <el-icon v-if="importForm.platformId === p.id" class="card-check">
+                  <Select />
+                </el-icon>
+              </div>
+              <div v-if="!filteredImportPlatforms.length" class="empty-platform">
+                {{ importSupportedPlatforms.length ? '未匹配到平台' : '暂无支持导入的平台' }}
+              </div>
+            </div>
           </div>
 
-          <div class="import-field">
-            <label class="import-label">
-              <span class="dot">●</span>Cookie 字符串
-              <span class="import-tip">从浏览器 DevTools → Network → Request Headers → Cookie 复制整段</span>
-            </label>
+          <!-- 右：cookie 输入 -->
+          <div class="split-right">
+            <div class="split-section-label">
+              <span class="dot">●</span>
+              <span>Cookie 字符串</span>
+            </div>
             <el-input
               v-model="importForm.cookieStr"
               type="textarea"
-              :rows="7"
               resize="none"
               class="import-textarea"
-              placeholder="k1=v1; k2=v2; k3=v3"
+              placeholder="k1=v1; k2=v2; k3=v3 ..."
             />
+            <div class="cookie-tip">
+              <el-icon><InfoFilled /></el-icon>
+              <span>从浏览器 DevTools → Network → 任意请求 → Request Headers → Cookie 复制整段</span>
+            </div>
           </div>
         </div>
       </template>
@@ -391,7 +420,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position } from '@element-plus/icons-vue'
+import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
@@ -623,6 +652,16 @@ const reloginAccount = ref(null)
 // ── 导入用户（cookie 字符串）弹窗控制 ──────────────────────────
 const importDialogVisible = ref(false)
 const importSupportedPlatforms = ref([])  // [{id, key, name, letter}, ...]
+// 平台搜索关键词（导入弹窗左侧）
+const platformSearch = ref('')
+const filteredImportPlatforms = computed(() => {
+  const kw = platformSearch.value.trim().toLowerCase()
+  if (!kw) return importSupportedPlatforms.value
+  return importSupportedPlatforms.value.filter(p =>
+    p.name.toLowerCase().includes(kw) ||
+    (p.key || '').toLowerCase().includes(kw)
+  )
+})
 const importForm = reactive({
   platformId: null,
   cookieStr: '',
@@ -667,6 +706,7 @@ const resetImportDialog = () => {
   importResult.value = null
   importForm.platformId = null
   importForm.cookieStr = ''
+  platformSearch.value = ''
   importSteps.value = [
     { title: '解析 cookie 字符串', description: '等待中...', status: 'wait' },
     { title: '生成 cookie 文件',   description: '等待中...', status: 'wait' },
@@ -1596,78 +1636,237 @@ const submitAccountForm = () => {
 
 /* ── 导入用户弹窗 ─────────────────────────────────────── */
 .import-account-dialog {
-  /* dialog 本身保留 element-plus 默认深色样式，这里只调细节 */
+  /* 紧凑化 dialog body / header / footer 间距 */
+  :deep(.el-dialog__header) {
+    padding: 14px 18px 10px;
+    margin-right: 0;
+  }
+  :deep(.el-dialog__body) {
+    padding: 14px 18px;
+  }
+  :deep(.el-dialog__footer) {
+    padding: 10px 18px 14px;
+  }
 
   .import-dialog-header {
-    padding: 4px 0;
+    padding: 0;
     .import-dialog-title {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 600;
       color: $text-primary;
       .title-icon {
-        font-size: 20px;
+        font-size: 18px;
         color: $brand-start;
       }
     }
     .import-dialog-sub {
-      margin-top: 6px;
+      margin-top: 4px;
       font-size: 12px;
       color: $text-muted;
     }
   }
 
-  .import-form {
-    .import-field {
-      margin-bottom: 18px;
-      &:last-child { margin-bottom: 0; }
+  .import-form-split {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 16px;
+    min-height: 260px;
 
-      .import-label {
+    .split-left,
+    .split-right {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* 让左侧搜索框固定，列表区独立滚动 */
+    .split-left {
+      .platform-search {
+        margin-bottom: 8px;
+        flex-shrink: 0;
+      }
+      .platform-search :deep(.el-input__wrapper) {
+        background: rgba(0, 0, 0, 0.25);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+        border-radius: 8px;
+        &:hover, &.is-focus {
+          box-shadow: 0 0 0 1px rgba($brand-start, 0.5) inset;
+        }
+      }
+      .platform-search :deep(.el-input__inner) {
+        color: $text-primary;
+        &::placeholder { color: rgba(255, 255, 255, 0.3); }
+      }
+
+      .platform-list {
+        flex: 1;
+        min-height: 0;
+      }
+    }
+
+    .split-section-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: $text-primary;
+      flex-shrink: 0;
+
+      .dot {
+        color: $brand-start;
+        font-size: 8px;
+      }
+    }
+
+    /* 左侧：扁平卡片列表（参考 LoginDialog.platform-card 风格） */
+    .platform-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      max-height: 360px;
+      padding-right: 4px;
+
+      /* 自定义滚动条 */
+      &::-webkit-scrollbar { width: 6px; }
+      &::-webkit-scrollbar-track { background: transparent; }
+      &::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        &:hover { background: rgba(255, 255, 255, 0.2); }
+      }
+    }
+
+    .platform-card-flat {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 10px;
+      background: $bg-surface;
+      border: 1px solid $border;
+      border-radius: $radius-sm;
+      cursor: pointer;
+      transition: all $transition-fast;
+      position: relative;
+
+      .card-logo-wrap {
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
         display: flex;
         align-items: center;
-        gap: 6px;
-        margin-bottom: 8px;
-        font-size: 13px;
-        font-weight: 500;
-        color: $text-primary;
+        justify-content: center;
+        flex-shrink: 0;
 
-        .dot {
-          color: $brand-start;
-          font-size: 8px;
+        .card-logo {
+          width: 20px;
+          height: 20px;
+          border-radius: 4px;
+          object-fit: contain;
         }
-        .import-tip {
-          margin-left: auto;
+        .card-letter {
+          font-size: 13px;
+          font-weight: 700;
+        }
+      }
+
+      .card-text {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+
+        .card-name {
+          font-size: 13px;
+          font-weight: 500;
+          color: $text-primary;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          line-height: 1.3;
+        }
+        .card-meta {
           font-size: 11px;
-          font-weight: 400;
           color: $text-muted;
         }
       }
 
-      .import-select {
-        width: 100%;
+      .card-check {
+        font-size: 15px;
+        color: $brand-start;
       }
 
-      .import-textarea :deep(textarea) {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-        font-size: 12.5px;
-        line-height: 1.6;
-        padding: 12px;
-        background: rgba(0, 0, 0, 0.25);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-        color: $text-primary;
-        transition: all $transition-base;
+      &:hover {
+        background: rgba($brand-start, 0.06);
+        border-color: $border-active;
+      }
 
-        &:focus {
-          background: rgba(0, 0, 0, 0.4);
-          border-color: $brand-start;
-          box-shadow: 0 0 0 2px rgba($brand-start, 0.15);
+      &.is-selected {
+        background: rgba($brand-start, 0.08);
+        border-color: $brand-start;
+
+        .card-meta {
+          color: $brand-start;
         }
-        &::placeholder {
-          color: rgba(255, 255, 255, 0.25);
-        }
+      }
+    }
+
+    .empty-platform {
+      padding: 30px 12px;
+      text-align: center;
+      font-size: 12px;
+      color: $text-muted;
+    }
+
+    /* 右侧：cookie 输入 */
+    .import-textarea {
+      flex: 1;
+    }
+    .import-textarea :deep(textarea) {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: $text-primary;
+      transition: all $transition-base;
+      height: 100%;
+      min-height: 220px;
+
+      &:focus {
+        background: rgba(0, 0, 0, 0.4);
+        border-color: $brand-start;
+        box-shadow: 0 0 0 2px rgba($brand-start, 0.15);
+      }
+      &::placeholder {
+        color: rgba(255, 255, 255, 0.25);
+      }
+    }
+
+    .cookie-tip {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 7px 9px;
+      background: rgba($brand-start, 0.05);
+      border: 1px solid rgba($brand-start, 0.15);
+      border-radius: 6px;
+      font-size: 11px;
+      color: $text-muted;
+      line-height: 1.5;
+
+      .el-icon {
+        color: $brand-start;
+        flex-shrink: 0;
+        margin-top: 1px;
       }
     }
   }

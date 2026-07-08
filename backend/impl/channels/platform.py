@@ -9,6 +9,7 @@ and shared utilities from ``backend/impl/_utils.py``.
 import asyncio
 import json
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -855,6 +856,25 @@ class ChannelsPlatform(BasePlatform):
     platform_id = 2
     platform_key = "channels"
     platform_name = "视频号"
+
+    # 支持 cookie 字符串导入账号（视频号登录态高度依赖 localStorage，
+    # 仅灌 cookie 可能 sync 拉不到资料，需用户自行验证）
+    supports_cookie_import = True
+    platform_cookie_domain = ".qq.com"
+
+    def _parse_cookie_to_storage_state(self, cookie_str):
+        cookies = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair: continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(), "value": value.strip(),
+                "domain": self.platform_cookie_domain, "path": "/",
+                "expires": expires, "httpOnly": True, "secure": False, "sameSite": "Lax",
+            })
+        return cookies, []
 
     # ------------------------------------------------------------------
     # login — QR code in iframe, then save_login_result

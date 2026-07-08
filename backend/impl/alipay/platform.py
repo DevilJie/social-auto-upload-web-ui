@@ -28,6 +28,7 @@ hash 类名会随构建漂移)。本实现优先用 placeholder / role / text / 
 import asyncio
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
@@ -69,6 +70,25 @@ class AlipayPlatform(BasePlatform):
     platform_id = 12
     platform_key = "alipay"
     platform_name = "支付宝"
+
+    # 支持 cookie 字符串导入账号（支付宝登录态依赖 ctoken 等动态字段 + localStorage，
+    # 仅灌 cookie 可能拉不到资料，需用户自行验证）
+    supports_cookie_import = True
+    platform_cookie_domain = ".alipay.com"
+
+    def _parse_cookie_to_storage_state(self, cookie_str):
+        cookies = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair: continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(), "value": value.strip(),
+                "domain": self.platform_cookie_domain, "path": "/",
+                "expires": expires, "httpOnly": True, "secure": False, "sameSite": "Lax",
+            })
+        return cookies, []
 
     # ------------------------------------------------------------------
     # login()

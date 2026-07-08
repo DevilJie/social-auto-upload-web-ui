@@ -771,21 +771,49 @@ async def scrape_zhihu_profile(page):
                 await page.wait_for_url("**/people/**", timeout=15000)
             except Exception:
                 pass
-        await page.wait_for_load_state("domcontentloaded", timeout=10000)
-        await asyncio.sleep(2)
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
 
         # 4. 抓取昵称和头像
+        # 知乎「我的主页」是 SPA，跳转后异步渲染。先等昵称容器出现再读。
         try:
-            name_el = page.locator('span.ProfileHeader-name, h1.ProfileHeader-title').first
+            name_el = page.locator(
+                'span.ProfileHeader-name, h1.ProfileHeader-title, '
+                'h1.UserHeaderName, .ProfileHeader-name'
+            ).first
+            try:
+                await name_el.wait_for(state="visible", timeout=10000)
+            except Exception as e:
+                logger.info(f"[zhihu] 昵称容器等待超时 (url={page.url}): {e}")
             if await name_el.count() > 0:
                 name = (await name_el.text_content() or "").strip()
         except Exception as e:
             logger.info(f"[zhihu] 昵称抓取失败: {e}")
 
+        # 兜底：从 URL / 页面 title 提取昵称
+        if not name:
+            try:
+                title = (await page.title() or "").strip()
+                # title 一般是 "xxx - 知乎" 或 "xxx的主页"
+                if title and "知乎" in title:
+                    cand = title.split("-")[0].split("的")[0].strip()
+                    if cand and cand != "知乎":
+                        name = cand
+                        logger.info(f"[zhihu] 从 title 兜底昵称: {name!r}")
+            except Exception:
+                pass
+
         try:
             avatar_el = page.locator(
-                '.UserAvatar-inner, .ProfileHeader-avatar img.Avatar'
+                '.UserAvatar-inner img, .ProfileHeader-avatar img.Avatar, '
+                '.UserAvatar-inner, img.Avatar'
             ).first
+            try:
+                await avatar_el.wait_for(state="attached", timeout=8000)
+            except Exception:
+                pass
             if await avatar_el.count() > 0:
                 avatar = (await avatar_el.get_attribute("src") or "").strip()
         except Exception as e:

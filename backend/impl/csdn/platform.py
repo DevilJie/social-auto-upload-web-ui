@@ -10,6 +10,7 @@
 import asyncio
 import re as _re_module
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -43,6 +44,24 @@ class CsdnPlatform(BasePlatform):
     platform_id = 15
     platform_key = "csdn"
     platform_name = "CSDN"
+
+    # 支持 cookie 字符串导入账号
+    supports_cookie_import = True
+    platform_cookie_domain = ".csdn.net"
+
+    def _parse_cookie_to_storage_state(self, cookie_str):
+        cookies = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair: continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(), "value": value.strip(),
+                "domain": self.platform_cookie_domain, "path": "/",
+                "expires": expires, "httpOnly": True, "secure": False, "sameSite": "Lax",
+            })
+        return cookies, []
 
     # ------------------------------------------------------------------
     # login — 用户在可见浏览器中手动登录

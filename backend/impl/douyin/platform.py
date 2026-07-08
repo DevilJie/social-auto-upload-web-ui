@@ -9,6 +9,7 @@ Chromium) with automatic Playwright fallback.
 import asyncio
 import re
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -40,6 +41,43 @@ class DouyinPlatform(BasePlatform):
     platform_id = 3
     platform_key = "douyin"
     platform_name = "抖音"
+
+    # 支持 cookie 字符串导入账号
+    supports_cookie_import = True
+    # 抖音 cookie 全部由 .douyin.com 域下发，覆盖 creator.douyin.com 子域
+    platform_cookie_domain = ".douyin.com"
+
+    def _parse_cookie_to_storage_state(
+        self, cookie_str: str
+    ) -> tuple[list[dict], list[dict]]:
+        """把 'k=v; k=v' 解析为 Playwright storage_state 的 (cookies, origins)。
+
+        - 全部 cookie 归属 ``platform_cookie_domain`` (.douyin.com)
+        - expires 给 7 天保守占位，sync_profile 跑完后 storage_state 会被
+          回写为真实的 cookie（含真实 expires + localStorage）
+        - localStorage 留空，由 sync_profile 自然补全
+        """
+        cookies: list[dict] = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair:
+                continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(),
+                "value": value.strip(),
+                "domain": self.platform_cookie_domain,
+                "path": "/",
+                "expires": expires,
+                "httpOnly": True,
+                "secure": False,
+                "sameSite": "Lax",
+            })
+        logger.info(
+            f"[douyin] cookie 解析: {len(cookies)} 条, domain={self.platform_cookie_domain}"
+        )
+        return cookies, []
 
     # ------------------------------------------------------------------
     # login — QR code scan via CloakBrowser
@@ -181,25 +219,20 @@ class DouyinPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def open_creator_center(self, cookie_file: str) -> None:
-        """Open the Douyin creator centre in a visible browser window."""
+        """Open the Douyin creator centre in a visible browser window.
+
+        打开后立即返回，不做任何等待或关闭 —— 浏览器由用户自己关。
+        线程仅负责启动浏览器，启动完就结束（browser 对象保留在闭包里，
+        CloakBrowser 子进程会随主进程存活）。
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = "https://creator.douyin.com/"
 
         def _launch():
             browser = create_browser_sync(headless=False)
-            try:
-                context = create_context_sync(browser, storage_state=cookie_path)
-                page = context.new_page()
-                page.goto(url)
-                try:
-                    page.wait_for_event("close", timeout=0)
-                except Exception:
-                    pass
-            finally:
-                try:
-                    browser.close()
-                except Exception:
-                    pass
+            context = create_context_sync(browser, storage_state=cookie_path)
+            page = context.new_page()
+            page.goto(url)
 
         thread = threading.Thread(target=_launch, daemon=True)
         thread.start()

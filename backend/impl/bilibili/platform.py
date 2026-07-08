@@ -10,6 +10,7 @@ import asyncio
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -95,6 +96,43 @@ class BilibiliPlatform(BasePlatform):
     platform_id = 5
     platform_key = "bilibili"
     platform_name = "B站"
+
+    # 支持 cookie 字符串导入账号
+    supports_cookie_import = True
+    # B站 cookie 全部由 .bilibili.com 域下发，覆盖 account/member 子域
+    platform_cookie_domain = ".bilibili.com"
+
+    def _parse_cookie_to_storage_state(
+        self, cookie_str: str
+    ) -> tuple[list[dict], list[dict]]:
+        """把 'k=v; k=v' 解析为 Playwright storage_state 的 (cookies, origins)。
+
+        - 全部 cookie 归属 ``platform_cookie_domain`` (.bilibili.com)
+        - expires 给 7 天保守占位，sync_profile 跑完后 storage_state 会被
+          回写为真实的 cookie（含真实 expires + localStorage）
+        - localStorage 留空，由 sync_profile 自然补全
+        """
+        cookies: list[dict] = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair:
+                continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(),
+                "value": value.strip(),
+                "domain": self.platform_cookie_domain,
+                "path": "/",
+                "expires": expires,
+                "httpOnly": True,
+                "secure": False,
+                "sameSite": "Lax",
+            })
+        logger.info(
+            f"[bilibili] cookie 解析: {len(cookies)} 条, domain={self.platform_cookie_domain}"
+        )
+        return cookies, []
 
     # ------------------------------------------------------------------
     # Login

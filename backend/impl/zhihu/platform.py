@@ -9,6 +9,7 @@
 
 import asyncio
 import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -41,9 +42,42 @@ class ZhihuPlatform(BasePlatform):
     platform_key = "zhihu"
     platform_name = "知乎"
 
-    # ------------------------------------------------------------------
-    # login — 用户在可见浏览器中手动登录
-    # ------------------------------------------------------------------
+    # 支持 cookie 字符串导入账号
+    supports_cookie_import = True
+    # 知乎 cookie 全部由 .zhihu.com 域下发
+    platform_cookie_domain = ".zhihu.com"
+
+    def _parse_cookie_to_storage_state(
+        self, cookie_str: str
+    ) -> tuple[list[dict], list[dict]]:
+        """把 'k=v; k=v' 解析为 Playwright storage_state 的 (cookies, origins)。
+
+        - 全部 cookie 归属 ``platform_cookie_domain`` (.zhihu.com)
+        - expires 给 7 天保守占位，sync_profile 跑完后 storage_state 会被
+          回写为真实的 cookie（含真实 expires + localStorage）
+        - localStorage 留空，由 sync_profile 自然补全
+        """
+        cookies: list[dict] = []
+        expires = time.time() + BasePlatform._IMPORT_COOKIE_EXPIRES_SECONDS
+        for pair in cookie_str.split(";"):
+            pair = pair.strip()
+            if not pair or "=" not in pair:
+                continue
+            name, _, value = pair.partition("=")
+            cookies.append({
+                "name": name.strip(),
+                "value": value.strip(),
+                "domain": self.platform_cookie_domain,
+                "path": "/",
+                "expires": expires,
+                "httpOnly": True,
+                "secure": False,
+                "sameSite": "Lax",
+            })
+        logger.info(
+            f"[zhihu] cookie 解析: {len(cookies)} 条, domain={self.platform_cookie_domain}"
+        )
+        return cookies, []
 
     async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
         """打开知乎登录页，等待用户完成登录后保存 cookie。

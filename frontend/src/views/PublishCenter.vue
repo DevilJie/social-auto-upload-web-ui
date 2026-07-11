@@ -2247,7 +2247,9 @@ async function publishAll() {
       if (group.key === 'toutiao') {
         console.log('[PublishCenter.publish] 今日头条参数: extendLink=' + publishData.extendLink + ' extendLinkUrl=' + publishData.extendLinkUrl + ' enableGenerateImage=' + publishData.enableGenerateImage + ' collection=' + publishData.collection)
       }
-      await http.post('/postVideo', publishData)
+      // 视频上传+发布可能很久（大文件/慢网/人机校验），设 4 小时超时
+      // 避免浏览器层提前断开导致「前端判失败但后端仍在跑」
+      await http.post('/postVideo', publishData, { timeout: 4 * 60 * 60 * 1000 })
       publishResults.value.push({
         label: account.name,
         status: 'success',

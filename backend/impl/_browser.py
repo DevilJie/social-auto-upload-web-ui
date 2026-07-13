@@ -41,8 +41,9 @@ async def create_browser(
 
     不接 proxy / extra_args —— 历史代理配置已废弃。
 
-    login_mode=True 时，自动监听浏览器关闭事件：用户手动关浏览器会
-    cancel 当前 asyncio task，使 login 流程立即终止。
+    login_mode=True 或 headless=False（有头）时，自动监听浏览器关闭
+    事件：用户手动关浏览器会 cancel 当前 asyncio task，使 login/发布
+    流程立即终止并返回失败。
 
     humanize=True 时启用 CloakBrowser 拟人化操作层（贝塞尔鼠标轨迹、
     逐键打字、平滑滚动等），仅建议在发布动作开启——会让操作明显变慢，
@@ -59,12 +60,14 @@ async def create_browser(
         human_preset=human_preset,
     )
 
-    if login_mode:
+    if login_mode or headless is False:
+        # login 或有头浏览器（发布场景）：用户关浏览器 → cancel 当前 task，
+        # 使 login/发布流程立即终止，避免后端 worker 一直阻塞。
         task = asyncio.current_task()
 
         def _on_browser_closed():
             if task and not task.done():
-                logger.info("[browser] 用户关闭了登录浏览器，取消 login task")
+                logger.info("[browser] 用户关闭了浏览器，取消当前任务")
                 task.cancel()
 
         browser.on("disconnected", _on_browser_closed)

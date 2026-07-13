@@ -1053,6 +1053,10 @@ def postVideo():
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
         else:
             return jsonify({"code": 500, "msg": "发布失败：页面未跳转，表单校验未通过", "data": None}), 500
+    except asyncio.CancelledError:
+        # 用户手动关闭了浏览器 → create_browser 的 disconnected 监听 cancel 了 task
+        logger.info("发布视频被取消：用户关闭了浏览器")
+        return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
     except Exception as e:
         logger.info(f"发布视频时出错: {str(e)}")
         return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500

@@ -327,6 +327,22 @@ if "!VENV_OK!"=="0" (
     )
 )
 
+:: 检查 VC++ 运行时（greenlet/playwright 的 C 扩展依赖 MSVCP140/VCRUNTIME140）
+"%VENV_PYTHON%" -c "import greenlet" >nul 2>&1
+if !errorlevel! neq 0 (
+    echo.
+    echo   X 缺少 Microsoft Visual C++ 运行时组件
+    echo     greenlet 加载失败，浏览器自动化功能不可用
+    echo.
+    echo     请下载并安装「Visual C++ Redistributable」:
+    echo       https://aka.ms/vs/17/release/vc_redist.x64.exe
+    echo.
+    echo     安装完成后重新运行本脚本即可。
+    echo.
+    pause
+    exit /b 1
+)
+
 :: 检查 CloakBrowser 二进制文件
 set "CB_SRC=系统"
 set "CB_PATH="

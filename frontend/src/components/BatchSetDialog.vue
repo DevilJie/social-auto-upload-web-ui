@@ -209,12 +209,12 @@ function handleApply(mode = 'full') {
 
   &:hover:not(.is-disabled) {
     border-color: $brand-start;
-    background: rgba(139, 92, 246, 0.04);
+    background: rgba($brand-start, 0.04);
   }
 
   &.is-checked {
     border-color: $brand-start;
-    background: rgba(139, 92, 246, 0.1);
+    background: rgba($brand-start, 0.1);
     box-shadow: 0 0 0 1px $brand-start inset;
   }
 

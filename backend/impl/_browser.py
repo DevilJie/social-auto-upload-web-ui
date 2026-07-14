@@ -42,8 +42,9 @@ async def create_browser(
     不接 proxy / extra_args —— 历史代理配置已废弃。
 
     login_mode=True 或 headless=False（有头）时，自动监听浏览器关闭
-    事件：用户手动关浏览器会 cancel 当前 asyncio task，使 login/发布
-    流程立即终止并返回失败。
+    事件：**用户手动**关浏览器会 cancel 当前 asyncio task，使 login/发布
+    流程立即终止并返回失败。而发布成功后平台代码主动 browser.close()
+    的正常收尾不会误触发（内部已 disarm）。
 
     humanize=True 时启用 CloakBrowser 拟人化操作层（贝塞尔鼠标轨迹、
     逐键打字、平滑滚动等），仅建议在发布动作开启——会让操作明显变慢，
@@ -61,16 +62,31 @@ async def create_browser(
     )
 
     if login_mode or headless is False:
-        # login 或有头浏览器（发布场景）：用户关浏览器 → cancel 当前 task，
+        # login 或有头浏览器（发布场景）：用户主动关浏览器 → cancel 当前 task，
         # 使 login/发布流程立即终止，避免后端 worker 一直阻塞。
         task = asyncio.current_task()
+        # 武装状态：仅当「用户意外关闭」时才 cancel。
+        # 平台代码在发布成功后会在 finally 里主动 browser.close() 正常收尾，
+        # 这种 close 同样会触发 disconnected，必须先 disarm 避免误判成功为失败。
+        armed = True
 
         def _on_browser_closed():
-            if task and not task.done():
+            if armed and task and not task.done():
                 logger.info("[browser] 用户关闭了浏览器，取消当前任务")
                 task.cancel()
 
         browser.on("disconnected", _on_browser_closed)
+
+        # 包装 close：代码主动收尾关闭时先 disarm，使 disconnected 回调不再 cancel。
+        # Browser.close 是普通 async 实例方法，可实例级覆盖（Playwright 文档已确认）。
+        _orig_close = browser.close
+
+        async def _safe_close(*args, **kwargs):
+            nonlocal armed
+            armed = False  # 同步 disarm，在 await 之前生效
+            return await _orig_close(*args, **kwargs)
+
+        browser.close = _safe_close
 
     return browser
 

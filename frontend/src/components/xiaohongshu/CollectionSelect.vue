@@ -135,6 +135,8 @@ function handleChange(val) {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
+
 .collection-select {
   width: 100%;
 }
@@ -149,7 +151,7 @@ function handleChange(val) {
   justify-content: center;
   gap: 8px;
   padding: 8px 12px;
-  color: #94A3B8;
+  color: $text-secondary;
   font-size: 13px;
 
   .is-loading {
@@ -176,7 +178,7 @@ function handleChange(val) {
 
 .collection-name {
   font-size: 14px;
-  color: #F8FAFC;
+  color: $popper-text;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -184,7 +186,7 @@ function handleChange(val) {
 
 .collection-desc {
   font-size: 12px;
-  color: #94A3B8;
+  color: $text-secondary;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

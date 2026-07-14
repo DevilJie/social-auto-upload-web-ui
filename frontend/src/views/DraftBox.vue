@@ -555,7 +555,7 @@ async function onDialogConfirm(confirmedIds) {
 
 .draft-card {
   position: relative;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba($overlay-rgb, 0.04);
   border: 1px solid $border;
   border-radius: $radius-lg;
   overflow: hidden;
@@ -568,7 +568,7 @@ async function onDialogConfirm(confirmedIds) {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba($overlay-rgb, 0.03);
   overflow: hidden;
 
   img {
@@ -634,7 +634,7 @@ async function onDialogConfirm(confirmedIds) {
   gap: 4px;
   font-size: 12px;
   color: $text-secondary;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba($overlay-rgb, 0.06);
   padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
@@ -684,12 +684,12 @@ async function onDialogConfirm(confirmedIds) {
   }
 
   &.action-edit:hover {
-    background: rgba(64, 158, 255, 0.1);
+    background: rgba($info-color, 0.1);
     color: #409eff;
   }
 
   &.action-delete:hover {
-    background: rgba(245, 108, 108, 0.1);
+    background: rgba($danger-color, 0.1);
     color: #f56c6c;
   }
 }
@@ -715,8 +715,8 @@ async function onDialogConfirm(confirmedIds) {
 }
 
 .toolbar-trigger {
-  --el-button-bg-color: rgba(255, 255, 255, 0.04);
-  --el-button-border-color: rgba(255, 255, 255, 0.12);
+  --el-button-bg-color: rgba($overlay-rgb, 0.04);
+  --el-button-border-color: rgba($overlay-rgb, 0.12);
   --el-button-hover-bg-color: rgba($brand-start, 0.12);
   --el-button-hover-border-color: rgba($brand-start, 0.4);
   --el-button-hover-text-color: lighten($brand-start, 12%);
@@ -731,14 +731,14 @@ async function onDialogConfirm(confirmedIds) {
 }
 
 .toolbar-exit {
-  --el-button-bg-color: rgba(255, 255, 255, 0.03);
-  --el-button-border-color: rgba(255, 255, 255, 0.12);
+  --el-button-bg-color: rgba($overlay-rgb, 0.03);
+  --el-button-border-color: rgba($overlay-rgb, 0.12);
   --el-button-text-color: $text-secondary;
-  --el-button-hover-bg-color: rgba(244, 63, 94, 0.12);
-  --el-button-hover-border-color: rgba(244, 63, 94, 0.4);
+  --el-button-hover-bg-color: rgba($accent-rose, 0.12);
+  --el-button-hover-border-color: rgba($accent-rose, 0.4);
   --el-button-hover-text-color: lighten($accent-rose, 8%);
-  --el-button-active-bg-color: rgba(244, 63, 94, 0.16);
-  --el-button-active-border-color: rgba(244, 63, 94, 0.5);
+  --el-button-active-bg-color: rgba($accent-rose, 0.16);
+  --el-button-active-border-color: rgba($accent-rose, 0.5);
   --el-button-active-text-color: lighten($accent-rose, 12%);
 }
 
@@ -778,7 +778,7 @@ async function onDialogConfirm(confirmedIds) {
   }
 
   &:hover:not(.is-selected) {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba($overlay-rgb, 0.15);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   }
 
@@ -802,7 +802,7 @@ async function onDialogConfirm(confirmedIds) {
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(8px);
-  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  border: 1.5px solid rgba($overlay-rgb, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;

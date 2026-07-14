@@ -165,9 +165,9 @@ function onUploaded(d) {
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba($overlay-rgb, 0.2);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba($overlay-rgb, 0.1);
   backdrop-filter: blur(8px);
   color: #fff;
   font-size: 12px;
@@ -176,8 +176,8 @@ function onUploaded(d) {
   font-family: inherit;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba($overlay-rgb, 0.2);
+    border-color: rgba($overlay-rgb, 0.35);
   }
 
   &.danger:hover {

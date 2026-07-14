@@ -129,17 +129,19 @@ function onImageError(e) {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
+
 .music-select { width: 100%; }
 .search-input-wrapper { padding: 8px 12px; }
 .loading-indicator {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 8px 12px; color: #94A3B8; font-size: 13px;
+  padding: 8px 12px; color: $text-secondary; font-size: 13px;
   .is-loading { animation: rotating 1s linear infinite; }
   @keyframes rotating { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 }
 .music-option { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
 .music-cover { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
 .music-info { flex: 1; min-width: 0; }
-.music-title { font-size: 14px; color: #F8FAFC; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music-meta { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; color: #94A3B8; }
+.music-title { font-size: 14px; color: $popper-text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-meta { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; color: $text-secondary; }
 </style>

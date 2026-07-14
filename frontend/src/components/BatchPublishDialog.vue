@@ -71,7 +71,7 @@ defineEmits(['update:modelValue', 'cancel'])
 
     .publish-results {
       margin-top: 20px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid rgba($overlay-rgb, 0.06);
       padding-top: 16px;
       max-height: 300px;
       overflow-y: auto;
@@ -83,7 +83,7 @@ defineEmits(['update:modelValue', 'cancel'])
         color: $text-secondary;
 
         .el-icon { margin-right: 8px; }
-        .result-label { margin-right: 10px; font-weight: 600; color: #f8fafc; }
+        .result-label { margin-right: 10px; font-weight: 600; color: $popper-text; }
         .result-message { color: $text-muted; font-size: 13px; }
 
         &.success { .el-icon, .result-label { color: $success-color; } }

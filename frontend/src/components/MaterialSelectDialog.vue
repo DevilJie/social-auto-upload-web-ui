@@ -128,9 +128,8 @@
               {{ mat.storage_type === 's3' ? 'S3' : '本地' }}
             </span>
 
-            <!-- Hover overlay -->
+            <!-- Hover overlay：仅显示日期（大小已常驻在 caption） -->
             <div class="msd-card-hover-info">
-              <span class="msd-card-size">{{ formatSize(mat.file_size) }}</span>
               <span class="msd-card-date">{{ formatDate(mat.upload_time) }}</span>
             </div>
           </div>
@@ -138,6 +137,13 @@
           <div class="msd-card-caption">
             <span class="msd-card-name" :title="mat.original_filename">
               {{ mat.original_filename }}
+            </span>
+            <span class="msd-card-meta">
+              <span v-if="mat.file_size">{{ formatSize(mat.file_size) }}</span>
+              <span v-if="mat.duration && mat.file_type === 'video'" class="msd-card-meta-dur">
+                {{ Math.round(mat.duration) }}s
+              </span>
+              <span v-if="mat.upload_time" class="msd-card-meta-date">{{ formatDate(mat.upload_time) }}</span>
             </span>
           </div>
         </div>
@@ -410,10 +416,11 @@ defineExpose({ open })
 </script>
 
 <style lang="scss">
+@use '@/styles/variables.scss' as *;
 .material-select-dialog {
   --msd-radius: 14px;
-  --msd-glass: rgba(20, 22, 28, 0.85);
-  --msd-border: rgba(255, 255, 255, 0.08);
+  --msd-glass: rgba($bg-elevated-rgb, 0.85);
+  --msd-border: rgba($overlay-rgb, 0.08);
   --msd-brand-1: #5b8cff;
   --msd-brand-2: #8b5cff;
 
@@ -425,8 +432,8 @@ defineExpose({ open })
     border-radius: var(--msd-radius);
     box-shadow:
       0 25px 60px rgba(0, 0, 0, 0.5),
-      0 0 0 1px rgba(255, 255, 255, 0.03),
-      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      0 0 0 1px rgba($overlay-rgb, 0.03),
+      inset 0 1px 0 rgba($overlay-rgb, 0.04);
     overflow: hidden;
   }
 
@@ -443,29 +450,29 @@ defineExpose({ open })
   .el-dialog__footer {
     padding: 14px 20px;
     border-top: 1px solid var(--msd-border);
-    background: rgba(0, 0, 0, 0.2);
+    background: $bg-base;
   }
 }
 </style>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
 $brand-1: #5b8cff;
 $brand-2: #8b5cff;
-$text-1: #e5e7eb;
-$text-2: #9ca3af;
-$text-3: #6b7280;
-$border: rgba(255, 255, 255, 0.08);
-$bg-card: rgba(255, 255, 255, 0.03);
-$bg-card-hover: rgba(255, 255, 255, 0.05);
+$text-1: $text-primary;
+$text-2: $text-secondary;
+$text-3: $text-muted;
+$border: rgba($overlay-rgb, 0.08);
+$bg-card: rgba($overlay-rgb, 0.03);
+$bg-card-hover: rgba($overlay-rgb, 0.05);
 
 // ===== Header =====
 .msd-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 22px;
+  padding: 16px 20px;
   border-bottom: 1px solid $border;
-  // 标题区无独立背景，融入弹窗整体深色玻璃
 }
 
 .msd-header-title {
@@ -502,32 +509,36 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   color: $brand-1;
 }
 
-// ===== Toolbar =====
+// ===== Toolbar（独立容器，搜索 + 分段控件） =====
 .msd-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 22px 12px;
+  padding: 8px;
+  margin: 12px 16px 0;
+  background: $overlay-hover;
+  border: 1px solid $border;
+  border-radius: 12px;
 }
 
 .msd-search {
   flex: 1;
-  max-width: 360px;
+  max-width: 320px;
 
   :deep(.el-input__wrapper) {
-    background: rgba(0, 0, 0, 0.25);
-    border: 1px solid $border;
-    border-radius: 10px;
+    background: $bg-elevated;
+    border: 1px solid transparent;
+    border-radius: 20px;
     box-shadow: none;
-    padding: 4px 12px;
+    padding: 6px 14px;
     transition: all 0.2s ease;
-    &:hover { border-color: rgba(255, 255, 255, 0.16); }
+    &:hover { border-color: rgba($overlay-rgb, 0.16); }
     &.is-focus {
       border-color: rgba($brand-1, 0.5);
       box-shadow: 0 0 0 3px rgba($brand-1, 0.12);
-      background: rgba(0, 0, 0, 0.35);
     }
     .el-input__inner {
+      height: 28px;
       color: $text-1;
       &::placeholder { color: $text-3; }
     }
@@ -535,11 +546,12 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   }
 }
 
+// 类型筛选：分段控件（segmented control）风格
 .msd-type-filter {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   padding: 3px;
-  background: rgba(0, 0, 0, 0.25);
+  background: $bg-elevated;
   border: 1px solid $border;
   border-radius: 10px;
 }
@@ -570,26 +582,26 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
 
 // ===== Body =====
 .msd-body {
-  padding: 8px 22px 4px;
+  padding: 12px 16px 4px;
   min-height: 320px;
   max-height: 52vh;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  scrollbar-color: rgba($overlay-rgb, 0.08) transparent;
 
   &::-webkit-scrollbar { width: 6px; }
   &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba($overlay-rgb, 0.1);
     border-radius: 3px;
-    &:hover { background: rgba(255, 255, 255, 0.18); }
+    &:hover { background: rgba($overlay-rgb, 0.18); }
   }
 }
 
 // ===== Grid =====
 .msd-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
   padding: 4px 0 12px;
 }
 
@@ -631,8 +643,8 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   aspect-ratio: 1;
   overflow: hidden;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.1)),
-    repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.01) 8px, rgba(255,255,255,0.01) 16px);
+    linear-gradient(135deg, rgba($overlay-rgb, 0.02), rgba($overlay-rgb, 0.06)),
+    repeating-linear-gradient(45deg, transparent, transparent 8px, rgba($overlay-rgb, 0.01) 8px, rgba($overlay-rgb, 0.01) 16px);
 
   img {
     width: 100%;
@@ -655,7 +667,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   justify-content: center;
   background:
     radial-gradient(circle at center, rgba($brand-1, 0.1), transparent 70%),
-    rgba(0, 0, 0, 0.2);
+    $bg-base;
   color: $text-2;
 }
 
@@ -685,7 +697,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   padding: 2px 7px;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba($overlay-rgb, 0.15);
   border-radius: 4px;
   color: #d1d5db;
   font-size: 11px;
@@ -695,8 +707,8 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
 
   &.s3 {
     color: #fff;
-    background: rgba(37, 99, 235, 0.7);
-    border-color: rgba(96, 165, 250, 0.5);
+    background: rgba($info-color, 0.7);
+    border-color: rgba($info-color, 0.5);
   }
 }
 
@@ -756,7 +768,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   z-index: 2;
 
   &:hover {
-    background: rgba(220, 38, 38, 0.85);
+    background: rgba($danger-color, 0.85);
     transform: scale(1.08);
   }
 }
@@ -775,7 +787,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
   justify-content: center;
   box-shadow:
     0 2px 8px rgba($brand-1, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    inset 0 1px 0 rgba($overlay-rgb, 0.2);
   animation: msd-check-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -802,18 +814,39 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
 }
 
 .msd-card-caption {
-  padding: 7px 8px 9px;
+  padding: 6px 8px 8px;
 }
 
 .msd-card-name {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: $text-1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-weight: 500;
+  font-weight: 600;
   transition: color 0.15s ease;
+}
+
+// 常驻的元信息行：大小 / 时长 / 日期
+.msd-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 10px;
+  color: $text-3;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+
+  .msd-card-meta-dur { color: $brand-1; }
+  .msd-card-meta-date {
+    margin-left: auto;
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 // ===== Empty =====
@@ -848,22 +881,22 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
 .msd-pagination {
   display: flex;
   justify-content: center;
-  padding: 8px 0 12px;
+  padding: 10px 16px;
   border-top: 1px solid $border;
-  margin-top: 4px;
-  background: rgba(0, 0, 0, 0.1);
+  margin: 4px 0 0;
 
   :deep(.el-pagination) {
     --el-pagination-bg-color: transparent;
-    --el-pagination-button-bg-color: rgba(255, 255, 255, 0.04);
+    --el-pagination-button-bg-color: rgba($overlay-rgb, 0.04);
     --el-pagination-hover-color: #{$brand-1};
     --el-pagination-button-color: #{$text-2};
     --el-pagination-button-disabled-bg-color: transparent;
 
     .btn-prev, .btn-next, .el-pager li {
-      background: rgba(255, 255, 255, 0.04) !important;
+      background: rgba($overlay-rgb, 0.04) !important;
       color: $text-2 !important;
       border: 1px solid transparent;
+      border-radius: 6px;
 
       &:hover {
         color: $brand-1 !important;
@@ -878,7 +911,7 @@ $bg-card-hover: rgba(255, 255, 255, 0.05);
     }
 
     .el-pagination__sizes .el-select .el-select__wrapper {
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba($overlay-rgb, 0.04);
       box-shadow: 0 0 0 1px $border;
     }
   }

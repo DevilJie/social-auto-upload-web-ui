@@ -412,7 +412,7 @@ function cancelRelogin() {
   transition: all $transition-fast;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba($overlay-rgb, 0.06);
     color: $text-primary;
   }
 

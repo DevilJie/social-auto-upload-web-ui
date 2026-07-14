@@ -2419,13 +2419,13 @@ function formatSize(bytes) {
       // 一键发布: 保留项目渐变 + 阴影
       background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
       border: none !important;
-      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35) !important;
+      box-shadow: 0 4px 20px rgba($brand-start, 0.35) !important;
       font-weight: 700;
       letter-spacing: 0.04em;
       padding: 10px 24px !important;
 
       &:hover {
-        box-shadow: 0 6px 28px rgba(139, 92, 246, 0.5) !important;
+        box-shadow: 0 6px 28px rgba($brand-start, 0.5) !important;
         transform: translateY(-1px);
         opacity: 1 !important;
       }
@@ -2444,7 +2444,7 @@ function formatSize(bytes) {
     width: 6px;
   }
   &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba($overlay-rgb, 0.1);
     border-radius: 3px;
   }
 }
@@ -2514,7 +2514,7 @@ function formatSize(bytes) {
   border: 1px solid $border;
   border-radius: $radius-card;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba($overlay-rgb, 0.02);
   transition: $transition-base;
 
   &:hover {
@@ -2545,9 +2545,9 @@ function formatSize(bytes) {
   justify-content: center;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  scrollbar-color: rgba($overlay-rgb, 0.08) transparent;
   &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+  &::-webkit-scrollbar-thumb { background: rgba($overlay-rgb, 0.1); border-radius: 2px; }
 }
 
 .phone-panel-header {
@@ -2587,7 +2587,7 @@ function formatSize(bytes) {
 
   &:hover:not(.active) {
     color: $text-secondary;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba($overlay-rgb, 0.03);
   }
   &.active {
     background: rgba($brand-start, 0.08);
@@ -2623,7 +2623,7 @@ function formatSize(bytes) {
   border: 3px solid #2a2a40;
   border-radius: 28px;
   padding: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba($overlay-rgb, 0.05);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2681,7 +2681,7 @@ function formatSize(bytes) {
 .phone-home-bar {
   width: 40px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba($overlay-rgb, 0.15);
   border-radius: 2px;
   margin-top: 6px;
 }
@@ -2699,7 +2699,7 @@ function formatSize(bytes) {
   justify-content: space-between;
   margin: 0 16px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba($overlay-rgb, 0.03);
   border: 1px solid $border;
   border-radius: $radius-base;
 }
@@ -2733,7 +2733,7 @@ function formatSize(bytes) {
 
 // ----- Cover Section -----
 .cover-section {
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba($overlay-rgb, 0.01);
   border-color: $border;
 }
 
@@ -2751,7 +2751,7 @@ function formatSize(bytes) {
   padding: 6px 14px;
   border: 1px solid $border;
   border-radius: $radius-sm;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba($overlay-rgb, 0.03);
   color: $text-secondary;
   font-size: 12px;
   cursor: pointer;
@@ -2829,7 +2829,7 @@ function formatSize(bytes) {
 
   :deep(.el-input__wrapper),
   :deep(.el-textarea__inner) {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba($overlay-rgb, 0.03);
     border: 1px solid $border;
     border-radius: $radius-base;
     box-shadow: none;
@@ -2886,7 +2886,7 @@ function formatSize(bytes) {
 
     &:hover {
       color: $text-primary;
-      background: rgba(255, 255, 255, 0.02);
+      background: rgba($overlay-rgb, 0.02);
     }
   }
 
@@ -2942,7 +2942,7 @@ function formatSize(bytes) {
 
   :deep(.el-input__wrapper),
   :deep(.el-select .el-input__wrapper) {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba($overlay-rgb, 0.03);
     border: 1px solid $border;
     border-radius: $radius-sm;
     box-shadow: none;
@@ -2987,7 +2987,7 @@ function formatSize(bytes) {
 
       &.on {
         font-weight: 600;
-        box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3);
+        box-shadow: 0 0 0 1px rgba($brand-start, 0.3);
       }
     }
 

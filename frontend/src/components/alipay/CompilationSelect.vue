@@ -190,7 +190,7 @@ function onImageError(e) {
   justify-content: center;
   gap: 8px;
   padding: 8px 12px;
-  color: #94A3B8;
+  color: $text-secondary;
   font-size: 13px;
 
   .is-loading {
@@ -222,11 +222,11 @@ function onImageError(e) {
   width: 40px;
   height: 40px;
   border-radius: 4px;
-  background: #27273B;
+  background: $popper-hover;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94A3B8;
+  color: $text-secondary;
   flex-shrink: 0;
 }
 
@@ -253,7 +253,7 @@ function onImageError(e) {
 
 .compilation-category {
   padding: 0 6px;
-  background: rgba(22, 119, 255, 0.1);
+  background: rgba($info-color, 0.1);
   color: #1677FF;
   border-radius: 3px;
 }

@@ -375,9 +375,9 @@ const fetchDashboardData = async () => {
 </script>
 
 <script>
-// Expose border color for template usage
+// Expose border color for template usage（用 CSS 变量，随主题切换）
 export default {
-  borderColor: 'rgba(255,255,255,0.08)'
+  borderColor: 'var(--border)'
 }
 </script>
 
@@ -524,7 +524,7 @@ export default {
       width: 48px;
       height: 48px;
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba($overlay-rgb, 0.06);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -556,7 +556,7 @@ export default {
     }
 
     .stat-bottom {
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid rgba($overlay-rgb, 0.06);
       padding-top: 12px;
       min-width: 0;          // 关键: 防止 flex 子项把 grid cell 撑开
       overflow: hidden;       // 关键: 强制裁剪, 不让任何子元素跑出 stat-card
@@ -573,7 +573,7 @@ export default {
       .divider {
         width: 1px;
         height: 12px;
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba($overlay-rgb, 0.1);
       }
     }
 
@@ -609,7 +609,7 @@ export default {
       padding: 3px 9px;
       border-radius: 999px;
       flex-shrink: 0;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba($overlay-rgb, 0.06);
       color: $text-muted;
       border: 1px solid transparent;
       transition: all $transition-base;
@@ -629,7 +629,7 @@ export default {
         font-size: 11px;
         padding: 0 5px;
         border-radius: 8px;
-        background: rgba(255, 255, 255, 0.08);
+        background: rgba($overlay-rgb, 0.08);
         color: $text-secondary;
         min-width: 18px;
         text-align: center;
@@ -760,7 +760,7 @@ export default {
       --el-table-bg-color: transparent;
       --el-table-tr-bg-color: transparent;
       --el-table-header-bg-color: transparent;
-      --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.03);
+      --el-table-row-hover-bg-color: rgba($overlay-rgb, 0.03);
       --el-table-border-color: #{$border};
       --el-table-text-color: #{$text-secondary};
       --el-table-header-text-color: #{$text-muted};
@@ -779,7 +779,7 @@ export default {
       }
 
       :deep(td.el-table__cell) {
-        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        border-bottom: 1px solid rgba($overlay-rgb, 0.04);
       }
 
       :deep(.el-table__empty-block) {
@@ -820,7 +820,7 @@ export default {
 
       &.type-other {
         color: $text-muted;
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba($overlay-rgb, 0.06);
       }
     }
 

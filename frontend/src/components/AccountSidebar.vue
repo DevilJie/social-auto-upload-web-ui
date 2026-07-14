@@ -109,8 +109,8 @@ const visibleAccountGroups = computed(() =>
 .account-sidebar {
   width: 232px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #0d0d22 0%, #0a0a1a 100%);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, $bg-elevated 0%, $bg-base 100%);
+  border-right: 1px solid rgba($overlay-rgb, 0.06);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -130,7 +130,7 @@ const visibleAccountGroups = computed(() =>
     .sidebar-count {
       font-size: 11px;
       color: #a78bfa;
-      background: rgba(139, 92, 246, 0.12);
+      background: rgba($brand-start, 0.12);
       padding: 3px 10px;
       border-radius: 12px;
       font-weight: 700;
@@ -143,7 +143,7 @@ const visibleAccountGroups = computed(() =>
     padding: 4px 0;
 
     &::-webkit-scrollbar { width: 3px; }
-    &::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.15); border-radius: 2px; }
+    &::-webkit-scrollbar-thumb { background: rgba($brand-start, 0.15); border-radius: 2px; }
   }
 
   .group-wrap {
@@ -153,8 +153,8 @@ const visibleAccountGroups = computed(() =>
     border: 1px solid transparent;
 
     &.is-selected {
-      background: rgba(139, 92, 246, 0.1);
-      border-color: rgba(139, 92, 246, 0.2);
+      background: rgba($brand-start, 0.1);
+      border-color: rgba($brand-start, 0.2);
       margin: 2px 9px;
     }
   }
@@ -168,7 +168,7 @@ const visibleAccountGroups = computed(() =>
     transition: all 0.2s ease;
     user-select: none;
 
-    &:hover { background: rgba(255, 255, 255, 0.03); }
+    &:hover { background: rgba($overlay-rgb, 0.03); }
 
     .expand-icon {
       font-size: 12px;
@@ -210,7 +210,7 @@ const visibleAccountGroups = computed(() =>
     .group-count {
       font-size: 11px;
       color: #a78bfa;
-      background: rgba(139, 92, 246, 0.1);
+      background: rgba($brand-start, 0.1);
       padding: 2px 8px;
       border-radius: 8px;
       font-weight: 600;
@@ -260,20 +260,20 @@ const visibleAccountGroups = computed(() =>
     border: 1px solid transparent;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.04);
+      background: rgba($overlay-rgb, 0.04);
+      border-color: rgba($overlay-rgb, 0.04);
     }
 
     &.active {
-      background: rgba(139, 92, 246, 0.1);
-      border-color: rgba(139, 92, 246, 0.15);
+      background: rgba($brand-start, 0.1);
+      border-color: rgba($brand-start, 0.15);
     }
 
     .account-avatar {
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: rgba(139, 92, 246, 0.15);
+      background: rgba($brand-start, 0.15);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -308,8 +308,8 @@ const visibleAccountGroups = computed(() =>
       border-radius: 50%;
       flex-shrink: 0;
 
-      &.on { background: $success-color; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
-      &.off { background: $danger-color; box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+      &.on { background: $success-color; box-shadow: 0 0 6px rgba($success-color, 0.5); }
+      &.off { background: $danger-color; box-shadow: 0 0 6px rgba($danger-color, 0.5); }
     }
 
     .account-remove {
@@ -327,8 +327,8 @@ const visibleAccountGroups = computed(() =>
     &:hover .account-remove { opacity: 0.5; }
 
     &.has-override {
-      background: rgba(245, 158, 11, 0.06);
-      border-color: rgba(245, 158, 11, 0.1);
+      background: rgba($warning-color, 0.06);
+      border-color: rgba($warning-color, 0.1);
       .account-name { font-weight: 600; }
     }
 
@@ -341,10 +341,10 @@ const visibleAccountGroups = computed(() =>
 
   .sidebar-footer {
     padding: 12px 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid rgba($overlay-rgb, 0.04);
 
     .add-btn {
-      border: 1.5px dashed rgba(139, 92, 246, 0.25);
+      border: 1.5px dashed rgba($brand-start, 0.25);
       border-radius: 10px;
       padding: 10px;
       text-align: center;
@@ -354,9 +354,9 @@ const visibleAccountGroups = computed(() =>
       transition: all 0.2s ease;
 
       &:hover {
-        border-color: rgba(139, 92, 246, 0.5);
+        border-color: rgba($brand-start, 0.5);
         color: #c4b5fd;
-        background: rgba(139, 92, 246, 0.08);
+        background: rgba($brand-start, 0.08);
       }
     }
   }

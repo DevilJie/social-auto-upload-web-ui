@@ -101,6 +101,7 @@ async function handleCreate() {
 </script>
 
 <style lang="scss" scoped>
+@use '@/styles/variables.scss' as *;
 .tag-popover {
   .tag-popover-search { margin-bottom: 8px; }
   .tag-popover-list { max-height: 200px; overflow-y: auto; }
@@ -112,7 +113,7 @@ async function handleCreate() {
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
-    &:hover { background: rgba(255,255,255,0.06); }
+    &:hover { background: rgba($overlay-rgb, 0.06); }
     .tag-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .tag-name { flex: 1; }
     .tag-check { color: #8b5cf6; }
@@ -126,8 +127,8 @@ async function handleCreate() {
     color: #8b5cf6;
     cursor: pointer;
     border-radius: 6px;
-    &:hover { background: rgba(139,92,246,0.1); }
+    &:hover { background: rgba($brand-start, 0.1); }
   }
-  .tag-popover-empty { text-align: center; padding: 12px; font-size: 13px; color: #64748b; }
+  .tag-popover-empty { text-align: center; padding: 12px; font-size: 13px; color: $text-muted; }
 }
 </style>

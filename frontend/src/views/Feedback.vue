@@ -429,7 +429,7 @@ onMounted(async () => {
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid $border;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba($overlay-rgb, 0.04);
   color: $text-primary;
   font-size: 12px;
   font-weight: 500;
@@ -463,7 +463,7 @@ onMounted(async () => {
   }
 
   &:not(.voted) .vote-num {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba($overlay-rgb, 0.08);
   }
 }
 

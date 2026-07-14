@@ -335,7 +335,7 @@ defineExpose({ open, close })
 .image-preview-dialog {
   .el-dialog {
     background: rgba(0, 0, 0, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba($overlay-rgb, 0.08);
     border-radius: $radius-dialog;
     box-shadow: 0 25px 80px rgba(0, 0, 0, 0.7);
     overflow: hidden;
@@ -343,7 +343,7 @@ defineExpose({ open, close })
 
   .el-dialog__header {
     background: transparent;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba($overlay-rgb, 0.06);
     padding: 12px 20px;
     margin-right: 0;
   }
@@ -370,7 +370,7 @@ defineExpose({ open, close })
 }
 
 .preview-title {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba($overlay-rgb, 0.85);
   font-size: 14px;
   font-weight: 500;
   user-select: none;
@@ -388,7 +388,7 @@ defineExpose({ open, close })
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba($overlay-rgb, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -396,19 +396,19 @@ defineExpose({ open, close })
   transition: $transition-fast;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba($overlay-rgb, 0.1);
     color: #fff;
   }
 
   &.close-btn:hover {
-    background: rgba(239, 68, 68, 0.3);
+    background: rgba($danger-color, 0.3);
     color: #ef4444;
   }
 }
 
 .zoom-label {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba($overlay-rgb, 0.5);
   min-width: 40px;
   text-align: center;
   user-select: none;
@@ -418,7 +418,7 @@ defineExpose({ open, close })
 .header-divider {
   width: 1px;
   height: 16px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba($overlay-rgb, 0.1);
   margin: 0 4px;
 }
 
@@ -442,9 +442,9 @@ defineExpose({ open, close })
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba($overlay-rgb, 0.15);
   background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba($overlay-rgb, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -453,8 +453,8 @@ defineExpose({ open, close })
   backdrop-filter: blur(8px);
 
   &:hover:not(:disabled) {
-    background: rgba(139, 92, 246, 0.3);
-    border-color: rgba(139, 92, 246, 0.5);
+    background: rgba($brand-start, 0.3);
+    border-color: rgba($brand-start, 0.5);
     color: #fff;
   }
 
@@ -501,7 +501,7 @@ defineExpose({ open, close })
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba($overlay-rgb, 0.3);
 
   .el-icon {
     opacity: 0.5;
@@ -526,12 +526,12 @@ defineExpose({ open, close })
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba($overlay-rgb, 0.2);
   cursor: pointer;
   transition: $transition-fast;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.4);
+    background: rgba($overlay-rgb, 0.4);
   }
 
   &.active {

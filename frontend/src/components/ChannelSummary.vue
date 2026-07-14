@@ -66,7 +66,7 @@ watch(
   font-size: 12px;
   line-height: 1.4;
   color: $text-secondary;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba($overlay-rgb, 0.06);
   padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
@@ -74,7 +74,7 @@ watch(
   transition: background $transition-base, color $transition-base, border-color $transition-base, transform $transition-base;
 
   &:hover {
-    background: rgba(139, 92, 246, 0.12);
+    background: rgba($brand-start, 0.12);
     color: $text-primary;
     border-color: $border-active;
     transform: translateY(-1px);

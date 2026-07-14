@@ -1153,9 +1153,9 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 28px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba($overlay-rgb, 0.06);
   flex-shrink: 0;
-  background: linear-gradient(90deg, rgba(139, 92, 246, 0.04) 0%, transparent 40%, transparent 60%, rgba(59, 130, 246, 0.03) 100%);
+  background: linear-gradient(90deg, rgba($brand-start, 0.04) 0%, transparent 40%, transparent 60%, rgba($info-color, 0.03) 100%);
 
   .header-left {
     display: flex;
@@ -1165,7 +1165,7 @@ onMounted(async () => {
     .page-title {
       font-size: 20px;
       font-weight: 800;
-      color: #f8fafc;
+      color: $popper-text;
       letter-spacing: -0.02em;
     }
 
@@ -1198,13 +1198,13 @@ onMounted(async () => {
       // 一键发布: 保留项目渐变 + 阴影
       background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
       border: none !important;
-      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35) !important;
+      box-shadow: 0 4px 20px rgba($brand-start, 0.35) !important;
       font-weight: 700;
       letter-spacing: 0.04em;
       padding: 10px 24px !important;
 
       &:hover {
-        box-shadow: 0 6px 28px rgba(139, 92, 246, 0.5) !important;
+        box-shadow: 0 6px 28px rgba($brand-start, 0.5) !important;
         transform: translateY(-1px);
         opacity: 1 !important;
       }
@@ -1220,7 +1220,7 @@ onMounted(async () => {
   padding: 28px;
 
   &::-webkit-scrollbar { width: 5px; }
-  &::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.12); border-radius: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba($brand-start, 0.12); border-radius: 3px; }
 }
 
 // ========== Config Section ==========
@@ -1234,8 +1234,8 @@ onMounted(async () => {
   gap: 10px;
   padding: 14px 18px;
   margin-bottom: 16px;
-  background: rgba(255, 77, 79, 0.1);
-  border: 1px solid rgba(255, 77, 79, 0.3);
+  background: rgba($danger-color, 0.1);
+  border: 1px solid rgba($danger-color, 0.3);
   border-radius: 12px;
   color: #ff7875;
   font-size: 13px;
@@ -1246,8 +1246,8 @@ onMounted(async () => {
 }
 
 @keyframes xhs-pulse {
-  0%, 100% { border-color: rgba(255, 77, 79, 0.3); }
-  50% { border-color: rgba(255, 120, 117, 0.5); box-shadow: 0 0 20px rgba(255, 77, 79, 0.12); }
+  0%, 100% { border-color: rgba($danger-color, 0.3); }
+  50% { border-color: rgba($danger-color, 0.5); box-shadow: 0 0 20px rgba($danger-color, 0.12); }
 }
 
 .section-bar {
@@ -1264,21 +1264,21 @@ onMounted(async () => {
 
     &.purple {
       background: linear-gradient(180deg, #8b5cf6, #6366f1);
-      box-shadow: 0 0 10px rgba(139, 92, 246, 0.4);
+      box-shadow: 0 0 10px rgba($brand-start, 0.4);
     }
   }
 
   .section-label {
     font-size: 16px;
     font-weight: 700;
-    color: #f8fafc;
+    color: $popper-text;
   }
 
   .hint {
     font-size: 12px;
     color: $text-muted;
     padding: 3px 12px;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba($overlay-rgb, 0.04);
     border-radius: 12px;
   }
 }
@@ -1289,14 +1289,14 @@ onMounted(async () => {
 
 .media-section {
   margin-bottom: 20px;
-  border: 1px solid rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba($brand-start, 0.12);
   border-radius: 14px;
   padding: 18px;
-  background: rgba(139, 92, 246, 0.03);
+  background: rgba($brand-start, 0.03);
   transition: all 0.2s ease;
 
   &:hover {
-    border-color: rgba(139, 92, 246, 0.22);
+    border-color: rgba($brand-start, 0.22);
   }
 }
 
@@ -1315,17 +1315,17 @@ onMounted(async () => {
 
   :deep(.el-input__wrapper),
   :deep(.el-textarea__inner) {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba($overlay-rgb, 0.03);
+    border: 1px solid rgba($overlay-rgb, 0.08);
     border-radius: 10px;
     box-shadow: none;
     color: $text-primary;
     transition: all 0.2s ease;
 
-    &:hover { border-color: rgba(139, 92, 246, 0.3); }
+    &:hover { border-color: rgba($brand-start, 0.3); }
     &:focus, &.is-focus {
-      border-color: rgba(139, 92, 246, 0.5);
-      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.08);
+      border-color: rgba($brand-start, 0.5);
+      box-shadow: 0 0 0 3px rgba($brand-start, 0.08);
     }
   }
 
@@ -1337,19 +1337,19 @@ onMounted(async () => {
 
 .divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.15) 30%, rgba(139, 92, 246, 0.15) 70%, transparent);
+  background: linear-gradient(90deg, transparent, rgba($brand-start, 0.15) 30%, rgba($brand-start, 0.15) 70%, transparent);
   margin: 8px 0 28px;
 }
 
 .batch-sync-section {
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba($overlay-rgb, 0.06);
   border-radius: 14px;
   overflow: hidden;
   margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.015);
+  background: rgba($overlay-rgb, 0.015);
   transition: all 0.2s ease;
 
-  &:hover { border-color: rgba(139, 92, 246, 0.12); }
+  &:hover { border-color: rgba($brand-start, 0.12); }
 
   .batch-sync-header {
     display: flex;
@@ -1362,7 +1362,7 @@ onMounted(async () => {
     color: $text-secondary;
     transition: all 0.2s ease;
 
-    &:hover { color: $text-primary; background: rgba(255, 255, 255, 0.02); }
+    &:hover { color: $text-primary; background: rgba($overlay-rgb, 0.02); }
   }
 
   .batch-sync-body {
@@ -1370,7 +1370,7 @@ onMounted(async () => {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid rgba($overlay-rgb, 0.04);
   }
 }
 
@@ -1412,32 +1412,32 @@ onMounted(async () => {
 
   :deep(.el-input__wrapper),
   :deep(.el-select .el-input__wrapper) {
-    background: rgba(30, 41, 59, 0.5);
-    border: 1px solid rgba(51, 65, 85, 0.5);
+    background: rgba($bg-elevated-rgb, 0.5);
+    border: 1px solid rgba($bg-elevated-rgb, 0.5);
     border-radius: 8px;
     box-shadow: none;
     transition: all 0.2s ease;
 
-    &:hover { border-color: rgba(99, 102, 241, 0.4); background: rgba(30, 41, 59, 0.7); }
-    &.is-focus { border-color: rgba(99, 102, 241, 0.6); background: rgba(30, 41, 59, 0.7); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08); }
+    &:hover { border-color: rgba($brand-start, 0.4); background: rgba($bg-elevated-rgb, 0.7); }
+    &.is-focus { border-color: rgba($brand-start, 0.6); background: rgba($bg-elevated-rgb, 0.7); box-shadow: 0 0 0 3px rgba($brand-start, 0.08); }
   }
 
   :deep(.el-input__inner) {
-    color: #f8fafc;
-    &::placeholder { color: #94a3b8; }
+    color: $popper-text;
+    &::placeholder { color: $text-secondary; }
   }
 
-  :deep(.el-select__caret) { color: #94a3b8; }
+  :deep(.el-select__caret) { color: $text-secondary; }
 
   :deep(.el-textarea__inner) {
-    background: rgba(30, 41, 59, 0.5);
-    border: 1px solid rgba(51, 65, 85, 0.5);
-    color: #f8fafc;
+    background: rgba($bg-elevated-rgb, 0.5);
+    border: 1px solid rgba($bg-elevated-rgb, 0.5);
+    color: $popper-text;
     border-radius: 8px;
     transition: all 0.2s ease;
 
-    &:hover { border-color: rgba(99, 102, 241, 0.4); }
-    &:focus { border-color: rgba(99, 102, 241, 0.6); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08); }
+    &:hover { border-color: rgba($brand-start, 0.4); }
+    &:focus { border-color: rgba($brand-start, 0.6); box-shadow: 0 0 0 3px rgba($brand-start, 0.08); }
   }
 
   .radio-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1451,7 +1451,7 @@ onMounted(async () => {
 
     .radio-text {
       padding: 5px 16px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba($overlay-rgb, 0.08);
       border-radius: 8px;
       font-size: 12px;
       color: $text-secondary;
@@ -1461,7 +1461,7 @@ onMounted(async () => {
       &.on {
         border-color: $brand-start;
         color: $brand-start;
-        background: rgba(139, 92, 246, 0.1);
+        background: rgba($brand-start, 0.1);
       }
     }
 
@@ -1480,8 +1480,8 @@ onMounted(async () => {
   margin-top: 8px;
 
   .el-tag {
-    background: rgba(139, 92, 246, 0.12);
-    border-color: rgba(139, 92, 246, 0.2);
+    background: rgba($brand-start, 0.12);
+    border-color: rgba($brand-start, 0.2);
     color: #c4b5fd;
     border-radius: 16px;
     padding: 0 14px;
@@ -1503,7 +1503,7 @@ onMounted(async () => {
   padding: 80px 20px;
   color: $text-muted;
   text-align: center;
-  border: 2px dashed rgba(139, 92, 246, 0.12);
+  border: 2px dashed rgba($brand-start, 0.12);
   border-radius: 16px;
   margin: 24px 0;
 
@@ -1518,21 +1518,21 @@ onMounted(async () => {
 .phone-panel {
   width: 380px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #0c0c20 0%, #0a0a1a 100%);
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, $bg-elevated 0%, $bg-base 100%);
+  border-left: 1px solid rgba($overlay-rgb, 0.06);
   display: flex;
   flex-direction: column;
   justify-content: center;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(139, 92, 246, 0.1) transparent;
+  scrollbar-color: rgba($brand-start, 0.1) transparent;
   &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.1); border-radius: 2px; }
+  &::-webkit-scrollbar-thumb { background: rgba($brand-start, 0.1); border-radius: 2px; }
 }
 
 .phone-panel-header {
   padding: 16px 20px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba($overlay-rgb, 0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1541,7 +1541,7 @@ onMounted(async () => {
 .phone-panel-title {
   font-size: 15px;
   font-weight: 700;
-  color: #f8fafc;
+  color: $popper-text;
 }
 
 .phone-preview-area {
@@ -1553,13 +1553,13 @@ onMounted(async () => {
 .phone-mockup {
   position: relative;
   background: linear-gradient(145deg, #1e1e3a, #14142a);
-  border: 2px solid rgba(139, 92, 246, 0.12);
+  border: 2px solid rgba($brand-start, 0.12);
   border-radius: 36px;
   padding: 10px;
   box-shadow:
     0 16px 48px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(139, 92, 246, 0.06),
-    0 0 60px rgba(139, 92, 246, 0.06);
+    0 0 0 1px rgba($brand-start, 0.06),
+    0 0 60px rgba($brand-start, 0.06);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1569,8 +1569,8 @@ onMounted(async () => {
   &:hover {
     box-shadow:
       0 20px 56px rgba(0, 0, 0, 0.55),
-      0 0 0 1px rgba(139, 92, 246, 0.1),
-      0 0 80px rgba(139, 92, 246, 0.1);
+      0 0 0 1px rgba($brand-start, 0.1),
+      0 0 80px rgba($brand-start, 0.1);
     transform: translateY(-2px);
   }
 }
@@ -1578,7 +1578,7 @@ onMounted(async () => {
 .phone-notch {
   width: 80px;
   height: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba($overlay-rgb, 0.08);
   border-radius: 3px;
   margin-bottom: 8px;
 }
@@ -1586,7 +1586,7 @@ onMounted(async () => {
 .phone-screen {
   width: 100%;
   aspect-ratio: 9 / 16;
-  background: #0a0a1a;
+  background: $bg-base;
   border-radius: 20px;
   overflow: hidden;
   display: flex;
@@ -1639,8 +1639,8 @@ onMounted(async () => {
   justify-content: space-between;
   margin: 0 20px;
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba($overlay-rgb, 0.025);
+  border: 1px solid rgba($overlay-rgb, 0.06);
   border-radius: 10px;
 }
 
@@ -1667,9 +1667,9 @@ onMounted(async () => {
   justify-content: center;
   gap: 6px;
   padding: 8px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba($overlay-rgb, 0.08);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba($overlay-rgb, 0.025);
   color: $text-secondary;
   font-size: 12px;
   font-weight: 500;
@@ -1682,8 +1682,8 @@ onMounted(async () => {
   .el-icon { flex-shrink: 0; color: $text-muted; transition: all 0.2s ease; }
 
   &:hover {
-    border-color: rgba(139, 92, 246, 0.25);
-    background: rgba(139, 92, 246, 0.06);
+    border-color: rgba($brand-start, 0.25);
+    background: rgba($brand-start, 0.06);
     color: $text-primary;
     .el-icon { color: $brand-start; }
   }
@@ -1691,14 +1691,14 @@ onMounted(async () => {
   &:active { transform: scale(0.97); }
 
   &.primary {
-    border-color: rgba(139, 92, 246, 0.2);
-    background: rgba(139, 92, 246, 0.08);
+    border-color: rgba($brand-start, 0.2);
+    background: rgba($brand-start, 0.08);
     color: #c4b5fd;
     .el-icon { color: $brand-start; }
 
     &:hover {
-      border-color: rgba(139, 92, 246, 0.35);
-      background: rgba(139, 92, 246, 0.14);
+      border-color: rgba($brand-start, 0.35);
+      background: rgba($brand-start, 0.14);
     }
   }
 }
@@ -1714,8 +1714,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba($overlay-rgb, 0.025);
+  border: 1px solid rgba($overlay-rgb, 0.06);
   border-radius: 10px;
 
   .music-info { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
@@ -1729,7 +1729,7 @@ onMounted(async () => {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
-  .music-name { font-size: 14px; color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .music-name { font-size: 14px; color: $popper-text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
   .music-author { font-size: 12px; color: $text-secondary; }
 }
 

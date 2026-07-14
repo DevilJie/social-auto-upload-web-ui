@@ -203,7 +203,7 @@ defineExpose({
   padding: 4px 10px;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba($overlay-rgb, 0.9);
   font-size: 12px;
   font-weight: 600;
   backdrop-filter: blur(4px);
@@ -218,9 +218,9 @@ defineExpose({
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba($overlay-rgb, 0.15);
   background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba($overlay-rgb, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -240,7 +240,7 @@ defineExpose({
 
   &:hover:not(:disabled) {
     background: rgba(0, 0, 0, 0.7);
-    border-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba($overlay-rgb, 0.3);
     transform: translateY(-50%) scale(1.08);
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   }
@@ -267,12 +267,12 @@ defineExpose({
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba($overlay-rgb, 0.15);
   cursor: pointer;
   transition: all 0.25s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.35);
+    background: rgba($overlay-rgb, 0.35);
     transform: scale(1.2);
   }
 
@@ -280,7 +280,7 @@ defineExpose({
     width: 18px;
     border-radius: 4px;
     background: linear-gradient(90deg, $brand-start, $brand-end);
-    box-shadow: 0 0 8px rgba(139, 92, 246, 0.3);
+    box-shadow: 0 0 8px rgba($brand-start, 0.3);
   }
 }
 

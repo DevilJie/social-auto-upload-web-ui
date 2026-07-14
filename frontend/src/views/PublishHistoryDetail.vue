@@ -407,15 +407,15 @@ onMounted(async () => {
   letter-spacing: 0.02em;
 
   &.status-success, &.status-partial {
-    background: rgba(82, 196, 26, 0.15);
+    background: rgba($accent-green, 0.15);
     color: #67c23a;
   }
   &.status-failed {
-    background: rgba(245, 108, 108, 0.15);
+    background: rgba($danger-color, 0.15);
     color: #f56c6c;
   }
   &.status-running {
-    background: rgba(64, 158, 255, 0.15);
+    background: rgba($info-color, 0.15);
     color: #409eff;
   }
   &.status-pending, &.status-cancelled {
@@ -430,8 +430,8 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: rgba(245, 108, 108, 0.1);
-  border: 1px solid rgba(245, 108, 108, 0.3);
+  background: rgba($danger-color, 0.1);
+  border: 1px solid rgba($danger-color, 0.3);
   border-radius: 8px;
   color: #f56c6c;
   font-size: 14px;
@@ -482,7 +482,7 @@ onMounted(async () => {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: rgba(139, 92, 246, 0.15);
+    background: rgba($brand-start, 0.15);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -549,8 +549,8 @@ onMounted(async () => {
   transition: $transition-base;
 
   &--failed {
-    border-color: rgba(245, 108, 108, 0.3);
-    background: rgba(245, 108, 108, 0.03);
+    border-color: rgba($danger-color, 0.3);
+    background: rgba($danger-color, 0.03);
   }
 }
 
@@ -559,8 +559,8 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: rgba(245, 108, 108, 0.1);
-  border: 1px solid rgba(245, 108, 108, 0.3);
+  background: rgba($danger-color, 0.1);
+  border: 1px solid rgba($danger-color, 0.3);
   border-radius: $radius-base;
   color: #f56c6c;
 
@@ -695,7 +695,7 @@ onMounted(async () => {
     code {
       font-family: 'Fira Code', 'JetBrains Mono', Menlo, monospace;
       font-size: 12px;
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba($overlay-rgb, 0.05);
       padding: 2px 8px;
       border-radius: 4px;
       color: $text-primary;

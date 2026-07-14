@@ -57,3 +57,6 @@ dependency*
 QianFan*
 *.log
 AGENTS.md
+
+# ZCode 工具配置
+.zcode/

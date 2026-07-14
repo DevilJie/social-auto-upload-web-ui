@@ -103,6 +103,7 @@ function onTrackMouseDown(e) {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
 .video-timeline {
   user-select: none;
 }
@@ -136,14 +137,14 @@ function onTrackMouseDown(e) {
   top: 0;
   height: 100%;
   border: 2px solid var(--el-color-primary);
-  background: rgba(64, 158, 255, 0.15);
+  background: rgba($info-color, 0.15);
   pointer-events: none;
   transition: left 0.05s ease;
 }
 .timeline-loading {
   height: 100%;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba($overlay-rgb, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -77,14 +77,14 @@ function isPlaceholder(v) {
 .stat-item {
   border: 1px solid $border;
   border-radius: $radius-base;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba($overlay-rgb, 0.02);
   padding: 12px 14px;
   transition: $transition-base;
   cursor: default;
 
   &:hover {
     border-color: $border-active;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba($overlay-rgb, 0.04);
   }
 
   &--compact {
@@ -94,57 +94,57 @@ function isPlaceholder(v) {
 
     &:hover {
       border-color: $border-light;
-      background: rgba(255, 255, 255, 0.02);
+      background: rgba($overlay-rgb, 0.02);
     }
   }
 }
 
 // 4 个主题色（基于项目已有 platform/accent 调色板，轻量区分）
 .stat-item--blue {
-  background: linear-gradient(135deg, rgba($platform-channels, 0.08), rgba(255, 255, 255, 0.02));
+  background: linear-gradient(135deg, rgba($platform-channels, 0.08), rgba($overlay-rgb, 0.02));
 
   .stat-icon {
     color: $platform-channels;
   }
 
   &.stat-item--compact {
-    background: linear-gradient(135deg, rgba($platform-channels, 0.04), rgba(255, 255, 255, 0.01));
+    background: linear-gradient(135deg, rgba($platform-channels, 0.04), rgba($overlay-rgb, 0.01));
   }
 }
 
 .stat-item--rose {
-  background: linear-gradient(135deg, rgba($accent-rose, 0.08), rgba(255, 255, 255, 0.02));
+  background: linear-gradient(135deg, rgba($accent-rose, 0.08), rgba($overlay-rgb, 0.02));
 
   .stat-icon {
     color: $accent-rose;
   }
 
   &.stat-item--compact {
-    background: linear-gradient(135deg, rgba($accent-rose, 0.04), rgba(255, 255, 255, 0.01));
+    background: linear-gradient(135deg, rgba($accent-rose, 0.04), rgba($overlay-rgb, 0.01));
   }
 }
 
 .stat-item--cyan {
-  background: linear-gradient(135deg, rgba($accent-cyan, 0.08), rgba(255, 255, 255, 0.02));
+  background: linear-gradient(135deg, rgba($accent-cyan, 0.08), rgba($overlay-rgb, 0.02));
 
   .stat-icon {
     color: $accent-cyan;
   }
 
   &.stat-item--compact {
-    background: linear-gradient(135deg, rgba($accent-cyan, 0.04), rgba(255, 255, 255, 0.01));
+    background: linear-gradient(135deg, rgba($accent-cyan, 0.04), rgba($overlay-rgb, 0.01));
   }
 }
 
 .stat-item--green {
-  background: linear-gradient(135deg, rgba($accent-green, 0.08), rgba(255, 255, 255, 0.02));
+  background: linear-gradient(135deg, rgba($accent-green, 0.08), rgba($overlay-rgb, 0.02));
 
   .stat-icon {
     color: $accent-green;
   }
 
   &.stat-item--compact {
-    background: linear-gradient(135deg, rgba($accent-green, 0.04), rgba(255, 255, 255, 0.01));
+    background: linear-gradient(135deg, rgba($accent-green, 0.04), rgba($overlay-rgb, 0.01));
   }
 }
 

@@ -450,7 +450,7 @@ watch(visible, (v) => {
     padding: 48px 24px;
     border: 1.5px dashed $border-active;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba($overlay-rgb, 0.02);
     text-align: center;
     transition: $transition-base;
     &:hover { border-color: $brand-start; background: rgba($brand-start, 0.04); }
@@ -470,14 +470,14 @@ watch(visible, (v) => {
   background: $bg-elevated;
   border: 1px solid $border;
   border-radius: $radius-base;
-  &.is-done { border-color: rgba(82, 196, 26, 0.3); background: rgba(82, 196, 26, 0.04); }
-  &.is-failed { border-color: rgba(245, 108, 108, 0.3); background: rgba(245, 108, 108, 0.04); }
+  &.is-done { border-color: rgba($accent-green, 0.3); background: rgba($accent-green, 0.04); }
+  &.is-failed { border-color: rgba($danger-color, 0.3); background: rgba($danger-color, 0.04); }
 }
 
 .mud-file-icon {
   width: 36px; height: 36px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba($overlay-rgb, 0.05);
   display: flex; align-items: center; justify-content: center;
   color: $text-muted; flex-shrink: 0;
 }

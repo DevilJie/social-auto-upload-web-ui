@@ -1,4 +1,14 @@
-:root {
+// ===========================================================================
+// Element Plus 主题变量映射
+//
+// 原先 Element Plus 的颜色 token 全部写死在 :root（暗色值）。
+// 现拆分为 html.dark（暗色，保持原值）与 html.light（亮色）两套，
+// 切换 <html> 的 class 时，Element Plus 所有组件自动跟随主题。
+// ===========================================================================
+
+// ---- 暗色（默认，保持原有视觉） ----
+:root,
+html.dark {
   // Background
   --el-bg-color: #12122a;
   --el-bg-color-page: #0a0a1a;
@@ -26,7 +36,7 @@
   --el-fill-color-darker: #0a0a1a;
   --el-fill-color-blank: #12122a;
 
-  // Primary — use brand purple
+  // Primary — use brand purple (品牌色，两主题一致)
   --el-color-primary: #8b5cf6;
   --el-color-primary-light-3: #a78bfa;
   --el-color-primary-light-5: #c4b5fd;
@@ -44,6 +54,64 @@
   // Mask
   --el-mask-color: rgba(0, 0, 0, 0.6);
   --el-mask-color-extra-light: rgba(0, 0, 0, 0.3);
+
+  // Radius
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 20px;
+
+  // Font
+  --el-font-size-base: 14px;
+  --el-font-size-small: 13px;
+}
+
+// ---- 亮色（新增） ----
+html.light {
+  // Background
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f5f6fa;
+  --el-bg-color-overlay: #ffffff;
+
+  // Text
+  --el-text-color-primary: #1e293b;
+  --el-text-color-regular: #475569;
+  --el-text-color-secondary: #64748b;
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #cbd5e1;
+
+  // Border
+  --el-border-color: rgba(15, 23, 42, 0.1);
+  --el-border-color-light: rgba(15, 23, 42, 0.08);
+  --el-border-color-lighter: rgba(15, 23, 42, 0.06);
+  --el-border-color-extra-light: rgba(15, 23, 42, 0.04);
+
+  // Fill
+  --el-fill-color: #f1f5f9;
+  --el-fill-color-light: rgba(15, 23, 42, 0.04);
+  --el-fill-color-lighter: rgba(15, 23, 42, 0.03);
+  --el-fill-color-extra-light: rgba(15, 23, 42, 0.02);
+  --el-fill-color-dark: rgba(15, 23, 42, 0.06);
+  --el-fill-color-darker: rgba(15, 23, 42, 0.08);
+  --el-fill-color-blank: #ffffff;
+
+  // Primary — 品牌色保持一致（亮色下略调浅色阶用于 hover）
+  --el-color-primary: #8b5cf6;
+  --el-color-primary-light-3: #a78bfa;
+  --el-color-primary-light-5: #c4b5fd;
+  --el-color-primary-light-7: #ddd6fe;
+  --el-color-primary-light-8: #ede9fe;
+  --el-color-primary-light-9: #f5f3ff;
+  --el-color-primary-dark-2: #7c3aed;
+
+  // Shadow（亮色下阴影更柔和可见）
+  --el-box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --el-box-shadow-light: 0 2px 10px rgba(15, 23, 42, 0.06);
+  --el-box-shadow-lighter: 0 1px 4px rgba(15, 23, 42, 0.04);
+  --el-box-shadow-dark: 0 8px 24px rgba(15, 23, 42, 0.14);
+
+  // Mask
+  --el-mask-color: rgba(15, 23, 42, 0.45);
+  --el-mask-color-extra-light: rgba(15, 23, 42, 0.2);
 
   // Radius
   --el-border-radius-base: 10px;

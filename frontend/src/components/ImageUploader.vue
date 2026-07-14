@@ -351,7 +351,7 @@ defineExpose({
 .uploader-count {
   font-size: 12px;
   color: $text-muted;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba($overlay-rgb, 0.06);
   padding: 4px 10px;
   border-radius: 12px;
 }
@@ -365,13 +365,13 @@ defineExpose({
   overflow-y: auto;
   padding: 4px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  scrollbar-color: rgba($overlay-rgb, 0.1) transparent;
 
   &::-webkit-scrollbar {
     width: 4px;
   }
   &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba($overlay-rgb, 0.1);
     border-radius: 2px;
   }
   &::-webkit-scrollbar-track {
@@ -394,12 +394,12 @@ defineExpose({
   aspect-ratio: 3 / 4;
   border-radius: $radius-sm;
   overflow: hidden;
-  background: rgba(10, 10, 26, 0.6);
+  background: rgba($bg-base-rgb, 0.6);
   border: 2px solid transparent;
   transition: all 0.3s ease;
 
   &:hover {
-    border-color: rgba(139, 92, 246, 0.3);
+    border-color: rgba($brand-start, 0.3);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 
     .image-overlay {
@@ -457,8 +457,8 @@ defineExpose({
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba($overlay-rgb, 0.2);
+  background: rgba($overlay-rgb, 0.1);
   color: #fff;
   display: flex;
   align-items: center;
@@ -468,8 +468,8 @@ defineExpose({
   backdrop-filter: blur(4px);
 
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba($overlay-rgb, 0.2);
+    border-color: rgba($overlay-rgb, 0.4);
     transform: scale(1.1);
   }
 
@@ -488,7 +488,7 @@ defineExpose({
   height: 24px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba($overlay-rgb, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -516,7 +516,7 @@ defineExpose({
   padding: 0 6px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba($overlay-rgb, 0.9);
   font-size: 10px;
   font-weight: 600;
   display: flex;
@@ -533,7 +533,7 @@ defineExpose({
 
 .upload-trigger {
   aspect-ratio: 3 / 4;
-  border: 2px dashed rgba(255, 255, 255, 0.1);
+  border: 2px dashed rgba($overlay-rgb, 0.1);
   border-radius: $radius-sm;
   display: flex;
   flex-direction: column;
@@ -542,21 +542,21 @@ defineExpose({
   gap: 8px;
   cursor: pointer;
   transition: all 0.3s ease;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba($overlay-rgb, 0.02);
   color: $text-muted;
 
   &:hover {
     border-color: $brand-start;
     color: $brand-start;
     background: rgba($brand-start, 0.04);
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.08);
+    box-shadow: 0 0 20px rgba($brand-start, 0.08);
   }
 
   &.drag-over {
     border-color: $brand-start;
     background: rgba($brand-start, 0.08);
     border-style: solid;
-    box-shadow: 0 0 24px rgba(139, 92, 246, 0.15);
+    box-shadow: 0 0 24px rgba($brand-start, 0.15);
 
     .el-icon {
       color: $brand-start;

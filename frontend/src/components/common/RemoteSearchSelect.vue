@@ -306,11 +306,11 @@ watch(() => props.modelValue, (val) => {
 
 .rss-popper.el-popper {
   // 整体面板:暗色 + 磨砂 + 圆角 + 阴影
-  background: rgba(18, 18, 42, 0.96);
+  background: rgba($bg-elevated-rgb, 0.96);
   backdrop-filter: blur(16px);
   border: 1px solid $border;
   border-radius: 14px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.05);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba($brand-start, 0.05);
   overflow: hidden;
   padding: 0;
 
@@ -328,7 +328,7 @@ watch(() => props.modelValue, (val) => {
     top: 0;
     z-index: 2;
     padding: 14px 14px 10px;
-    background: linear-gradient(180deg, rgba(18, 18, 42, 0.98) 70%, rgba(18, 18, 42, 0));
+    background: linear-gradient(180deg, rgba($bg-elevated-rgb, 0.98) 70%, rgba($bg-elevated-rgb, 0));
     // 底部渐隐分隔线(替代生硬实线)
     &::after {
       content: '';
@@ -345,13 +345,13 @@ watch(() => props.modelValue, (val) => {
     gap: 8px;
     height: 38px;
     padding: 0 12px;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba($overlay-rgb, 0.04);
     border: 1px solid $border;
     border-radius: 10px;
     transition: all 0.2s;
 
     &.is-focused {
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba($overlay-rgb, 0.06);
       border-color: rgba($brand-start, 0.5);
       box-shadow: 0 0 0 3px rgba($brand-start, 0.12);
     }
@@ -407,11 +407,11 @@ watch(() => props.modelValue, (val) => {
 
     &:hover,
     &.hover {
-      background: rgba(255, 255, 255, 0.05) !important;
+      background: rgba($overlay-rgb, 0.05) !important;
       transform: translateX(2px);
     }
     &.selected {
-      background: rgba(139, 92, 246, 0.08) !important;
+      background: rgba($brand-start, 0.08) !important;
       font-weight: normal;
     }
   }
@@ -442,7 +442,7 @@ watch(() => props.modelValue, (val) => {
     width: 44px; height: 44px;
     border-radius: 8px;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba($overlay-rgb, 0.03);
     img {
       width: 100%; height: 100%;
       object-fit: cover;

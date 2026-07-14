@@ -271,7 +271,7 @@ watch(() => props.modelValue, async (visible) => {
   .account-section {
     display: flex;
     flex-direction: column;
-    background: rgba(0, 0, 0, 0.25);
+    background: $bg-base;
     border: 1px solid $border;
     border-radius: $radius-card;
     overflow: hidden;
@@ -297,7 +297,7 @@ watch(() => props.modelValue, async (visible) => {
     gap: 8px;
     padding: 10px 14px;
     border-bottom: 1px solid $border-light;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba($overlay-rgb, 0.02);
     flex-shrink: 0;
 
     .account-section-title {
@@ -337,7 +337,7 @@ watch(() => props.modelValue, async (visible) => {
     transition: all $transition-fast;
     border-left: 3px solid transparent;
 
-    &:hover { background: rgba(255, 255, 255, 0.04); }
+    &:hover { background: rgba($overlay-rgb, 0.04); }
 
     &.active {
       background: rgba($brand-start, 0.08);
@@ -355,7 +355,7 @@ watch(() => props.modelValue, async (visible) => {
       font-size: 11px;
       font-weight: 700;
       flex-shrink: 0;
-      background: rgba(139, 92, 246, 0.12);
+      background: rgba($brand-start, 0.12);
 
       .platform-badge-img { width: 20px; height: 20px; object-fit: contain; }
     }

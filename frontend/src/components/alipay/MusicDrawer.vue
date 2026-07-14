@@ -252,7 +252,7 @@ onBeforeUnmount(() => stopPlay())
   padding: 10px 16px;
   color: $text-secondary;
   font-size: 12px;
-  background: rgba(22, 119, 255, 0.06);
+  background: rgba($info-color, 0.06);
   border-bottom: 1px solid $border;
 }
 
@@ -274,12 +274,12 @@ onBeforeUnmount(() => stopPlay())
   border: 1px solid transparent;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba($overlay-rgb, 0.04);
   }
 
   &.is-playing {
-    background: rgba(22, 119, 255, 0.08);
-    border-color: rgba(22, 119, 255, 0.2);
+    background: rgba($info-color, 0.08);
+    border-color: rgba($info-color, 0.2);
   }
 }
 

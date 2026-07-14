@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
         --el-table-bg-color: transparent;
         --el-table-tr-bg-color: transparent;
         --el-table-header-bg-color: transparent;
-        --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.03);
+        --el-table-row-hover-bg-color: rgba($overlay-rgb, 0.03);
         --el-table-border-color: #{$border};
         --el-table-text-color: #{$text-primary};
         --el-table-header-text-color: #{$text-secondary};
@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
         font-family: 'SF Mono', 'Fira Code', monospace;
         font-size: 12px;
         color: $text-muted;
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba($overlay-rgb, 0.04);
         padding: 2px 6px;
         border-radius: 4px;
       }
@@ -516,23 +516,23 @@ onBeforeUnmount(() => {
         white-space: nowrap;
 
         &.pending {
-          background: rgba(59, 130, 246, 0.15);
+          background: rgba($info-color, 0.15);
           color: $info-color;
         }
 
         &.running {
-          background: rgba(139, 92, 246, 0.15);
+          background: rgba($brand-start, 0.15);
           color: $brand-start;
           animation: pulse 2s ease-in-out infinite;
         }
 
         &.success {
-          background: rgba(34, 197, 94, 0.15);
+          background: rgba($success-color, 0.15);
           color: $success-color;
         }
 
         &.failed {
-          background: rgba(239, 68, 68, 0.15);
+          background: rgba($danger-color, 0.15);
           color: $danger-color;
         }
       }
@@ -558,17 +558,17 @@ onBeforeUnmount(() => {
 
           &:hover {
             color: $text-primary;
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba($overlay-rgb, 0.06);
           }
 
           &.primary:hover {
             color: $brand-end;
-            background: rgba(59, 130, 246, 0.1);
+            background: rgba($info-color, 0.1);
           }
 
           &.danger:hover {
             color: $danger-color;
-            background: rgba(239, 68, 68, 0.1);
+            background: rgba($danger-color, 0.1);
           }
 
           &.disabled {

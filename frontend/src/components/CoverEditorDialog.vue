@@ -411,11 +411,11 @@ defineExpose({ open })
     background: $bg-elevated;
     border: 1px solid $border;
     border-radius: $radius-dialog;
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba($overlay-rgb, 0.03);
     overflow: hidden;
   }
   .el-dialog__header {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+    background: linear-gradient(180deg, rgba($overlay-rgb, 0.04), transparent);
     border-bottom: 1px solid $border;
     padding: 18px 24px;
     margin-right: 0;
@@ -451,9 +451,9 @@ defineExpose({ open })
   max-height: 70vh;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  scrollbar-color: rgba($overlay-rgb, 0.08) transparent;
   &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 2px; }
+  &::-webkit-scrollbar-thumb { background: rgba($overlay-rgb, 0.1); border-radius: 2px; }
 }
 
 .editor-main {
@@ -554,7 +554,7 @@ defineExpose({ open })
   background: rgba(0, 0, 0, 0.6);
   border-radius: 3px;
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba($overlay-rgb, 0.8);
   pointer-events: none;
   font-family: monospace;
 }
@@ -571,7 +571,7 @@ defineExpose({ open })
   padding: 10px 20px;
   border-radius: 10px;
   border: 1px solid $border;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba($overlay-rgb, 0.04);
   color: $text-secondary;
   font-size: 14px;
   font-weight: 500;
@@ -581,7 +581,7 @@ defineExpose({ open })
   &:hover {
     border-color: $border-active;
     color: $text-primary;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba($overlay-rgb, 0.08);
   }
 
   .el-icon {

@@ -330,6 +330,7 @@ function formatPlayCount(n) {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
 .tag-select {
   width: 100%;
 }
@@ -359,7 +360,7 @@ function formatPlayCount(n) {
   justify-content: center;
   gap: 8px;
   padding: 8px 12px;
-  color: #94a3b8;
+  color: $text-secondary;
   font-size: 13px;
 
   .is-loading {
@@ -395,11 +396,11 @@ function formatPlayCount(n) {
   width: 40px;
   height: 40px;
   border-radius: 4px;
-  background: #27273b;
+  background: $popper-hover;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: $text-secondary;
   flex-shrink: 0;
 }
 
@@ -410,7 +411,7 @@ function formatPlayCount(n) {
 
 .tag-name {
   font-size: 14px;
-  color: #f8fafc;
+  color: $popper-text;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -418,7 +419,7 @@ function formatPlayCount(n) {
 
 .tag-meta {
   font-size: 12px;
-  color: #94a3b8;
+  color: $text-secondary;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -438,18 +439,18 @@ function formatPlayCount(n) {
   border-radius: 4px;
   object-fit: cover;
   flex-shrink: 0;
-  background: #27273b;
+  background: $popper-hover;
 }
 
 .film-poster-placeholder {
   width: 48px;
   height: 48px;
   border-radius: 4px;
-  background: #27273b;
+  background: $popper-hover;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: $text-secondary;
   flex-shrink: 0;
 }
 
@@ -460,7 +461,7 @@ function formatPlayCount(n) {
 
 .film-name {
   font-size: 14px;
-  color: #f8fafc;
+  color: $popper-text;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -470,18 +471,18 @@ function formatPlayCount(n) {
   display: flex;
   gap: 10px;
   font-size: 12px;
-  color: #94a3b8;
+  color: $text-secondary;
   margin-top: 4px;
 }
 
 .film-type {
-  color: #f8fafc;
-  background: rgba(244, 63, 94, 0.15);
+  color: $popper-text;
+  background: rgba($accent-rose, 0.15);
   padding: 1px 6px;
   border-radius: 3px;
 }
 
 .film-play {
-  color: #94a3b8;
+  color: $text-secondary;
 }
 </style>

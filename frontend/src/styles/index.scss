@@ -1,6 +1,9 @@
 // 导入重置样式
 @use './reset.scss';
 
+// 导入主题 tokens（CSS 变量，需最先加载，供后续 SCSS 变量引用）
+@use './themes.scss';
+
 // 导入变量
 @use './variables.scss' as *;
 
@@ -310,33 +313,33 @@ body {
 
 // Select Dropdown (ui-ux-pro-max-skill 优化)
 .el-select-dropdown {
-  background-color: #1E293B !important;
-  border: 1px solid #334155 !important;
+  background-color: $popper-bg !important;
+  border: 1px solid $popper-border !important;
   border-radius: 8px !important;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3) !important;
 
   .el-select-dropdown__item {
-    color: #F8FAFC !important;
+    color: $popper-text !important;
     height: auto !important;
     padding: 0 !important;
     transition: all 0.2s ease !important;
 
     &:hover {
-      background-color: #27273B !important;
+      background-color: $popper-hover !important;
     }
 
     &.is-hovering {
-      background-color: #27273B !important;
+      background-color: $popper-hover !important;
     }
 
     &.is-selected {
-      color: #2563EB !important;
+      color: $brand-start !important;
       font-weight: 600 !important;
-      background-color: rgba(37, 99, 235, 0.1) !important;
+      background-color: rgba($brand-start, 0.1) !important;
     }
 
     &.is-disabled {
-      color: #64748B !important;
+      color: $popper-text-muted !important;
     }
 
     .activity-option,
@@ -348,35 +351,36 @@ body {
   }
 
   .el-select-dropdown__empty {
-    color: #94A3B8 !important;
+    color: $popper-text-muted !important;
   }
 }
 
-// Popper (for dropdowns)
-.el-popper {
-  background-color: #1E293B !important;
-  border: 1px solid #334155 !important;
+// Popper (for dropdowns) —— 排除 tooltip，tooltip 由 element-plus 的 effect(dark/light) 控制，
+// 保证提示文字对比度永远正确，不跟随页面主题。
+.el-popper:not(.el-tooltip__popper) {
+  background-color: $popper-bg !important;
+  border: 1px solid $popper-border !important;
 }
 
-.el-popper__arrow::before {
-  background-color: #1E293B !important;
-  border-color: #334155 !important;
+.el-popper:not(.el-tooltip__popper) > .el-popper__arrow::before {
+  background-color: $popper-bg !important;
+  border-color: $popper-border !important;
 }
 
 // Autocomplete
 .el-autocomplete-suggestion {
-  background-color: #1E293B !important;
-  border: 1px solid #334155 !important;
+  background-color: $popper-bg !important;
+  border: 1px solid $popper-border !important;
 
   li {
-    color: #F8FAFC !important;
+    color: $popper-text !important;
 
     &:hover {
-      background-color: #27273B !important;
+      background-color: $popper-hover !important;
     }
 
     &.highlighted {
-      background-color: #27273B !important;
+      background-color: $popper-hover !important;
     }
   }
 }

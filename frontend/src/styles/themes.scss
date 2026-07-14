@@ -1,0 +1,113 @@
+// ===========================================================================
+// Theme tokens (CSS custom properties)
+//
+// 主题相关颜色被抽为 CSS 变量，可运行时切换。
+// :root / html.dark  —— 暗色（默认，保持原有视觉）
+// html.light          —— 亮色（新增）
+//
+// 主题无关的颜色（品牌色、状态色、平台色）不在此处定义，仍由 variables.scss
+// 的静态 SCSS 变量提供，保证两个主题下品牌识别一致。
+//
+// `$overlay-rgb` 是关键：组件里大量 `rgba($overlay-rgb, X)` 原本写作
+// `rgba(255, 255, 255, X)`，在暗色下是“提亮”，在亮色下必须变成“加深”才可见。
+// 通过这条 RGB 通道变量（不带 alpha），同一套 rgba 表达式在两个主题下都正确。
+// ===========================================================================
+
+// ---- 暗色（默认） ----
+:root,
+html.dark {
+  // 基础背景层级
+  --bg-base: #0a0a1a;
+  --bg-elevated: #12122a;
+  // 背景的 RGB 通道（供 rgba(var(--bg-elevated-rgb), X) 用，带透明度的背景随主题切换）
+  --bg-base-rgb: 10, 10, 26;
+  --bg-elevated-rgb: 18, 18, 42;
+
+  // 文字
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-placeholder: #64748b;
+
+  // 边框
+  --border: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.04);
+  --border-active: rgba(139, 92, 246, 0.25);
+
+  // 叠加层（hover/highlight 背景）。暗色用白色提亮。
+  --overlay-rgb: 255, 255, 255;
+  --overlay-strong-rgb: 255, 255, 255;
+
+  // 表面（半透明卡片底）
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(255, 255, 255, 0.08);
+
+  // 阴影
+  --shadow-card: 0 0 20px rgba(139, 92, 246, 0.06);
+  --shadow-dialog: 0 25px 50px rgba(0, 0, 0, 0.5);
+  --shadow-overlay: rgba(0, 0, 0, 0.5);
+
+  // 下拉/弹出层
+  --popper-bg: #1e293b;
+  --popper-border: #334155;
+  --popper-hover: #27273b;
+  --popper-text: #f8fafc;
+  --popper-text-muted: #94a3b8;
+
+  // 滚动条
+  --scrollbar-track: #0a0a1a;
+
+  // 遮罩
+  --mask: rgba(0, 0, 0, 0.6);
+  --mask-light: rgba(0, 0, 0, 0.3);
+}
+
+// ---- 亮色（新增） ----
+html.light {
+  // 基础背景层级
+  --bg-base: #f5f6fa;
+  --bg-elevated: #ffffff;
+  // 背景的 RGB 通道（亮色）
+  --bg-base-rgb: 245, 246, 250;
+  --bg-elevated-rgb: 255, 255, 255;
+
+  // 文字
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --text-placeholder: #94a3b8;
+
+  // 边框
+  --border: rgba(15, 23, 42, 0.1);
+  --border-light: rgba(15, 23, 42, 0.06);
+  --border-active: rgba(139, 92, 246, 0.35);
+
+  // 叠加层。亮色用深色压暗，保证 hover 状态可见。
+  --overlay-rgb: 15, 23, 42;
+  --overlay-strong-rgb: 15, 23, 42;
+
+  // 表面
+  --surface: rgba(15, 23, 42, 0.03);
+  --surface-hover: rgba(15, 23, 42, 0.05);
+  --surface-active: rgba(15, 23, 42, 0.08);
+
+  // 阴影（亮色下阴影更柔、更可见）
+  --shadow-card: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --shadow-dialog: 0 25px 50px rgba(15, 23, 42, 0.18);
+  --shadow-overlay: rgba(15, 23, 42, 0.25);
+
+  // 下拉/弹出层
+  --popper-bg: #ffffff;
+  --popper-border: rgba(15, 23, 42, 0.1);
+  --popper-hover: rgba(15, 23, 42, 0.05);
+  --popper-text: #1e293b;
+  --popper-text-muted: #94a3b8;
+
+  // 滚动条
+  --scrollbar-track: #f1f5f9;
+
+  // 遮罩
+  --mask: rgba(15, 23, 42, 0.45);
+  --mask-light: rgba(15, 23, 42, 0.2);
+}

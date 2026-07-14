@@ -180,7 +180,7 @@ function onImageError(e) {
   justify-content: center;
   gap: 8px;
   padding: 8px 12px;
-  color: #94A3B8;
+  color: $text-secondary;
   font-size: 13px;
 
   .is-loading {
@@ -219,7 +219,7 @@ function onImageError(e) {
 
 .music-title {
   font-size: 14px;
-  color: #F8FAFC;
+  color: $popper-text;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -230,12 +230,12 @@ function onImageError(e) {
   gap: 8px;
   margin-top: 4px;
   font-size: 12px;
-  color: #94A3B8;
+  color: $text-secondary;
 }
 
 .music-users {
   font-size: 12px;
-  color: #94A3B8;
+  color: $text-secondary;
   flex-shrink: 0;
 }
 </style>

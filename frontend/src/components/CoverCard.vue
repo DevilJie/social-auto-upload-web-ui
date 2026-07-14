@@ -139,9 +139,9 @@ defineEmits(['update:modelValue', 'edit', 'open-library'])
   align-items: center;
   gap: 4px;
   padding: 8px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba($overlay-rgb, 0.2);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba($overlay-rgb, 0.1);
   backdrop-filter: blur(8px);
   color: #fff;
   font-size: 13px;
@@ -150,8 +150,8 @@ defineEmits(['update:modelValue', 'edit', 'open-library'])
   font-family: inherit;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba($overlay-rgb, 0.2);
+    border-color: rgba($overlay-rgb, 0.35);
   }
   &.danger:hover {
     background: rgba($danger-color, 0.5);
@@ -168,7 +168,7 @@ defineEmits(['update:modelValue', 'edit', 'open-library'])
   backdrop-filter: blur(4px);
   border-radius: 4px;
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba($overlay-rgb, 0.7);
   font-family: monospace;
 }
 

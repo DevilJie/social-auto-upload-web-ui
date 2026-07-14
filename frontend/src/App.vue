@@ -61,7 +61,15 @@
       <!-- Header -->
       <header class="header">
         <div class="breadcrumb">{{ pageTitle }}</div>
-        <div class="header-right"></div>
+        <div class="header-right">
+          <el-tooltip effect="light" :content="appStore.theme === 'dark' ? '切换到亮色' : '切换到暗色'" placement="bottom">
+            <button class="theme-toggle" @click="appStore.toggleTheme">
+              <el-icon :size="18">
+                <component :is="appStore.theme === 'dark' ? Sunny : Moon" />
+              </el-icon>
+            </button>
+          </el-tooltip>
+        </div>
       </header>
 
       <!-- Content -->
@@ -79,11 +87,14 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, User, Picture, Upload,
-  Clock, Setting, Expand, Fold, UserFilled, Document, Notebook, ChatDotRound
+  Clock, Setting, Expand, Fold, UserFilled, Document, Notebook, ChatDotRound,
+  Sunny, Moon
 } from '@element-plus/icons-vue'
+import { useAppStore } from '@/stores/app'
 
 const route = useRoute()
 const router = useRouter()
+const appStore = useAppStore()
 
 const sidebarCollapsed = ref(false)
 
@@ -118,7 +129,7 @@ const pageTitle = computed(() => route.meta?.title || '')
 // ---- Sidebar ----
 .sidebar {
   width: 64px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba($overlay-rgb, 0.03);
   border-right: 1px solid $border;
   display: flex;
   flex-direction: column;
@@ -200,7 +211,7 @@ const pageTitle = computed(() => route.meta?.title || '')
     flex-shrink: 0;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba($overlay-rgb, 0.06);
       color: $text-secondary;
     }
   }
@@ -239,7 +250,7 @@ const pageTitle = computed(() => route.meta?.title || '')
     white-space: nowrap;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba($overlay-rgb, 0.06);
       color: $text-secondary;
     }
 
@@ -273,7 +284,7 @@ const pageTitle = computed(() => route.meta?.title || '')
 
 .header {
   height: 48px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba($overlay-rgb, 0.02);
   border-bottom: 1px solid $border;
   padding: 0 24px;
   display: flex;
@@ -288,7 +299,28 @@ const pageTitle = computed(() => route.meta?.title || '')
   }
 
   .header-right {
-    // placeholder for future user area
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: $text-muted;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: $transition-base;
+
+    &:hover {
+      background: $overlay-hover;
+      color: $text-primary;
+    }
   }
 }
 

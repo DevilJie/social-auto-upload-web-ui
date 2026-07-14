@@ -139,15 +139,15 @@ onMounted(loadChangelog)
   align-items: center;
   gap: 16px;
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba($overlay-rgb, 0.04);
   border: 1px solid $border;
   border-radius: $radius-lg;
   cursor: pointer;
   transition: $transition-base;
 
   &:hover {
-    border-color: rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba($overlay-rgb, 0.15);
+    background: rgba($overlay-rgb, 0.06);
   }
 }
 

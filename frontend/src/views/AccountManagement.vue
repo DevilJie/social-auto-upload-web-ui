@@ -1109,14 +1109,14 @@ const submitAccountForm = () => {
 
     /* 导入用户：次级按钮风格，不抢主按钮的视觉权重 */
     .add-btn.import-btn {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba($overlay-rgb, 0.06);
+      border: 1px solid rgba($overlay-rgb, 0.18);
       box-shadow: none;
       color: $text-primary;
 
       &:hover {
-        background: rgba(255, 255, 255, 0.12);
-        border-color: rgba(255, 255, 255, 0.3);
+        background: rgba($overlay-rgb, 0.12);
+        border-color: rgba($overlay-rgb, 0.3);
         transform: translateY(-1px);
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
       }
@@ -1158,14 +1158,14 @@ const submitAccountForm = () => {
       }
 
       .tab-count {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba($overlay-rgb, 0.1);
         padding: 2px 8px;
         border-radius: 10px;
         font-size: 12px;
       }
 
       &.active .tab-count {
-        background: rgba(255, 255, 255, 0.2);
+        background: rgba($overlay-rgb, 0.2);
       }
     }
   }
@@ -1285,7 +1285,7 @@ const submitAccountForm = () => {
       left: 0;
       right: 0;
       height: 3px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+      background: linear-gradient(90deg, transparent, rgba($overlay-rgb, 0.1), transparent);
       opacity: 0;
       transition: opacity $transition-base;
     }
@@ -1518,7 +1518,7 @@ const submitAccountForm = () => {
       width: 18px;
       height: 18px;
       flex: 0 0 auto;
-      border: 1px dashed rgba(255,255,255,0.2);
+      border: 1px dashed rgba($overlay-rgb, 0.2);
       border-radius: 4px;
       background: transparent;
       color: $text-muted;
@@ -1556,7 +1556,7 @@ const submitAccountForm = () => {
         font-weight: 500;
         cursor: pointer;
         transition: all $transition-base;
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba($overlay-rgb, 0.05);
         color: $text-secondary;
         white-space: nowrap;
         flex-shrink: 0;
@@ -1706,16 +1706,18 @@ const submitAccountForm = () => {
         flex-shrink: 0;
       }
       .platform-search :deep(.el-input__wrapper) {
-        background: rgba(0, 0, 0, 0.25);
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+        background: $bg-base;
+        box-shadow: 0 0 0 1px rgba($overlay-rgb, 0.1) inset;
         border-radius: 8px;
+        padding: 4px 12px;
         &:hover, &.is-focus {
           box-shadow: 0 0 0 1px rgba($brand-start, 0.5) inset;
         }
       }
       .platform-search :deep(.el-input__inner) {
+        height: 36px;
         color: $text-primary;
-        &::placeholder { color: rgba(255, 255, 255, 0.3); }
+        &::placeholder { color: rgba($overlay-rgb, 0.3); }
       }
 
       .platform-list {
@@ -1753,9 +1755,9 @@ const submitAccountForm = () => {
       &::-webkit-scrollbar { width: 6px; }
       &::-webkit-scrollbar-track { background: transparent; }
       &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba($overlay-rgb, 0.12);
         border-radius: 999px;
-        &:hover { background: rgba(255, 255, 255, 0.2); }
+        &:hover { background: rgba($overlay-rgb, 0.2); }
       }
     }
 
@@ -1849,8 +1851,8 @@ const submitAccountForm = () => {
       font-size: 12.5px;
       line-height: 1.6;
       padding: 12px;
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: $bg-base;
+      border: 1px solid rgba($overlay-rgb, 0.1);
       border-radius: 8px;
       color: $text-primary;
       transition: all $transition-base;
@@ -1858,12 +1860,12 @@ const submitAccountForm = () => {
       min-height: 220px;
 
       &:focus {
-        background: rgba(0, 0, 0, 0.4);
+        background: $bg-base;
         border-color: $brand-start;
         box-shadow: 0 0 0 2px rgba($brand-start, 0.15);
       }
       &::placeholder {
-        color: rgba(255, 255, 255, 0.25);
+        color: rgba($overlay-rgb, 0.25);
       }
     }
 
@@ -1901,8 +1903,8 @@ const submitAccountForm = () => {
         align-items: center;
         gap: 8px;
         padding: 6px 14px 6px 6px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba($overlay-rgb, 0.04);
+        border: 1px solid rgba($overlay-rgb, 0.08);
         border-radius: 999px;
         font-size: 13px;
 
@@ -1933,7 +1935,7 @@ const submitAccountForm = () => {
       .progress-bar {
         flex: 1;
         height: 6px;
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba($overlay-rgb, 0.06);
         border-radius: 999px;
         overflow: hidden;
         position: relative;
@@ -1979,7 +1981,7 @@ const submitAccountForm = () => {
           top: 44px;
           bottom: -4px;
           width: 1px;
-          background: rgba(255, 255, 255, 0.08);
+          background: rgba($overlay-rgb, 0.08);
         }
 
         .step-indicator {
@@ -1990,8 +1992,8 @@ const submitAccountForm = () => {
           align-items: center;
           justify-content: center;
           border-radius: 50%;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba($overlay-rgb, 0.04);
+          border: 1px solid rgba($overlay-rgb, 0.1);
           color: $text-muted;
           font-size: 14px;
           font-weight: 600;
@@ -2043,14 +2045,14 @@ const submitAccountForm = () => {
 
         /* finish 状态 */
         &.is-finish .step-indicator {
-          background: rgba(34, 197, 94, 0.12);
-          border-color: rgba(34, 197, 94, 0.4);
+          background: rgba($success-color, 0.12);
+          border-color: rgba($success-color, 0.4);
         }
 
         /* error 状态 */
         &.is-error .step-indicator {
-          background: rgba(239, 68, 68, 0.12);
-          border-color: rgba(239, 68, 68, 0.4);
+          background: rgba($danger-color, 0.12);
+          border-color: rgba($danger-color, 0.4);
         }
       }
     }
@@ -2105,12 +2107,12 @@ const submitAccountForm = () => {
 
   /* footer 按钮 */
   .footer-btn {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba($overlay-rgb, 0.06);
+    border: 1px solid rgba($overlay-rgb, 0.12);
     color: $text-primary;
     &:hover {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 255, 255, 0.2);
+      background: rgba($overlay-rgb, 0.12);
+      border-color: rgba($overlay-rgb, 0.2);
     }
   }
   .footer-btn-primary {

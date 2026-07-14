@@ -16,22 +16,42 @@ $warning-color: #f59e0b;
 $danger-color: #ef4444;
 $info-color: #3b82f6;
 
-// Background colors
-$bg-base: #0a0a1a;
-$bg-elevated: #12122a;
-$bg-surface: rgba(255, 255, 255, 0.04);
-$bg-overlay: rgba(0, 0, 0, 0.5);
+// Background colors —— 映射 CSS 变量，随主题切换（themes.scss）
+$bg-base: var(--bg-base);
+$bg-elevated: var(--bg-elevated);
+$bg-surface: var(--surface);
+$bg-overlay: var(--shadow-overlay);
+// 背景的 RGB 通道（供 rgba($bg-elevated-rgb, X) 形式使用，带透明度的背景随主题切换）
+$bg-base-rgb: var(--bg-base-rgb);
+$bg-elevated-rgb: var(--bg-elevated-rgb);
 
-// Text colors
-$text-primary: #f1f5f9;
-$text-secondary: #94a3b8;
-$text-muted: #64748b;
-$text-placeholder: #64748b;
+// Text colors —— 随主题切换
+$text-primary: var(--text-primary);
+$text-secondary: var(--text-secondary);
+$text-muted: var(--text-muted);
+$text-placeholder: var(--text-placeholder);
 
-// Border colors
-$border: rgba(255, 255, 255, 0.08);
-$border-light: rgba(255, 255, 255, 0.04);
-$border-active: rgba(139, 92, 246, 0.25);
+// Border colors —— 随主题切换
+$border: var(--border);
+$border-light: var(--border-light);
+$border-active: var(--border-active);
+
+// Overlay RGB —— 关键：暗色=255,255,255（提亮），亮色=15,23,42（压暗）。
+// 组件里原本的 rgba(255,255,255,X) 叠加层统一改写为 rgba($overlay-rgb, X)，
+// 即可在两个主题下都正确显示 hover/highlight 状态。
+$overlay-rgb: var(--overlay-rgb);
+$overlay-strong-rgb: var(--overlay-strong-rgb);
+
+// 语义化的叠加层（直接给 background 用）
+$overlay-hover: var(--surface-hover);
+$overlay-active: var(--surface-active);
+
+// Popper / 下拉弹出层 —— 随主题切换
+$popper-bg: var(--popper-bg);
+$popper-border: var(--popper-border);
+$popper-hover: var(--popper-hover);
+$popper-text: var(--popper-text);
+$popper-text-muted: var(--popper-text-muted);
 
 // ========== Gradient Presets ==========
 $gradient-brand: linear-gradient(135deg, $brand-start, $brand-end);

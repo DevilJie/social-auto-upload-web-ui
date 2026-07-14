@@ -170,8 +170,8 @@ defineExpose(publicApi)
 }
 
 .setting-card {
-  border: 1px solid rgba(245, 158, 11, 0.15);
-  background: rgba(245, 158, 11, 0.04);
+  border: 1px solid rgba($warning-color, 0.15);
+  background: rgba($warning-color, 0.04);
   border-radius: 8px;
   padding: 16px;
 }

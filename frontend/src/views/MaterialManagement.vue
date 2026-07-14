@@ -382,7 +382,7 @@ $brand-2: #8b5cff;
 $text-1: #e5e7eb;
 $text-2: #9ca3af;
 $text-3: #6b7280;
-$border: rgba(255, 255, 255, 0.08);
+$border: rgba($overlay-rgb, 0.08);
 $danger: #ef4444;
 
 @keyframes rotate {
@@ -429,12 +429,12 @@ $danger: #ef4444;
   flex-shrink: 0;
 
   :deep(.el-input__wrapper) {
-    background: rgba(0, 0, 0, 0.2);
+    background: $bg-base;
     border: 1px solid $border;
     border-radius: 8px;
     box-shadow: none;
     padding: 3px 12px;
-    &:hover { border-color: rgba(255, 255, 255, 0.16); }
+    &:hover { border-color: rgba($overlay-rgb, 0.16); }
     &.is-focus {
       border-color: rgba($brand-1, 0.5);
       box-shadow: 0 0 0 3px rgba($brand-1, 0.12);
@@ -448,7 +448,7 @@ $danger: #ef4444;
   display: flex;
   gap: 4px;
   padding: 3px;
-  background: rgba(0, 0, 0, 0.2);
+  background: $bg-base;
   border: 1px solid $border;
   border-radius: 8px;
   flex-shrink: 0;
@@ -469,7 +469,7 @@ $danger: #ef4444;
   transition: all 0.15s ease;
   white-space: nowrap;
 
-  &:hover { color: $text-1; background: rgba(255, 255, 255, 0.04); }
+  &:hover { color: $text-1; background: rgba($overlay-rgb, 0.04); }
 
   &.active {
     color: #fff;
@@ -486,7 +486,7 @@ $danger: #ef4444;
   .is-loading { animation: rotate 1s linear infinite; }
 
   .btn-refresh {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba($overlay-rgb, 0.04);
     border: 1px solid $border;
     color: $text-secondary;
     &:hover { border-color: $border-active; color: $text-primary; }
@@ -537,7 +537,7 @@ $danger: #ef4444;
   aspect-ratio: 1;
   overflow: hidden;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.1));
+    linear-gradient(135deg, rgba($overlay-rgb, 0.02), rgba(0, 0, 0, 0.1));
 
   img {
     width: 100%;
@@ -587,7 +587,7 @@ $danger: #ef4444;
   padding: 2px 8px;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba($overlay-rgb, 0.15);
   border-radius: 4px;
   color: #d1d5db;
   font-size: 11px;
@@ -598,8 +598,8 @@ $danger: #ef4444;
 
   &.s3 {
     color: #fff;
-    background: rgba(37, 99, 235, 0.7);
-    border-color: rgba(96, 165, 250, 0.5);
+    background: rgba($info-color, 0.7);
+    border-color: rgba($info-color, 0.5);
   }
 }
 
@@ -731,14 +731,14 @@ $danger: #ef4444;
   border-radius: $radius-card;
 
   :deep(.el-pagination) {
-    --el-pagination-bg-color: rgba(255, 255, 255, 0.04);
-    --el-pagination-button-bg-color: rgba(255, 255, 255, 0.04);
+    --el-pagination-bg-color: rgba($overlay-rgb, 0.04);
+    --el-pagination-button-bg-color: rgba($overlay-rgb, 0.04);
     --el-pagination-button-color: #{$text-2};
     --el-pagination-hover-color: #{$brand-1};
     --el-pagination-button-disabled-bg-color: transparent;
 
     .btn-prev, .btn-next, .el-pager li {
-      background: rgba(255, 255, 255, 0.04) !important;
+      background: rgba($overlay-rgb, 0.04) !important;
       color: $text-2 !important;
       &:hover { color: $brand-1 !important; }
     }

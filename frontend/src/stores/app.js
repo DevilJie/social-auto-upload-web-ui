@@ -135,6 +135,34 @@ export const useAppStore = defineStore('app', () => {
   // 判断某平台 key 是否被拉黑
   const isPlatformDisabled = (key) => disabledPlatforms.value.includes(key)
 
+  // ========== 主题（dark / light） ==========
+  // 默认 dark（保持改造前视觉）。切换时同步 <html> 的 class，并持久化。
+  const theme = ref('dark')
+
+  const applyTheme = (value) => {
+    const el = document.documentElement
+    el.classList.remove('dark', 'light')
+    el.classList.add(value)
+  }
+
+  const setTheme = (value) => {
+    theme.value = value
+    applyTheme(value)
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    settings.theme = value
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+  }
+
+  const toggleTheme = () => {
+    setTheme(theme.value === 'dark' ? 'light' : 'dark')
+  }
+
+  const loadTheme = () => {
+    const settings = JSON.parse(localStorage.getItem('app_settings') || '{}')
+    theme.value = settings.theme === 'light' ? 'light' : 'dark'
+    applyTheme(theme.value)
+  }
+
   // 批量添加(单次 PUT)
   const addDisabledPlatforms = async (keys) => {
     const newKeys = keys.filter(k => !disabledPlatforms.value.includes(k))
@@ -195,6 +223,10 @@ export const useAppStore = defineStore('app', () => {
     removeDisabledPlatform,
     accountCheckMode,
     setAccountCheckMode,
-    loadAccountCheckMode
+    loadAccountCheckMode,
+    theme,
+    setTheme,
+    toggleTheme,
+    loadTheme
   }
 })

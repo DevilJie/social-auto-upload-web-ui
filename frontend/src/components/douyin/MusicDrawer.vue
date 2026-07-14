@@ -233,11 +233,11 @@ function onImageError(e) {
   align-items: center;
   justify-content: space-between;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba($overlay-rgb, 0.05);
   transition: background 0.2s;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba($overlay-rgb, 0.02);
   }
 }
 

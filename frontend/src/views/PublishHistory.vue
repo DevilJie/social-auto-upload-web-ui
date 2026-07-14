@@ -549,7 +549,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
       width: 48px;
       height: 48px;
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba($overlay-rgb, 0.06);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -607,7 +607,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
       width: 140px;
 
       :deep(.el-input__wrapper) {
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba($overlay-rgb, 0.04);
         border: 1px solid $border;
         border-radius: $radius-base;
         box-shadow: none;
@@ -632,7 +632,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
     }
 
     .refresh-btn {
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba($overlay-rgb, 0.04);
       border: 1px solid $border;
       border-radius: $radius-base;
       color: $text-secondary;
@@ -652,7 +652,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
     }
 
     .select-trigger-btn {
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba($overlay-rgb, 0.04);
       border: 1px solid $border;
       border-radius: $radius-base;
       color: $text-secondary;
@@ -667,7 +667,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
       &.is-disabled,
       &.is-disabled:hover {
         opacity: 0.5;
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba($overlay-rgb, 0.04);
         border-color: $border;
         color: $text-muted;
       }
@@ -724,11 +724,11 @@ onMounted(() => { fetchHistory(); fetchStats() })
   }
 
   .toolbar-exit {
-    --el-button-bg-color: rgba(255, 255, 255, 0.03);
-    --el-button-border-color: rgba(255, 255, 255, 0.12);
+    --el-button-bg-color: rgba($overlay-rgb, 0.03);
+    --el-button-border-color: rgba($overlay-rgb, 0.12);
     --el-button-text-color: $text-secondary;
-    --el-button-hover-bg-color: rgba(244, 63, 94, 0.12);
-    --el-button-hover-border-color: rgba(244, 63, 94, 0.4);
+    --el-button-hover-bg-color: rgba($accent-rose, 0.12);
+    --el-button-hover-border-color: rgba($accent-rose, 0.4);
     --el-button-hover-text-color: lighten($accent-rose, 8%);
   }
 
@@ -786,7 +786,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
     background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(8px);
     border: none;
-    color: rgba(255, 255, 255, 0.85);
+    color: rgba($overlay-rgb, 0.85);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -796,7 +796,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
     font-size: 14px;
 
     &:hover {
-      background: rgba(245, 108, 108, 0.9);
+      background: rgba($danger-color, 0.9);
       color: #fff;
     }
 
@@ -816,7 +816,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
     border-radius: 50%;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
-    border: 2px solid rgba(255, 255, 255, 0.7);
+    border: 2px solid rgba($overlay-rgb, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -838,10 +838,10 @@ onMounted(() => { fetchHistory(); fetchStats() })
     &.is-checked,
     .batch-card.is-selected & {
       background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
-      border-color: rgba(255, 255, 255, 0.95);
+      border-color: rgba($overlay-rgb, 0.95);
       box-shadow:
-        0 0 0 3px rgba(139, 92, 246, 0.35),
-        0 4px 16px rgba(139, 92, 246, 0.55);
+        0 0 0 3px rgba($brand-start, 0.35),
+        0 4px 16px rgba($brand-start, 0.55);
       transform: scale(1.1);
 
       .selector-icon {
@@ -851,7 +851,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
     }
 
     &:hover {
-      border-color: rgba(255, 255, 255, 0.95);
+      border-color: rgba($overlay-rgb, 0.95);
       transform: scale(1.05);
     }
   }
@@ -910,13 +910,13 @@ onMounted(() => { fetchHistory(); fetchStats() })
     font-weight: 500;
 
     &.status-success, &.status-partial {
-      background: rgba(82, 196, 26, 0.15); color: #67c23a;
+      background: rgba($accent-green, 0.15); color: #67c23a;
     }
     &.status-failed {
-      background: rgba(245, 108, 108, 0.15); color: #f56c6c;
+      background: rgba($danger-color, 0.15); color: #f56c6c;
     }
     &.status-running {
-      background: rgba(64, 158, 255, 0.15); color: #409eff;
+      background: rgba($info-color, 0.15); color: #409eff;
     }
     &.status-pending, &.status-cancelled {
       background: rgba(0, 0, 0, 0.06); color: $text-muted;
@@ -961,12 +961,12 @@ onMounted(() => { fetchHistory(); fetchStats() })
     :deep(.el-pagination) {
       --el-pagination-bg-color: transparent;
       --el-pagination-text-color: #{$text-secondary};
-      --el-pagination-button-bg-color: rgba(255, 255, 255, 0.06);
+      --el-pagination-button-bg-color: rgba($overlay-rgb, 0.06);
       --el-pagination-hover-color: #{$brand-start};
 
       .btn-prev,
       .btn-next {
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba($overlay-rgb, 0.06);
         border: 1px solid $border;
         border-radius: $radius-sm;
         color: $text-secondary;
@@ -978,7 +978,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
       }
 
       .el-pager li {
-        background: rgba(255, 255, 255, 0.04);
+        background: rgba($overlay-rgb, 0.04);
         border: 1px solid $border;
         border-radius: $radius-sm;
         color: $text-secondary;
@@ -1002,7 +1002,7 @@ onMounted(() => { fetchHistory(); fetchStats() })
 
       .el-pagination__sizes {
         .el-input__wrapper {
-          background: rgba(255, 255, 255, 0.04);
+          background: rgba($overlay-rgb, 0.04);
           border: 1px solid $border;
           border-radius: $radius-sm;
           box-shadow: none;

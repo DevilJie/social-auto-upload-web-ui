@@ -33,7 +33,8 @@ from ..base_platform import BasePlatform
 # Constants
 # ---------------------------------------------------------------------------
 
-TENCENT_LOGIN_URL = "https://channels.weixin.qq.com"
+TENCENT_LOGIN_URL = "https://channels.weixin.qq.com/login.html"
+TENCENT_PLATFORM_URL = "https://channels.weixin.qq.com/platform"
 TENCENT_UPLOAD_URL = "https://channels.weixin.qq.com/platform/post/create"
 TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
 
@@ -61,161 +62,15 @@ def _format_short_title(origin_title: str) -> str:
     return formatted_string
 
 
-# ---------------------------------------------------------------------------
-# QR-code extraction helpers
-# ---------------------------------------------------------------------------
-
-async def _extract_qrcode_src(page) -> str:
-    """Extract the QR code image ``src`` from the Channels login page.
-
-    The QR code lives inside an iframe (``login-for-iframe``) on the
-    Channels login page.  Falls back to top-level selectors when the
-    iframe is unavailable.
-    """
-    # Primary: iframe approach
-    try:
-        iframe_locator = page.frame_locator('[src*="login-for-iframe"]')
-        qr_code_img = iframe_locator.locator("div#app img.qrcode").first
-        await qr_code_img.wait_for(state="visible", timeout=30000)
-        src = await qr_code_img.get_attribute("src")
-        if src and src.startswith("data:image/"):
-            return src
-    except Exception:
-        pass
-
-    # Fallback: top-level selectors
-    for selector in (
-        "div.login-qrcode-wrap img.qrcode",
-        "div.qrcode-wrap img.qrcode",
-        "img.qrcode",
-        'img[src^="data:image/"]',
-    ):
-        qr_code_img = page.locator(selector).first
-        try:
-            if not await qr_code_img.count() or not await qr_code_img.is_visible():
-                continue
-            src = await qr_code_img.get_attribute("src")
-            if src and src.startswith("data:image/"):
-                return src
-        except Exception:
-            continue
-
-    raise RuntimeError("未获取到视频号登录二维码地址")
-
-
-async def _is_qrcode_expired(page) -> bool:
-    """Check whether the displayed QR code has expired."""
-    for selector in (
-        'div.mask.show p.refresh-tip:has-text("二维码已过期，点击刷新")',
-        'div.mask.show p.refresh-tip:has-text("网络不可用，点击刷新")',
-        'p.refresh-tip:has-text("二维码已过期，点击刷新")',
-        'p.refresh-tip:has-text("网络不可用，点击刷新")',
-    ):
-        tip = page.locator(selector).first
-        try:
-            if await tip.count() and await tip.is_visible():
-                return True
-        except Exception:
-            continue
-    return False
-
-
-async def _is_qrcode_scanned(page) -> bool:
-    """Check whether the user has scanned the QR code."""
-    for selector in (
-        'div.qr-tip div:has-text("已扫码")',
-        'div.qr-tip div:has-text("需在手机上进行确认")',
-    ):
-        tip = page.locator(selector).first
-        try:
-            if await tip.count() and await tip.is_visible():
-                return True
-        except Exception:
-            continue
-    return False
-
-
-async def _refresh_qrcode(page) -> None:
-    """Click the refresh area to regenerate an expired QR code."""
-    # Try visible refresh-wrap first
-    for selector in (
-        "div.login-qrcode-wrap div.mask.show div.refresh-wrap",
-        "div.login-qrcode-wrap div.mask.show .refresh-wrap",
-    ):
-        refresh_wrap = page.locator(selector).first
-        try:
-            if not await refresh_wrap.count() or not await refresh_wrap.is_visible():
-                continue
-            await refresh_wrap.click()
-            return
-        except Exception:
-            continue
-
-    # Try tip-based refresh
-    for selector in (
-        'div.mask.show p.refresh-tip:has-text("二维码已过期，点击刷新")',
-        'div.mask.show p.refresh-tip:has-text("网络不可用，点击刷新")',
-        'p.refresh-tip:has-text("二维码已过期，点击刷新")',
-        'p.refresh-tip:has-text("网络不可用，点击刷新")',
-    ):
-        tip = page.locator(selector).first
-        try:
-            if not await tip.count() or not await tip.is_visible():
-                continue
-            refresh_wrap = tip.locator(
-                "xpath=ancestor::div[contains(@class, 'refresh-wrap')]"
-            ).first
-            if await refresh_wrap.count():
-                await refresh_wrap.click()
-            else:
-                await tip.click()
-            return
-        except Exception:
-            continue
-
-    # Final fallback
-    fallback = page.locator("div.login-qrcode-wrap div.refresh-wrap").first
-    if await fallback.count():
-        await fallback.click()
-        return
-
-    raise RuntimeError("未找到可点击的视频号二维码刷新区域")
-
-
 async def _is_login_completed(page) -> bool:
-    """Detect whether the user has completed the QR-code login flow."""
-    publish_markers = [
-        page.locator('div:has-text("发表视频")').first,
-        page.locator('button:has-text("发表")').first,
-        page.locator('button:has-text("保存草稿")').first,
-    ]
-    for marker in publish_markers:
-        try:
-            if await marker.count() and await marker.is_visible():
-                return True
-        except Exception:
-            continue
+    """Detect whether the user has completed the QR-code login flow.
 
-    if not (
-        page.url.startswith(TENCENT_UPLOAD_URL)
-        or page.url.startswith(TENCENT_MANAGE_URL)
-    ):
-        return False
-
-    login_markers = [
-        page.locator("div.login-qrcode-wrap").first,
-        page.locator("div.qrcode-wrap").first,
-        page.locator("img.qrcode").first,
-        page.locator('span:has-text("微信扫码登录 视频号助手")').first,
-    ]
-    for marker in login_markers:
-        try:
-            if await marker.count() and await marker.is_visible():
-                return False
-        except Exception:
-            continue
-
-    return True
+    登录成功后页面会从 ``/login.html`` 跳转到 ``/platform/*``（创作中心首页
+    或其子页）。这里只看 URL：进入 ``/platform`` 且不在 ``/login`` 即视为
+    登录完成。不依赖宽泛文本匹配，避免登录页文案误判。
+    """
+    url = page.url
+    return "/platform" in url and "/login" not in url
 
 
 # ---------------------------------------------------------------------------
@@ -881,11 +736,12 @@ class ChannelsPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
-        """Perform Channels (视频号) login via QR code scan.
+        """Perform Channels (视频号) login.
 
-        Opens ``https://channels.weixin.qq.com``, extracts the QR code
-        from the login iframe, polls for scan/expiry, and completes the
-        post-login flow via ``save_login_result``.
+        直接打开登录页 ``/login.html``，由用户在浏览器里扫码完成登录。
+        后端只负责轮询 URL：一旦从登录页跳到 ``/platform/*``，即判定登录成功，
+        随后导航到创作中心首页抓取头像/昵称并落库。
+        不再提取/推送二维码——前端只等 ``status:200``。
         """
         browser = await self.create_browser(login_mode=True)
         success = False
@@ -894,22 +750,20 @@ class ChannelsPlatform(BasePlatform):
             page = await context.new_page()
 
             await page.goto(TENCENT_LOGIN_URL)
+            logger.info("[发布] 登录页已打开，等待用户扫码")
 
-            # Extract QR code and push to frontend
-            qrcode_src = await _extract_qrcode_src(page)
-            status_queue.put(json.dumps({
-                "status": "qrcode",
-                "qrcode": qrcode_src,
-            }))
-            logger.info("[发布] QR code ready, waiting for scan")
-
-            # Poll for login completion（无限等，浏览器由用户自己关）
+            # 轮询 URL 判断登录完成（无限等，浏览器由用户自己关）
             poll_interval = 3
-            scanned_logged = False
             while True:
                 if await _is_login_completed(page):
                     logger.info(f"[发布] login successful, redirected to: {page.url}")
-                    await asyncio.sleep(2)
+                    # 资料卡 (finder-card) 在创作中心首页 /platform 渲染。
+                    # 若登录后落在子页（如 /platform/post/create），导航到首页再抓。
+                    if not page.url.rstrip("/").endswith("channels.weixin.qq.com/platform"):
+                        try:
+                            await page.goto(TENCENT_PLATFORM_URL, timeout=15000)
+                        except Exception as nav_e:
+                            logger.info(f"[发布] 导航到创作中心首页失败(继续尝试抓取): {nav_e}")
                     await save_login_result(
                         context,
                         page,
@@ -921,23 +775,6 @@ class ChannelsPlatform(BasePlatform):
                     )
                     success = True
                     return
-
-                if not scanned_logged and await _is_qrcode_scanned(page):
-                    logger.info("[发布] QR code scanned, awaiting confirmation")
-                    scanned_logged = True
-
-                if await _is_qrcode_expired(page):
-                    logger.info("[发布] QR code expired, refreshing")
-                    await _refresh_qrcode(page)
-                    await asyncio.sleep(1)
-                    try:
-                        qrcode_src = await _extract_qrcode_src(page)
-                        status_queue.put(json.dumps({
-                            "status": "qrcode",
-                            "qrcode": qrcode_src,
-                        }))
-                    except Exception:
-                        pass
 
                 await asyncio.sleep(poll_interval)
         except Exception as exc:
@@ -1037,7 +874,7 @@ class ChannelsPlatform(BasePlatform):
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
-            await page.goto(TENCENT_UPLOAD_URL)
+            await page.goto(TENCENT_PLATFORM_URL)
             name, avatar = await scrape_tencent_profile(page)
             await page.close()
             await context.close()

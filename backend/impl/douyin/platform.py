@@ -84,13 +84,12 @@ class DouyinPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     async def login(self, id: str, status_queue: Queue, account_id=None) -> None:
-        """Perform Douyin login via QR code scan.
+        """Perform Douyin login.
 
-        Opens ``https://creator.douyin.com/``, extracts the QR image from
-        ``get_by_role("img", name="二维码")``, sends the image URL to
-        *status_queue*, then waits for the page to navigate away (indicating
-        the user scanned the code).  On success, scrapes the user profile and
-        saves the login result.
+        直接打开 ``https://creator.douyin.com/``，由用户在浏览器里扫码完成
+        登录。后端通过监听主框架 URL 变化判断登录成功（不设超时，浏览器由
+        用户自己关），随后抓取用户资料并落库。不再提取/推送二维码——前端
+        只等 ``status:200``。
         """
         url_changed_event = asyncio.Event()
 
@@ -106,12 +105,6 @@ class DouyinPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto("https://creator.douyin.com/")
                 original_url = page.url
-
-                # Extract QR code image
-                img_locator = page.get_by_role("img", name="二维码")
-                src = await img_locator.get_attribute("src")
-                logger.info("QR image src: %s", src)
-                status_queue.put(src)
 
                 # Monitor URL change via framenavigated
                 page.on(

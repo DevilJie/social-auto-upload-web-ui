@@ -286,8 +286,9 @@ async def scrape_bilibili_profile(page):
 async def scrape_tencent_profile(page):
     """WeChat Channels (视频号) specific scraper.
 
-    Targets ``img.avatar`` (or ``img[alt*="头像"]``) for the avatar and
-    ``h2.finder-nickname`` for the username.
+    登录成功后创作中心首页（``/platform``）会渲染一张 ``div.finder-card``
+    资料卡，内含 ``img.avatar``（头像）和 ``h2.finder-nickname``（昵称）。
+    这里显式等待该卡片就绪后再读取，避免页面未渲染完抓不到。
 
     Returns:
         tuple[str, str]: (user_name, avatar_url)
@@ -295,14 +296,20 @@ async def scrape_tencent_profile(page):
     name = ""
     avatar = ""
     try:
-        await page.wait_for_load_state('domcontentloaded', timeout=5000)
-        await asyncio.sleep(3)
-        # Avatar: img.avatar or img[alt*="头像"]
-        avatar_el = page.locator('img.avatar, img[alt*="头像"]').first
+        await page.wait_for_load_state('domcontentloaded', timeout=10000)
+        # 显式等待 finder-card 资料卡渲染（取代固定 sleep）
+        try:
+            await page.locator('div.finder-card').first.wait_for(
+                state="visible", timeout=15000,
+            )
+        except Exception:
+            logger.info(f"[channels] finder-card 未就绪, 当前 url={page.url}")
+        # 头像: div.finder-card img.avatar
+        avatar_el = page.locator('div.finder-card img.avatar').first
         if await avatar_el.count():
             avatar = (await avatar_el.get_attribute('src') or '').strip()
-        # Username: h2.finder-nickname or class containing "nickname"
-        name_el = page.locator('h2.finder-nickname, [class*="nickname"]').first
+        # 昵称: div.finder-card h2.finder-nickname
+        name_el = page.locator('div.finder-card h2.finder-nickname').first
         if await name_el.count():
             name = (await name_el.text_content() or '').strip()
         if name:

@@ -1079,7 +1079,7 @@ const submitAccountForm = () => {
       color: $text-primary;
       margin: 0;
       letter-spacing: -0.5px;
-      background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+      background: $gradient-brand;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -1153,7 +1153,8 @@ const submitAccountForm = () => {
       &.active {
         background: rgba($brand-start, 0.15);
         border-color: $brand-start;
-        color: #fff;
+        color: $brand-start;
+        font-weight: 600;
         box-shadow: 0 0 20px rgba($brand-start, 0.2);
       }
 

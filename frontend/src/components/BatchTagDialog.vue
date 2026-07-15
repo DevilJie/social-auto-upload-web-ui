@@ -272,7 +272,7 @@ watch(() => props.modelValue, (v) => {
   .batch-section {
     display: flex;
     flex-direction: column;
-    background: rgba(0, 0, 0, 0.25);
+    background: $bg-surface;
     border: 1px solid $border;
     border-radius: $radius-card;
     overflow: hidden;

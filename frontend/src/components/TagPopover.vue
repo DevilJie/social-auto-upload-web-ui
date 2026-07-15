@@ -3,7 +3,7 @@
     :visible="visible"
     placement="bottom"
     :width="240"
-    @update:visible="$emit('update:visible', $event)"
+    @update:visible="onVisibleUpdate"
   >
     <template #reference>
       <slot />
@@ -15,6 +15,8 @@
           size="small"
           placeholder="搜索或创建标签..."
           clearable
+          @compositionstart="composing = true"
+          @compositionend="composing = false"
           @keyup.enter="handleCreate"
         />
       </div>
@@ -57,6 +59,13 @@ const emit = defineEmits(['update:visible', 'changed'])
 
 const accountStore = useAccountStore()
 const keyword = ref('')
+// IME 组合输入中（如中文选词期间）。为 true 时屏蔽 popover 的关闭，避免候选词点击误触发 update:visible(false)
+const composing = ref(false)
+
+function onVisibleUpdate(val) {
+  if (!val && composing.value) return
+  emit('update:visible', val)
+}
 
 const filteredTags = computed(() => {
   if (!keyword.value) return accountStore.allTags

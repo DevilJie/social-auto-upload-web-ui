@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v1.2.1 更新日志 · 千帆云递</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&family=Nunito+Sans:wght@300;400;600;700;800;900&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/ScrollTrigger.min.js"></script>
+<style>
+  :root{
+    /* 亮色主题 —— 本版本即是「亮色主题」的活体展示 */
+    --bg: #F6F8FB;
+    --bg-elev: #FFFFFF;
+    --bg-card: rgba(15,23,42,0.025);
+    --bg-card-hover: rgba(15,23,42,0.045);
+    --border: rgba(15,23,42,0.10);
+    --border-strong: rgba(15,23,42,0.18);
+    --fg: #0F172A;
+    --fg-soft: #334155;
+    --fg-muted: #64748B;
+    --accent: #2563EB;
+    --accent-2: #3B82F6;
+    --accent-glow: rgba(37,99,235,0.30);
+    --pink: #E11D48;
+    --green: #059669;
+    --amber: #D97706;
+    --purple: #7C3AED;
+    --weibo: #DC2626;
+    --weibo-glow: rgba(220,38,38,0.28);
+    --display: 'Rubik', system-ui, sans-serif;
+    --body: 'Nunito Sans', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--body);
+    background:var(--bg);
+    color:var(--fg);
+    line-height:1.55;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  html{font-size: clamp(16px, 0.75vw + 12px, 22px)}
+
+  .bg-decor{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;}
+  .bg-decor::before{
+    content:"";position:absolute;inset:-20%;
+    background:
+      radial-gradient(ellipse 60% 50% at 20% 20%, rgba(5,150,105,0.12), transparent 60%),
+      radial-gradient(ellipse 50% 40% at 80% 30%, rgba(37,99,235,0.10), transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 90%, rgba(124,58,237,0.10), transparent 60%);
+    filter:blur(40px);
+  }
+  .bg-grid{
+    position:absolute;inset:-10%;
+    background-image:
+      linear-gradient(rgba(15,23,42,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15,23,42,0.04) 1px, transparent 1px);
+    background-size:80px 80px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 75%);
+    animation: grid-drift 60s linear infinite;
+  }
+  @keyframes grid-drift{
+    0%{transform: translate(0,0)}
+    100%{transform: translate(80px,80px)}
+  }
+
+  .light-leak{
+    position:fixed;top:0;left:0;right:0;height:3px;z-index:-1;
+    background:linear-gradient(90deg, transparent, var(--green), var(--accent), var(--purple), transparent);
+    opacity:.55;
+    animation: leak-pulse 8s ease-in-out infinite;
+  }
+  @keyframes leak-pulse{0%,100%{opacity:.3}50%{opacity:.8}}
+
+  section{
+    max-width:1280px;margin:0 auto;
+    padding: clamp(3rem, 6vw, 5rem) clamp(1.5rem, 5vw, 4rem);
+  }
+
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:100;
+    display:flex;align-items:center;justify-content:space-between;
+    padding: 1rem clamp(1.5rem, 5vw, 4rem);
+    background: rgba(246,248,251,0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom:1px solid var(--border);
+    transition: all .3s;
+  }
+  .topbar.scrolled{background: rgba(246,248,251,0.92);}
+  .brand{display:flex;align-items:center;gap:.6rem;font-family:var(--display);font-weight:700;font-size:1.1rem;}
+  .brand-mark{
+    width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(135deg, var(--green), var(--accent));
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:800;font-size:1rem;
+    box-shadow: 0 4px 20px rgba(5,150,105,0.28);
+  }
+  .topbar nav{display:flex;gap:1.5rem;}
+  .topbar nav a{
+    color:var(--fg-muted);text-decoration:none;font-size:.92rem;font-weight:600;
+    transition:color .2s;
+  }
+  .topbar nav a:hover{color:var(--fg)}
+  .topbar .ver{
+    font-family:var(--mono);font-size:.82rem;color:var(--green);
+    background:rgba(5,150,105,0.1);padding:.3rem .7rem;border-radius:6px;
+    border:1px solid rgba(5,150,105,0.25);
+  }
+
+  /* ===== HERO ===== */
+  .hero{
+    min-height:90vh;display:flex;flex-direction:column;justify-content:center;align-items:center;
+    text-align:center;position:relative;padding-top:8rem;
+  }
+  .hero-brand{
+    display:inline-flex;align-items:center;gap:.6rem;
+    margin-bottom:1.5rem;color:var(--fg-muted);font-size:.9rem;
+  }
+  .hero-brand .brand-mark{width:30px;height:30px;font-size:.85rem;}
+  .hero-brand em{font-style:normal;color:var(--fg-muted);font-family:var(--display);}
+
+  .hero-eyebrow{
+    display:inline-flex;align-items:center;gap:.6rem;
+    padding:.5rem 1.1rem;border-radius:99px;
+    background:rgba(5,150,105,0.1);border:1px solid rgba(5,150,105,0.25);
+    font-family:var(--mono);font-size:.78rem;color:var(--green);
+    letter-spacing:.08em;margin-bottom:1.5rem;
+  }
+  .hero-eyebrow .dot{
+    width:8px;height:8px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 12px var(--green);animation:pulse 2s infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
+
+  .hero-version{
+    font-family:var(--display);font-weight:900;
+    font-size: clamp(6rem, 16vw, 14rem);
+    line-height:.9;letter-spacing:-.04em;
+    background:linear-gradient(135deg, #0F172A 0%, var(--green) 50%, var(--accent) 100%);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    margin-bottom:.5rem;
+  }
+  .hero-version .dot-sep{color:var(--fg-muted);-webkit-text-fill-color:var(--fg-muted);}
+
+  .hero-title{
+    font-family:var(--display);font-weight:700;
+    font-size: clamp(1.6rem, 3vw, 2.6rem);
+    margin:1rem 0 1.5rem;line-height:1.25;
+  }
+  .hero-title .accent{
+    background:linear-gradient(135deg, var(--green), var(--accent));
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  }
+
+  .hero-desc{
+    max-width:760px;color:var(--fg-soft);font-size:clamp(1rem,1.15vw,1.15rem);
+    line-height:1.7;margin-bottom:2rem;
+  }
+  .hero-desc strong{color:var(--fg);font-weight:700;}
+
+  .hero-stats{
+    display:flex;flex-wrap:wrap;gap:.75rem;justify-content:center;
+  }
+  .stat-chip{
+    display:inline-flex;align-items:center;gap:.5rem;
+    padding:.6rem 1.1rem;border-radius:10px;
+    background:var(--bg-elev);border:1px solid var(--border);
+    font-size:.88rem;color:var(--fg-soft);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .stat-chip svg{width:16px;height:16px;color:var(--green);}
+  .stat-chip .num{font-family:var(--mono);font-weight:800;color:var(--green);}
+
+  /* ===== Section title ===== */
+  .sec-title{
+    font-family:var(--display);font-weight:800;
+    font-size:clamp(1.8rem, 3.5vw, 2.8rem);
+    margin-bottom:.5rem;letter-spacing:-.02em;
+  }
+  .sec-sub{color:var(--fg-muted);margin-bottom:2.5rem;font-size:1rem;}
+
+  /* ===== Highlights cards ===== */
+  .hl-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.25rem;
+  }
+  .hl-card{
+    background:var(--bg-elev);border:1px solid var(--border);
+    border-radius:16px;padding:1.6rem;
+    transition:all .3s;position:relative;overflow:hidden;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .hl-card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:3px;
+    background:var(--card-color, var(--accent));
+    transform:scaleX(0);transform-origin:left;transition:transform .4s;
+  }
+  .hl-card:hover{background:var(--bg-elev);border-color:var(--border-strong);transform:translateY(-3px);box-shadow: 0 12px 30px rgba(15,23,42,0.08);}
+  .hl-card:hover::before{transform:scaleX(1);}
+  .hl-icon{
+    width:44px;height:44px;border-radius:11px;
+    background:var(--card-bg, rgba(37,99,235,0.1));
+    color:var(--card-color, var(--accent));
+    display:flex;align-items:center;justify-content:center;
+    margin-bottom:1rem;font-size:1.3rem;
+  }
+  .hl-card h3{font-family:var(--display);font-weight:700;font-size:1.15rem;margin-bottom:.5rem;}
+  .hl-card p{color:var(--fg-muted);font-size:.92rem;line-height:1.6;}
+  .hl-card .tag{
+    display:inline-block;margin-top:.8rem;font-family:var(--mono);
+    font-size:.72rem;padding:.2rem .55rem;border-radius:5px;
+    background:rgba(5,150,105,0.1);color:var(--green);
+    border:1px solid rgba(5,150,105,0.25);
+  }
+
+  /* ===== Feature list ===== */
+  .feat-list{display:flex;flex-direction:column;gap:.75rem;}
+  .feat-item{
+    display:flex;gap:1rem;padding:1.1rem 1.3rem;
+    background:var(--bg-elev);border:1px solid var(--border);border-radius:12px;
+    transition:all .2s;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .feat-item:hover{background:var(--bg-elev);border-color:var(--border-strong);box-shadow: 0 6px 18px rgba(15,23,42,0.06);}
+  .feat-item .feat-check{
+    flex-shrink:0;width:24px;height:24px;border-radius:6px;
+    background:rgba(5,150,105,0.12);color:var(--green);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;
+  }
+  .feat-item .feat-body{flex:1;}
+  .feat-item h4{font-weight:700;font-size:1rem;margin-bottom:.2rem;}
+  .feat-item p{color:var(--fg-muted);font-size:.9rem;line-height:1.55;}
+  .feat-item code{
+    font-family:var(--mono);font-size:.82rem;
+    background:rgba(15,23,42,0.06);padding:.1rem .4rem;border-radius:4px;color:var(--green);
+  }
+
+  /* platform pills */
+  .pills{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem;}
+  .pill{
+    font-family:var(--mono);font-size:.75rem;
+    padding:.25rem .6rem;border-radius:6px;
+    background:var(--bg-elev);border:1px solid var(--border);color:var(--fg-soft);
+  }
+
+  /* theme toggle demo */
+  .toggle-demo{
+    display:inline-flex;align-items:center;gap:.5rem;
+    background:var(--bg-elev);border:1px solid var(--border);
+    border-radius:99px;padding:.3rem;margin-top:.5rem;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .toggle-demo .seg{
+    padding:.35rem .9rem;border-radius:99px;cursor:default;
+    font-size:.8rem;font-weight:700;color:var(--fg-muted);
+    transition:all .25s;
+  }
+  .toggle-demo .seg.on-dark{color:#fff;background:linear-gradient(135deg,#0F172A,#1E293B);}
+  .toggle-demo .seg.on-light{color:var(--accent);background:rgba(37,99,235,0.12);}
+
+  /* Footer */
+  footer{
+    padding: clamp(3rem, 6vw, 5rem) clamp(1.5rem, 5vw, 4rem);
+    border-top:1px solid var(--border);text-align:center;
+    margin-top: clamp(3rem, 7vw, 6rem);
+  }
+  .footer-mark{display:inline-flex;align-items:center;gap:.6rem;margin-bottom:1rem;}
+  .footer-mark .brand-mark{width:36px;height:36px;}
+  .footer-mark span{font-family:var(--display);font-weight:700;font-size:1.2rem;}
+  .footer-meta{color:var(--fg-muted);font-size:clamp(.9rem,1vw,1rem);line-height:1.7;}
+  .footer-meta a{color:var(--green);text-decoration:none;}
+
+  .reveal{opacity:0}
+
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1!important;transform:none!important;transition:none!important}
+    *{animation:none!important}
+    html{scroll-behavior:auto}
+  }
+  @media (min-width: 2200px){section{max-width:2000px}html{font-size:22px}.hero-version{font-size:clamp(8rem,18vw,22rem)}}
+  @media (max-width: 1024px){.topbar nav{display:none}}
+  @media (max-width: 640px){.hero{padding-top:6rem}.hero-stats{gap:.5rem}.stat-chip{padding:.55rem 1rem}}
+</style>
+</head>
+<body>
+
+<div class="bg-decor"><div class="bg-grid"></div></div>
+<div class="light-leak" aria-hidden="true"></div>
+
+<header class="topbar" id="topbar">
+  <div class="brand"><div class="brand-mark">千</div><span>千帆云递</span></div>
+  <nav>
+    <a href="#highlights">亮点</a>
+    <a href="#features">详细功能</a>
+    <a href="#platforms">修复优化</a>
+  </nav>
+  <span class="ver">v1.2.1</span>
+</header>
+
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <div class="hero-brand reveal d1">
+    <div class="brand-mark">千</div>
+    <span>千帆云递 <em>· QianFan Sync</em></span>
+  </div>
+
+  <div class="hero-eyebrow reveal d1">
+    <span class="dot"></span><span>UPDATE · 2026.07.15</span>
+  </div>
+
+  <h1 class="hero-version reveal d2" data-text="v1.2.1">
+    v1<span class="dot-sep">.</span>2<span class="dot-sep">.</span>1
+  </h1>
+
+  <h2 class="hero-title reveal d3">
+    亮色主题来了 · <span class="accent">所见即所得</span>
+  </h2>
+
+  <p class="hero-desc reveal d4">
+    v1.2.1 是一次<strong>主题焕新</strong>版本 —— 新增<strong>完整亮色主题</strong>,右上角一键切换、本地持久化;<strong>51 个组件、420+ 处硬编码颜色</strong>统一替换为主题感知变量。本次连这条更新日志本身都<strong>以亮色主题渲染</strong>,就是这次的最好证明。同时修复<strong>发布成功误判失败</strong>、<strong>视频号/抖音登录稳定性</strong>与<strong>图集发布预检误弹</strong>等问题。
+  </p>
+
+  <div class="toggle-demo reveal d4" aria-label="主题切换示意">
+    <span class="seg on-dark">🌙 深色</span>
+    <span class="seg on-light">☀️ 亮色</span>
+  </div>
+
+  <div class="hero-stats reveal d4">
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+      <span><span class="num">2</span> 套主题</span>
+    </span>
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      <span><span class="num">51</span> 组件适配</span>
+    </span>
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      <span><span class="num">5</span> 个提交</span>
+    </span>
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <span><span class="num">420+</span> 颜色替换</span>
+    </span>
+  </div>
+</section>
+
+<!-- ===== Highlights ===== -->
+<section id="highlights">
+  <h2 class="sec-title reveal">核心亮点</h2>
+  <p class="sec-sub reveal">四大方向,亮色主题落地 + 登录/发布稳定性提升</p>
+
+  <div class="hl-grid">
+    <div class="hl-card reveal" style="--card-color:var(--green);--card-bg:rgba(5,150,105,0.12)">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+      </div>
+      <h3>完整亮色主题</h3>
+      <p>styles/themes.scss 新增 dark/light 两套 CSS 变量(背景/文字/边框/叠加层/阴影),variables.scss 把 SCSS 变量映射到 CSS 变量,运行时实时切换;design-system.scss 的 Element Plus 变量也分两套。右上角图标按钮一键切换,localStorage 持久化记忆。</p>
+      <span class="tag">核心特性</span>
+    </div>
+
+    <div class="hl-card reveal" style="--card-color:var(--accent);--card-bg:rgba(37,99,235,0.1)">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </div>
+      <h3>51 组件主题感知改造</h3>
+      <p>对 51 个 .vue 组件机械整改 420+ 处硬编码颜色(写死的 #fff / rgba(0,0,0,0.3) 等)统一替换为 $text-primary / $bg-surface 等主题感知变量。亮色下不再出现文字发白看不清、卡片底色发灰等残留问题。</p>
+      <span class="tag">体验</span>
+    </div>
+
+    <div class="hl-card reveal" style="--card-color:var(--amber);--card-bg:rgba(217,119,6,0.12)">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.66 0 3.22.45 4.56 1.24"/></svg>
+      </div>
+      <h3>登录稳定性优化</h3>
+      <p>视频号登录去掉 30s 超时的二维码提取逻辑(它是登录页被自动关闭的元凶),改为打开 /login.html + 轮询 URL 判断成功;抖音登录改为纯 URL 变化监听。彻底消除"扫了码却被弹回登录"的体感问题。</p>
+      <span class="tag">稳定性</span>
+    </div>
+
+    <div class="hl-card reveal" style="--card-color:var(--pink);--card-bg:rgba(225,29,72,0.1)">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </div>
+      <h3>发布成功误判修复</h3>
+      <p>_browser.py 包装 browser.close 并新增 disarm 标志:发布成功后收尾自动关浏览器不再被误判为失败,而用户手动关浏览器仍按原逻辑正常判失败。一改之前"明明成功了却报红"的尴尬。</p>
+      <span class="tag">Bug 修复</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Features detail ===== -->
+<section id="features">
+  <h2 class="sec-title reveal">详细功能</h2>
+  <p class="sec-sub reveal">主题改造的具体落地与配套修复</p>
+
+  <div class="feat-list">
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>主题系统三层架构</h4>
+        <p><code>themes.scss</code> 定义 <code>html[data-theme="dark"]</code> / <code>[data-theme="light"]</code> 两套 CSS 变量; <code>variables.scss</code> 把 <code>$bg-base</code> / <code>$text-primary</code> 等映射到 CSS 变量,实现运行时切换; <code>design-system.scss</code> 覆盖 Element Plus 的 <code>--el-bg-color</code> / <code>--el-text-color-primary</code> 等,保证弹窗、表格、按钮全主题一致。</p>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>主题切换 + 持久化</h4>
+        <p><code>stores/app.js</code> 新增 <code>theme</code> 状态与 <code>toggleTheme()</code> action,写入 <code>localStorage('theme')</code> 并同步设置 <code>document.documentElement.dataset.theme</code>。 <code>App.vue</code> 右上角渲染图标按钮(☀️/🌙), <code>main.js</code> 启动时从 localStorage 读回主题,避免刷新闪一下默认深色。</p>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>硬编码颜色全面主题感知</h4>
+        <p>典型场景: BatchTagDialog 账号选中态文字由写死 <code>#fff</code> 改为 <code>$text-primary</code>; CoverCard 封面比例标签文字固定 <code>#fff</code>、预览区背景由写死 <code>rgba(0,0,0,0.3)</code> 改为 <code>$bg-surface</code>; AccountManagement 标题渐变改用 <code>$gradient-brand</code> 全站统一、筛选按钮选中态文字由 <code>#fff</code> 改为 <code>$brand-start</code>。亮色下文字清晰可辨。</p>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>标签弹窗中文输入修复</h4>
+        <p>TagPopover 在 IME 组合输入(compositionstart → compositionend)期间屏蔽 popover 的关闭逻辑,修复中文选词时弹层意外消失、输入中断的老问题。拼音/双拼用户终于能顺畅打标签。</p>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>视频号 / 抖音登录重写</h4>
+        <p>视频号 <code>login</code> 去掉 _extract_qrcode_src 等 4 个二维码提取函数(其 30s 超时是登录页被自动关的元凶), 改为打开 <code>/login.html</code> + 轮询 URL(跳到 <code>/platform/*</code> 即成功); <code>_is_login_completed</code> 改为纯 URL 判断,去掉 has-text 误判; <code>scrape_tencent_profile</code> 用 <code>wait_for(finder-card)</code> 取代固定 sleep。 抖音 <code>login</code> 去掉多余 <code>get_by_role(二维码).get_attribute</code>, 改为 <code>url_changed_event</code> 无超时监听。</p>
+      </div>
+    </div>
+  </div>
+
+<!-- ===== Platform optimization ===== -->
+<section id="platforms">
+  <h2 class="sec-title reveal">修复与优化清单</h2>
+  <p class="sec-sub reveal">本次提交覆盖的稳定性修复</p>
+
+  <div class="feat-list">
+    <div class="feat-item reveal">
+      <div class="feat-check">★</div>
+      <div class="feat-body">
+        <h4>发布收尾与误判修复</h4>
+        <p><code>_browser.py</code> 包装 <code>browser.close</code> 并新增 <code>disarm</code> 标志:发布成功后的收尾关浏览器调用先 disarm, 不再被监听器误判为"浏览器异常关闭 → 发布失败"。用户手动关浏览器时 disarm 未置位, 仍按原逻辑正常判失败。影响全部平台。</p>
+        <div class="pills"><span class="pill">_browser.py</span><span class="pill">全平台</span><span class="pill">收尾逻辑</span></div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">★</div>
+      <div class="feat-body">
+        <h4>图集发布预检误弹修复</h4>
+        <p>ImagePublish 补上遗漏的 <code>loadAccountCheckMode()</code> 加载检查模式设置, 预检条件增加 <code>accountCheckMode === 'pre-publish'</code> 守卫。修复「启动时检测」模式下图集发布仍强制弹出预检弹窗、与视频发布行为不一致的问题。</p>
+        <div class="pills"><span class="pill">ImagePublish</span><span class="pill">预检弹窗</span><span class="pill">图集发布</span></div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">★</div>
+      <div class="feat-body">
+        <h4>亮色残留细节打磨</h4>
+        <p>MaterialSelectDialog: 工具栏独立分段控件容器、卡片网格更紧凑、文件名+大小常驻、修复分页/搜索/footer 灰底; AccountSelectDialog 左中右区域背景主题感知; AccountManagement 导入弹窗搜索框加高、输入区背景修复; MaterialManagement 搜索框/图片视频切换背景修复; index.scss tooltip 排除全局 popper 覆盖保证对比度。PublishCenter 补 setting-card 间距。</p>
+        <div class="pills"><span class="pill">弹窗背景</span><span class="pill">tooltip</span><span class="pill">间距</span><span class="pill">搜索框</span></div>
+      </div>
+    </div>
+  </div>
+
+<!-- ===== Footer ===== -->
+<footer>
+  <div class="footer-mark">
+    <div class="brand-mark">千</div>
+    <span>千帆云递</span>
+  </div>
+  <div class="footer-meta">
+    v1.2.1 · 2026.07.15<br>
+    基于 <a href="https://github.com/dreammis/social-auto-upload" target="_blank">social-auto-upload</a> 二次开发 · MIT License
+  </div>
+</footer>
+
+<script>
+  // GSAP reveal animations
+  if (window.gsap && window.ScrollTrigger) {
+    gsap.registerPlugin(ScrollTrigger);
+    document.querySelectorAll('.reveal').forEach((el, i) => {
+      gsap.fromTo(el,
+        { y: 24, opacity: 0 },
+        {
+          y: 0, opacity: 1, duration: 0.7, ease: 'power2.out',
+          scrollTrigger: { trigger: el, start: 'top 88%' },
+          delay: (el.className.match(/d(\d)/) || [,0])[1] * 0.1,
+        }
+      );
+    });
+  } else {
+    // Fallback: show all
+    document.querySelectorAll('.reveal').forEach(el => { el.style.opacity = 1; });
+  }
+
+  // Topbar scroll style
+  const topbar = document.getElementById('topbar');
+  window.addEventListener('scroll', () => {
+    topbar.classList.toggle('scrolled', window.scrollY > 40);
+  }, { passive: true });
+</script>
+
+</body>
+</html>

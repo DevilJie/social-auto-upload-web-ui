@@ -76,30 +76,6 @@
           </el-select>
         </div>
       </div>
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-label">竖版封面比例</span>
-          <span class="setting-desc">封面裁剪编辑器中竖版封面的裁剪比例</span>
-        </div>
-        <div class="setting-control">
-          <el-select v-model="settings.portraitRatio" style="width: 120px">
-            <el-option label="9:16" value="9:16" />
-            <el-option label="3:4" value="3:4" />
-          </el-select>
-        </div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-label">横版封面比例</span>
-          <span class="setting-desc">封面裁剪编辑器中横版封面的裁剪比例</span>
-        </div>
-        <div class="setting-control">
-          <el-select v-model="settings.landscapeRatio" style="width: 120px">
-            <el-option label="16:9" value="16:9" />
-            <el-option label="4:3" value="4:3" />
-          </el-select>
-        </div>
-      </div>
     </div>
 
     <!-- 渠道黑名单 -->
@@ -463,8 +439,6 @@ const settings = reactive({
   autoSaveDraft: true,
   autoSaveInterval: 10,
   accountCheckMode: 'pre-publish',
-  portraitRatio: '9:16',
-  landscapeRatio: '16:9',
   storage: {
     type: 'local',
     s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
@@ -522,8 +496,6 @@ const fetchSettings = async () => {
       if (res.data.autoSaveDraft !== undefined) settings.autoSaveDraft = res.data.autoSaveDraft
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
-      if (res.data.portraitRatio !== undefined) settings.portraitRatio = res.data.portraitRatio
-      if (res.data.landscapeRatio !== undefined) settings.landscapeRatio = res.data.landscapeRatio
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }
@@ -564,14 +536,10 @@ const handleSave = async () => {
       autoSaveDraft: settings.autoSaveDraft,
       autoSaveInterval: settings.autoSaveInterval,
       accountCheckMode: settings.accountCheckMode,
-      portraitRatio: settings.portraitRatio,
-      landscapeRatio: settings.landscapeRatio,
       storage: settings.storage,
       feedbackEmail: settings.feedbackEmail,
     })
     if (res.code === 200) {
-      appStore.setPortraitRatio(settings.portraitRatio)
-      appStore.setLandscapeRatio(settings.landscapeRatio)
       // 同步到 Pinia store + localStorage(之前漏了这三项,导致开关不生效)
       appStore.setAutoFillTitle(settings.autoFillTitle)
       appStore.setAutoSaveDraft(settings.autoSaveDraft)

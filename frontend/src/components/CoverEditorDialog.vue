@@ -10,12 +10,12 @@
   >
 
     <div class="cover-editor-body">
-      <div class="editor-main">
-        <!-- Crop area -->
+      <!-- 左侧：裁剪画布（主体） -->
+      <div class="editor-crop">
         <div class="crop-area">
           <div v-if="!currentImageSrc" class="crop-empty">
             <el-icon :size="32"><Picture /></el-icon>
-            <span>选择时间轴帧、上传图片或从素材库选取</span>
+            <span>选择右侧时间轴帧、上传图片或从素材库选取</span>
           </div>
           <div
             v-else
@@ -31,30 +31,50 @@
             <div class="crop-hint">滚轮缩放 · 拖动移动</div>
           </div>
         </div>
+      </div>
+
+      <!-- 右侧：尺寸 tab + 时间轴 + 操作（侧栏） -->
+      <div class="editor-sidebar">
+        <!-- 尺寸 tab -->
+        <div class="sidebar-block">
+          <div class="sidebar-label">封面尺寸</div>
+          <div class="ratio-tabs">
+            <button
+              v-for="r in ratioTabs"
+              :key="r"
+              :class="['ratio-tab', { active: activeTab === r }]"
+              @click="switchTab(r)"
+            >{{ r }}</button>
+          </div>
+        </div>
 
         <!-- Timeline -->
-        <div class="timeline-section" v-if="frames.length > 0">
-          <div class="section-label-row">
-            <span class="section-label-text">视频时间轴</span>
-            <span class="section-label-hint">拖动选择帧画面</span>
+        <div class="sidebar-block" v-if="frames.length > 0">
+          <div class="sidebar-label">
+            视频时间轴
+            <span class="sidebar-hint">拖动选帧</span>
           </div>
           <VideoTimeline :frames="frames" :duration="videoDuration" :extracting="extracting" v-model="selectedSecond" @update:modelValue="onTimelineSelect" />
         </div>
 
-        <!-- Upload + Material Library buttons -->
-        <div class="editor-actions">
-          <button class="action-btn action-upload" @click="triggerLocalUpload">
-            <el-icon :size="18"><Upload /></el-icon>
-            <span>上传图片</span>
-          </button>
-          <button class="action-btn action-material" @click="materialSelectRef?.open()">
-            <el-icon :size="18"><PictureFilled /></el-icon>
-            <span>素材库</span>
-          </button>
+        <!-- 图片来源 -->
+        <div class="sidebar-block">
+          <div class="sidebar-label">图片来源</div>
+          <div class="editor-actions">
+            <button class="action-btn action-upload" @click="triggerLocalUpload">
+              <el-icon :size="16"><Upload /></el-icon>
+              <span>上传图片</span>
+            </button>
+            <button class="action-btn action-material" @click="materialSelectRef?.open()">
+              <el-icon :size="16"><PictureFilled /></el-icon>
+              <span>素材库</span>
+            </button>
+          </div>
         </div>
-        <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
-        <MaterialSelectDialog ref="materialSelectRef" filter-type="image" @select="onMaterialSelect" />
       </div>
+
+      <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
+      <MaterialSelectDialog ref="materialSelectRef" filter-type="image" @select="onMaterialSelect" />
     </div>
 
     <template #footer>
@@ -81,16 +101,29 @@ import MaterialSelectDialog from './MaterialSelectDialog.vue'
 const props = defineProps({
   videoLandscape: { type: Object, default: null },
   videoPortrait: { type: Object, default: null },
-  coverLandscape: { type: Object, default: null },
-  coverPortrait: { type: Object, default: null },
-  portraitRatio: { type: String, default: '9:16' },
-  landscapeRatio: { type: String, default: '16:9' },
+  // 当前弹窗方向：'landscape'（横版）或 'portrait'（竖版）
+  orientation: { type: String, default: 'landscape' },
+  // 主尺寸封面（横版=4:3，竖版=3:4）
+  coverPrimary: { type: Object, default: null },
+  // 次尺寸封面（横版=16:9，竖版=9:16）
+  coverSecondary: { type: Object, default: null },
 })
 
-const emit = defineEmits(['update:coverLandscape', 'update:coverPortrait'])
+const emit = defineEmits(['update:coverPrimary', 'update:coverSecondary'])
 
 const visible = ref(false)
-const activeTab = ref('landscape')
+// activeTab 现在是比例字符串（如 '4:3' / '16:9'）
+const activeTab = ref('4:3')
+// 当前编辑方向（由 open(orientation) 同步设置，不依赖 props 异步更新，避免切换横竖版时 ratio 错乱）
+const activeOrientation = ref('landscape')
+
+// 根据方向决定两个尺寸 tab
+const ratioTabs = computed(() =>
+  activeOrientation.value === 'portrait' ? ['3:4', '9:16'] : ['4:3', '16:9']
+)
+// 主尺寸对应的 ratio（第一个 tab）
+const primaryRatio = computed(() => ratioTabs.value[0])
+const secondaryRatio = computed(() => ratioTabs.value[1])
 
 const frames = ref([])
 const videoDuration = ref(0)
@@ -111,16 +144,14 @@ const imgZoom = ref(1)     // 图片在 canvas 上的额外缩放（>=1）
 const imgOffset = reactive({ x: 0, y: 0 }) // 图片在 canvas 显示像素空间的偏移
 const dragState = ref(null)
 
-const tabState = reactive({
-  landscape: { imageSrc: '', zoom: 1, offset: { x: 0, y: 0 } },
-  portrait: { imageSrc: '', zoom: 1, offset: { x: 0, y: 0 } },
-})
+// tabState 按比例为 key（动态生成）
+const tabState = reactive({})
 
-const currentRatioLabel = computed(() => activeTab.value === 'portrait' ? props.portraitRatio : props.landscapeRatio)
+const currentRatioLabel = computed(() => activeTab.value)
 
 const aspectRatio = computed(() => {
   const [w, h] = currentRatioLabel.value.split(':').map(Number)
-  return activeTab.value === 'portrait' ? w / h : w / h
+  return w / h
 })
 
 // 裁剪框固定居中（canvas 显示像素空间）；canvas 用 transform 平移/缩放图片
@@ -143,11 +174,25 @@ const canvasStyle = computed(() => ({
   transformOrigin: '0 0',
 }))
 
-function open(tab = 'landscape') {
-  activeTab.value = tab
+function open(orientation) {
+  // 同步设置方向（不依赖 props 异步更新，避免切换横↔竖版时 ratio/裁剪框错乱）
+  activeOrientation.value = orientation || 'landscape'
+  // 每次打开都重置内部状态，避免上一次（可能是另一个方向）的残留：
+  // tabState / 当前图片 / canvas 都要清空，否则切换横↔竖版会显示旧封面图
+  Object.keys(tabState).forEach((k) => delete tabState[k])
+  currentImageSrc.value = ''
+  cropImage.value = null
+  imgZoom.value = 1
+  imgOffset.x = 0
+  imgOffset.y = 0
+  cropRect.x = cropRect.y = cropRect.w = cropRect.h = 0
+  // 默认选中主尺寸 tab（第一个）；activeOrientation 已同步设置，ratioTabs 立即正确
+  activeTab.value = primaryRatio.value
   visible.value = true
   loadFrames()
-  loadTabState()
+  // 等 el-dialog 打开、canvas DOM 挂载后再加载图片与裁剪框，
+  // 否则 initCropCanvas 拿不到 canvas，裁剪框初始化异常
+  nextTick(() => loadTabState())
 }
 
 function currentVideoMaterialId() {
@@ -204,13 +249,22 @@ function stopPolling() {
   }
 }
 
+// 当前 activeTab(ratio)对应的封面 prop
+function coverForTab(ratio) {
+  return ratio === secondaryRatio.value ? props.coverSecondary : props.coverPrimary
+}
+
 function loadTabState() {
+  // 确保 tabState 有当前 ratio 的槽位
+  if (!tabState[activeTab.value]) {
+    tabState[activeTab.value] = { imageSrc: '', zoom: 1, offset: { x: 0, y: 0 } }
+  }
   const state = tabState[activeTab.value]
   if (state.imageSrc) {
     currentImageSrc.value = state.imageSrc
     loadImageToCanvas(state.imageSrc, { zoom: state.zoom, offset: state.offset })
   } else {
-    const cover = activeTab.value === 'landscape' ? props.coverLandscape : props.coverPortrait
+    const cover = coverForTab(activeTab.value)
     if (cover?.url) {
       let src = cover.url
       if (cover._fromFrame !== undefined) {
@@ -229,6 +283,9 @@ function loadTabState() {
 }
 
 function saveTabState() {
+  if (!tabState[activeTab.value]) {
+    tabState[activeTab.value] = { imageSrc: '', zoom: 1, offset: { x: 0, y: 0 } }
+  }
   const state = tabState[activeTab.value]
   state.imageSrc = currentImageSrc.value
   state.zoom = imgZoom.value
@@ -381,8 +438,9 @@ async function confirmCrop() {
   const img = cropImage.value
   if (!img) { ElMessage.warning('请先选择一张图片'); return }
   const [rw, rh] = currentRatioLabel.value.split(':').map(Number)
+  // 输出尺寸：横版长边在宽(1920)，竖版长边在高(1920)
   let targetW, targetH
-  if (activeTab.value === 'portrait') {
+  if (activeOrientation.value === 'portrait') {
     targetH = 1920
     targetW = Math.round(1920 * rw / rh)
   } else {
@@ -410,16 +468,17 @@ async function confirmCrop() {
   const blob = await new Promise(resolve => offscreen.toBlob(resolve, 'image/jpeg', 0.92))
   if (!blob) { ElMessage.error('裁剪导出失败'); return }
   const formData = new FormData()
-  formData.append('file', blob, `cover_${activeTab.value}_${Date.now()}.jpg`)
+  formData.append('file', blob, `cover_${activeOrientation.value}_${activeTab.value.replace(':', 'x')}_${Date.now()}.jpg`)
   try {
     // 用封面专用接口：写入 covers/ 目录，不入素材库（materials 表）
     const resp = await materialsApi.coversUpload(formData)
     if (resp.code === 200) {
       const d = resp.data
       const coverData = { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
-      if (activeTab.value === 'portrait') emit('update:coverPortrait', coverData)
-      else emit('update:coverLandscape', coverData)
-      ElMessage.success('封面设置成功')
+      // 当前 tab 是次尺寸 → 更新 secondary，否则更新 primary
+      const isSecondary = activeTab.value === secondaryRatio.value
+      emit(isSecondary ? 'update:coverSecondary' : 'update:coverPrimary', coverData)
+      ElMessage.success(`${activeTab.value} 封面设置成功`)
       visible.value = false
     } else { ElMessage.error(resp.msg || '上传失败') }
   } catch { ElMessage.error('封面上传失败') }
@@ -428,8 +487,8 @@ async function confirmCrop() {
 function onClosed() {
   stopPolling()
   frames.value = []; videoDuration.value = 0; currentImageSrc.value = ''; cropImage.value = null; extracting.value = false
-  tabState.landscape = { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } }
-  tabState.portrait = { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } }
+  // 清空所有动态 ratio tab 槽位
+  Object.keys(tabState).forEach((k) => delete tabState[k])
 }
 
 defineExpose({ open })
@@ -468,7 +527,7 @@ defineExpose({ open })
   .el-dialog__footer {
     border-top: 1px solid $border;
     padding: 14px 24px;
-    background: rgba(0, 0, 0, 0.15);
+    background: rgba($bg-elevated-rgb, 0.04);
   }
 }
 </style>
@@ -479,9 +538,26 @@ defineExpose({ open })
 
 .cover-editor-body {
   display: flex;
-  gap: 0;
-  padding: 20px 24px;
-  max-height: 70vh;
+  gap: 16px;
+  padding: 16px 20px;
+  max-height: 72vh;
+  overflow: hidden;
+}
+
+// 左侧裁剪区：占满剩余宽度
+.editor-crop {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+// 右侧侧栏：固定宽度，纵向堆叠
+.editor-sidebar {
+  flex-shrink: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba($overlay-rgb, 0.08) transparent;
@@ -489,40 +565,59 @@ defineExpose({ open })
   &::-webkit-scrollbar-thumb { background: rgba($overlay-rgb, 0.1); border-radius: 2px; }
 }
 
-.editor-main {
-  flex: 1;
-  min-width: 0;
+.sidebar-block {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
-
-.section-label-row {
+.sidebar-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
-
-  .section-label-text {
-    font-size: 12px;
-    font-weight: 500;
-    color: $text-secondary;
-  }
-  .section-label-hint {
-    font-size: 11px;
-    color: $text-muted;
-  }
+  font-size: 12px;
+  font-weight: 600;
+  color: $text-secondary;
+}
+.sidebar-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: $text-muted;
 }
 
-.timeline-section {
-  overflow: hidden;
+// 尺寸 tab（侧栏内，撑满宽度）
+.ratio-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  background: rgba($overlay-rgb, 0.04);
+  border: 1px solid $border;
+  border-radius: 9px;
+}
+.ratio-tab {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: $text-muted;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  &:hover { color: $text-primary; }
+  &.active {
+    background: $gradient-brand;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba($brand-start, 0.35);
+  }
 }
 
 .crop-area {
-  background: $bg-base;
+  flex: 1;
+  background: $bg-surface;
   border: 1px solid $border;
   border-radius: $radius-base;
-  min-height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -593,19 +688,21 @@ defineExpose({ open })
 
 .editor-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .action-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  border-radius: 10px;
+  padding: 9px 14px;
+  border-radius: 8px;
   border: 1px solid $border;
   background: rgba($overlay-rgb, 0.04);
   color: $text-secondary;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -614,10 +711,6 @@ defineExpose({ open })
     border-color: $border-active;
     color: $text-primary;
     background: rgba($overlay-rgb, 0.08);
-  }
-
-  .el-icon {
-    font-size: 18px;
   }
 }
 

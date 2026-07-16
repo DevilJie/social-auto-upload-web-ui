@@ -99,6 +99,8 @@ def merge_config(common, platform_default, platform_ov, account_ov):
     # 4 级字段（common 兜底）
     cover_landscape = _first_truthy(account_ov.get('coverLandscape'), platform_ov.get('coverLandscape'), common.get('coverLandscape'))
     cover_portrait = _first_truthy(account_ov.get('coverPortrait'), platform_ov.get('coverPortrait'), common.get('coverPortrait'))
+    cover_landscape_169 = _first_truthy(account_ov.get('coverLandscape169'), platform_ov.get('coverLandscape169'), common.get('coverLandscape169'))
+    cover_portrait_916 = _first_truthy(account_ov.get('coverPortrait916'), platform_ov.get('coverPortrait916'), common.get('coverPortrait916'))
     video_landscape = _first_truthy(account_ov.get('videoLandscape'), platform_ov.get('videoLandscape'), common.get('videoLandscape'))
     video_portrait = _first_truthy(account_ov.get('videoPortrait'), platform_ov.get('videoPortrait'), common.get('videoPortrait'))
 
@@ -133,6 +135,8 @@ def merge_config(common, platform_default, platform_ov, account_ov):
         'tags': tags,
         'coverLandscape': cover_landscape,
         'coverPortrait': cover_portrait,
+        'coverLandscape169': cover_landscape_169,
+        'coverPortrait916': cover_portrait_916,
         'videoLandscape': video_landscape,
         'videoPortrait': video_portrait,
         'videoFormat': video_format,

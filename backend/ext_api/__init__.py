@@ -710,8 +710,6 @@ def get_settings():
             "autoSaveDraft": "true",
             "autoSaveInterval": "10",
             "accountCheckMode": "pre-publish",
-            "portraitRatio": "9:16",
-            "landscapeRatio": "16:9",
         }
         defaults.update(settings)
         # 转换布尔值类型

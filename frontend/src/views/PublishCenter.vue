@@ -81,7 +81,7 @@
             <div class="cover-grid">
               <CoverCard
                 label="竖版封面"
-                :ratio-label="appStore.portraitRatio"
+                ratio-label="3:4 · 9:16"
                 v-model="currentEditTarget.coverPortrait"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
                 @edit="openCoverEditor('portrait')"
@@ -89,7 +89,7 @@
               />
               <CoverCard
                 label="横版封面"
-                :ratio-label="appStore.landscapeRatio"
+                ratio-label="4:3 · 16:9"
                 v-model="currentEditTarget.coverLandscape"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
                 @edit="openCoverEditor('landscape')"
@@ -100,14 +100,13 @@
 
           <CoverEditorDialog
             ref="coverEditorRef"
+            :orientation="coverEditOrientation"
             :video-landscape="editorSource.videoLandscape"
             :video-portrait="editorSource.videoPortrait"
-            :cover-landscape="editorSource.coverLandscape"
-            :cover-portrait="editorSource.coverPortrait"
-            :portrait-ratio="appStore.portraitRatio"
-            :landscape-ratio="appStore.landscapeRatio"
-            @update:cover-landscape="onEditorUpdate({coverLandscape: $event})"
-            @update:cover-portrait="onEditorUpdate({coverPortrait: $event})"
+            :cover-primary="editorSource.coverPrimary"
+            :cover-secondary="editorSource.coverSecondary"
+            @update:cover-primary="onEditorUpdate({ coverPrimary: $event })"
+            @update:cover-secondary="onEditorUpdate({ coverSecondary: $event })"
           />
         </div>
 
@@ -614,7 +613,6 @@ const appStore = useAppStore()
 appStore.loadAutoFillTitle()
 appStore.loadAccountCheckMode()
 appStore.loadAutoSaveSettings()
-appStore.loadCoverRatioSettings()
 const route = useRoute()
 
 // ========== Left Sidebar State ==========
@@ -653,8 +651,10 @@ const currentPlatformConfig = computed(() =>
 const commonConfig = reactive({
   videoLandscape: null,
   videoPortrait: null,
-  coverLandscape: null,
-  coverPortrait: null,
+  coverLandscape: null,      // 横版封面 4:3（主尺寸）
+  coverPortrait: null,       // 竖版封面 3:4（主尺寸）
+  coverLandscape169: null,   // 横版封面 16:9（次尺寸，后续各平台按需使用）
+  coverPortrait916: null,    // 竖版封面 9:16（次尺寸）
 })
 
 // 平台级覆写（spec §3.3）—— 公共区域的媒体字段覆写
@@ -678,7 +678,7 @@ function hasPlatformOverrideContent(platformKey) {
   const ov = platformOverrides[platformKey]
   if (!ov) return false
   return !!(
-    ov.coverPortrait || ov.coverLandscape ||
+    ov.coverPortrait || ov.coverLandscape || ov.coverLandscape169 || ov.coverPortrait916 ||
     ov.videoPortrait  || ov.videoLandscape
   )
 }
@@ -687,7 +687,7 @@ function hasAccountOverrideContent(accountId) {
   const ov = accountOverrides[accountId]
   if (!ov) return false
   return !!(
-    ov.coverPortrait || ov.coverLandscape ||
+    ov.coverPortrait || ov.coverLandscape || ov.coverLandscape169 || ov.coverPortrait916 ||
     ov.videoPortrait  || ov.videoLandscape
   )
 }
@@ -707,6 +707,7 @@ function onPlatformCheckChange(checked) {
   } else if (checked) {
     platformOverrides[selectedPlatform.value] = {
       coverPortrait: null, coverLandscape: null,
+      coverLandscape169: null, coverPortrait916: null,
       videoPortrait: null, videoLandscape: null,
     }
   }
@@ -725,6 +726,7 @@ function onAccountCheckChange(checked) {
   } else if (checked) {
     accountOverrides[selectedAccountId.value] = {
       coverPortrait: null, coverLandscape: null,
+      coverLandscape169: null, coverPortrait916: null,
       videoPortrait: null, videoLandscape: null,
     }
   }
@@ -748,6 +750,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 视频/封面走 4 级合并 → commonConfig 兜底
     coverLandscape: accountOv?.coverLandscape ?? platformOv?.coverLandscape ?? common.coverLandscape,
     coverPortrait:  accountOv?.coverPortrait  ?? platformOv?.coverPortrait  ?? common.coverPortrait,
+    coverLandscape169: accountOv?.coverLandscape169 ?? platformOv?.coverLandscape169 ?? common.coverLandscape169,
+    coverPortrait916:  accountOv?.coverPortrait916  ?? platformOv?.coverPortrait916  ?? common.coverPortrait916,
     videoLandscape: accountOv?.videoLandscape ?? platformOv?.videoLandscape ?? common.videoLandscape,
     videoPortrait:  accountOv?.videoPortrait  ?? platformOv?.videoPortrait  ?? common.videoPortrait,
     // 平台特有字段走 platformDefault 兜底
@@ -824,20 +828,32 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
 
 // ========== Override Section: CoverEditor source/target ==========
 // 公共区域的 CoverEditor 永远跟随 currentEditTarget（默认=commonConfig, 勾选时=覆写对象）
+// coverEditOrientation 记录当前打开的是横版还是竖版弹窗
+const coverEditOrientation = ref('landscape')
 const editorSource = computed(() => {
   const t = currentEditTarget.value
+  const isLandscape = coverEditOrientation.value === 'landscape'
   return {
     videoLandscape: t?.videoLandscape,
     videoPortrait:  t?.videoPortrait,
-    coverLandscape: t?.coverLandscape,
-    coverPortrait:  t?.coverPortrait,
+    // 横版：主尺寸=coverLandscape(4:3)，次尺寸=coverLandscape169(16:9)
+    // 竖版：主尺寸=coverPortrait(3:4)，次尺寸=coverPortrait916(9:16)
+    coverPrimary:   isLandscape ? t?.coverLandscape    : t?.coverPortrait,
+    coverSecondary: isLandscape ? t?.coverLandscape169 : t?.coverPortrait916,
   }
 })
 
-function onEditorUpdate({ coverLandscape, coverPortrait }) {
+function onEditorUpdate({ coverPrimary, coverSecondary }) {
   const t = currentEditTarget.value
-  if (coverLandscape) t.coverLandscape = coverLandscape
-  if (coverPortrait)  t.coverPortrait  = coverPortrait
+  const isLandscape = coverEditOrientation.value === 'landscape'
+  if (coverPrimary) {
+    if (isLandscape) t.coverLandscape = coverPrimary
+    else t.coverPortrait = coverPrimary
+  }
+  if (coverSecondary) {
+    if (isLandscape) t.coverLandscape169 = coverSecondary
+    else t.coverPortrait916 = coverSecondary
+  }
 }
 
 // Cover editor
@@ -1381,8 +1397,9 @@ function clearVideo() {
 
 // ========== Cover Editor ==========
 
-function openCoverEditor(tab = 'landscape') {
-  coverEditorRef.value?.open(tab)
+function openCoverEditor(orientation = 'landscape') {
+  coverEditOrientation.value = orientation
+  coverEditorRef.value?.open(orientation)
 }
 
 function triggerFrameExtraction(videoData, type) {
@@ -1536,6 +1553,12 @@ async function saveDraft() {
         coverPortrait: commonConfig.coverPortrait
           ? { id: commonConfig.coverPortrait.id, name: commonConfig.coverPortrait.name, stored_path: commonConfig.coverPortrait.stored_path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type, _fromFrame: commonConfig.coverPortrait._fromFrame }
           : null,
+        coverLandscape169: commonConfig.coverLandscape169
+          ? { id: commonConfig.coverLandscape169.id, name: commonConfig.coverLandscape169.name, stored_path: commonConfig.coverLandscape169.stored_path, url: commonConfig.coverLandscape169.url, size: commonConfig.coverLandscape169.size, type: commonConfig.coverLandscape169.type, _fromFrame: commonConfig.coverLandscape169._fromFrame }
+          : null,
+        coverPortrait916: commonConfig.coverPortrait916
+          ? { id: commonConfig.coverPortrait916.id, name: commonConfig.coverPortrait916.name, stored_path: commonConfig.coverPortrait916.stored_path, url: commonConfig.coverPortrait916.url, size: commonConfig.coverPortrait916.size, type: commonConfig.coverPortrait916.type, _fromFrame: commonConfig.coverPortrait916._fromFrame }
+          : null,
       },
       platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
       platformOverrides: JSON.parse(JSON.stringify(platformOverrides)),
@@ -1591,6 +1614,16 @@ async function restoreDraft(draftId) {
         const v = dd.commonConfig.coverPortrait
         if (v.stored_path) v.url = getFileUrl(v.stored_path)
         commonConfig.coverPortrait = v
+      }
+      if (dd.commonConfig.coverLandscape169) {
+        const v = dd.commonConfig.coverLandscape169
+        if (v.stored_path) v.url = getFileUrl(v.stored_path)
+        commonConfig.coverLandscape169 = v
+      }
+      if (dd.commonConfig.coverPortrait916) {
+        const v = dd.commonConfig.coverPortrait916
+        if (v.stored_path) v.url = getFileUrl(v.stored_path)
+        commonConfig.coverPortrait916 = v
       }
     }
 

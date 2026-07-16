@@ -132,10 +132,10 @@ function open(tab = 'landscape') {
 }
 
 function currentVideoMaterialId() {
-  if (activeTab.value === 'landscape') {
-    return props.videoLandscape?.id || props.videoPortrait?.id || ''
-  }
-  return props.videoPortrait?.id || props.videoLandscape?.id || ''
+  // 视频上传已不区分横竖版（统一写入 videoLandscape），
+  // 这里不再按 activeTab 区分，统一取可用视频 id（横版优先，竖版兜底），
+  // 避免旧草稿里残留的已失效 videoPortrait.id 被优先命中导致抽帧 404。
+  return props.videoLandscape?.id || props.videoPortrait?.id || ''
 }
 
 async function loadFrames() {
@@ -380,7 +380,8 @@ async function confirmCrop() {
   const formData = new FormData()
   formData.append('file', blob, `cover_${activeTab.value}_${Date.now()}.jpg`)
   try {
-    const resp = await materialsApi.upload(formData)
+    // 用封面专用接口：写入 covers/ 目录，不入素材库（materials 表）
+    const resp = await materialsApi.coversUpload(formData)
     if (resp.code === 200) {
       const d = resp.data
       const coverData = { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }

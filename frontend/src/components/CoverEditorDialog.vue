@@ -109,11 +109,9 @@ const props = defineProps({
   coverSecondary: { type: Object, default: null },
 })
 
-const emit = defineEmits(['update:coverPrimary', 'update:coverSecondary'])
+const emit = defineEmits(['coverSaved'])
 
 const visible = ref(false)
-// activeTab 现在是比例字符串（如 '4:3' / '16:9'）
-const activeTab = ref('4:3')
 // 当前编辑方向（由 open(orientation) 同步设置，不依赖 props 异步更新，避免切换横竖版时 ratio 错乱）
 const activeOrientation = ref('landscape')
 
@@ -135,19 +133,18 @@ const cropCanvasRef = ref(null)
 const canvasWrapRef = ref(null)
 const fileInputRef = ref(null)
 const materialSelectRef = ref(null)
-const cropImage = ref(null)
-const currentImageSrc = ref('')
-const cropDisplayScale = ref(1)
-// 裁剪框固定（居中、撑满最大、锁定比例）；图片可缩放可平移
-const cropRect = reactive({ x: 0, y: 0, w: 0, h: 0 }) // 图片像素空间的裁剪源矩形
-const imgZoom = ref(1)     // 图片在 canvas 上的额外缩放（>=1）
-const imgOffset = reactive({ x: 0, y: 0 }) // 图片在 canvas 显示像素空间的偏移
 const dragState = ref(null)
 
-// tabState 按比例为 key（动态生成）
-const tabState = reactive({})
+// 每个 ratio 一个独立的裁剪面板状态（图片源、缩放、偏移各自隔离）
+// panels: { '4:3': { imageSrc, img, zoom, offset, displayScale, cropRect }, ... }
+const panels = reactive({})
+const activeTab = ref('4:3')
+
+// 当前激活面板（便捷访问）
+const activePanel = computed(() => panels[activeTab.value])
 
 const currentRatioLabel = computed(() => activeTab.value)
+const currentImageSrc = computed(() => activePanel.value?.imageSrc || '')
 
 const aspectRatio = computed(() => {
   const [w, h] = currentRatioLabel.value.split(':').map(Number)
@@ -156,8 +153,10 @@ const aspectRatio = computed(() => {
 
 // 裁剪框固定居中（canvas 显示像素空间）；canvas 用 transform 平移/缩放图片
 const cropSelectionStyle = computed(() => {
-  const cw = cropRect.w * cropDisplayScale.value
-  const ch = cropRect.h * cropDisplayScale.value
+  const p = activePanel.value
+  if (!p) return { left: 0, top: 0, width: 0, height: 0 }
+  const cw = p.cropRect.w * p.displayScale
+  const ch = p.cropRect.h * p.displayScale
   const canvas = cropCanvasRef.value
   const cwTotal = canvas ? canvas.width : cw
   const chTotal = canvas ? canvas.height : ch
@@ -169,36 +168,30 @@ const cropSelectionStyle = computed(() => {
   }
 })
 
-const canvasStyle = computed(() => ({
-  transform: `translate(${imgOffset.x}px, ${imgOffset.y}px) scale(${imgZoom.value})`,
-  transformOrigin: '0 0',
-}))
+const canvasStyle = computed(() => {
+  const p = activePanel.value
+  if (!p) return { transform: 'none', transformOrigin: '0 0' }
+  return {
+    transform: `translate(${p.offset.x}px, ${p.offset.y}px) scale(${p.zoom})`,
+    transformOrigin: '0 0',
+  }
+})
 
 function open(orientation) {
-  // 同步设置方向（不依赖 props 异步更新，避免切换横↔竖版时 ratio/裁剪框错乱）
   activeOrientation.value = orientation || 'landscape'
-  // 每次打开都重置内部状态，避免上一次（可能是另一个方向）的残留：
-  // tabState / 当前图片 / canvas 都要清空，否则切换横↔竖版会显示旧封面图
-  Object.keys(tabState).forEach((k) => delete tabState[k])
-  currentImageSrc.value = ''
-  cropImage.value = null
-  imgZoom.value = 1
-  imgOffset.x = 0
-  imgOffset.y = 0
-  cropRect.x = cropRect.y = cropRect.w = cropRect.h = 0
-  // 默认选中主尺寸 tab（第一个）；activeOrientation 已同步设置，ratioTabs 立即正确
+  // 重置：每个 ratio 一个独立面板
+  Object.keys(panels).forEach((k) => delete panels[k])
+  ratioTabs.value.forEach((r) => {
+    panels[r] = { imageSrc: '', img: null, zoom: 1, offset: { x: 0, y: 0 }, displayScale: 1, cropRect: { x: 0, y: 0, w: 0, h: 0 } }
+  })
   activeTab.value = primaryRatio.value
   visible.value = true
   loadFrames()
-  // 等 el-dialog 打开、canvas DOM 挂载后再加载图片与裁剪框，
-  // 否则 initCropCanvas 拿不到 canvas，裁剪框初始化异常
-  nextTick(() => loadTabState())
+  // 等 canvas 挂载后，为已有 cover 的面板加载图片
+  nextTick(() => ratioTabs.value.forEach((r) => maybeLoadPanelCover(r)))
 }
 
 function currentVideoMaterialId() {
-  // 视频上传已不区分横竖版（统一写入 videoLandscape），
-  // 这里不再按 activeTab 区分，统一取可用视频 id（横版优先，竖版兜底），
-  // 避免旧草稿里残留的已失效 videoPortrait.id 被优先命中导致抽帧 404。
   return props.videoLandscape?.id || props.videoPortrait?.id || ''
 }
 
@@ -249,110 +242,91 @@ function stopPolling() {
   }
 }
 
-// 当前 activeTab(ratio)对应的封面 prop
+// 当前 ratio 对应的封面 prop（用于打开时回填已有封面）
 function coverForTab(ratio) {
   return ratio === secondaryRatio.value ? props.coverSecondary : props.coverPrimary
 }
 
-function loadTabState() {
-  // 确保 tabState 有当前 ratio 的槽位
-  if (!tabState[activeTab.value]) {
-    tabState[activeTab.value] = { imageSrc: '', zoom: 1, offset: { x: 0, y: 0 } }
-  }
-  const state = tabState[activeTab.value]
-  if (state.imageSrc) {
-    currentImageSrc.value = state.imageSrc
-    loadImageToCanvas(state.imageSrc, { zoom: state.zoom, offset: state.offset })
-  } else {
-    const cover = coverForTab(activeTab.value)
-    if (cover?.url) {
-      let src = cover.url
-      if (cover._fromFrame !== undefined) {
-        const materialId = currentVideoMaterialId()
-        if (materialId) {
-          src = frameApi.getFrameImageUrl(materialId, cover._fromFrame, false)
-        }
-      }
-      currentImageSrc.value = src
-      loadImageToCanvas(src)
-    } else {
-      currentImageSrc.value = ''
-      cropImage.value = null
+// 若该面板还没有图、但已有 cover，则加载 cover 图
+function maybeLoadPanelCover(ratio) {
+  const p = panels[ratio]
+  if (!p || p.imageSrc) return
+  const cover = coverForTab(ratio)
+  if (cover?.url) {
+    let src = cover.url
+    if (cover._fromFrame !== undefined) {
+      const materialId = currentVideoMaterialId()
+      if (materialId) src = frameApi.getFrameImageUrl(materialId, cover._fromFrame, false)
     }
+    loadImageToPanel(ratio, src)
   }
 }
 
-function saveTabState() {
-  if (!tabState[activeTab.value]) {
-    tabState[activeTab.value] = { imageSrc: '', zoom: 1, offset: { x: 0, y: 0 } }
-  }
-  const state = tabState[activeTab.value]
-  state.imageSrc = currentImageSrc.value
-  state.zoom = imgZoom.value
-  state.offset = { x: imgOffset.x, y: imgOffset.y }
-}
-
+// 切换 tab：直接切 activeTab，把该面板的图重画到 canvas
 function switchTab(tab) {
-  saveTabState()
+  if (tab === activeTab.value) return
   activeTab.value = tab
-  loadTabState()
+  nextTick(() => redrawActivePanel())
 }
 
-function loadImageToCanvas(src, restore) {
+// 为某面板加载图片
+function loadImageToPanel(ratio, src) {
+  const p = panels[ratio]
+  if (!p) return
+  p.imageSrc = src
   const img = new Image()
   img.crossOrigin = 'anonymous'
   img.onload = () => {
-    cropImage.value = img
-    nextTick(() => initCropCanvas(img, restore))
+    p.img = img
+    initPanelCropRect(ratio, img)
+    if (ratio === activeTab.value) nextTick(() => redrawActivePanel())
   }
   img.src = src
 }
 
-function initCropCanvas(img, restore) {
+// 计算某面板的裁剪框（居中、撑满最大、锁定该 ratio）
+function initPanelCropRect(ratio, img) {
+  const p = panels[ratio]
+  if (!p) return
+  const [w, h] = ratio.split(':').map(Number)
+  const r = w / h
+  let rw = img.width
+  let rh = rw / r
+  if (rh > img.height) { rh = img.height; rw = rh * r }
+  p.cropRect.x = (img.width - rw) / 2
+  p.cropRect.y = (img.height - rh) / 2
+  p.cropRect.w = rw
+  p.cropRect.h = rh
+  p.zoom = 1
+  p.offset.x = 0
+  p.offset.y = 0
+}
+
+// 把当前激活面板的图重画到 canvas
+function redrawActivePanel() {
   const canvas = cropCanvasRef.value
-  if (!canvas) return
+  const p = activePanel.value
+  if (!canvas || !p || !p.img) return
   const maxW = 520
   const maxH = 380
-  const scale = Math.min(maxW / img.width, maxH / img.height, 1)
-  cropDisplayScale.value = scale
-  canvas.width = img.width * scale
-  canvas.height = img.height * scale
+  const scale = Math.min(maxW / p.img.width, maxH / p.img.height, 1)
+  p.displayScale = scale
+  canvas.width = p.img.width * scale
+  canvas.height = p.img.height * scale
   const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-
-  // 裁剪框：固定居中、撑满最大（cover 模式，保证图片覆盖裁剪框）
-  const ratio = aspectRatio.value
-  let rw = img.width
-  let rh = rw / ratio
-  if (rh > img.height) { rh = img.height; rw = rh * ratio }
-  cropRect.x = (img.width - rw) / 2
-  cropRect.y = (img.height - rh) / 2
-  cropRect.w = rw
-  cropRect.h = rh
-
-  // 图片缩放/平移：恢复或默认居中(zoom=1)
-  if (restore && restore.zoom >= 1) {
-    imgZoom.value = restore.zoom
-    imgOffset.x = restore.offset.x
-    imgOffset.y = restore.offset.y
-  } else {
-    imgZoom.value = 1
-    imgOffset.x = 0
-    imgOffset.y = 0
-  }
+  ctx.drawImage(p.img, 0, 0, canvas.width, canvas.height)
+  clampPanelOffset(p)
 }
 
 function onTimelineSelect(seconds) {
   const materialId = currentVideoMaterialId()
   const url = frameApi.getFrameImageUrl(materialId, seconds, false)
-  currentImageSrc.value = url
-  loadImageToCanvas(url)
+  loadImageToPanel(activeTab.value, url)
 }
 
 function onMaterialSelect(material) {
   const url = material.url || getFileUrl(material.stored_path)
-  currentImageSrc.value = url
-  loadImageToCanvas(url)
+  loadImageToPanel(activeTab.value, url)
 }
 
 function triggerLocalUpload() { fileInputRef.value?.click() }
@@ -361,44 +335,45 @@ function onLocalFileSelected(e) {
   const file = e.target.files?.[0]
   if (!file) return
   const url = URL.createObjectURL(file)
-  currentImageSrc.value = url
-  loadImageToCanvas(url)
+  loadImageToPanel(activeTab.value, url)
   e.target.value = ''
 }
 
 // 滚轮缩放图片：以鼠标位置为锚点
 function onWheel(e) {
-  if (!cropImage.value) return
-  const oldZoom = imgZoom.value
+  const p = activePanel.value
+  if (!p || !p.img) return
+  const oldZoom = p.zoom
   const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
   let newZoom = oldZoom * factor
   newZoom = Math.max(1, Math.min(8, newZoom))
   if (newZoom === oldZoom) return
-  // 锚点（鼠标在 canvas 显示像素空间的位置）缩放后不动
   const rect = cropCanvasRef.value.getBoundingClientRect()
   const mx = e.clientX - rect.left
   const my = e.clientY - rect.top
-  imgOffset.x = mx - (mx - imgOffset.x) * (newZoom / oldZoom)
-  imgOffset.y = my - (my - imgOffset.y) * (newZoom / oldZoom)
-  imgZoom.value = newZoom
-  clampImgOffset()
+  p.offset.x = mx - (mx - p.offset.x) * (newZoom / oldZoom)
+  p.offset.y = my - (my - p.offset.y) * (newZoom / oldZoom)
+  p.zoom = newZoom
+  clampPanelOffset(p)
 }
 
 // 拖动平移图片
 function onPointerDown(e) {
-  if (!cropImage.value) return
+  const p = activePanel.value
+  if (!p || !p.img) return
   e.preventDefault()
   try { e.target.setPointerCapture(e.pointerId) } catch {}
   dragState.value = {
     startX: e.clientX, startY: e.clientY,
-    origX: imgOffset.x, origY: imgOffset.y,
+    origX: p.offset.x, origY: p.offset.y,
     pointerId: e.pointerId,
   }
   const onMove = (ev) => {
     if (!dragState.value) return
-    imgOffset.x = dragState.value.origX + (ev.clientX - dragState.value.startX)
-    imgOffset.y = dragState.value.origY + (ev.clientY - dragState.value.startY)
-    clampImgOffset()
+    const pp = activePanel.value
+    pp.offset.x = dragState.value.origX + (ev.clientX - dragState.value.startX)
+    pp.offset.y = dragState.value.origY + (ev.clientY - dragState.value.startY)
+    clampPanelOffset(pp)
   }
   const onUp = () => {
     dragState.value = null
@@ -411,34 +386,29 @@ function onPointerDown(e) {
   window.addEventListener('pointercancel', onUp)
 }
 
-// 约束：图片缩放/平移后，裁剪框四边始终被图片覆盖（不露白）。
-// 裁剪框在 canvas 显示像素空间居中，尺寸 selW×selH；
-// 图片经 transform 后左上角=imgOffset，右下角=canvasSize*zoom + imgOffset。
-// 需满足：imgLeft <= selX 且 imgRight >= selX+selW（Y 同理）。
-function clampImgOffset() {
+// 约束：图片覆盖裁剪框四边（不露白）
+function clampPanelOffset(p) {
   const canvas = cropCanvasRef.value
-  if (!canvas) return
-  const selW = cropRect.w * cropDisplayScale.value
-  const selH = cropRect.h * cropDisplayScale.value
+  if (!canvas || !p) return
+  const selW = p.cropRect.w * p.displayScale
+  const selH = p.cropRect.h * p.displayScale
   const selX = (canvas.width - selW) / 2
   const selY = (canvas.height - selH) / 2
-  const dispW = canvas.width * imgZoom.value
-  const dispH = canvas.height * imgZoom.value
-  // imgOffset 的合法区间：[selX+selW-dispW, selX]（保证图片覆盖裁剪框）
+  const dispW = canvas.width * p.zoom
+  const dispH = canvas.height * p.zoom
   const minX = selX + selW - dispW
   const maxX = selX
   const minY = selY + selH - dispH
   const maxY = selY
-  imgOffset.x = Math.max(minX, Math.min(maxX, imgOffset.x))
-  imgOffset.y = Math.max(minY, Math.min(maxY, imgOffset.y))
+  p.offset.x = Math.max(minX, Math.min(maxX, p.offset.x))
+  p.offset.y = Math.max(minY, Math.min(maxY, p.offset.y))
 }
 
-async function confirmCrop() {
-  saveTabState()
-  const img = cropImage.value
-  if (!img) { ElMessage.warning('请先选择一张图片'); return }
-  const [rw, rh] = currentRatioLabel.value.split(':').map(Number)
-  // 输出尺寸：横版长边在宽(1920)，竖版长边在高(1920)
+// 裁剪单个面板并上传，返回 coverData
+async function cropAndUploadPanel(ratio) {
+  const p = panels[ratio]
+  if (!p || !p.img) return null
+  const [rw, rh] = ratio.split(':').map(Number)
   let targetW, targetH
   if (activeOrientation.value === 'portrait') {
     targetH = 1920
@@ -447,48 +417,67 @@ async function confirmCrop() {
     targetW = 1920
     targetH = Math.round(1920 * rh / rw)
   }
-  // 反推裁剪源矩形（图片原始像素空间）。
-  // canvas 上画的是完整图片；裁剪框居中，尺寸 selW×selH（canvas 显示像素）。
-  // 图片经 transform: translate(imgOffset) scale(zoom) 显示。
-  // 裁剪框在 canvas 坐标系的位置 selX，换算到未变换图片显示像素 = (selX - imgOffset)/zoom，
-  // 再除以 cropDisplayScale 得到原图像素。
   const canvas = cropCanvasRef.value
-  const selW = cropRect.w * cropDisplayScale.value
-  const selH = cropRect.h * cropDisplayScale.value
-  const selX = (canvas.width - selW) / 2
-  const selY = (canvas.height - selH) / 2
-  const srcX = (selX - imgOffset.x) / imgZoom.value / cropDisplayScale.value
-  const srcY = (selY - imgOffset.y) / imgZoom.value / cropDisplayScale.value
-  const srcW = selW / imgZoom.value / cropDisplayScale.value
-  const srcH = selH / imgZoom.value / cropDisplayScale.value
+  // 用该面板的 displayScale 计算源矩形（切换 tab 时 canvas 已重画为当前面板的图）
+  const dispW = p.img.width * p.displayScale
+  const dispH = p.img.height * p.displayScale
+  const selW = p.cropRect.w * p.displayScale
+  const selH = p.cropRect.h * p.displayScale
+  const selX = (dispW - selW) / 2
+  const selY = (dispH - selH) / 2
+  const srcX = (selX - p.offset.x) / p.zoom / p.displayScale
+  const srcY = (selY - p.offset.y) / p.zoom / p.displayScale
+  const srcW = selW / p.zoom / p.displayScale
+  const srcH = selH / p.zoom / p.displayScale
   const offscreen = document.createElement('canvas')
-  offscreen.width = targetW; offscreen.height = targetH
-  const ctx = offscreen.getContext('2d')
-  ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH)
+  offscreen.width = targetW
+  offscreen.height = targetH
+  offscreen.getContext('2d').drawImage(p.img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH)
   const blob = await new Promise(resolve => offscreen.toBlob(resolve, 'image/jpeg', 0.92))
-  if (!blob) { ElMessage.error('裁剪导出失败'); return }
+  if (!blob) return null
   const formData = new FormData()
-  formData.append('file', blob, `cover_${activeOrientation.value}_${activeTab.value.replace(':', 'x')}_${Date.now()}.jpg`)
+  formData.append('file', blob, `cover_${activeOrientation.value}_${ratio.replace(':', 'x')}_${Date.now()}.jpg`)
+  const resp = await materialsApi.coversUpload(formData)
+  if (resp.code !== 200) return null
+  const d = resp.data
+  return { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
+}
+
+async function confirmCrop() {
+  // 校验：两个尺寸面板都必须选了图片
+  const missing = ratioTabs.value.filter((r) => !panels[r] || !panels[r].img)
+  if (missing.length > 0) {
+    ElMessage.warning(`请先为 ${missing.join('、')} 尺寸选择图片`)
+    if (missing[0]) switchTab(missing[0])
+    return
+  }
+  // 逐个裁剪上传（裁剪前先把该面板重画到 canvas，确保 canvas 内容匹配）
   try {
-    // 用封面专用接口：写入 covers/ 目录，不入素材库（materials 表）
-    const resp = await materialsApi.coversUpload(formData)
-    if (resp.code === 200) {
-      const d = resp.data
-      const coverData = { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
-      // 当前 tab 是次尺寸 → 更新 secondary，否则更新 primary
-      const isSecondary = activeTab.value === secondaryRatio.value
-      emit(isSecondary ? 'update:coverSecondary' : 'update:coverPrimary', coverData)
-      ElMessage.success(`${activeTab.value} 封面设置成功`)
-      visible.value = false
-    } else { ElMessage.error(resp.msg || '上传失败') }
-  } catch { ElMessage.error('封面上传失败') }
+    for (const r of ratioTabs.value) {
+      activeTab.value = r
+      await nextTick()
+      redrawActivePanel()
+      await nextTick()
+      const coverData = await cropAndUploadPanel(r)
+      if (!coverData) {
+        ElMessage.error(`${r} 封面保存失败`)
+        return
+      }
+      emit('coverSaved', { orientation: activeOrientation.value, ratio: r, cover: coverData })
+    }
+    ElMessage.success('封面设置成功')
+    visible.value = false
+  } catch {
+    ElMessage.error('封面上传失败')
+  }
 }
 
 function onClosed() {
   stopPolling()
-  frames.value = []; videoDuration.value = 0; currentImageSrc.value = ''; cropImage.value = null; extracting.value = false
-  // 清空所有动态 ratio tab 槽位
-  Object.keys(tabState).forEach((k) => delete tabState[k])
+  frames.value = []
+  videoDuration.value = 0
+  extracting.value = false
+  Object.keys(panels).forEach((k) => delete panels[k])
 }
 
 defineExpose({ open })

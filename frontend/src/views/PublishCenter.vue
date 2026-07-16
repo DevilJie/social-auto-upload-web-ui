@@ -105,8 +105,7 @@
             :video-portrait="editorSource.videoPortrait"
             :cover-primary="editorSource.coverPrimary"
             :cover-secondary="editorSource.coverSecondary"
-            @update:cover-primary="onEditorUpdate({ coverPrimary: $event })"
-            @update:cover-secondary="onEditorUpdate({ coverSecondary: $event })"
+            @cover-saved="onCoverSaved"
           />
         </div>
 
@@ -843,16 +842,15 @@ const editorSource = computed(() => {
   }
 })
 
-function onEditorUpdate({ coverPrimary, coverSecondary }) {
+// 确定性写回：直接按 orientation + ratio 映射到具体字段
+function onCoverSaved({ orientation, ratio, cover }) {
   const t = currentEditTarget.value
-  const isLandscape = coverEditOrientation.value === 'landscape'
-  if (coverPrimary) {
-    if (isLandscape) t.coverLandscape = coverPrimary
-    else t.coverPortrait = coverPrimary
-  }
-  if (coverSecondary) {
-    if (isLandscape) t.coverLandscape169 = coverSecondary
-    else t.coverPortrait916 = coverSecondary
+  if (orientation === 'landscape') {
+    if (ratio === '4:3') t.coverLandscape = cover
+    else if (ratio === '16:9') t.coverLandscape169 = cover
+  } else {
+    if (ratio === '3:4') t.coverPortrait = cover
+    else if (ratio === '9:16') t.coverPortrait916 = cover
   }
 }
 

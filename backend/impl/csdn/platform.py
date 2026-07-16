@@ -8,7 +8,6 @@
 """
 
 import asyncio
-import re as _re_module
 import threading
 import time
 from pathlib import Path
@@ -273,7 +272,6 @@ class CsdnPlatform(BasePlatform):
             thumbnail_landscape = kwargs.get("thumbnail_landscape_path", "") or ""
             thumbnail_portrait = kwargs.get("thumbnail_portrait_path", "") or ""
             schedule_time_str = kwargs.get("schedule_time_str", "") or ""
-            video_format = kwargs.get("video_format", "") or "landscape"
 
             logger.info("[发布参数] 标题: %s", title)
             logger.info("[发布参数] 文件数量: %d", len(files))
@@ -301,24 +299,10 @@ class CsdnPlatform(BasePlatform):
                     "[发布进度] 处理第 %d/%d 个视频: %s",
                     index + 1, len(file_paths), file_path,
                 )
-                # 严格按素材表的视频方向选封面（与知乎一致）
-                video_orientation = _get_video_orientation(file_path)
-                if video_orientation == "vertical":
-                    picked_thumb = thumbnail_portrait or thumbnail_landscape
-                    picked_label = "竖版"
-                elif video_orientation == "horizontal":
-                    picked_thumb = thumbnail_landscape or thumbnail_portrait
-                    picked_label = "横版"
-                else:
-                    if video_format == "portrait":
-                        picked_thumb = thumbnail_portrait or thumbnail_landscape
-                        picked_label = "竖版(前端)"
-                    else:
-                        picked_thumb = thumbnail_landscape or thumbnail_portrait
-                        picked_label = "横版(前端)"
+                # CSDN 固定使用横版封面（横版优先，未设置时用竖版兜底），不再按视频方向选择
+                picked_thumb = thumbnail_landscape or thumbnail_portrait
                 logger.info(
-                    "[发布参数] 视频方向=%s, 选用%s封面: %s",
-                    video_orientation or "未知", picked_label, picked_thumb or "无",
+                    "[发布参数] CSDN 固定横版封面: %s", picked_thumb or "无",
                 )
 
                 publish_date = (
@@ -819,34 +803,5 @@ class CsdnPlatform(BasePlatform):
 
 
 # ---------------------------------------------------------------------------
-# 素材方向查询（与知乎实现一致，供封面选择使用）
+# 素材方向查询已移除：CSDN 固定使用横版封面，不再需要按视频方向选择。
 # ---------------------------------------------------------------------------
-
-def _get_video_orientation(file_path: str) -> str:
-    """查询素材表 materials.orientation 字段。
-
-    返回空串表示未查到，调用方兜底用前端 videoFormat。
-    """
-    import sqlite3
-    try:
-        db_path = Path(BASE_DIR) / "db" / "database.db"
-        m = _re_module.search(r'([a-f0-9-]{36})', file_path or '')
-        with sqlite3.connect(str(db_path)) as conn:
-            conn.row_factory = sqlite3.Row
-            if m:
-                row = conn.execute(
-                    "SELECT orientation FROM materials WHERE id = ?",
-                    (m.group(1),),
-                ).fetchone()
-                if row:
-                    return row["orientation"] or ""
-            row = conn.execute(
-                "SELECT orientation FROM materials WHERE stored_path = ?",
-                (file_path,),
-            ).fetchone()
-            if row:
-                return row["orientation"] or ""
-        return ""
-    except Exception as e:
-        logger.info(f"[发布参数] 查询视频方向失败: {e}")
-        return ""

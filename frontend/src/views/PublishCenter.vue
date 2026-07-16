@@ -1683,11 +1683,11 @@ async function restoreDraft(draftId) {
 
     currentDraftId.value = draftId
 
-    if (commonConfig.videoLandscape) {
-      triggerFrameExtraction(commonConfig.videoLandscape, 'landscape')
-    }
-    if (commonConfig.videoPortrait) {
-      triggerFrameExtraction(commonConfig.videoPortrait, 'portrait')
+    // 视频已不区分横竖版：只对实际可用的视频抽帧一次（横版优先，没有才竖版），
+    // 横竖版共用同一份帧缓存；避免对旧草稿里可能残留的失效 videoPortrait.id 重复抽帧触发"素材失效"提示。
+    const draftVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
+    if (draftVideo) {
+      triggerFrameExtraction(draftVideo, 'landscape')
     }
 
     ElMessage.success('草稿已恢复')

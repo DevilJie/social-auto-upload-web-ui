@@ -389,67 +389,30 @@ async def _wait_for_cover_ready(page, *, action: str = "") -> None:
 
 
 async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_path: str | None = None, thumbnail_portrait_path: str | None = None) -> None:
-    """Set the video cover/thumbnail (5-step flow).
+    """Set the video cover/thumbnail.
 
-    Steps:
-    1. Check for cover preview area, then determine which cover type is visible.
-    2. Click the cover entry (vertical 3:4 or horizontal 4:3).
-    3. Wait for the cover-edit dialog.
-    4. Upload the cover image file.
-    5. Handle the crop dialog if it appears.
-    6. Confirm the cover selection.
+    视频号发布页的封面入口数量取决于视频方向：
+    - 竖版视频：只有竖版封面入口（个人主页卡片 3:4）
+    - 横版视频：同时有横版封面入口（分享卡片 4:3）+ 竖版封面入口（个人主页卡片 3:4）
+
+    本函数遍历页面上**所有可见**的封面入口，对每个入口分别上传对应方向的封面：
+    - horizontal 入口 → thumbnail_landscape_path（4:3）
+    - vertical 入口   → thumbnail_portrait_path（3:4）
+    没有对应封面图的入口跳过。
     """
     if not thumbnail_path and not thumbnail_landscape_path and not thumbnail_portrait_path:
         return
 
     logger.info("[设置封面] setting cover image")
 
-    # Step 1: check if cover preview area exists, then find visible cover type
+    # Step 1: 检测封面预览区是否存在
     cover_preview = page.locator('div:has(> .label):has-text("封面预览")').first
-    has_cover_preview = False
     try:
         if await cover_preview.count():
             await cover_preview.wait_for(state="visible", timeout=5000)
-            has_cover_preview = True
             logger.info("[设置封面] found cover preview area")
     except Exception:
         logger.info("[设置封面] no cover preview area found, trying direct cover detection")
-
-    # Step 2: click cover entry - try vertical first, then horizontal
-    cover_entry_selectors = [
-        # Vertical cover (个人主页卡片, 3:4)
-        ('div.vertical-cover-wrap', 'vertical'),
-        # Horizontal cover (分享卡片, 4:3)
-        ('div.horizon-cover-wrap', 'horizontal'),
-    ]
-    cover_type = None
-    cover_entry = None
-    for selector, ctype in cover_entry_selectors:
-        candidate = page.locator(selector).first
-        try:
-            if not await candidate.count():
-                continue
-            await candidate.wait_for(state="visible", timeout=3000)
-            cover_entry = candidate
-            cover_type = ctype
-            logger.info(f"[设置封面] cover entry found: {selector} ({ctype})")
-            break
-        except Exception:
-            continue
-
-    if not cover_entry:
-        logger.info("[设置封面] WARNING: no cover entry found, skipping cover")
-        return
-
-    # Determine which thumbnail to use based on cover type
-    effective_thumbnail = thumbnail_path
-    if cover_type == 'horizontal' and thumbnail_landscape_path:
-        effective_thumbnail = thumbnail_landscape_path
-    elif cover_type == 'vertical' and thumbnail_portrait_path:
-        effective_thumbnail = thumbnail_portrait_path
-    if not effective_thumbnail:
-        logger.info(f"[设置封面] no thumbnail for {cover_type} cover, skipping")
-        return
 
     cover_dialog_selectors = [
         ("div.weui-desktop-dialog", "编辑个人主页卡片"),
@@ -468,7 +431,6 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
                     return dialog
             except Exception:
                 continue
-        # fallback：任意可见对话框
         try:
             fallback = page.locator("div.weui-desktop-dialog").first
             if await fallback.count() and await fallback.is_visible():
@@ -478,127 +440,162 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
             pass
         return None
 
-    # Step 3: 点击封面入口直到对话框出现 —— 简单粗暴的无限重试。
-    # 视频号在视频上传/封面预览图生成期间，点击封面入口会被 weui-desktop-popover
-    # （「文件上传中...」/「预览图生成中...」）拦截，对话框不会弹出。
-    # 因此每轮重试都先 hover/click → 阻塞等待 popover 消失 → 再查对话框，
-    # 直到对话框出现为止。
-    logger.info("[设置封面] 开始点击封面入口，直到封面对话框出现（无限重试）")
-    cover_dialog = None
-    attempt = 0
-    while cover_dialog is None:
-        attempt += 1
-        try:
-            # hover 触发（popover 可能是 hover 态才出现）
+    async def _do_one_cover(cover_entry, cover_type, effective_thumbnail):
+        """对单个封面入口执行：点击→(横版多一步 popover 点"直接编辑")→等对话框→上传→裁剪确认→确认。"""
+        logger.info(f"[设置封面] 开始点击 {cover_type} 封面入口，直到对话框出现（无限重试）")
+        cover_dialog = None
+        attempt = 0
+        while cover_dialog is None:
+            attempt += 1
             try:
-                await cover_entry.hover()
-            except Exception:
-                pass
-            await page.wait_for_timeout(500)
-            await _wait_for_cover_ready(page, action=f"封面入口 hover(第{attempt}轮)")
-
-            # click 进入编辑
-            await cover_entry.click()
-            await page.wait_for_timeout(800)
-            await _wait_for_cover_ready(page, action=f"封面入口 click(第{attempt}轮)")
-
-            # 查对话框
-            cover_dialog = await _find_cover_dialog()
-        except Exception as retry_exc:
-            logger.info(f"[设置封面] 封面入口重试异常(第{attempt}轮): {retry_exc}")
-
-        if cover_dialog is None:
-            if attempt == 1 or attempt % 5 == 0:
-                logger.info(
-                    f"[上传视频] 封面对话框未出现，继续重试点击封面入口(第{attempt}轮)"
-                )
-            await page.wait_for_timeout(1000)
-
-    # Step 4: upload cover file
-    file_input_selectors = [
-        '.single-cover-uploader-wrap input[type="file"]',
-        'input[type="file"][accept*="image"]',
-        '.cover-uploader-wrap input[type="file"]',
-        'input[type="file"]',
-    ]
-    file_input = None
-    for selector in file_input_selectors:
-        try:
-            locator = cover_dialog.locator(selector).first
-            if await locator.count():
-                file_input = locator
-                logger.info(f"[设置封面] found file input: {selector}")
-                break
-        except Exception:
-            continue
-
-    if not file_input:
-        try:
-            file_input = page.locator(
-                "div.weui-desktop-dialog input[type='file']"
-            ).first
-            if not await file_input.count():
-                logger.info("[设置封面] WARNING: no file input for cover, skipping")
-                return
-        except Exception:
-            return
-
-    await file_input.wait_for(state="attached", timeout=10000)
-    # 上传封面文件前再次阻塞等待（预览图生成中等提示可能此时出现）
-    await _wait_for_cover_ready(page, action="上传封面文件前")
-    logger.info(f"[设置封面] uploading cover ({cover_type}): {effective_thumbnail}")
-    await file_input.set_input_files(effective_thumbnail)
-    await page.wait_for_timeout(2000)
-
-    # Step 5: handle crop dialog
-    crop_dialog = page.locator("div.weui-desktop-dialog").filter(
-        has_text="裁剪封面图"
-    ).first
-    if await crop_dialog.count():
-        try:
-            await crop_dialog.wait_for(state="visible", timeout=10000)
-            logger.info("[设置封面] crop dialog appeared")
-            for selector in (
-                'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确定")',
-                'button:has-text("确定")',
-                "button.weui-desktop-btn_primary",
-            ):
                 try:
-                    btn = crop_dialog.locator(selector).first
-                    if await btn.count() and await btn.is_visible():
-                        await btn.click()
-                        logger.info(f"[设置封面] crop confirmed: {selector}")
-                        await page.wait_for_timeout(1000)
-                        break
+                    await cover_entry.hover()
                 except Exception:
-                    continue
-        except Exception as exc:
-            logger.info(f"[设置封面] WARNING: crop confirm error: {exc}")
+                    pass
+                await page.wait_for_timeout(500)
+                await _wait_for_cover_ready(page, action=f"{cover_type}封面入口 hover(第{attempt}轮)")
+                await cover_entry.click()
+                await page.wait_for_timeout(800)
+                await _wait_for_cover_ready(page, action=f"{cover_type}封面入口 click(第{attempt}轮)")
 
-    # Step 6: confirm cover dialog
-    confirmed = False
-    for selector in (
-        'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确认")',
-        'div.weui-desktop-dialog__ft button:has-text("确认")',
-        'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确定")',
-        "div.weui-desktop-dialog__ft button.weui-desktop-btn_primary",
-        'button:has-text("确认")',
-    ):
-        try:
-            btn = cover_dialog.locator(selector).first
-            if await btn.count() and await btn.is_visible():
-                await btn.click()
-                logger.info(f"[设置封面] cover confirmed: {selector}")
-                confirmed = True
+                # 横版封面：点击后先弹出 ant-popover「使用此素材作为封面？」，
+                # 需点「直接编辑」才会出现封面上传弹窗；竖版点击后直接出弹窗。
+                if cover_type == 'horizontal':
+                    popover_edit_btn = page.locator(
+                        '.ant-popover .btn-directly-edit button, '
+                        '.ant-popover button:has-text("直接编辑")'
+                    ).first
+                    try:
+                        if await popover_edit_btn.count() and await popover_edit_btn.is_visible():
+                            logger.info(f"[设置封面] {cover_type} 检测到推荐素材 popover，点击「直接编辑」")
+                            await popover_edit_btn.click()
+                            await page.wait_for_timeout(800)
+                            await _wait_for_cover_ready(page, action=f"{cover_type}封面 popover「直接编辑」后")
+                    except Exception as pop_exc:
+                        logger.info(f"[设置封面] {cover_type} popover 处理异常(第{attempt}轮): {pop_exc}")
+
+                cover_dialog = await _find_cover_dialog()
+            except Exception as retry_exc:
+                logger.info(f"[设置封面] {cover_type}封面入口重试异常(第{attempt}轮): {retry_exc}")
+            if cover_dialog is None:
+                if attempt == 1 or attempt % 5 == 0:
+                    logger.info(f"[上传视频] {cover_type}封面对话框未出现，继续重试(第{attempt}轮)")
                 await page.wait_for_timeout(1000)
-                break
+
+        # 上传封面文件
+        file_input_selectors = [
+            '.single-cover-uploader-wrap input[type="file"]',
+            'input[type="file"][accept*="image"]',
+            '.cover-uploader-wrap input[type="file"]',
+            'input[type="file"]',
+        ]
+        file_input = None
+        for selector in file_input_selectors:
+            try:
+                locator = cover_dialog.locator(selector).first
+                if await locator.count():
+                    file_input = locator
+                    logger.info(f"[设置封面] found file input: {selector}")
+                    break
+            except Exception:
+                continue
+        if not file_input:
+            try:
+                file_input = page.locator("div.weui-desktop-dialog input[type='file']").first
+                if not await file_input.count():
+                    logger.info(f"[设置封面] WARNING: no file input for {cover_type} cover, skipping")
+                    return
+            except Exception:
+                return
+
+        await file_input.wait_for(state="attached", timeout=10000)
+        await _wait_for_cover_ready(page, action=f"上传{cover_type}封面文件前")
+        logger.info(f"[设置封面] uploading {cover_type} cover: {effective_thumbnail}")
+        await file_input.set_input_files(effective_thumbnail)
+        await page.wait_for_timeout(2000)
+
+        # 裁剪对话框
+        crop_dialog = page.locator("div.weui-desktop-dialog").filter(has_text="裁剪封面图").first
+        if await crop_dialog.count():
+            try:
+                await crop_dialog.wait_for(state="visible", timeout=10000)
+                logger.info(f"[设置封面] {cover_type} crop dialog appeared")
+                for selector in (
+                    'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确定")',
+                    'button:has-text("确定")',
+                    "button.weui-desktop-btn_primary",
+                ):
+                    try:
+                        btn = crop_dialog.locator(selector).first
+                        if await btn.count() and await btn.is_visible():
+                            await btn.click()
+                            logger.info(f"[设置封面] {cover_type} crop confirmed: {selector}")
+                            await page.wait_for_timeout(1000)
+                            break
+                    except Exception:
+                        continue
+            except Exception as exc:
+                logger.info(f"[设置封面] WARNING: {cover_type} crop confirm error: {exc}")
+
+        # 确认封面
+        confirmed = False
+        for selector in (
+            'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确认")',
+            'div.weui-desktop-dialog__ft button:has-text("确认")',
+            'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary:has-text("确定")',
+            "div.weui-desktop-dialog__ft button.weui-desktop-btn_primary",
+            'button:has-text("确认")',
+        ):
+            try:
+                btn = cover_dialog.locator(selector).first
+                if await btn.count() and await btn.is_visible():
+                    await btn.click()
+                    logger.info(f"[设置封面] {cover_type} cover confirmed: {selector}")
+                    confirmed = True
+                    await page.wait_for_timeout(1000)
+                    break
+            except Exception:
+                continue
+        if not confirmed:
+            logger.info(f"[设置封面] WARNING: {cover_type} cover confirm button not found")
+        logger.info(f"[设置封面] {cover_type} cover image set complete")
+
+    # Step 2: 收集所有可见的封面入口及其类型
+    cover_entry_defs = [
+        # Vertical cover (个人主页卡片, 3:4)
+        ('div.vertical-cover-wrap', 'vertical', thumbnail_portrait_path),
+        # Horizontal cover (分享卡片, 4:3)
+        ('div.horizon-cover-wrap', 'horizontal', thumbnail_landscape_path),
+    ]
+    # thumbnail_path 作为兜底：若没有对应方向的封面，用它
+    for entry in cover_entry_defs:
+        if not entry[2] and thumbnail_path:
+            cover_entry_defs[cover_entry_defs.index(entry)] = (entry[0], entry[1], thumbnail_path)
+
+    visible_entries = []
+    for selector, ctype, thumb in cover_entry_defs:
+        candidate = page.locator(selector).first
+        try:
+            if not await candidate.count():
+                continue
+            await candidate.wait_for(state="visible", timeout=3000)
+            visible_entries.append((candidate, ctype, thumb))
+            logger.info(f"[设置封面] cover entry found: {selector} ({ctype})")
         except Exception:
             continue
 
-    if not confirmed:
-        logger.info("[设置封面] WARNING: cover confirm button not found")
+    if not visible_entries:
+        logger.info("[设置封面] WARNING: no cover entry found, skipping cover")
+        return
 
-    logger.info("[设置封面] cover image set complete")
+    # Step 3: 对每个可见入口依次设置封面（横版视频会有两个，竖版视频只有一个）
+    for cover_entry, cover_type, effective_thumbnail in visible_entries:
+        if not effective_thumbnail:
+            logger.info(f"[设置封面] no thumbnail for {cover_type} cover, skipping")
+            continue
+        await _do_one_cover(cover_entry, cover_type, effective_thumbnail)
+
+    logger.info("[设置封面] all cover images set complete")
 
 
 async def _set_schedule_time(page, publish_date) -> None:

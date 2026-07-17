@@ -820,6 +820,11 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 视频号位置(账号级,空=不显示位置)
     channelsLocationName: accountOv?.channelsLocationName ?? platformOv?.channelsLocationName ?? platformDefault?.channelsLocationName ?? '',
     channelsLocationData: accountOv?.channelsLocationData ?? platformOv?.channelsLocationData ?? platformDefault?.channelsLocationData ?? null,
+    // 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面真正选中
+    channelsMarkTag: accountOv?.channelsMarkTag ?? platformOv?.channelsMarkTag ?? platformDefault?.channelsMarkTag ?? '无需标注',
+    channelsShootDate: accountOv?.channelsShootDate ?? platformOv?.channelsShootDate ?? platformDefault?.channelsShootDate ?? '',
+    channelsShootRegion: accountOv?.channelsShootRegion ?? platformOv?.channelsShootRegion ?? platformDefault?.channelsShootRegion ?? [],
+    channelsRepostSource: accountOv?.channelsRepostSource ?? platformOv?.channelsRepostSource ?? platformDefault?.channelsRepostSource ?? '',
     // CSDN 是否推荐(平台级开关)
     recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
   }
@@ -877,7 +882,7 @@ const platformConfigs = reactive({
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
@@ -2239,6 +2244,11 @@ async function publishAll() {
         channelsCollectionName: merged.channelsCollectionName || '',
         // 视频号位置(账号级,空=不显示位置)
         channelsLocationName: merged.channelsLocationName || '',
+        // 视频号视频标注(平台级):tagName 文本,后端据此在发布页下拉里选中对应项
+        channelsMarkTag: merged.channelsMarkTag || '无需标注',
+        channelsShootDate: merged.channelsShootDate || '',
+        channelsShootRegion: merged.channelsShootRegion || [],
+        channelsRepostSource: merged.channelsRepostSource || '',
         // 小红书合集(账号级配置):collectionId 给后端定位,collectionName 兜底匹配
         collectionId: merged.collectionId || '',
         collectionName: merged.collectionName || '',

@@ -985,6 +985,11 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
+                channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
+                channels_shoot_date=data.get('channelsShootDate', ''),
+                channels_shoot_region=data.get('channelsShootRegion', []),
+                channels_repost_source=data.get('channelsRepostSource', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
             ))
@@ -1046,6 +1051,11 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
+                channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
+                channels_shoot_date=data.get('channelsShootDate', ''),
+                channels_shoot_region=data.get('channelsShootRegion', []),
+                channels_repost_source=data.get('channelsRepostSource', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
             )

@@ -22,6 +22,7 @@ import logoZhihu from '@/assets/logos/zhihu.png'
 import logoCsdn from '@/assets/logos/csdn.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
+import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
 
 /**
  * 特殊作者声明值：表示「无需添加声明」。
@@ -74,11 +75,27 @@ export const PLATFORMS = {
     cssClass: 'channels',
     creatorUrl: 'https://channels.weixin.qq.com/',
     settingsFields: [
+      // 视频标注:发布页「选择视频标注」下拉,所有选项(含「无需标注」)都会去页面真正选中。
+      { key: 'channelsMarkTag', label: '视频标注', type: 'select', placeholder: '选择视频标注',
+        options: CHANNELS_MARK_TAGS.map(t => ({ label: t.tagName, value: t.tagName })) },
+      // 自行拍摄联动字段:拍摄时间 + 拍摄地点(国家/省/市级联)
+      { key: 'channelsShootDate', label: '拍摄时间', type: 'date', placeholder: '选择拍摄日期',
+        visibleWhen: { key: 'channelsMarkTag', value: '内容为自行拍摄' } },
+      { key: 'channelsShootRegion', label: '拍摄地点', type: 'cascader',
+        placeholder: '选择国家 / 省 / 市', options: CHANNELS_SHOOT_REGIONS,
+        // click 触发: 240 国长列表用 hover 易误触, click 更稳;
+        // 不用 checkStrictly(它会让点文字变成"选中并关闭"而非展开下一级,
+        // 导致中国→省 的二级面板永远展不开)。
+        props: { expandTrigger: 'click' },
+        visibleWhen: { key: 'channelsMarkTag', value: '内容为自行拍摄' } },
+      // 转载联动字段:转载来源(选填)
+      { key: 'channelsRepostSource', label: '转载来源', type: 'input', placeholder: '请输入转载来源（选填）',
+        visibleWhen: { key: 'channelsMarkTag', value: '内容为转载' } },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   DOUYIN: {
     id: 3,

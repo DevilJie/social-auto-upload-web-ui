@@ -290,6 +290,340 @@ async def _apply_original_statement(page, category: str | None = None) -> None:
                 await declare_button.click()
 
 
+# ---------------------------------------------------------------------------
+# 视频标注(mark tag):发布页「选择视频标注」下拉
+#
+# DOM(用户实际抓取, 禁用 data-v 随机串):
+#   入口: .mark-tag-select .select-display (点击展开 .mark-tag-options)
+#   选项: .mark-tag-option > .option-main (文案精确匹配 tagName)
+#
+# 选「内容为自行拍摄」会弹 .weui-desktop-dialog:
+#   标题: 「添加拍摄时间和地点」
+#   拍摄时间: input[placeholder="请选择拍摄时间"] + weui 日历面板
+#   拍摄地点: .location-cascader 级联(国家 -> 省 -> 市), 子级点击后懒加载
+# 选「内容为转载」也会弹 dialog, 内含转载来源 input。
+#
+# 策略: 所有选项(含「无需标注」)都去页面真正选中; 弹窗/子字段全程容错,
+# 找不到或匹配失败时 warning 跳过, 不中断发布。
+# ---------------------------------------------------------------------------
+
+_SHOOT_TAG = "内容为自行拍摄"
+_REPOST_TAG = "内容为转载"
+
+
+async def _select_mark_tag_option(page, tag_name: str) -> bool:
+    """展开视频标注下拉并点击指定选项, 返回是否成功选中。
+
+    点选「内容为自行拍摄 / 内容为转载」会触发二级弹窗, 弹窗由调用方
+    (_fill_shoot_info_dialog / _fill_repost_source_dialog)处理。
+    """
+    select = page.locator(".mark-tag-select").first
+    if await select.count() == 0:
+        logger.warning("[视频标注] 未找到标注下拉入口, 跳过")
+        return False
+
+    # 点击 display 展开下拉(若已展开, 再点一次会收起, 故按状态决定)
+    try:
+        is_open = "is-open" in (await select.get_attribute("class") or "")
+    except Exception:
+        is_open = False
+    if not is_open:
+        await select.locator(".select-display").first.click()
+        await asyncio.sleep(0.6)
+
+    options = page.locator(".mark-tag-options .mark-tag-option")
+    count = await options.count()
+    for i in range(count):
+        try:
+            main_text = (await options.nth(i).locator(".option-main").first.inner_text(timeout=1000)).strip()
+        except Exception:
+            continue
+        if main_text == tag_name:
+            await options.nth(i).click()
+            logger.info("[视频标注] 已选择标注: %s", tag_name)
+            await asyncio.sleep(0.8)  # 等待可能的二级弹窗
+            return True
+    logger.warning("[视频标注] 下拉中未找到选项: %s", tag_name)
+    return False
+
+
+async def _fill_shoot_date_in_dialog(dialog, shoot_date: str) -> None:
+    """在自行拍摄弹窗内填入拍摄时间(YYYY-MM-DD)。
+
+    复用 weui datepicker 交互(与 _set_schedule_time 同款), 但 scope 限定在
+    弹窗内, 避免误触发表单的定时发布选择器。
+    """
+    if not shoot_date:
+        logger.info("[视频标注] 未提供拍摄时间, 跳过日期填写")
+        return
+
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(shoot_date, "%Y-%m-%d")
+    except ValueError:
+        logger.warning("[视频标注] 拍摄时间格式非法(需 YYYY-MM-DD): %s, 跳过", shoot_date)
+        return
+
+    date_input = dialog.locator('input[placeholder="请选择拍摄时间"]').first
+    if await date_input.count() == 0:
+        logger.warning("[视频标注] 未找到拍摄时间输入框, 跳过")
+        return
+    await date_input.click()
+    await asyncio.sleep(0.5)
+
+    # 翻到目标月份(weui 面板按年/月标签判断)
+    target_year = dt.strftime("%Y年")
+    target_month = dt.strftime("%m月")
+    for _ in range(24):  # 最多翻 24 个月
+        try:
+            labels = dialog.locator("span.weui-desktop-picker__panel__label")
+            n = await labels.count()
+            year_txt = (await labels.nth(0).inner_text(timeout=1000)).strip() if n > 0 else ""
+            month_txt = (await labels.nth(1).inner_text(timeout=1000)).strip() if n > 1 else ""
+            if year_txt == target_year and month_txt == target_month:
+                break
+        except Exception:
+            pass
+        nxt = dialog.locator("button.weui-desktop-btn__icon__right").first
+        if await nxt.count():
+            await nxt.click()
+            await asyncio.sleep(0.2)
+        else:
+            break
+
+    # 点对应日期(跳过 disabled / faded 占位)
+    cells = dialog.locator("table.weui-desktop-picker__table a")
+    total = await cells.count()
+    for i in range(total):
+        try:
+            el = cells.nth(i)
+            cls = await el.evaluate("e => e.className")
+            if "weui-desktop-picker__disabled" in cls:
+                continue
+            txt = (await el.inner_text(timeout=1000)).strip()
+            if txt == str(dt.day):
+                await el.click()
+                logger.info("[视频标注] 拍摄时间已填入: %s", shoot_date)
+                await asyncio.sleep(0.3)
+                return
+        except Exception:
+            continue
+    logger.warning("[视频标注] 未在日历中找到可选日期: %s", shoot_date)
+
+
+async def _fill_shoot_region_in_dialog(dialog, region_path: list[str]) -> None:
+    """在自行拍摄弹窗内逐级选择拍摄地点级联菜单。
+
+    region_path 形如 ['中国', '广东', '深圳']; 叶子国家(无省市)传 ['日本'] 即止。
+    子级菜单点击后才懒加载, 故每级点完等子菜单出现再匹配下一级。
+
+    交互时序(视频号 weui 级联):
+      1. 点击 inner-button 展开第一级(国家, 共 240 项)
+      2. 点国家 → 若有子级则展开下一级; 若是叶子则级联面板自动关闭
+      3. 选到叶子后, .weui-desktop-dropdown-menu 消失 → 级联选择完成
+      4. 调用方据此再点弹窗的「确认」按钮
+
+    性能: 不用逐项 inner_text 遍历(240 项极慢), 改用 get_by_text 精确定位。
+    """
+    if not region_path:
+        logger.info("[视频标注] 未提供拍摄地点, 跳过级联选择")
+        return
+
+    cascader = dialog.locator(".location-cascader").first
+    if await cascader.count() == 0:
+        logger.warning("[视频标注] 未找到拍摄地点级联组件, 跳过")
+        return
+
+    # 展开第一级(点击 inner-button 触发下拉)
+    trigger = cascader.locator(".weui-desktop-form__dropdowncascade__dt__inner-button").first
+    try:
+        await trigger.click()
+        await asyncio.sleep(0.8)  # 等第一级(240 国)渲染
+    except Exception:
+        logger.warning("[视频标注] 无法展开拍摄地点级联, 跳过")
+        return
+
+    # 逐级匹配: 用 get_by_text 精确定位当前可见菜单项(避免遍历 240 国)
+    for level, target_name in enumerate(region_path):
+        target_name = str(target_name).strip()
+        # 级联项文本在 .weui-desktop-dropdown__list-ele__text 内, 用精确文本定位
+        # scope 限定在 cascader 内, 避免误触其它下拉
+        item = cascader.locator(
+            ".weui-desktop-dropdown__list-ele__text"
+        ).filter(has_text=target_name).first
+        # 子级懒加载, 最多等 ~3s 让目标项出现
+        try:
+            await item.wait_for(state="visible", timeout=3000)
+        except Exception:
+            logger.warning("[视频标注] 拍摄地点第 %d 级未找到: %s", level + 1, target_name)
+            return
+        try:
+            await item.click()
+            logger.info("[视频标注] 拍摄地点第 %d 级已选: %s", level + 1, target_name)
+        except Exception as e:
+            logger.warning("[视频标注] 拍摄地点第 %d 级点击失败: %s (%s)", level + 1, target_name, e)
+            return
+        await asyncio.sleep(0.5)  # 等下一级懒加载/面板关闭
+
+    # 选到叶子后, 级联下拉菜单(.weui-desktop-dropdown-menu)应自动消失。
+    # 等它消失再返回, 让调用方安全地点「确认」(否则级联面板可能盖住确认按钮)。
+    menu = cascader.locator(".weui-desktop-dropdown-menu").first
+    for _ in range(20):  # 最多等 ~2s
+        try:
+            if await menu.count() == 0 or not await menu.is_visible():
+                logger.info("[视频标注] 拍摄地点级联已收起, 选择完成: %s", " / ".join(map(str, region_path)))
+                return
+        except Exception:
+            return
+        await asyncio.sleep(0.1)
+    logger.info("[视频标注] 拍摄地点级联仍未收起(已选 %s), 继续执行", " / ".join(map(str, region_path)))
+
+
+async def _confirm_mark_tag_dialog(page, dialog=None) -> bool:
+    """点击视频标注弹窗的「确定」按钮并关闭弹窗, 返回是否成功。
+
+    视频号规则: 拍摄时间和拍摄地点都填完前, 确定按钮是 disabled 状态。
+    故这里要等按钮从禁用变为可用(最多 ~5s), 再点击。
+    1.txt 实测: 按钮文案是「确定」(非「确认」), class 含 weui-desktop-btn_disabled,
+    位于弹窗 .weui-desktop-dialog__ft 内的 .weui-desktop-btn_wrp。
+
+    Args:
+        dialog: 若传入, 只在该弹窗 scope 内找确定按钮, 避免页面上多个弹窗
+                (如封面裁剪/级联残留) 时点错。不传则退化为全局 .first。
+    """
+    scope = dialog if dialog is not None else page
+    # 弹窗底部主按钮(优先匹配文案「确定」, 兜底「确认」/ 主按钮)
+    selectors = (
+        'div.weui-desktop-dialog__ft button:has-text("确定")',
+        'div.weui-desktop-dialog__ft button:has-text("确认")',
+        'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary',
+        'button.weui-desktop-btn_primary:has-text("确定")',
+    )
+    btn = None
+    for selector in selectors:
+        try:
+            cand = scope.locator(selector).first
+            if await cand.count() and await cand.is_visible():
+                btn = cand
+                logger.info("[视频标注] 定位到确定按钮: %s", selector)
+                break
+        except Exception:
+            continue
+    if btn is None:
+        logger.warning("[视频标注] 未找到弹窗确定按钮")
+        return False
+
+    # 等待按钮从 disabled 变为可用(拍摄信息填完后才解锁)
+    for _ in range(25):  # 最多等 ~5s
+        try:
+            cls = await btn.get_attribute("class") or ""
+            if "weui-desktop-btn_disabled" not in cls:
+                break
+        except Exception:
+            break
+        await asyncio.sleep(0.2)
+    else:
+        logger.warning("[视频标注] 确定按钮仍为禁用态(拍摄信息可能未填全), 仍尝试点击")
+
+    try:
+        await btn.click()
+        logger.info("[视频标注] 弹窗已确定, 等待关闭")
+        # 等弹窗消失(优先用传入的 dialog, 否则全局第一个)
+        target = dialog if dialog is not None else page.locator("div.weui-desktop-dialog").first
+        try:
+            await target.wait_for(state="hidden", timeout=5000)
+            logger.info("[视频标注] 弹窗已关闭")
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.warning("[视频标注] 点击确定按钮失败: %s", e)
+        return False
+
+
+async def _fill_shoot_info_dialog(page, shoot_date: str, shoot_region: list[str]) -> None:
+    """选「内容为自行拍摄」后, 在弹窗里填拍摄时间 + 拍摄地点并确认。"""
+    dialog = page.locator("div.weui-desktop-dialog").filter(has_text="添加拍摄时间和地点").first
+    try:
+        await dialog.wait_for(state="visible", timeout=5000)
+    except Exception:
+        logger.warning("[视频标注] 自行拍摄弹窗未出现, 跳过子字段填写")
+        return
+    logger.info("[视频标注] 自行拍摄弹窗已出现, 开始填写拍摄信息")
+
+    await _fill_shoot_date_in_dialog(dialog, shoot_date)
+    await _fill_shoot_region_in_dialog(dialog, shoot_region)
+    # 把 dialog 传进去, 限定确定按钮的查找 scope, 避免误点其它弹窗
+    await _confirm_mark_tag_dialog(page, dialog)
+
+
+async def _fill_repost_source_dialog(page, repost_source: str) -> None:
+    """选「内容为转载」后, 在弹窗里填转载来源(选填)并确认。"""
+    dialog = page.locator("div.weui-desktop-dialog").filter(has_text="转载来源").first
+    try:
+        await dialog.wait_for(state="visible", timeout=5000)
+    except Exception:
+        # 兜底: 用第一个可见 dialog
+        dialog = page.locator("div.weui-desktop-dialog").first
+        if not await dialog.count():
+            logger.warning("[视频标注] 转载弹窗未出现, 跳过")
+            return
+    logger.info("[视频标注] 转载弹窗已出现, 开始填写转载来源")
+
+    if repost_source:
+        # 转载来源 input: 优先按可见的文本输入框
+        input_selectors = (
+            'input.weui-desktop-form__input:visible',
+            'input[type="text"]:visible',
+        )
+        filled = False
+        for selector in input_selectors:
+            try:
+                inp = dialog.locator(selector).first
+                if await inp.count() and await inp.is_visible():
+                    await inp.click()
+                    await inp.fill("")
+                    await clear_and_type(page, repost_source)
+                    logger.info("[视频标注] 转载来源已填入: %s", repost_source)
+                    filled = True
+                    break
+            except Exception:
+                continue
+        if not filled:
+            logger.warning("[视频标注] 未找到转载来源输入框, 仅确认弹窗")
+    else:
+        logger.info("[视频标注] 未提供转载来源, 直接确认弹窗")
+
+    await _confirm_mark_tag_dialog(page, dialog)
+
+
+async def _apply_mark_tag(
+    page,
+    tag_name: str,
+    shoot_date: str = "",
+    shoot_region: list[str] | None = None,
+    repost_source: str = "",
+) -> None:
+    """选择视频标注下拉项, 并在需要时处理二级弹窗。
+
+    所有选项(含「无需标注」)都会去页面下拉里真正选中, 不因默认值跳过。
+    """
+    tag_name = (tag_name or "无需标注").strip()
+    shoot_region = shoot_region or []
+    logger.info("[视频标注] 开始设置, tag=%r, shoot_date=%r, region=%s, repost=%r",
+                tag_name, shoot_date, shoot_region, repost_source)
+
+    selected = await _select_mark_tag_option(page, tag_name)
+    if not selected:
+        return
+
+    if tag_name == _SHOOT_TAG:
+        await _fill_shoot_info_dialog(page, shoot_date, shoot_region)
+    elif tag_name == _REPOST_TAG:
+        await _fill_repost_source_dialog(page, repost_source)
+    # 其他选项(含「无需标注」)无需二级弹窗, 选完即止
+
+
 async def _wait_for_upload_complete(page, file_path: str) -> None:
     """Poll until the publish button becomes enabled (upload finished).
 
@@ -966,6 +1300,13 @@ class ChannelsPlatform(BasePlatform):
         channels_collection_name = kwargs.get("channels_collection_name", "")
         # 视频号位置(平台级,空字符串=不显示位置)
         channels_location_name = kwargs.get("channels_location_name", "")
+        # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
+        channels_mark_tag = kwargs.get("channels_mark_tag", "无需标注")
+        # 自行拍摄联动:拍摄时间(YYYY-MM-DD 字符串)+ 拍摄地点([国家, 省, 市] 文本数组)
+        channels_shoot_date = kwargs.get("channels_shoot_date", "")
+        channels_shoot_region = kwargs.get("channels_shoot_region", []) or []
+        # 转载联动:转载来源(选填文本)
+        channels_repost_source = kwargs.get("channels_repost_source", "")
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1052,6 +1393,13 @@ class ChannelsPlatform(BasePlatform):
                             await _apply_collection(page, channels_collection_name)
                             await _apply_location(page, channels_location_name)
                             await _apply_original_statement(page, category)
+                            await _apply_mark_tag(
+                                page,
+                                channels_mark_tag,
+                                channels_shoot_date,
+                                channels_shoot_region,
+                                channels_repost_source,
+                            )
 
                             # Wait for upload to finish (auto-retries on error)
                             await _wait_for_upload_complete(page, file_path)
@@ -1078,6 +1426,10 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("[发布调试] 合集(collection)  : %s", channels_collection_name or "(无)")
                             logger.info("[发布调试] 位置(location)     : %s", channels_location_name or "(无)")
                             logger.info("[发布调试] 创作声明(category): %s", category or "(无)")
+                            logger.info("[发布调试] 视频标注(mark_tag) : %s", channels_mark_tag or "(无)")
+                            logger.info("[发布调试] 拍摄时间(shoot_dt): %s", channels_shoot_date or "(无)")
+                            logger.info("[发布调试] 拍摄地点(shoot_rg): %s", " / ".join(channels_shoot_region) if channels_shoot_region else "(无)")
+                            logger.info("[发布调试] 转载来源(repost)   : %s", channels_repost_source or "(无)")
                             logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
                             logger.info("[发布调试] ========================================")
                             logger.info("=" * 60)

@@ -1235,7 +1235,7 @@ const submitAccountForm = () => {
       &.active {
         background: rgba($brand-start, 0.15);
         border-color: $brand-start;
-        color: #fff;
+        color: $brand-start;
       }
 
       .tag-dot {

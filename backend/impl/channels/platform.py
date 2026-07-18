@@ -492,11 +492,14 @@ async def _confirm_mark_tag_dialog(page, dialog=None) -> bool:
                 (如封面裁剪/级联残留) 时点错。不传则退化为全局 .first。
     """
     scope = dialog if dialog is not None else page
-    # 弹窗底部主按钮(优先匹配文案「确定」, 兜底「确认」/ 主按钮)
+    # 弹窗底部主按钮(优先匹配文案「完成」/「确定」, 兜底「确认」/ 主按钮)
+    # 转载弹窗用「完成」, 自行拍摄弹窗用「确定」。
     selectors = (
+        'div.weui-desktop-dialog__ft button:has-text("完成")',
         'div.weui-desktop-dialog__ft button:has-text("确定")',
         'div.weui-desktop-dialog__ft button:has-text("确认")',
         'div.weui-desktop-dialog__ft button.weui-desktop-btn_primary',
+        'button.weui-desktop-btn_primary:has-text("完成")',
         'button.weui-desktop-btn_primary:has-text("确定")',
     )
     btn = None
@@ -558,8 +561,14 @@ async def _fill_shoot_info_dialog(page, shoot_date: str, shoot_region: list[str]
 
 
 async def _fill_repost_source_dialog(page, repost_source: str) -> None:
-    """选「内容为转载」后, 在弹窗里填转载来源(选填)并确认。"""
-    dialog = page.locator("div.weui-desktop-dialog").filter(has_text="转载来源").first
+    """选「内容为转载」后, 在弹窗里填转载来源(选填)并点「完成」。
+
+    转载弹窗 DOM(用户实际抓取):
+      标题: <h3>添加转载来源</h3>
+      输入: <textarea class="repost-textarea" placeholder="在此处填写转载来源...">
+      底部: 取消 / 完成(初始 disabled, 填入内容后解锁)
+    """
+    dialog = page.locator("div.weui-desktop-dialog").filter(has_text="添加转载来源").first
     try:
         await dialog.wait_for(state="visible", timeout=5000)
     except Exception:
@@ -571,21 +580,23 @@ async def _fill_repost_source_dialog(page, repost_source: str) -> None:
     logger.info("[视频标注] 转载弹窗已出现, 开始填写转载来源")
 
     if repost_source:
-        # 转载来源 input: 优先按可见的文本输入框
-        input_selectors = (
-            'input.weui-desktop-form__input:visible',
-            'input[type="text"]:visible',
+        # 转载来源是 textarea(非 input), 用 class 或 placeholder 精确定位
+        textarea_selectors = (
+            'textarea.repost-textarea',
+            'textarea[placeholder*="转载来源"]',
+            'textarea:visible',
         )
         filled = False
-        for selector in input_selectors:
+        for selector in textarea_selectors:
             try:
-                inp = dialog.locator(selector).first
-                if await inp.count() and await inp.is_visible():
-                    await inp.click()
-                    await inp.fill("")
-                    await clear_and_type(page, repost_source)
+                ta = dialog.locator(selector).first
+                if await ta.count() and await ta.is_visible():
+                    await ta.click()
+                    await ta.fill("")
+                    await ta.type(repost_source, delay=20)
                     logger.info("[视频标注] 转载来源已填入: %s", repost_source)
                     filled = True
+                    await asyncio.sleep(0.5)  # 等「完成」按钮解锁
                     break
             except Exception:
                 continue
@@ -1457,7 +1468,7 @@ class ChannelsPlatform(BasePlatform):
                             except Exception:
                                 pass
                             try:
-                                await browser.close()
+                                await self.close_browser(browser, is_close_by_code=True)
                             except Exception:
                                 pass
 

@@ -479,7 +479,7 @@ class KuaishouPlatform(BasePlatform):
                     await context.close()
         finally:
             if not dry_run:
-                await browser.close()
+                await self.close_browser(browser, is_close_by_code=True)
 
     # ------------------------------------------------------------------
     # Publish video
@@ -676,6 +676,8 @@ class KuaishouPlatform(BasePlatform):
 
 
             # ------ Wait for upload to complete (no timeout — wait indefinitely) ------
+            # 注：浏览器被用户关闭时, _browser.create_browser 的 watchdog 会 cancel
+            # 当前 task, CancelledError 不被 except Exception 捕获, 循环自然终止。
             retry = 0
             while True:
                 try:
@@ -719,6 +721,8 @@ class KuaishouPlatform(BasePlatform):
             # ------ Click publish ------
             logger.info("[发布] 正在点击发布按钮...")
             while True:
+                # 注：浏览器被用户关闭时, watchdog 会 cancel 当前 task,
+                # CancelledError 不被 except Exception 捕获, 循环自然终止。
                 try:
                     publish_btn = page.get_by_text("发布", exact=True)
                     if await publish_btn.count() > 0:
@@ -750,7 +754,7 @@ class KuaishouPlatform(BasePlatform):
             except Exception:
                 pass
             try:
-                await browser.close()
+                await self.close_browser(browser, is_close_by_code=True)
             except Exception:
                 pass
 

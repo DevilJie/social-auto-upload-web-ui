@@ -359,6 +359,9 @@ class BilibiliPlatform(BasePlatform):
             # 创作声明直接在主页面设置，保留参数接收以兼容 app.py 调用
             ai_content = kwargs.get("ai_content", "")
             creation_declaration = kwargs.get("creation_declaration", "")
+            # B 站转载来源(创作声明=转载 时必填)
+            bili_repost_source = kwargs.get("bili_repost_source", "")
+            logger.info("[发布参数] B 站转载来源: %r", bili_repost_source or "(空)")
             # B 站合集(账号级)
             bili_collection_name = kwargs.get("bili_collection_name", "")
 
@@ -420,6 +423,7 @@ class BilibiliPlatform(BasePlatform):
                             thumbnail_path=thumbnail_path,
                             creation_declaration=creation_declaration,
                             bili_collection_name=bili_collection_name,
+                            bili_repost_source=bili_repost_source,
                         )
 
             logger.info("=" * 60)
@@ -445,6 +449,7 @@ class BilibiliPlatform(BasePlatform):
         thumbnail_path: str | None = None,
         creation_declaration: str = "",
         bili_collection_name: str = "",
+        bili_repost_source: str = "",
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
         log_dir = Path(BASE_DIR / "logs")
@@ -516,7 +521,8 @@ class BilibiliPlatform(BasePlatform):
 
                 # 8. Set creation declaration (bcc-select dropdown)
                 # B 站新版已废弃"更多设置/声明与权益"，保留创作声明即可
-                await self._set_creation_declaration(page, creation_declaration)
+                # 创作声明=转载 时, 选完后会展开转载来源输入框, 一并填入
+                await self._set_creation_declaration(page, creation_declaration, bili_repost_source)
 
                 # 9. Set scheduled publish
                 if (
@@ -675,7 +681,7 @@ class BilibiliPlatform(BasePlatform):
                         pass
                 await context.close()
         finally:
-            await browser.close()
+            await self.close_browser(browser, is_close_by_code=True)
             logger.info("[上传视频] browser closed")
 
     # ------------------------------------------------------------------
@@ -917,9 +923,20 @@ class BilibiliPlatform(BasePlatform):
                     logger.info("[填写标签] tag input lost, stopping")
                     break
 
+                # click 后等输入框真正可编辑(比固定 sleep 可靠, 避免焦点未稳定
+                # 就输入导致前几个字符被吞——曾出现"杨氏之子"只输入"杨"或"氏之子")。
                 await current_input.click()
-                await asyncio.sleep(0.3)
-                await current_input.type(str(tag), delay=50)
+                try:
+                    await current_input.wait_for(state="editable", timeout=3000)
+                except Exception:
+                    pass
+                # 第一个标签前多等一会(输入框刚展开, React 渲染未稳定)
+                await asyncio.sleep(0.5 if i == 0 else 0.3)
+
+                # press_sequentially 自动 focus 且逐字符触发 input 事件,
+                # 比 type 更稳(CLAUDE.md L74-82 推荐)。delay=100 给 B 站 React
+                # 充分反应时间, 避免快打丢字。
+                await current_input.press_sequentially(str(tag), delay=100)
                 await asyncio.sleep(0.3)
                 await current_input.press("Enter")
                 await asyncio.sleep(0.5)
@@ -1128,10 +1145,12 @@ class BilibiliPlatform(BasePlatform):
             raise RuntimeError(f"cover setting failed: {exc}") from exc
 
     @staticmethod
-    async def _set_creation_declaration(page, creation_declaration: str):
+    async def _set_creation_declaration(page, creation_declaration: str, repost_source: str = ""):
         """Set creation declaration via bcc-select dropdown.
 
         Only shown for some accounts. Silently skipped when not found.
+        创作声明选「内容为转载」时, B 站会展开转载来源输入框(.statement-source
+        input.input-val), 此处一并填入 repost_source(转载来源, B 站要求必填)。
         """
         if not creation_declaration:
             return
@@ -1226,6 +1245,32 @@ class BilibiliPlatform(BasePlatform):
                 )
 
             await asyncio.sleep(1)
+
+            # 创作声明=转载 时, B 站会展开转载来源输入框(B 站要求必填)。
+            # DOM: div.statement-source input.input-val
+            #      (placeholder 含「转载视频请注明来源」)
+            # 选的不是转载则没有该输入框, 自然跳过。
+            if clicked and target_text == "内容为转载" and repost_source:
+                try:
+                    repost_input = page.locator(
+                        'div.statement-source input.input-val'
+                    ).first
+                    # 注意: wait_for 成功返回 None(不能作 if 条件!),
+                    # 否则填入块被静默跳过。失败才抛异常 → 走 except。
+                    await repost_input.wait_for(state="visible", timeout=3000)
+                    await repost_input.click()
+                    await repost_input.fill("")
+                    await repost_input.press_sequentially(repost_source, delay=30)
+                    logger.info(
+                        f"[上传视频] repost source filled: "
+                        f"{repost_source}"
+                    )
+                    await asyncio.sleep(0.5)
+                except Exception as repost_exc:
+                    logger.info(
+                        f"[上传视频] repost source fill failed (non-fatal): "
+                        f"{repost_exc}"
+                    )
         except Exception as exc:
             logger.info(
                 f"[上传视频] creation declaration failed (non-fatal): "

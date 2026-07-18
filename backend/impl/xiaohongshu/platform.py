@@ -10,7 +10,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
-from .._browser import create_browser_sync, create_context_sync
+from .._browser import close_browser, create_browser_sync, create_context_sync
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
@@ -594,7 +594,7 @@ async def _publish_single_video(
                     pass
             await context.close()
     finally:
-        await browser.close()
+        await close_browser(browser, is_close_by_code=True)
 
 
 async def _publish_single_image(
@@ -709,7 +709,7 @@ async def _publish_single_image(
         logger.error("[发布图集] 图集发布浏览器错误: %s", e)
         return False
     finally:
-        await browser.close()
+        await close_browser(browser, is_close_by_code=True)
 
 
 # ======================================================================

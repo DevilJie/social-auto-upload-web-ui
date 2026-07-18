@@ -470,7 +470,7 @@ class ZhihuPlatform(BasePlatform):
         finally:
             if not DEBUG_DRY_RUN_SUBMIT:
                 try:
-                    await browser.close()
+                    await self.close_browser(browser, is_close_by_code=True)
                 except Exception:
                     pass
                 logger.info("[上传视频] 浏览器已关闭")

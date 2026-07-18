@@ -20,6 +20,7 @@ from ._browser import (
     create_browser as _create_browser,
     create_context as _create_context,
     create_persistent_context as _create_persistent_context,
+    close_browser as _close_browser,
 )
 
 _base_logger = get_channel_logger("base_platform")
@@ -81,6 +82,25 @@ class BasePlatform(ABC):
             storage_state=storage_state,
             user_agent=user_agent,
         )
+
+    async def close_browser(self, browser, is_close_by_code: bool = True) -> None:
+        """统一关闭浏览器入口（发布/图集收尾用）。
+
+        Args:
+            browser: create_browser 返回的 browser 对象。
+            is_close_by_code: True=代码主动关闭（发布成功/失败收尾），
+                此时 _browser.py 的 watchdog/disconnected 监听不会 cancel
+                当前 task（正常收尾）；False 仅用于特殊场景，一般不需要。
+                默认 True，因为只有发布收尾才会调本方法。
+
+        各平台发布/图集上传方法在成功/失败 finally 里关闭浏览器时，
+        应统一调用本方法（而非直接 browser.close()），确保 watchdog
+        不会把「代码主动关闭」误判为「用户手动关闭」而触发 task cancel。
+
+        模块级发布函数（无 self，如 xiaohongshu._publish_single_video）
+        直接调用 _browser.close_browser；本方法为其提供类内调用入口。
+        """
+        await _close_browser(browser, is_close_by_code=is_close_by_code)
 
     async def create_persistent_context(
         self,

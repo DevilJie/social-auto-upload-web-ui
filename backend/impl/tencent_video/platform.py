@@ -445,7 +445,7 @@ class TencentVideoPlatform(BasePlatform):
             finally:
                 await context.close()
         finally:
-            await browser.close()
+            await self.close_browser(browser, is_close_by_code=True)
 
     @staticmethod
     async def _fill_title(page, title: str):

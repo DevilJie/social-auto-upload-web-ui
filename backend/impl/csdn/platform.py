@@ -445,7 +445,7 @@ class CsdnPlatform(BasePlatform):
                         pass
         finally:
             try:
-                await browser.close()
+                await self.close_browser(browser, is_close_by_code=True)
             except Exception:
                 pass
             logger.info("[上传视频] 浏览器已关闭")

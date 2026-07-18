@@ -588,7 +588,7 @@ class DouyinPlatform(BasePlatform):
             finally:
                 await context.close()
         finally:
-            await browser.close()
+            await self.close_browser(browser, is_close_by_code=True)
 
     # ------------------------------------------------------------------
     # Helper: 前置校验 - 话题总数 ≤ 5(描述 #xxx + 标签 + 官方活动)
@@ -1254,7 +1254,7 @@ class DouyinPlatform(BasePlatform):
             finally:
                 await context.close()
         finally:
-            await browser.close()
+            await self.close_browser(browser, is_close_by_code=True)
 
     # ------------------------------------------------------------------
     # Helper: set image cover

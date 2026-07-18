@@ -366,58 +366,50 @@ class TencentVideoPlatform(BasePlatform):
                 # [FIX 2026-06-10] 腾讯视频 SPA：networkidle 后还要等表单 JS 渲染完毕
                 # 之前在 networkidle 后直接找 input，找不到（form 还没渲染）
                 logger.info("[上传视频] 开始上传视频: %s (exists=%s)", file_path, os.path.exists(file_path))
-                # 先等 publish form 渲染：找"上传视频"或上传区域的提示文字
-                try:
-                    await page.wait_for_selector(
-                        'text=上传视频, input[type="file"], [dt-mpid*="upload"], div[class*="uploadArea"], div[class*="Upload"]',
-                        timeout=15000,
-                    )
-                    logger.info("[上传视频] Publish form rendered, input area found")
-                except Exception as e:
-                    logger.warning("[DEBUG] Publish form wait timeout: %s", e)
 
                 # 用 attached 状态找 input（不要求 visible，hidden 的也行）
-                await page.wait_for_selector(
-                    'input[type="file"]',
-                    state='attached',
-                    timeout=15000,
-                )
+                # 同时接受页面中所有可能的上传入口(input[type=file] 或 [dt-mpid*="upload"] 的 div)
+                try:
+                    await page.wait_for_selector(
+                        'input[type="file"], [dt-mpid*="upload"]',
+                        state='attached',
+                        timeout=30000,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[上传视频] 上传入口等待 30s 超时: %s", e,
+                    )
+                    # dump 排查
+                    try:
+                        current_url = page.url
+                        page_title = await page.title()
+                        body_text = (await page.locator('body').text_content() or '')[:500]
+                        logger.error(
+                            "[DEBUG] current_url=%s page_title=%s body_excerpt=%s",
+                            current_url, page_title, body_text,
+                        )
+                    except Exception:
+                        pass
+                    raise Exception("未找到视频上传入口")
+
                 file_input = page.locator('input[type="file"]').first
                 input_count = await page.locator('input[type="file"]').count()
                 logger.info("[上传视频] Found %d file input(s) on page", input_count)
-                if input_count == 0:
-                    # [DEBUG 2026-06-10] 把 page state 全 dump 出来排查
-                    current_url = page.url
-                    page_title = await page.title()
-                    body_text = (await page.locator('body').text_content() or '')[:500]
-                    logger.error("[上传视频] No file input found, cannot upload video")
-                    logger.error("[DEBUG] current_url=%s page_title=%s body_excerpt=%s", current_url, page_title, body_text)
-                    try:
-                        html_excerpt = (await page.content())[:2000]
-                        logger.error("[DEBUG] html_excerpt=%s", html_excerpt)
-                    except Exception as e:
-                        logger.error("[DEBUG] failed to get html: %s", e)
-                    raise Exception("未找到视频上传入口")
                 await file_input.set_input_files(file_path)
-                logger.info("[上传视频] 视频文件已选择, 等待上传完成...")
+                logger.info("[上传视频] 视频文件已选择, 等待 UploadNotify 完成...")
 
-                # Step 2: Wait for the publish form to appear after upload
-                # The form title "视频1" signals upload is done
-                # (timeout=0 means wait indefinitely — video may be very large)
-                await page.wait_for_selector(
-                    'div[class*="formTitle"]:has-text("视频")',
-                    timeout=0,
-                )
-                logger.info("[上传视频] 视频上传成功! 发布表单已就绪")
-                await asyncio.sleep(2)
-
-                # Step 2.5: 等待真正的上传完成 HTTP 请求（formTitle 只是
-                # UI 提示，不是后端完成的权威信号）
-                # 无超时:视频可能很大(≤16G),一直等到 UploadNotify 到达
-                await upload_done.wait()
-                logger.info(
-                    "视频上传完成（检测到 UploadNotify 请求）"
-                )
+                # 等待真正的上传完成 HTTP 请求(UploadNotify 是后端权威信号)。
+                # 上限 10 分钟(防止网络异常时永久卡死)。
+                try:
+                    await asyncio.wait_for(upload_done.wait(), timeout=600)
+                    logger.info(
+                        "视频上传完成（检测到 UploadNotify 请求）"
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "[上传视频] 10 分钟内未检测到 UploadNotify, "
+                        "可能上传失败或网络异常, 继续后续步骤"
+                    )
 
                 # Step 3: Fill title
                 await self._fill_title(page, title or desc)

@@ -870,6 +870,9 @@ def postVideo():
 
     logger.info("postVideo data: tag_type=%s, tag_value=%s, hotspot=%s, mix_id=%s",
                  data.get('tag_type'), data.get('tag_value'), data.get('hotspot'), data.get('mix_id'))
+    # 诊断: B 站(platform_id=5) 请求体是否含转载来源
+    logger.info("[postVideo DIAG] type=%s, biliRepostSource=%r, creationDeclaration=%r",
+                data.get('type'), data.get('biliRepostSource'), data.get('creationDeclaration'))
 
     platform = get_platform(data.get('type'))
     if not platform:
@@ -954,6 +957,8 @@ def postVideo():
                 schedule_time_str=data.get('scheduleTime', ''),
                 ai_content=data.get('aiContent', ''),
                 creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1023,6 +1028,8 @@ def postVideo():
                 schedule_time_str=data.get('scheduleTime', ''),
                 ai_content=data.get('aiContent', ''),
                 creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1073,12 +1080,19 @@ def postVideo():
         else:
             return jsonify({"code": 500, "msg": "发布失败：页面未跳转，表单校验未通过", "data": None}), 500
     except asyncio.CancelledError:
-        # 用户手动关闭了浏览器 → create_browser 的 disconnected 监听 cancel 了 task
+        # 用户手动关闭了浏览器 → watchdog/disconnected 监听 cancel 了 task
         logger.info("发布视频被取消：用户关闭了浏览器")
         return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
     except Exception as e:
-        logger.info(f"发布视频时出错: {str(e)}")
-        return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
+        err_msg = str(e)
+        # 浏览器被用户关闭时, Playwright 操作会抛 "Target page, context or
+        # browser has been closed" / "Browser has been closed" 等。watchdog
+        # 0.5s 轮询可能慢于异常抛出, 此时异常先冒泡到这里, 转成友好提示。
+        if "has been closed" in err_msg or "Target page" in err_msg:
+            logger.info("发布视频被取消：用户关闭了浏览器")
+            return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
+        logger.info(f"发布视频时出错: {err_msg}")
+        return jsonify({"code": 500, "msg": f"发布失败: {err_msg}", "data": None}), 500
 
 
 @app.route('/postVideoBatch', methods=['POST'])
@@ -1134,6 +1148,8 @@ def postVideoBatch():
                     schedule_time_str=data.get('scheduleTime', ''),
                     ai_content=data.get('aiContent', ''),
                     creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1161,6 +1177,8 @@ def postVideoBatch():
                     schedule_time_str=data.get('scheduleTime', ''),
                     ai_content=data.get('aiContent', ''),
                     creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),

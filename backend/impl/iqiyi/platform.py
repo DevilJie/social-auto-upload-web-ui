@@ -282,6 +282,8 @@ class IqiyiPlatform(BasePlatform):
         thumbnail_path = kwargs.get("thumbnail_path", "")
         thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "")
+        # 16:9 横版封面:爱奇艺封面弹窗有 3 个 tab (竖 / 4:3 横 / 16:9 横)
+        thumbnail_landscape_169_path = kwargs.get("thumbnail_landscape_169_path", "") or ""
         creation_declaration = kwargs.get("creation_declaration", "")
         risk_warning = kwargs.get("risk_warning", "")
         enable_cash_activity = kwargs.get("enable_cash_activity", False)
@@ -296,6 +298,7 @@ class IqiyiPlatform(BasePlatform):
         logger.info("[发布参数] 定时发布: %s", enableTimer)
         logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
         logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 16:9横版封面: %s", thumbnail_landscape_169_path or "无")
         logger.info("[发布参数] 创作声明: %s", creation_declaration or "无")
         logger.info("[发布策略] 发布策略: %s", "scheduled" if enableTimer and schedule_time_str else "immediate")
 
@@ -351,6 +354,7 @@ class IqiyiPlatform(BasePlatform):
                         enableTimer=enableTimer,
                         cover_path=portrait_cover or cover_path or None,
                         landscape_cover=landscape_cover or None,
+                        landscape_cover_169=thumbnail_landscape_169_path or None,
                         creation_declaration=creation_declaration,
                         risk_warning=risk_warning,
                         enable_cash_activity=enable_cash_activity,
@@ -378,6 +382,7 @@ class IqiyiPlatform(BasePlatform):
         enableTimer: bool = False,
         cover_path=None,
         landscape_cover=None,
+        landscape_cover_169=None,
         creation_declaration="",
         risk_warning="",
         enable_cash_activity=False,
@@ -447,14 +452,18 @@ class IqiyiPlatform(BasePlatform):
                 if risk_warning:
                     await self._set_risk_warning(page, risk_warning)
 
-                # Step 8: Upload cover image(s)
-                logger.info("[上传视频] Step 8: cover_path=%s, landscape_cover=%s", cover_path, landscape_cover)
-                if cover_path or landscape_cover:
+                # Step 8: Upload cover image(s) (3 个 tab: 竖 / 4:3 横 / 16:9 横)
+                logger.info(
+                    "[上传视频] Step 8: cover_path=%s, landscape_cover=%s, landscape_cover_169=%s",
+                    cover_path, landscape_cover, landscape_cover_169,
+                )
+                if cover_path or landscape_cover or landscape_cover_169:
                     logger.info(">>> Calling _upload_cover <<<")
                     await self._upload_cover(
                         page,
                         portrait_path=cover_path,
                         landscape_path=landscape_cover,
+                        landscape_169_path=landscape_cover_169,
                     )
                 else:
                     logger.warning("[上传视频] Step 8: SKIPPED — no cover paths provided")
@@ -495,12 +504,19 @@ class IqiyiPlatform(BasePlatform):
         服务端确认上传完成的权威信号——DOM 提示可能提前消失，不能
         作为完成依据。
 
-        无超时:视频可能很大(≤16G),一直等到上传完成请求到达。
+        上限 4 小时(防止网络异常/用户关浏览器时 watchdog 未生效而永久卡死)。
+        大文件(≤16G)在弱网下可能要很久, 给足时间。
         """
-        await upload_done.wait()
-        logger.info(
-            "检测到 /upload/record 请求，视频上传完成"
-        )
+        try:
+            await asyncio.wait_for(upload_done.wait(), timeout=14400)
+            logger.info(
+                "检测到 /upload/record 请求，视频上传完成"
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[上传视频] 4 小时内未检测到 /upload/record, "
+                "可能上传失败/网络异常/用户关浏览器, 继续后续步骤"
+            )
 
     # ------------------------------------------------------------------
     # Form field helpers
@@ -659,6 +675,7 @@ class IqiyiPlatform(BasePlatform):
         page,
         portrait_path=None,
         landscape_path=None,
+        landscape_169_path=None,
         **kwargs,
     ):
         """Upload cover images on the iQiyi publish page.
@@ -680,8 +697,12 @@ class IqiyiPlatform(BasePlatform):
         """
         portrait_path = portrait_path or kwargs.get("cover_path")
         landscape_path = landscape_path or kwargs.get("landscape_path")
+        landscape_169_path = landscape_169_path or kwargs.get("landscape_169_path")
 
-        logger.info("[设置封面] 封面上传: 竖版=%s, landscape=%s", portrait_path, landscape_path)
+        logger.info(
+            "[设置封面] 封面上传: 竖版=%s, 4:3横版=%s, 16:9横版=%s",
+            portrait_path, landscape_path, landscape_169_path,
+        )
 
         try:
             # ---------------------------------------------------------------
@@ -699,7 +720,8 @@ class IqiyiPlatform(BasePlatform):
             dialog = page.locator('.image-crop-dialog')
             await dialog.wait_for(state="visible", timeout=10000)
             logger.info("[设置封面] Step 1: Cover dialog opened")
-            await asyncio.sleep(2)
+            # 首次打开弹窗: React 渲染/3 个 tab lazy init, 等 10s 充分就绪
+            await asyncio.sleep(10)
 
             # ---------------------------------------------------------------
             # Step 2: Upload portrait cover (竖封面)
@@ -718,7 +740,8 @@ class IqiyiPlatform(BasePlatform):
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(portrait_path)
                 logger.info("[设置封面] Step 2: Portrait file set, waiting for upload...")
-                await asyncio.sleep(10)
+                # 首次上传后等稍长(组件正在响应文件), 后续 tab 已熟可缩短
+                await asyncio.sleep(3)
                 logger.info("[设置封面] Step 2: Portrait upload complete")
             else:
                 logger.info("[设置封面] Step 2: SKIPPED — no portrait_path")
@@ -727,11 +750,14 @@ class IqiyiPlatform(BasePlatform):
             # Step 3: Switch to landscape tab and upload (横封面)
             # ---------------------------------------------------------------
             if landscape_path:
-                logger.info("[设置封面] Step 3: Switching to landscape tab...")
-                landscape_tab = page.locator('.tab-item:has-text("横封面")').first
+                logger.info("[设置封面] Step 3: Switching to landscape (4:3) tab...")
+                # 4:3 横封面 tab 文本是 "横封面（4:3 必填）", 用 "4:3" 精确匹配
+                # 避免和 16:9 tab 同时匹配
+                landscape_tab = page.locator('.tab-item:has-text("4:3")').first
                 if await landscape_tab.count() > 0:
                     await landscape_tab.click()
                     logger.info("[设置封面] Step 3: Landscape tab clicked")
+                    # tab 切换: 组件已就绪, 2s 足够
                     await asyncio.sleep(2)
 
                     logger.info("[设置封面] Step 3: Uploading landscape cover: %s", landscape_path)
@@ -746,12 +772,45 @@ class IqiyiPlatform(BasePlatform):
                     file_chooser = await fc_info.value
                     await file_chooser.set_files(landscape_path)
                     logger.info("[设置封面] Step 3: Landscape file set, waiting for upload...")
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(3)
                     logger.info("[设置封面] Step 3: Landscape upload complete")
                 else:
                     logger.warning("[设置封面] Step 3: Landscape tab not found")
             else:
                 logger.info("[设置封面] Step 3: SKIPPED — no landscape_path")
+
+            # ---------------------------------------------------------------
+            # Step 3.5: 切到第三个 tab "横封面（16:9 必填）" 上传 16:9 横封面
+            # ---------------------------------------------------------------
+            if landscape_169_path:
+                logger.info("[设置封面] Step 3.5: Switching to 16:9 landscape tab...")
+                # 第三个 tab 文本是 "横封面（16:9 必填）", 精确匹配 16:9
+                landscape_169_tab = page.locator(
+                    '.tab-item:has-text("16:9")'
+                ).first
+                if await landscape_169_tab.count() > 0:
+                    await landscape_169_tab.click()
+                    logger.info("[设置封面] Step 3.5: 16:9 landscape tab clicked")
+                    # tab 切换: 组件已就绪, 2s 足够
+                    await asyncio.sleep(2)
+
+                    landscape_169_panel = page.locator(
+                        '.crop-content:not([style*="display: none"])'
+                    ).first
+                    await landscape_169_panel.wait_for(state="visible", timeout=5000)
+
+                    upload_btn = landscape_169_panel.locator('.upload-btn-wrap').first
+                    async with page.expect_file_chooser() as fc_info:
+                        await upload_btn.click()
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(landscape_169_path)
+                    logger.info("[设置封面] Step 3.5: 16:9 landscape file set, waiting for upload...")
+                    await asyncio.sleep(3)
+                    logger.info("[设置封面] Step 3.5: 16:9 landscape upload complete")
+                else:
+                    logger.warning("[设置封面] Step 3.5: 16:9 landscape tab not found")
+            else:
+                logger.info("[设置封面] Step 3.5: SKIPPED — no landscape_169_path")
 
             # ---------------------------------------------------------------
             # Step 4: Click "完成" to confirm

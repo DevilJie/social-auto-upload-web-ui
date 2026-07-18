@@ -399,15 +399,16 @@ class TencentVideoPlatform(BasePlatform):
                 logger.info("[上传视频] 视频文件已选择, 等待 UploadNotify 完成...")
 
                 # 等待真正的上传完成 HTTP 请求(UploadNotify 是后端权威信号)。
-                # 上限 10 分钟(防止网络异常时永久卡死)。
+                # 上限 4 小时(防止网络异常时永久卡死)。大文件(≤16G)在弱网下
+                # 可能要很久, 给足时间。
                 try:
-                    await asyncio.wait_for(upload_done.wait(), timeout=600)
+                    await asyncio.wait_for(upload_done.wait(), timeout=14400)
                     logger.info(
                         "视频上传完成（检测到 UploadNotify 请求）"
                     )
                 except asyncio.TimeoutError:
                     logger.warning(
-                        "[上传视频] 10 分钟内未检测到 UploadNotify, "
+                        "[上传视频] 4 小时内未检测到 UploadNotify, "
                         "可能上传失败或网络异常, 继续后续步骤"
                     )
 

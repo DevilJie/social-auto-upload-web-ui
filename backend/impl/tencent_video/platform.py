@@ -474,19 +474,35 @@ class TencentVideoPlatform(BasePlatform):
 
     @staticmethod
     async def _upload_cover(page, cover_path: str):
-        """Upload cover image via the cover modal."""
+        """Upload cover image via the cover modal.
+
+        腾讯视频发布页有 2 种封面入口:
+        - 首次无封面: div[class*="uploadAddArea"] 内含"上传横版封面"按钮
+        - 已自动生成封面(从视频抽帧): div[class*="_hasValueArea"] 内含"替换"按钮
+        两种情况都点开同一个 ReactModal, 走相同的上传 + 确认流程。
+        """
         logger.info("[设置封面] Uploading cover image: %s", cover_path)
         try:
-            # Click the "上传横版封面" button area to open the modal
+            # 优先找首次上传入口(无封面时的 + 上传横版封面)
             upload_area = page.locator(
                 'div[class*="uploadAddArea"]:has-text("上传横版封面")'
             ).first
             if await upload_area.count() == 0:
-                logger.warning("[设置封面] Cover upload area not found")
-                return
-
-            await upload_area.wait_for(state="visible", timeout=10000)
-            await upload_area.click()
+                # 兜底: 页面已自动生成封面, 找"替换"按钮打开同一个 modal
+                # DOM: div._hasValueArea > div._manualUploadCoverButton
+                replace_btn = page.locator(
+                    'div[class*="_manualUploadCoverButton"]:has-text("替换")'
+                ).first
+                if await replace_btn.count() == 0:
+                    logger.warning("[设置封面] Cover upload area / replace button not found")
+                    return
+                await replace_btn.wait_for(state="visible", timeout=10000)
+                await replace_btn.click()
+                logger.info("[设置封面] 点击'替换'按钮打开封面弹窗")
+            else:
+                await upload_area.wait_for(state="visible", timeout=10000)
+                await upload_area.click()
+                logger.info("[设置封面] 点击'上传横版封面'按钮打开封面弹窗")
             await asyncio.sleep(1)
 
             # Wait for the ReactModal to appear

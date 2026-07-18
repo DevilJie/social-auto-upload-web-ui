@@ -154,8 +154,12 @@ def _resolve_cover_from_path(stored_path) -> str:
     idx = normalized.find('materials/')
     if idx >= 0:
         relative = normalized[idx:]
+    elif normalized.startswith('covers/') or normalized.startswith('videos/'):
+        # 历史数据 / 其它子目录的相对路径(不带 materials/ 前缀),
+        # 直接保留原路径, 由 /api/materials/file 路由拼接 base_dir
+        relative = normalized
     else:
-        # 兜底:取 basename
+        # 兜底:取 basename(用于纯文件名输入,虽然没法定位文件)
         relative = normalized.rsplit('/', 1)[-1]
     return f"/api/materials/file/{urllib.parse.quote(relative, safe='')}"
 

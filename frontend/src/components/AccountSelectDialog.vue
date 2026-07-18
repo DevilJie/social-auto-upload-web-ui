@@ -402,7 +402,10 @@ watch(() => props.modelValue, async (visible) => {
       border-color: $brand-start;
       box-shadow: 0 0 0 1px rgba($brand-start, 0.25);
 
-      .account-name { color: #fff; font-weight: 600; }
+      // 选中态文字用品牌紫(亮色下是 #8b5cf6 深紫, 暗色下也是品牌色),
+      // 在浅紫底(rgba brand-start 0.12)上对比度足够, 不再写死白色
+      // (亮色模式下白字在浅紫底上完全不可见)
+      .account-name { color: $brand-start; font-weight: 600; }
     }
 
     &.disabled {

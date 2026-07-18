@@ -193,11 +193,13 @@ export const PLATFORMS = {
         { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
         { label: '内容为转载', value: '内容为转载' },
       ] },
+      // 转载联动字段:创作声明选「内容为转载」时显示,B 站要求转载必填来源
+      { key: 'biliRepostSource', label: '转载来源', type: 'input', required: true, placeholder: '请输入转载来源(例:转自 https://xxx)', visibleWhen: { key: 'creationDeclaration', value: '内容为转载' } },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', zone: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', zone: '', creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BAIJIAHAO: {
     id: 6,

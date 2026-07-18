@@ -760,6 +760,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
     // 平台特有字段：4 级合并（账号 > 渠道 > 平台默认），与视频/封面一致
     creationDeclaration: accountOv?.creationDeclaration ?? platformOv?.creationDeclaration ?? platformDefault?.creationDeclaration,
+    // B 站转载来源(创作声明=转载 时必填)
+    biliRepostSource: accountOv?.biliRepostSource ?? platformOv?.biliRepostSource ?? platformDefault?.biliRepostSource ?? '',
     riskWarning: accountOv?.riskWarning ?? platformOv?.riskWarning ?? platformDefault?.riskWarning,
     enableCashActivity: accountOv?.enableCashActivity ?? platformOv?.enableCashActivity ?? platformDefault?.enableCashActivity,
     supplementaryDeclaration: accountOv?.supplementaryDeclaration ?? platformOv?.supplementaryDeclaration ?? platformDefault?.supplementaryDeclaration,
@@ -881,7 +883,7 @@ const platformConfigs = reactive({
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
   channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
@@ -1808,6 +1810,8 @@ async function publishAll() {
 
   // 2. 作品声明 + 标题 + 封面 per-account
   const accountsWithoutDeclaration = []
+  // B 站联动校验: 创作声明=转载 时转载来源必填
+  const accountsWithoutRepostSource = []
   const accountsWithoutTitle = []
   const accountsWithoutCover = []  // 格式: '账号X(平台Y)'
   const DECLARATION_PLATFORMS = {
@@ -1848,6 +1852,13 @@ async function publishAll() {
         }
       }
 
+      // 2a-bonus. B 站联动校验: 创作声明=转载 时, 转载来源必填
+      if (platformKey === 'bilibili' && merged.creationDeclaration === '内容为转载') {
+        if (!merged.biliRepostSource || !merged.biliRepostSource.trim()) {
+          accountsWithoutRepostSource.push(`${account.name}(${group.name})`)
+        }
+      }
+
       // 2b. 标题
       if (!merged.title || !merged.title.trim()) {
         accountsWithoutTitle.push(`${account.name}(${group.name})`)
@@ -1861,6 +1872,7 @@ async function publishAll() {
   }
 
   if (accountsWithoutDeclaration.length > 0) errors.push({ type: '作品声明', accounts: accountsWithoutDeclaration })
+  if (accountsWithoutRepostSource.length > 0) errors.push({ type: '转载来源(B站)', accounts: accountsWithoutRepostSource })
   if (accountsWithoutTitle.length > 0) errors.push({ type: '标题', accounts: accountsWithoutTitle })
   if (accountsWithoutCover.length > 0) errors.push({ type: '封面', accounts: accountsWithoutCover })
 
@@ -2269,6 +2281,8 @@ async function publishAll() {
         creationDeclaration: Array.isArray(merged.creationDeclaration)
           ? merged.creationDeclaration.join(',')
           : merged.creationDeclaration || '',
+        // B 站转载来源(创作声明=转载 时必填)
+        biliRepostSource: merged.biliRepostSource || '',
         riskWarning: merged.riskWarning || '',
         // 百家号补充声明
         supplementaryDeclaration: merged.supplementaryDeclaration || '',

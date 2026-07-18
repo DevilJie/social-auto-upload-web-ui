@@ -2179,6 +2179,9 @@ async function publishAll() {
     // 封面缺失校验已在 publishAll 顶部 collect-all 阶段完成，这里不再重复
     const thumbnailLandscapeMaterial = merged.coverLandscape || commonConfig.coverLandscape
     const thumbnailPortraitMaterial = merged.coverPortrait || commonConfig.coverPortrait
+    // 16:9 / 9:16 次尺寸封面(各平台按需选用,如知乎横版用 16:9)
+    const thumbnailLandscape169Material = merged.coverLandscape169 || commonConfig.coverLandscape169
+    const thumbnailPortrait916Material = merged.coverPortrait916 || commonConfig.coverPortrait916
 
     try {
       const tags = merged.tags || []
@@ -2195,6 +2198,9 @@ async function publishAll() {
         accountList: [account.filePath],
         thumbnailLandscape: thumbnailLandscapeMaterial ? thumbnailLandscapeMaterial.stored_path : '',
         thumbnailPortrait: thumbnailPortraitMaterial ? thumbnailPortraitMaterial.stored_path : '',
+        // 16:9 / 9:16 次尺寸封面(知乎等平台横版视频用 16:9)
+        thumbnailLandscape169: thumbnailLandscape169Material ? thumbnailLandscape169Material.stored_path : '',
+        thumbnailPortrait916: thumbnailPortrait916Material ? thumbnailPortrait916Material.stored_path : '',
         enableTimer: merged.scheduleTime ? 1 : 0,
         scheduleTime: merged.scheduleTime || '',
         videosPerDay: 1,

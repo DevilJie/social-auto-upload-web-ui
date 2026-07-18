@@ -899,6 +899,9 @@ def postVideo():
         file_list = [_resolve_material_path(f) for f in data.get('fileList', [])]
         thumbnail_landscape = _resolve_material_path(data.get('thumbnailLandscape', ''))
         thumbnail_portrait = _resolve_material_path(data.get('thumbnailPortrait', ''))
+        # 16:9 / 9:16 次尺寸封面(知乎等平台横版视频用 16:9)
+        thumbnail_landscape_169 = _resolve_material_path(data.get('thumbnailLandscape169', ''))
+        thumbnail_portrait_916 = _resolve_material_path(data.get('thumbnailPortrait916', ''))
 
         # 兜底：只上传了横版或竖版之一时，另一个用同图（保证 2 个封面都有内容）
         if thumbnail_landscape and not thumbnail_portrait:
@@ -942,6 +945,9 @@ def postVideo():
                 thumbnail_path=data.get('thumbnail', ''),
                 thumbnail_landscape_path=thumbnail_landscape,
                 thumbnail_portrait_path=thumbnail_portrait,
+                # 16:9 / 9:16 次尺寸封面(知乎横版视频用 16:9)
+                thumbnail_landscape_169_path=thumbnail_landscape_169,
+                thumbnail_portrait_916_path=thumbnail_portrait_916,
                 productLink=data.get('productLink', ''),
                 productTitle=data.get('productTitle', ''),
                 desc=data.get('description', ''),
@@ -1008,6 +1014,9 @@ def postVideo():
                 thumbnail_path=data.get('thumbnail', ''),
                 thumbnail_landscape_path=thumbnail_landscape,
                 thumbnail_portrait_path=thumbnail_portrait,
+                # 16:9 / 9:16 次尺寸封面(知乎横版视频用 16:9)
+                thumbnail_landscape_169_path=thumbnail_landscape_169,
+                thumbnail_portrait_916_path=thumbnail_portrait_916,
                 productLink=data.get('productLink', ''),
                 productTitle=data.get('productTitle', ''),
                 desc=data.get('description', ''),

@@ -254,6 +254,9 @@ class ZhihuPlatform(BasePlatform):
             desc = kwargs.get("desc", "") or ""
             thumbnail_landscape = kwargs.get("thumbnail_landscape_path", "") or ""
             thumbnail_portrait = kwargs.get("thumbnail_portrait_path", "") or ""
+            # 16:9 / 9:16 次尺寸封面:知乎封面比例为 16:9, 横版视频应优先用 16:9
+            thumbnail_landscape_169 = kwargs.get("thumbnail_landscape_169_path", "") or ""
+            thumbnail_portrait_916 = kwargs.get("thumbnail_portrait_916_path", "") or ""
             schedule_time_str = kwargs.get("schedule_time_str", "") or ""
             video_format = kwargs.get("video_format", "") or "landscape"
 
@@ -286,20 +289,22 @@ class ZhihuPlatform(BasePlatform):
                     index + 1, len(file_paths), file_path,
                 )
                 # 严格按素材表的视频方向选封面（spec: 视频格式由素材库 orientation 字段区分）
+                # 知乎封面比例为 16:9:横版视频优先用 16:9, 竖版优先用 9:16;
+                # 次尺寸缺失时用主尺寸(4:3/3:4)兜底。
                 video_orientation = _get_video_orientation(file_path)
                 if video_orientation == "vertical":
-                    picked_thumb = thumbnail_portrait or thumbnail_landscape
+                    picked_thumb = thumbnail_portrait_916 or thumbnail_portrait or thumbnail_landscape
                     picked_label = "竖版"
                 elif video_orientation == "horizontal":
-                    picked_thumb = thumbnail_landscape or thumbnail_portrait
+                    picked_thumb = thumbnail_landscape_169 or thumbnail_landscape or thumbnail_portrait
                     picked_label = "横版"
                 else:
                     # 素材表无方向记录，兜底用前端 videoFormat
                     if video_format == "portrait":
-                        picked_thumb = thumbnail_portrait or thumbnail_landscape
+                        picked_thumb = thumbnail_portrait_916 or thumbnail_portrait or thumbnail_landscape
                         picked_label = "竖版(前端)"
                     else:
-                        picked_thumb = thumbnail_landscape or thumbnail_portrait
+                        picked_thumb = thumbnail_landscape_169 or thumbnail_landscape or thumbnail_portrait
                         picked_label = "横版(前端)"
                 logger.info(
                     "[发布参数] 视频方向=%s, 选用%s封面: %s",

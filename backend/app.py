@@ -975,6 +975,8 @@ def postVideo():
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
                 video_format=data.get('videoFormat', ''),
+                # 支付宝转载来源(作者声明=内容为转载 时必填)
+                reprint_url=data.get('reprintUrl', ''),
                 # 今日头条特有参数
                 enable_generate_image=data.get('enableGenerateImage', True),
                 collection_id=data.get('collection', ''),
@@ -1046,6 +1048,8 @@ def postVideo():
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
                 video_format=data.get('videoFormat', ''),
+                # 支付宝转载来源(作者声明=内容为转载 时必填)
+                reprint_url=data.get('reprintUrl', ''),
                 # 今日头条特有参数
                 enable_generate_image=data.get('enableGenerateImage', True),
                 collection_id=data.get('collection', ''),

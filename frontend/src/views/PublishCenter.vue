@@ -806,6 +806,7 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     contentStatement: accountOv?.contentStatement ?? platformOv?.contentStatement ?? platformDefault?.contentStatement ?? '',
     // 支付宝
     authorStatement: accountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
+    reprintUrl: accountOv?.reprintUrl ?? platformOv?.reprintUrl ?? platformDefault?.reprintUrl ?? '',
     compilation: accountOv?.compilation ?? platformOv?.compilation ?? platformDefault?.compilation ?? '',
     compilationData: accountOv?.compilationData ?? platformOv?.compilationData ?? platformDefault?.compilationData ?? null,
     // 今日头条
@@ -891,7 +892,7 @@ const platformConfigs = reactive({
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', tags: [] },
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', tags: [] },
   weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [], weiboCollectionName: '', weiboCollectionData: null },
-  alipay: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', tags: [] },
+  alipay: { title: '', description: '', authorStatement: '', reprintUrl: '', compilation: '', scheduleTime: '', tags: [] },
   toutiao: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', tags: [] },
   zhihu: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', tags: [] },
   csdn: { title: '', description: '', recommend: false, scheduleTime: '', tags: [] },
@@ -1829,6 +1830,8 @@ async function publishAll() {
   const accountsWithoutDeclaration = []
   // B 站联动校验: 创作声明=转载 时转载来源必填
   const accountsWithoutRepostSource = []
+  // 支付宝联动校验: 作者声明=内容为转载 时转载来源地址必填
+  const accountsWithoutReprintUrl = []
   const accountsWithoutTitle = []
   const accountsWithoutCover = []  // 格式: '账号X(平台Y)'
   const DECLARATION_PLATFORMS = {
@@ -1876,6 +1879,13 @@ async function publishAll() {
         }
       }
 
+      // 2a-bonus-2. 支付宝联动校验: 作者声明=内容为转载 时, 转载来源地址必填
+      if (platformKey === 'alipay' && merged.authorStatement === '内容为转载') {
+        if (!merged.reprintUrl || !merged.reprintUrl.trim()) {
+          accountsWithoutReprintUrl.push(`${account.name}(${group.name})`)
+        }
+      }
+
       // 2b. 标题
       if (!merged.title || !merged.title.trim()) {
         accountsWithoutTitle.push(`${account.name}(${group.name})`)
@@ -1890,6 +1900,7 @@ async function publishAll() {
 
   if (accountsWithoutDeclaration.length > 0) errors.push({ type: '作品声明', accounts: accountsWithoutDeclaration })
   if (accountsWithoutRepostSource.length > 0) errors.push({ type: '转载来源(B站)', accounts: accountsWithoutRepostSource })
+  if (accountsWithoutReprintUrl.length > 0) errors.push({ type: '转载来源(支付宝)', accounts: accountsWithoutReprintUrl })
   if (accountsWithoutTitle.length > 0) errors.push({ type: '标题', accounts: accountsWithoutTitle })
   if (accountsWithoutCover.length > 0) errors.push({ type: '封面', accounts: accountsWithoutCover })
 
@@ -2258,8 +2269,9 @@ async function publishAll() {
         contentStatement: group.key === 'weibo' ? (merged.contentStatement || '') : '',
         // 微博「合集」单独透传(合集名称,后端切换开关+勾选对应项)
         weiboCollection: group.key === 'weibo' ? (merged.weiboCollectionName || '') : '',
-        // 支付宝「作者声明」+「合集」单独透传(其他平台忽略)
+        // 支付宝「作者声明」+「转载来源」+「合集」单独透传(其他平台忽略)
         authorStatement: merged.authorStatement || '',
+        reprintUrl: merged.reprintUrl || '',
         compilation: merged.compilation || '',
         // 今日头条特有字段
         enableGenerateImage: merged.enableGenerateImage ?? true,

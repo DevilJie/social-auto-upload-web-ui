@@ -416,11 +416,13 @@ export const PLATFORMS = {
         { label: '内容含营销信息', value: '内容含营销信息' },
         { label: '内容为转载', value: '内容为转载' },
       ] },
+      // 转载来源联动字段:作者声明选「内容为转载」时显示,支付宝要求转载必填来源地址
+      { key: 'reprintUrl', label: '转载来源', type: 'input', required: true, placeholder: '请输入视频原地址(例:https://xxx)', visibleWhen: { key: 'authorStatement', value: '内容为转载' } },
       { key: 'compilation', label: '加入合集', type: 'compilationSelect', placeholder: '输入合集名称搜索' },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', authorStatement: '', reprintUrl: '', compilation: '', scheduleTime: '', videoFormat: '' },
   },
   TOUTIAO: {
     id: 13,

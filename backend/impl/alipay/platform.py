@@ -1557,12 +1557,25 @@ class AlipayPlatform(BasePlatform):
                 f"input[name='tagList'][type='radio'][value='{value}']"
             ).first
             try:
-                await radio.wait_for(state="visible", timeout=10000)
-                # 已选中就跳过(避免重复点击触发 antd 状态错乱)
+                await radio.wait_for(state="attached", timeout=10000)
+                # antd5 受控 radio:直接 click 隐藏的 <input> 只会改 input.checked,
+                # 但不会触发 React onChange,导致 antd 内部状态不更新、视觉未选中。
+                # 必须点击包裹它的 <label>(可见、可点击,click 会正确冒泡触发 onChange)。
+                label = radio.locator("xpath=ancestor::label[1]")
                 is_checked = await radio.is_checked()
                 if not is_checked:
-                    await radio.click(force=True)
-                    await asyncio.sleep(0.4)
+                    await label.click()
+                    # 等 antd5 重新渲染:radio.checked=true + 父 label 加上
+                    # antd5-radio-wrapper-checked 类(转载来源输入框依赖此状态才出现)
+                    try:
+                        await page.wait_for_function(
+                            f"() => {{ const r = document.querySelector(\"input[name='tagList'][value='{value}']\"); return r && r.checked; }}",
+                            timeout=5000,
+                        )
+                    except Exception:
+                        # 状态没切换过来,补一次点击保险
+                        await label.click()
+                    await asyncio.sleep(0.5)
                 logger.info("[上传视频] 已选作者声明: %s (value=%s)", statement, value)
                 return
             except Exception as e:
@@ -1626,13 +1639,41 @@ class AlipayPlatform(BasePlatform):
             return
 
         url = reprint_url.strip()
-        # input[id$='_reprintUrl'] - ID 后缀稳定,前缀是随机串
+        # 定位策略(按优先级):
+        # 1. input[id$='_reprintUrl'] - ID 后缀稳定,前缀随机
+        # 2. input[placeholder='请输入视频原地址'] - 占位符文案稳定
+        # 两个都不依赖 antd5 class
         input_loc = page.locator("input[id$='_reprintUrl']").first
+
         try:
             await input_loc.wait_for(state="visible", timeout=10000)
         except Exception as e:
-            logger.warning("[上传视频] 未找到转载来源输入框: %s", e)
-            return
+            logger.warning("[上传视频] 按 id 后缀定位转载来源输入框失败: %s", e)
+            # 兜底:按 placeholder 精确匹配
+            input_loc = page.locator(
+                "input[placeholder='请输入视频原地址']"
+            ).first
+            try:
+                await input_loc.wait_for(state="visible", timeout=5000)
+                logger.info("[上传视频] 转载来源输入框改用 placeholder 兜底定位成功")
+            except Exception as e2:
+                logger.warning("[上传视频] placeholder 兜底也失败: %s", e2)
+                # 排查辅助:列出当前所有可见 input
+                try:
+                    all_inputs = await page.evaluate("""() => {
+                        return Array.from(document.querySelectorAll("input"))
+                            .filter(i => i.offsetParent !== null)
+                            .map(i => ({
+                                id: i.id || "",
+                                name: i.name || "",
+                                type: i.type || "",
+                                placeholder: i.placeholder || "",
+                            }));
+                    }""")
+                    logger.info("[上传视频] 当前页面所有可见 input: %s", all_inputs)
+                except Exception:
+                    pass
+                return
 
         try:
             # 清空 → 填值(用 fill 触发 React onChange,不要用 type)

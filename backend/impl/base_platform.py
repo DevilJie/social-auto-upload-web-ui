@@ -138,6 +138,12 @@ class BasePlatform(ABC):
 
         Returns a ``(display_name, avatar_url)`` tuple, or ``("", "")``
         on failure.
+
+        新平台(如 VIVO)可返回 5 元组 ``(name, avatar, fans, likes, follows)``
+        以同步账号运营数据(粉丝/获赞/关注)。调用方按元组长度解包:
+          len == 2 → 仅 name/avatar
+          len == 5 → 额外写入 user_info.fans/likes/follows
+        旧平台无需改动,继续返回 2 元组即可。
         """
         ...
 

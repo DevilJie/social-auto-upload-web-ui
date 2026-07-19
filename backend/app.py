@@ -130,6 +130,10 @@ from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
 app.register_blueprint(toutiao_bp)
 logger.info("[Startup] toutiao_bp registered OK")
 
+from blueprints.vivo_bp import vivo_bp  # noqa: E402
+app.register_blueprint(vivo_bp)
+logger.info("[Startup] vivo_bp registered OK")
+
 from blueprints.xiaohongshu_bp import xiaohongshu_bp  # noqa: E402
 app.register_blueprint(xiaohongshu_bp)
 logger.info("[Startup] xiaohongshu_bp registered OK")
@@ -201,11 +205,11 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
-    11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn',
+    11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo',
 }
 
 
@@ -569,16 +573,33 @@ def sync_profile():
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型", "data": None}), 400
 
-    name, avatar = asyncio.run(platform.sync_profile(record['filePath']))
+    # sync_profile 约定:
+    #   2 元组 (name, avatar) — 旧平台/抓取失败
+    #   5 元组 (name, avatar, fans, likes, follows) — 新平台(如 VIVO)同步运营数据
+    profile = asyncio.run(platform.sync_profile(record['filePath']))
+    fans = likes = follows = 0
+    if len(profile) >= 5:
+        name, avatar, fans, likes, follows = profile[:5]
+    else:
+        name, avatar = profile[0], profile[1]
+
     if name or avatar:
         with sqlite3.connect(str(DB_PATH)) as conn:
             if name:
-                conn.execute('UPDATE user_info SET userName = ?, avatar = ? WHERE id = ?',
-                             (name, avatar, account_id))
+                conn.execute(
+                    'UPDATE user_info SET userName = ?, avatar = ?, fans = ?, likes = ?, follows = ? WHERE id = ?',
+                    (name, avatar, fans, likes, follows, account_id),
+                )
             else:
-                conn.execute('UPDATE user_info SET avatar = ? WHERE id = ?', (avatar, account_id))
+                conn.execute(
+                    'UPDATE user_info SET avatar = ?, fans = ?, likes = ?, follows = ? WHERE id = ?',
+                    (avatar, fans, likes, follows, account_id),
+                )
 
-    return jsonify({"code": 200, "msg": "同步成功", "data": {"name": name, "avatar": avatar}})
+    return jsonify({
+        "code": 200, "msg": "同步成功",
+        "data": {"name": name, "avatar": avatar, "fans": fans, "likes": likes, "follows": follows},
+    })
 
 
 @app.route('/api/image-proxy')
@@ -1005,6 +1026,12 @@ def postVideo():
                 channels_repost_source=data.get('channelsRepostSource', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
+                # VIVO 平台特有参数
+                vivo_location_name=data.get('vivoLocationName', ''),
+                vivo_distribution=data.get('vivoDistribution', False),
+                vivo_declaration=data.get('vivoDeclaration', ''),
+                vivo_privacy=data.get('vivoPrivacy', '公开'),
+                vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
             ))
         else:
             result = publish_fn(
@@ -1078,6 +1105,12 @@ def postVideo():
                 channels_repost_source=data.get('channelsRepostSource', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
+                # VIVO 平台特有参数
+                vivo_location_name=data.get('vivoLocationName', ''),
+                vivo_distribution=data.get('vivoDistribution', False),
+                vivo_declaration=data.get('vivoDeclaration', ''),
+                vivo_privacy=data.get('vivoPrivacy', '公开'),
+                vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200

@@ -286,6 +286,15 @@ def migrate_database():
         )
     """)
 
+    # user_info 扩展账号运营数据字段：粉丝数 / 获赞数 / 关注数
+    # 存量平台暂不同步(保持默认 0),后续版本按平台逐步同步进来
+    for col in ("fans", "likes", "follows"):
+        try:
+            cursor.execute(f'ALTER TABLE user_info ADD COLUMN {col} INTEGER DEFAULT 0')
+            logger.info(f"已添加 user_info.{col} 列")
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
     conn.commit()
     conn.close()
 

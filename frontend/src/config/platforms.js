@@ -20,6 +20,7 @@ import logoAlipay from '@/assets/logos/alipay.png'
 import logoToutiao from '@/assets/logos/toutiao.png'
 import logoZhihu from '@/assets/logos/zhihu.png'
 import logoCsdn from '@/assets/logos/csdn.png'
+import logoVivo from '@/assets/logos/vivo.svg'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
@@ -589,6 +590,43 @@ export const PLATFORMS = {
       { key: 'recommend', label: '是否推荐', type: 'switch', description: '勾选后发布的视频将被推荐' },
     ],
     defaultSettings: { title: '', description: '', recommend: false, scheduleTime: '' },
+  },
+  VIVO: {
+    id: 16,
+    key: 'vivo',
+    name: 'VIVO',
+    shortName: 'VIVO',
+    letter: 'V',
+    logo: logoVivo,
+    color: '#4154FF',
+    bgColor: 'rgba(65, 84, 255, 0.15)',
+    cssClass: 'vivo',
+    creatorUrl: 'https://www.kaixinkan.com.cn/#/home',
+    settingsFields: [
+      // 位置(平台级):浏览器自动化打开 vivo 发布页搜索回传下拉数据,空=不显示位置
+      { key: 'vivoLocationName', label: '添加位置', type: 'poiSelect', placeholder: '输入地理位置' },
+      // 作品同步(平台级开关):勾选后同时分发到 vivo 浏览器、i 视频、阅图
+      { key: 'vivoDistribution', label: '作品同步', type: 'switch',
+        description: '同时分发到vivo浏览器、i视频、阅图，获取更多流量' },
+      // 自主声明(平台级下拉)
+      { key: 'vivoDeclaration', label: '自主声明', type: 'select', placeholder: '请选择', options: [
+        { label: '含AI生成内容', value: '含AI生成内容' },
+        { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+        { label: '内容含营销信息', value: '内容含营销信息' },
+        { label: '内容为转载', value: '内容为转载' },
+        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+        { label: '内容无需标注', value: '内容无需标注' },
+      ] },
+      // 谁可以看 / 下载权限(默认与平台一致:公开 + 允许下载)
+      { key: 'vivoPrivacy', label: '谁可以看', type: 'radio',
+        options: [{ label: '公开', value: '公开' }, { label: '私密', value: '私密' }] },
+      { key: 'vivoDownloadPermission', label: '下载权限', type: 'radio',
+        options: [{ label: '允许', value: '允许' }, { label: '不允许', value: '不允许' }] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+    ],
+    defaultSettings: { title: '', description: '', vivoLocationName: '', vivoLocationData: null,
+      vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
+      vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   },
 }
 

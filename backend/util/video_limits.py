@@ -21,6 +21,8 @@ VIDEO_LIMITS: dict[str, dict] = {
     "zhihu":         {"min_duration": 0,    "max_duration": math.inf,         "max_size": math.inf,     "max_title_length": math.inf},   # 文档:时长大小不限
     # CSDN: 视频大小≤2G, 时长不限, 标题≤30字
     "csdn":          {"min_duration": 0,    "max_duration": math.inf,         "max_size": 2 * 1024**3,  "max_title_length": 30},
+    # VIVO: 视频大小≤2G, 时长≤90min(5400s), 用「视频描述」非标题故不限标题
+    "vivo":          {"min_duration": 0,    "max_duration": 5400,             "max_size": 2 * 1024**3,  "max_title_length": math.inf},
 }
 
 
@@ -39,6 +41,7 @@ _PLATFORM_NAMES = {
     "alipay": "支付宝",
     "zhihu": "知乎",
     "csdn": "CSDN",
+    "vivo": "VIVO",
 }
 
 

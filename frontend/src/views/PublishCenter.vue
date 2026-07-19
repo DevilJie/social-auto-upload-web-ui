@@ -407,7 +407,14 @@
                     class="cursor-pointer"
                   />
                   <XhsPoiSelect
-                    v-else-if="field.type === 'poiSelect'"
+                    v-else-if="field.type === 'poiSelect' && !field.key.startsWith('vivo')"
+                    :account-id="selectedAccountId"
+                    v-model="form[field.key]"
+                    :data="form[field.key + 'Data']"
+                    @change="(val) => handleXhsPoiChange(field.key, val)"
+                  />
+                  <VivoPositionSelect
+                    v-else-if="field.type === 'poiSelect' && field.key.startsWith('vivo')"
                     :account-id="selectedAccountId"
                     v-model="form[field.key]"
                     :data="form[field.key + 'Data']"
@@ -591,6 +598,7 @@ import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
 import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import { channelsApi } from '@/api/channels'
 import XhsPoiSelect from '@/components/xiaohongshu/PoiSelect.vue'
+import VivoPositionSelect from '@/components/vivo/PositionSelect.vue'
 import RemoteSearchSelect from '@/components/common/RemoteSearchSelect.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 import { xhsApi } from '@/api/xiaohongshu'
@@ -830,6 +838,13 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     channelsRepostSource: accountOv?.channelsRepostSource ?? platformOv?.channelsRepostSource ?? platformDefault?.channelsRepostSource ?? '',
     // CSDN 是否推荐(平台级开关)
     recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
+    // VIVO 平台特有字段(平台级)
+    vivoLocationName: accountOv?.vivoLocationName ?? platformOv?.vivoLocationName ?? platformDefault?.vivoLocationName ?? '',
+    vivoLocationData: accountOv?.vivoLocationData ?? platformOv?.vivoLocationData ?? platformDefault?.vivoLocationData ?? null,
+    vivoDistribution: accountOv?.vivoDistribution ?? platformOv?.vivoDistribution ?? platformDefault?.vivoDistribution ?? false,
+    vivoDeclaration: accountOv?.vivoDeclaration ?? platformOv?.vivoDeclaration ?? platformDefault?.vivoDeclaration ?? '',
+    vivoPrivacy: accountOv?.vivoPrivacy ?? platformOv?.vivoPrivacy ?? platformDefault?.vivoPrivacy ?? '公开',
+    vivoDownloadPermission: accountOv?.vivoDownloadPermission ?? platformOv?.vivoDownloadPermission ?? platformDefault?.vivoDownloadPermission ?? '允许',
   }
 }
 
@@ -896,6 +911,9 @@ const platformConfigs = reactive({
   toutiao: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', tags: [] },
   zhihu: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', tags: [] },
   csdn: { title: '', description: '', recommend: false, scheduleTime: '', tags: [] },
+  vivo: { title: '', description: '', vivoLocationName: '', vivoLocationData: null,
+    vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
+    vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -2280,6 +2298,12 @@ async function publishAll() {
         extendLinkUrl: merged.extendLinkUrl || '',
         // CSDN 是否推荐
         recommend: merged.recommend || false,
+        // VIVO 平台特有字段(平台级)
+        vivoLocationName: merged.vivoLocationName || '',
+        vivoDistribution: merged.vivoDistribution || false,
+        vivoDeclaration: merged.vivoDeclaration || '',
+        vivoPrivacy: merged.vivoPrivacy || '公开',
+        vivoDownloadPermission: merged.vivoDownloadPermission || '允许',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

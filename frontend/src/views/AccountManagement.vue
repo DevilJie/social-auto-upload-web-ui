@@ -111,6 +111,12 @@
         </div>
 
         <!-- 标签行(独立一行,溢出跑马灯) -->
+        <!-- 账号运营数据(粉丝/获赞/关注),仅当任一 > 0 时显示 -->
+        <div v-if="hasStats(account)" class="account-stats-row">
+          <span class="stat-item">粉丝 <strong>{{ account.fans || 0 }}</strong></span>
+          <span class="stat-item">获赞 <strong>{{ account.likes || 0 }}</strong></span>
+          <span class="stat-item">关注 <strong>{{ account.follows || 0 }}</strong></span>
+        </div>
         <div class="account-tags-row">
           <span class="account-tags-label">标签:</span>
           <div
@@ -979,7 +985,11 @@ const handleSyncProfile = async (row) => {
       accountStore.updateAccount(row.id, {
         id: row.id,
         name: res.data.name || row.name,
-        avatar: res.data.avatar || row.avatar
+        avatar: res.data.avatar || row.avatar,
+        // 新平台(如 VIVO)同步账号运营数据;旧平台后端不返回,保留原值
+        fans: res.data.fans ?? row.fans ?? 0,
+        likes: res.data.likes ?? row.likes ?? 0,
+        follows: res.data.follows ?? row.follows ?? 0,
       })
       ElMessage.success('资料同步成功')
     } else {
@@ -991,6 +1001,14 @@ const handleSyncProfile = async (row) => {
   } finally {
     syncingIds.delete(row.id)
   }
+}
+
+// 账号运营数据(粉丝/获赞/关注)是否需要展示:任一 > 0 才显示
+const hasStats = (account) => {
+  const f = Number(account.fans) || 0
+  const l = Number(account.likes) || 0
+  const fo = Number(account.follows) || 0
+  return f > 0 || l > 0 || fo > 0
 }
 
 // getDefaultAvatar / proxyAvatar 已抽到 @/utils/avatar
@@ -1419,6 +1437,26 @@ const submitAccountForm = () => {
       margin-top: 4px;
       margin-bottom: 12px;
       min-height: 22px;
+    }
+
+    // 账号运营数据行(粉丝/获赞/关注)
+    .account-stats-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 6px;
+      padding: 4px 0;
+
+      .stat-item {
+        font-size: 12px;
+        color: $text-muted;
+
+        strong {
+          color: $text-primary;
+          font-weight: 600;
+          margin-left: 2px;
+        }
+      }
     }
 
     .account-tags-label {

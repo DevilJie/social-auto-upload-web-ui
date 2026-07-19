@@ -505,7 +505,7 @@ class TiktokPlatform(BasePlatform):
             await asyncio.sleep(2)
 
         finally:
-            await browser.close()
+            await self.close_browser(browser, is_close_by_code=True)
 
     # ------------------------------------------------------------------
     # Upload sub-operations (private helpers)

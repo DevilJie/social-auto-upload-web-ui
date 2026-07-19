@@ -479,7 +479,7 @@ class KuaishouPlatform(BasePlatform):
                     await context.close()
         finally:
             if not dry_run:
-                await browser.close()
+                await self.close_browser(browser, is_close_by_code=True)
 
     # ------------------------------------------------------------------
     # Publish video
@@ -545,6 +545,9 @@ class KuaishouPlatform(BasePlatform):
         thumbnail_path = kwargs.get("thumbnail_path", "")
         thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "")
+        # 视频方向(来自素材表 orientation, app.py 已推导为 landscape/portrait):
+        # 快手封面弹窗需据此点选「裁剪比例」(横版→4:3, 竖版→3:4)
+        video_format = kwargs.get("video_format", "") or "landscape"
         desc = kwargs.get("desc", "")
         schedule_time_str = kwargs.get("schedule_time_str", "")
         # 作者声明：前端 aiContent 字段经 app.py 透传为 ai_content
@@ -599,6 +602,7 @@ class KuaishouPlatform(BasePlatform):
                         author_declaration=author_declaration,
                         publish_date=pub_date,
                         enable_timer=enable_timer,
+                        video_format=video_format,
                     )
 
         logger.info("=" * 60)
@@ -620,6 +624,7 @@ class KuaishouPlatform(BasePlatform):
         author_declaration: str,
         publish_date,
         enable_timer: bool,
+        video_format: str = "landscape",
     ):
         browser = await self.create_browser(headless=False)
         upload_success = False
@@ -671,6 +676,8 @@ class KuaishouPlatform(BasePlatform):
 
 
             # ------ Wait for upload to complete (no timeout — wait indefinitely) ------
+            # 注：浏览器被用户关闭时, _browser.create_browser 的 watchdog 会 cancel
+            # 当前 task, CancelledError 不被 except Exception 捕获, 循环自然终止。
             retry = 0
             while True:
                 try:
@@ -693,7 +700,7 @@ class KuaishouPlatform(BasePlatform):
             logger.info("[设置封面] 封面路径: %s", thumbnail_path)
             if thumbnail_path:
                 logger.info("[设置封面] 开始设置视频封面...")
-                await self._set_thumbnail(page, thumbnail_path)
+                await self._set_thumbnail(page, thumbnail_path, video_format)
                 logger.info("[设置封面] 封面设置完成")
             else:
                 logger.info("[设置封面] 未提供封面路径, 跳过封面设置")
@@ -714,6 +721,8 @@ class KuaishouPlatform(BasePlatform):
             # ------ Click publish ------
             logger.info("[发布] 正在点击发布按钮...")
             while True:
+                # 注：浏览器被用户关闭时, watchdog 会 cancel 当前 task,
+                # CancelledError 不被 except Exception 捕获, 循环自然终止。
                 try:
                     publish_btn = page.get_by_text("发布", exact=True)
                     if await publish_btn.count() > 0:
@@ -745,7 +754,7 @@ class KuaishouPlatform(BasePlatform):
             except Exception:
                 pass
             try:
-                await browser.close()
+                await self.close_browser(browser, is_close_by_code=True)
             except Exception:
                 pass
 
@@ -891,13 +900,14 @@ class KuaishouPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _set_thumbnail(page, thumbnail_path: str):
+    async def _set_thumbnail(page, thumbnail_path: str, video_format: str = "landscape"):
         """Upload custom cover image.
 
         Flow: hover cover area -> click "封面设置" -> modal ->
-        "上传封面" tab -> upload image -> confirm.
+        "上传封面" tab -> select crop ratio (横版4:3/竖版3:4) ->
+        upload image -> confirm.
         """
-        logger.info("[封面] 开始设置视频封面: %s", thumbnail_path)
+        logger.info("[封面] 开始设置视频封面: %s (方向=%s)", thumbnail_path, video_format)
         try:
             # 1. Hover over cover area to reveal "封面设置" overlay
             cover_area = page.locator("div[class*='default-cover']").first
@@ -924,7 +934,34 @@ class KuaishouPlatform(BasePlatform):
             await upload_tab.click()
             await asyncio.sleep(1)
 
-            # 5. Find hidden file input and upload image
+            # 5. Select crop ratio (裁剪比例)
+            #    快手封面弹窗右侧有「裁剪比例」选项(原始比例/4:3/3:4/1:1/9:16),
+            #    DOM: div[class*='_ratio-item'] 内 <span> 文案为比例值。
+            #    按视频方向点对应比例: 横版→4:3, 竖版→3:4。
+            #    失败仅 warning, 不阻塞上传。
+            target_ratio = "3:4" if video_format == "portrait" else "4:3"
+            logger.info("[封面] 正在选择裁剪比例: %s", target_ratio)
+            try:
+                # 精确定位: ratio-item 内 span 文本 == 目标比例, 取其父级 item 点击。
+                # DOM: div[class*='_ratio-item'] > span(比例文案) + div[class*='_tag'](推荐标签)
+                ratio_item = modal.locator(
+                    f"div[class*='_ratio-item']:has(span:text-is('{target_ratio}'))"
+                ).first
+                # 注意: wait_for 成功时返回 None(不能用作 if 条件!),
+                # 匹配失败才抛异常 → 由外层 except 捕获。
+                await ratio_item.wait_for(state="visible", timeout=5000)
+                # 已是 _active 态则无需重复点击
+                cls = await ratio_item.get_attribute("class") or ""
+                if "_active" in cls:
+                    logger.info("[封面] 裁剪比例 %s 已是选中态, 跳过点击", target_ratio)
+                else:
+                    await ratio_item.click()
+                    logger.info("[封面] 已选择裁剪比例: %s", target_ratio)
+                    await asyncio.sleep(1)
+            except Exception as ratio_exc:
+                logger.info("[封面] 选择裁剪比例失败(继续上传): %s", ratio_exc)
+
+            # 6. Find hidden file input and upload image
             file_input = modal.locator("input[type='file']")
             logger.info("[封面] 正在上传封面图片...")
             await file_input.wait_for(state="attached", timeout=30000)
@@ -932,14 +969,14 @@ class KuaishouPlatform(BasePlatform):
             logger.info("[封面] 封面图片已上传, 等待处理...")
             await asyncio.sleep(3)
 
-            # 6. Click "确认" or "完成" button
+            # 7. Click "确认" or "完成" button
             confirm_btn = modal.locator("button:has-text('确认'), button:has-text('完成')").first
             logger.info("[封面] 正在点击确认按钮...")
             await confirm_btn.wait_for(state="visible", timeout=10000)
             await confirm_btn.click()
             await asyncio.sleep(2)
 
-            # 7. Wait for modal to close
+            # 8. Wait for modal to close
             try:
                 await modal.wait_for(state="hidden", timeout=30000)
             except Exception:

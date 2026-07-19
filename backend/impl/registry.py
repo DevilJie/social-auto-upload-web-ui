@@ -54,6 +54,7 @@ def _populate_registry() -> None:
         (13, ".toutiao.platform", "ToutiaoPlatform"),
         (14, ".zhihu.platform", "ZhihuPlatform"),
         (15, ".csdn.platform", "CsdnPlatform"),
+        (16, ".vivo.platform", "VivoPlatform"),
     ]
 
     import importlib

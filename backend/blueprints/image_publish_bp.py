@@ -175,6 +175,7 @@ def publish_images():
                 '快手': 4,
                 'weibo': 11, '微博': 11,   # 新增
                 'alipay': 12, '支付宝': 12,  # 图集发布
+                'vivo': 16, 'VIVO': 16,
             }
             platform_id = platform_map.get(platform_type)
             if not platform_id:

@@ -267,6 +267,13 @@ const visibleAccountGroups = computed(() =>
     &.active {
       background: rgba($brand-start, 0.1);
       border-color: rgba($brand-start, 0.15);
+
+      // 选中态文字加深+加粗, 亮色模式从 text-secondary(#64748b) 提到 brand-start
+      // 在浅紫底上对比度足够, 不会再"发白"; 暗色模式仍清晰
+      .account-name {
+        color: $brand-start;
+        font-weight: 600;
+      }
     }
 
     .account-avatar {

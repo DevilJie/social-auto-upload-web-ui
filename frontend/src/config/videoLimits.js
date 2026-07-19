@@ -24,6 +24,8 @@ export const VIDEO_LIMITS = {
   zhihu:         { minDuration: 0,    maxDuration: Infinity,     maxSize: Infinity, maxTitleLength: Infinity }, // 文档:时长大小不限
   // CSDN: 视频大小≤2G, 时长不限, 标题≤30字
   csdn:          { minDuration: 0,    maxDuration: Infinity,     maxSize: 2 * GB, maxTitleLength: 30 },
+  // VIVO: 视频大小≤2G, 时长≤90min(5400s), 用「视频描述」非标题故不限标题
+  vivo:          { minDuration: 0,    maxDuration: 5400,         maxSize: 2 * GB, maxTitleLength: Infinity },
 }
 
 const PLATFORM_NAMES = {
@@ -41,6 +43,7 @@ const PLATFORM_NAMES = {
   alipay: '支付宝',
   zhihu: '知乎',
   csdn: 'CSDN',
+  vivo: 'VIVO',
 }
 
 export function formatSize(sizeBytes) {

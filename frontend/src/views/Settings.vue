@@ -76,30 +76,6 @@
           </el-select>
         </div>
       </div>
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-label">竖版封面比例</span>
-          <span class="setting-desc">封面裁剪编辑器中竖版封面的裁剪比例</span>
-        </div>
-        <div class="setting-control">
-          <el-select v-model="settings.portraitRatio" style="width: 120px">
-            <el-option label="9:16" value="9:16" />
-            <el-option label="3:4" value="3:4" />
-          </el-select>
-        </div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-label">横版封面比例</span>
-          <span class="setting-desc">封面裁剪编辑器中横版封面的裁剪比例</span>
-        </div>
-        <div class="setting-control">
-          <el-select v-model="settings.landscapeRatio" style="width: 120px">
-            <el-option label="16:9" value="16:9" />
-            <el-option label="4:3" value="4:3" />
-          </el-select>
-        </div>
-      </div>
     </div>
 
     <!-- 渠道黑名单 -->
@@ -258,6 +234,19 @@
           </button>
         </div>
       </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">清理封面缓存</span>
+          <span class="setting-desc">清除 data/covers/ 目录下视频发布裁剪生成的封面文件</span>
+        </div>
+        <div class="setting-control">
+          <span v-if="cacheInfo.covers.count > 0" class="cache-size">{{ cacheInfo.covers.count }} 个文件 · {{ formatSize(cacheInfo.covers.size) }}</span>
+          <span v-else class="cache-size empty">无缓存</span>
+          <button class="cache-btn" :disabled="clearingCache || cacheInfo.covers.count === 0" @click="handleClearCache('covers')">
+            {{ clearingCache ? '清理中...' : '清理缓存' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 关于系统 -->
@@ -385,6 +374,7 @@ const cacheInfo = reactive({
   frames: { count: 0, size: 0 },
   logs: { count: 0, size: 0, oldCount: 0 },
   s3_videos: { count: 0, size: 0 },
+  covers: { count: 0, size: 0 },
 })
 
 const fetchSystemInfo = async () => {
@@ -396,6 +386,7 @@ const fetchSystemInfo = async () => {
         cacheInfo.frames = res.data.cache.frames || { count: 0, size: 0 }
         cacheInfo.logs = res.data.cache.logs || { count: 0, size: 0, oldCount: 0 }
         cacheInfo.s3_videos = res.data.cache.s3_videos || { count: 0, size: 0 }
+        cacheInfo.covers = res.data.cache.covers || { count: 0, size: 0 }
       }
     }
   } catch {}
@@ -409,11 +400,12 @@ const formatSize = (bytes) => {
 }
 
 const handleClearCache = async (target) => {
-  const messages = { frames: '抽帧缓存', logs: '日志文件', s3_videos: 'S3 视频缓存' }
+  const messages = { frames: '抽帧缓存', logs: '日志文件', s3_videos: 'S3 视频缓存', covers: '封面缓存' }
   const confirmMessages = {
     frames: '确定要清理所有抽帧缓存数据吗？清理后下次使用封面功能时会重新提取视频帧。',
     logs: '确定要清理所有过期日志文件吗？',
     s3_videos: '确定要清理所有 S3 视频缓存吗？清理后下次抽帧时会重新从 S3 下载。',
+    covers: '确定要清理所有封面缓存吗？清理后已设置的封面引用可能失效，需重新裁剪。',
   }
   try {
     await ElMessageBox.confirm(
@@ -447,8 +439,6 @@ const settings = reactive({
   autoSaveDraft: true,
   autoSaveInterval: 10,
   accountCheckMode: 'pre-publish',
-  portraitRatio: '9:16',
-  landscapeRatio: '16:9',
   storage: {
     type: 'local',
     s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
@@ -506,8 +496,6 @@ const fetchSettings = async () => {
       if (res.data.autoSaveDraft !== undefined) settings.autoSaveDraft = res.data.autoSaveDraft
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
-      if (res.data.portraitRatio !== undefined) settings.portraitRatio = res.data.portraitRatio
-      if (res.data.landscapeRatio !== undefined) settings.landscapeRatio = res.data.landscapeRatio
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }
@@ -548,14 +536,10 @@ const handleSave = async () => {
       autoSaveDraft: settings.autoSaveDraft,
       autoSaveInterval: settings.autoSaveInterval,
       accountCheckMode: settings.accountCheckMode,
-      portraitRatio: settings.portraitRatio,
-      landscapeRatio: settings.landscapeRatio,
       storage: settings.storage,
       feedbackEmail: settings.feedbackEmail,
     })
     if (res.code === 200) {
-      appStore.setPortraitRatio(settings.portraitRatio)
-      appStore.setLandscapeRatio(settings.landscapeRatio)
       // 同步到 Pinia store + localStorage(之前漏了这三项,导致开关不生效)
       appStore.setAutoFillTitle(settings.autoFillTitle)
       appStore.setAutoSaveDraft(settings.autoSaveDraft)

@@ -549,7 +549,7 @@ class YoutubePlatform(BasePlatform):
         finally:
             if browser:
                 try:
-                    await browser.close()
+                    await self.close_browser(browser, is_close_by_code=True)
                 except Exception:
                     pass
 

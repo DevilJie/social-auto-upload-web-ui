@@ -6,6 +6,15 @@
         <span class="cover-dot"></span>
         <span>{{ label }}</span>
       </div>
+      <!-- 比例切换 tab -->
+      <div class="cover-ratio-tabs">
+        <button
+          v-for="r in ratios"
+          :key="r"
+          :class="['cover-ratio-tab', { active: activeRatio === r }]"
+          @click="$emit('update:activeRatio', r)"
+        >{{ r }}</button>
+      </div>
     </div>
 
     <!-- Cover preview area -->
@@ -18,12 +27,11 @@
             <el-icon :size="16"><Edit /></el-icon>
             <span>编辑封面</span>
           </button>
-          <button class="overlay-action danger" @click="$emit('update:modelValue', null)">
+          <button class="overlay-action danger" @click.stop="$emit('update:modelValue', null)">
             <el-icon :size="14"><Delete /></el-icon>
             <span>移除</span>
           </button>
         </div>
-        <span class="cover-ratio-badge">{{ ratioLabel }}</span>
       </div>
 
       <!-- No cover yet -->
@@ -31,8 +39,8 @@
         <div class="cover-empty-icon">
           <el-icon :size="28"><Picture /></el-icon>
         </div>
-        <span class="cover-empty-title">上传{{ label }}</span>
-        <span class="cover-empty-desc">点击打开封面编辑器</span>
+        <span class="cover-empty-title">{{ activeRatio }} 封面未设置</span>
+        <span class="cover-empty-desc">点击上传 / 编辑</span>
       </div>
     </div>
   </div>
@@ -44,13 +52,22 @@ import { getFileUrl } from '@/utils/storage'
 
 const props = defineProps({
   label: { type: String, default: '横版封面' },
-  ratioLabel: { type: String, default: '16:9' },
+  // 比例列表，如 ['3:4', '9:16'] 或 ['4:3', '16:9']
+  ratios: { type: Array, default: () => ['16:9'] },
+  // 当前激活的比例（v-model:activeRatio）
+  activeRatio: { type: String, required: true },
+  // 当前激活比例对应的封面对象（v-model）
   modelValue: { type: Object, default: null },
   hasVideo: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
 })
 
-defineEmits(['update:modelValue', 'edit', 'open-library'])
+defineEmits([
+  'update:modelValue',     // 移除当前激活 tab 的封面 → null
+  'update:activeRatio',    // 切换 tab
+  'edit',                  // 编辑当前激活 tab 的封面
+  'open-library',          // 从素材库选择（预留）
+])
 </script>
 
 <style scoped lang="scss">
@@ -77,8 +94,9 @@ defineEmits(['update:modelValue', 'edit', 'open-library'])
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid $border-light;
+  gap: 8px;
 }
 
 .cover-title {
@@ -88,6 +106,37 @@ defineEmits(['update:modelValue', 'edit', 'open-library'])
   font-size: 13px;
   font-weight: 600;
   color: $text-primary;
+}
+
+// 比例切换 tab（header 行右侧）
+.cover-ratio-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba($overlay-rgb, 0.05);
+  border: 1px solid $border-light;
+  border-radius: 7px;
+}
+.cover-ratio-tab {
+  border: none;
+  background: transparent;
+  color: $text-muted;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: $text-primary;
+  }
+  &.active {
+    background: $gradient-brand;
+    color: #fff;
+    box-shadow: 0 1px 4px rgba($brand-start, 0.3);
+  }
 }
 
 .cover-dot {
@@ -157,19 +206,6 @@ defineEmits(['update:modelValue', 'edit', 'open-library'])
     background: rgba($danger-color, 0.5);
     border-color: rgba($danger-color, 0.7);
   }
-}
-
-.cover-ratio-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 2px 8px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  border-radius: 4px;
-  font-size: 10px;
-  color: #fff;
-  font-family: monospace;
 }
 
 .cover-empty {

@@ -257,6 +257,11 @@ class TencentVideoPlatform(BasePlatform):
         enableTimer = kwargs.get("enableTimer", False)
         schedule_time_str = kwargs.get("schedule_time_str", "")
         thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
+        # 16:9 / 9:16 次尺寸封面 + 视频方向(决定用哪个封面)
+        thumbnail_landscape_169_path = kwargs.get("thumbnail_landscape_169_path", "") or ""
+        thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "") or ""
+        thumbnail_portrait_916_path = kwargs.get("thumbnail_portrait_916_path", "") or ""
+        video_format = kwargs.get("video_format", "") or "landscape"
         creation_declaration = kwargs.get("creation_declaration", "")
         desc = kwargs.get("desc", "")
 
@@ -268,6 +273,10 @@ class TencentVideoPlatform(BasePlatform):
         logger.info("[发布参数] 账号数量: %d", len(account_file))
         logger.info("[发布参数] 定时发布: %s", enableTimer)
         logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
+        logger.info("[发布参数] 16:9横版封面: %s", thumbnail_landscape_169_path or "无")
+        logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 9:16竖版封面: %s", thumbnail_portrait_916_path or "无")
+        logger.info("[发布参数] 视频方向: %s", video_format)
         logger.info("[发布参数] 创作声明: %s", creation_declaration or "无")
         logger.info("[发布策略] 发布策略: %s", "scheduled" if enableTimer and schedule_time_str else "immediate")
 
@@ -278,6 +287,31 @@ class TencentVideoPlatform(BasePlatform):
         if thumbnail_landscape_path:
             # thumbnail_landscape_path 已是绝对路径
             thumbnail_landscape_path = str(thumbnail_landscape_path)
+        if thumbnail_landscape_169_path:
+            thumbnail_landscape_169_path = str(thumbnail_landscape_169_path)
+        if thumbnail_portrait_path:
+            thumbnail_portrait_path = str(thumbnail_portrait_path)
+        if thumbnail_portrait_916_path:
+            thumbnail_portrait_916_path = str(thumbnail_portrait_916_path)
+
+        # 按视频方向选主封面 + 选填互补封面
+        # 横版视频: 主封面=16:9, 选填=9:16 竖版(让视频在竖屏展示也有合适封面)
+        # 竖版视频: 主封面=9:16(无则 portrait), 选填=16:9 横版
+        if video_format == "portrait":
+            primary_cover = thumbnail_portrait_916_path or thumbnail_portrait_path
+            primary_aspect = "portrait"
+            extra_landscape_cover = thumbnail_landscape_169_path or thumbnail_landscape_path
+            extra_portrait_cover = None  # 竖版视频不传选填竖版
+        else:
+            primary_cover = thumbnail_landscape_169_path or thumbnail_landscape_path
+            primary_aspect = "16:9"
+            extra_landscape_cover = None  # 横版视频不传选填横版
+            extra_portrait_cover = thumbnail_portrait_916_path or thumbnail_portrait_path
+        logger.info(
+            "[发布参数] 选用主封面: aspect=%s, path=%s, 选填横版=%s, 选填竖版=%s",
+            primary_aspect, primary_cover or "无",
+            extra_landscape_cover or "无", extra_portrait_cover or "无",
+        )
 
         # Parse creation declaration(s)
         declarations = []
@@ -314,7 +348,10 @@ class TencentVideoPlatform(BasePlatform):
                         publish_date=publish_datetimes[file_index],
                         account_file=cookie_path,
                         enableTimer=enableTimer,
-                        thumbnail_landscape_path=thumbnail_landscape_path or None,
+                        primary_cover=primary_cover or None,
+                        primary_aspect=primary_aspect,
+                        extra_landscape_cover=extra_landscape_cover,
+                        extra_portrait_cover=extra_portrait_cover,
                         creation_declarations=declarations,
                         desc=desc,
                     )
@@ -336,7 +373,10 @@ class TencentVideoPlatform(BasePlatform):
         publish_date,
         account_file: str,
         enableTimer: bool = False,
-        thumbnail_landscape_path=None,
+        primary_cover=None,
+        primary_aspect="16:9",
+        extra_landscape_cover=None,
+        extra_portrait_cover=None,
         creation_declarations=None,
         desc="",
     ):
@@ -366,65 +406,69 @@ class TencentVideoPlatform(BasePlatform):
                 # [FIX 2026-06-10] 腾讯视频 SPA：networkidle 后还要等表单 JS 渲染完毕
                 # 之前在 networkidle 后直接找 input，找不到（form 还没渲染）
                 logger.info("[上传视频] 开始上传视频: %s (exists=%s)", file_path, os.path.exists(file_path))
-                # 先等 publish form 渲染：找"上传视频"或上传区域的提示文字
-                try:
-                    await page.wait_for_selector(
-                        'text=上传视频, input[type="file"], [dt-mpid*="upload"], div[class*="uploadArea"], div[class*="Upload"]',
-                        timeout=15000,
-                    )
-                    logger.info("[上传视频] Publish form rendered, input area found")
-                except Exception as e:
-                    logger.warning("[DEBUG] Publish form wait timeout: %s", e)
 
                 # 用 attached 状态找 input（不要求 visible，hidden 的也行）
-                await page.wait_for_selector(
-                    'input[type="file"]',
-                    state='attached',
-                    timeout=15000,
-                )
+                # 同时接受页面中所有可能的上传入口(input[type=file] 或 [dt-mpid*="upload"] 的 div)
+                try:
+                    await page.wait_for_selector(
+                        'input[type="file"], [dt-mpid*="upload"]',
+                        state='attached',
+                        timeout=30000,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[上传视频] 上传入口等待 30s 超时: %s", e,
+                    )
+                    # dump 排查
+                    try:
+                        current_url = page.url
+                        page_title = await page.title()
+                        body_text = (await page.locator('body').text_content() or '')[:500]
+                        logger.error(
+                            "[DEBUG] current_url=%s page_title=%s body_excerpt=%s",
+                            current_url, page_title, body_text,
+                        )
+                    except Exception:
+                        pass
+                    raise Exception("未找到视频上传入口")
+
                 file_input = page.locator('input[type="file"]').first
                 input_count = await page.locator('input[type="file"]').count()
                 logger.info("[上传视频] Found %d file input(s) on page", input_count)
-                if input_count == 0:
-                    # [DEBUG 2026-06-10] 把 page state 全 dump 出来排查
-                    current_url = page.url
-                    page_title = await page.title()
-                    body_text = (await page.locator('body').text_content() or '')[:500]
-                    logger.error("[上传视频] No file input found, cannot upload video")
-                    logger.error("[DEBUG] current_url=%s page_title=%s body_excerpt=%s", current_url, page_title, body_text)
-                    try:
-                        html_excerpt = (await page.content())[:2000]
-                        logger.error("[DEBUG] html_excerpt=%s", html_excerpt)
-                    except Exception as e:
-                        logger.error("[DEBUG] failed to get html: %s", e)
-                    raise Exception("未找到视频上传入口")
                 await file_input.set_input_files(file_path)
-                logger.info("[上传视频] 视频文件已选择, 等待上传完成...")
+                logger.info("[上传视频] 视频文件已选择, 等待 UploadNotify 完成...")
 
-                # Step 2: Wait for the publish form to appear after upload
-                # The form title "视频1" signals upload is done
-                # (timeout=0 means wait indefinitely — video may be very large)
-                await page.wait_for_selector(
-                    'div[class*="formTitle"]:has-text("视频")',
-                    timeout=0,
-                )
-                logger.info("[上传视频] 视频上传成功! 发布表单已就绪")
-                await asyncio.sleep(2)
-
-                # Step 2.5: 等待真正的上传完成 HTTP 请求（formTitle 只是
-                # UI 提示，不是后端完成的权威信号）
-                # 无超时:视频可能很大(≤16G),一直等到 UploadNotify 到达
-                await upload_done.wait()
-                logger.info(
-                    "视频上传完成（检测到 UploadNotify 请求）"
-                )
+                # 等待真正的上传完成 HTTP 请求(UploadNotify 是后端权威信号)。
+                # 上限 4 小时(防止网络异常时永久卡死)。大文件(≤16G)在弱网下
+                # 可能要很久, 给足时间。
+                try:
+                    await asyncio.wait_for(upload_done.wait(), timeout=14400)
+                    logger.info(
+                        "视频上传完成（检测到 UploadNotify 请求）"
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "[上传视频] 4 小时内未检测到 UploadNotify, "
+                        "可能上传失败或网络异常, 继续后续步骤"
+                    )
 
                 # Step 3: Fill title
                 await self._fill_title(page, title or desc)
 
-                # Step 4: Upload cover image if provided
-                if thumbnail_landscape_path:
-                    await self._upload_cover(page, thumbnail_landscape_path)
+                # Step 4: Upload cover image (按视频方向选主封面 + 选填)
+                if primary_cover:
+                    await self._upload_cover(
+                        page, primary_cover, aspect=primary_aspect
+                    )
+                # 竖版视频: 上传选填的横版封面(16:9) + 选填的竖版封面(9:16)
+                if extra_landscape_cover:
+                    await self._upload_extra_landscape_cover(
+                        page, extra_landscape_cover
+                    )
+                if extra_portrait_cover:
+                    await self._upload_extra_portrait_cover(
+                        page, extra_portrait_cover
+                    )
 
                 # Step 5: Set creation declarations (checkboxes)
                 if creation_declarations:
@@ -445,7 +489,7 @@ class TencentVideoPlatform(BasePlatform):
             finally:
                 await context.close()
         finally:
-            await browser.close()
+            await self.close_browser(browser, is_close_by_code=True)
 
     @staticmethod
     async def _fill_title(page, title: str):
@@ -473,20 +517,42 @@ class TencentVideoPlatform(BasePlatform):
         logger.info("[填写标题] 标题已填写: %s", title[:80])
 
     @staticmethod
-    async def _upload_cover(page, cover_path: str):
-        """Upload cover image via the cover modal."""
-        logger.info("[设置封面] Uploading cover image: %s", cover_path)
+    async def _upload_cover(page, cover_path: str, aspect: str = "16:9"):
+        """Upload cover image via the cover modal.
+
+        腾讯视频发布页有 2 种封面入口:
+        - 首次无封面: 含"上传横版封面"文本的 div
+        - 已自动生成封面(从视频抽帧): 含"替换"文本的 div (role="button")
+        两种情况都点开同一个 ReactModal, 走相同的上传 + 确认流程。
+
+        选择器策略: 不用含随机后缀的 class(CSS Modules 风格, 代码更新会变),
+        用 role + 文本 + 稳定属性(dt-mpid/id) 定位。
+
+        aspect: "16:9" (横版视频) | "portrait" (竖版视频), 仅用于日志标识,
+        实际封面比例由弹窗内控件决定。
+        """
+        logger.info("[设置封面] Uploading cover image: %s (aspect=%s)", cover_path, aspect)
         try:
-            # Click the "上传横版封面" button area to open the modal
+            # 优先找首次上传入口(无封面时的 + 上传横版封面)。
+            # 不依赖 class 随机后缀, 用 role="button" + 文本"上传横版封面"匹配。
             upload_area = page.locator(
-                'div[class*="uploadAddArea"]:has-text("上传横版封面")'
+                '[role="button"]:has-text("上传横版封面")'
             ).first
             if await upload_area.count() == 0:
-                logger.warning("[设置封面] Cover upload area not found")
-                return
-
-            await upload_area.wait_for(state="visible", timeout=10000)
-            await upload_area.click()
+                # 兜底: 页面已自动生成封面, 找"替换"按钮打开同一个 modal
+                replace_btn = page.locator(
+                    '[role="button"]:has-text("替换")'
+                ).first
+                if await replace_btn.count() == 0:
+                    logger.warning("[设置封面] Cover upload area / replace button not found")
+                    return
+                await replace_btn.wait_for(state="visible", timeout=10000)
+                await replace_btn.click()
+                logger.info("[设置封面] 点击'替换'按钮打开封面弹窗")
+            else:
+                await upload_area.wait_for(state="visible", timeout=10000)
+                await upload_area.click()
+                logger.info("[设置封面] 点击'上传横版封面'按钮打开封面弹窗")
             await asyncio.sleep(1)
 
             # Wait for the ReactModal to appear
@@ -529,6 +595,108 @@ class TencentVideoPlatform(BasePlatform):
                     logger.warning("[设置封面] Cover '使用' button not found in modal")
         except Exception as e:
             logger.warning("[设置封面] Cover upload failed (non-blocking): %s", e)
+
+    @staticmethod
+    async def _upload_extra_landscape_cover(page, cover_path: str):
+        """竖版视频专用: 在主封面已设完后, 上传选填的横版封面(16:9)。
+
+        DOM 中该 div class 含随机后缀(例如 _s169_t1inz_7), 不依赖 class,
+        只用 role="button" + has-text 文本匹配稳定的"上传横版封面"文案。
+        点击后走与主封面相同的 ReactModal 上传流程。
+        """
+        logger.info("[设置封面] 上传选填横版封面: %s", cover_path)
+        try:
+            # 选填横版封面入口(竖版视频专属):
+            # 用 role="button" + 文本"上传横版封面" 匹配, 避免依赖含随机后缀的 class
+            extra_btn = page.locator(
+                '[role="button"]:has-text("上传横版封面")'
+            ).filter(has_text="选填").first
+            if await extra_btn.count() == 0:
+                logger.warning("[设置封面] 未找到选填横版封面入口, 跳过")
+                return
+            await extra_btn.wait_for(state="visible", timeout=10000)
+            await extra_btn.click()
+            logger.info("[设置封面] 点击'上传横版封面(选填)'按钮打开弹窗")
+            await asyncio.sleep(1)
+
+            # 弹窗与主封面是同一个 ReactModal, 走相同上传流程
+            modal = page.locator('div.ReactModal__Content').first
+            await modal.wait_for(state="visible", timeout=10000)
+
+            cover_input = modal.locator('input#uploadCoverBtn')
+            await cover_input.wait_for(state="attached", timeout=10000)
+            await cover_input.evaluate("el => el.style.display = 'block'")
+            await cover_input.set_input_files(cover_path)
+            logger.info("[设置封面] 选填横版封面已上传")
+            await asyncio.sleep(3)
+
+            use_btn = page.locator(
+                'button[dt-mpid="上传封面确定"]'
+            ).first
+            if await use_btn.count() > 0:
+                await use_btn.click()
+                logger.info("[设置封面] 选填横版封面已确认")
+                await asyncio.sleep(1)
+            else:
+                use_btn_fallback = page.locator('button:has-text("使用")').first
+                if await use_btn_fallback.count() > 0:
+                    await use_btn_fallback.click()
+                    logger.info("[设置封面] 选填横版封面已确认(使用)")
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("[设置封面] 选填横版'使用'按钮未找到")
+        except Exception as exc:
+            logger.warning("[设置封面] 选填横版封面上传失败（非致命）: %s", exc)
+
+    @staticmethod
+    async def _upload_extra_portrait_cover(page, cover_path: str):
+        """横版视频专用: 上传选填的竖版封面(9:16)。
+
+        与选填横版对称, 也不依赖含随机后缀的 class,
+        用 role="button" + 文本"上传竖版封面" 匹配。
+        """
+        logger.info("[设置封面] 上传选填竖版封面: %s", cover_path)
+        try:
+            # 选填竖版封面入口(横版视频专属):
+            extra_btn = page.locator(
+                '[role="button"]:has-text("上传竖版封面")'
+            ).filter(has_text="选填").first
+            if await extra_btn.count() == 0:
+                logger.warning("[设置封面] 未找到选填竖版封面入口, 跳过")
+                return
+            await extra_btn.wait_for(state="visible", timeout=10000)
+            await extra_btn.click()
+            logger.info("[设置封面] 点击'上传竖版封面(选填)'按钮打开弹窗")
+            await asyncio.sleep(1)
+
+            # 弹窗与主封面是同一个 ReactModal, 走相同上传流程
+            modal = page.locator('div.ReactModal__Content').first
+            await modal.wait_for(state="visible", timeout=10000)
+
+            cover_input = modal.locator('input#uploadCoverBtn')
+            await cover_input.wait_for(state="attached", timeout=10000)
+            await cover_input.evaluate("el => el.style.display = 'block'")
+            await cover_input.set_input_files(cover_path)
+            logger.info("[设置封面] 选填竖版封面已上传")
+            await asyncio.sleep(3)
+
+            use_btn = page.locator(
+                'button[dt-mpid="上传封面确定"]'
+            ).first
+            if await use_btn.count() > 0:
+                await use_btn.click()
+                logger.info("[设置封面] 选填竖版封面已确认")
+                await asyncio.sleep(1)
+            else:
+                use_btn_fallback = page.locator('button:has-text("使用")').first
+                if await use_btn_fallback.count() > 0:
+                    await use_btn_fallback.click()
+                    logger.info("[设置封面] 选填竖版封面已确认(使用)")
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("[设置封面] 选填竖版'使用'按钮未找到")
+        except Exception as exc:
+            logger.warning("[设置封面] 选填竖版封面上传失败（非致命）: %s", exc)
 
     @staticmethod
     async def _set_creation_declarations(page, declarations: list):

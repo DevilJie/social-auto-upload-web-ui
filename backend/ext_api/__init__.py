@@ -154,8 +154,12 @@ def _resolve_cover_from_path(stored_path) -> str:
     idx = normalized.find('materials/')
     if idx >= 0:
         relative = normalized[idx:]
+    elif normalized.startswith('covers/') or normalized.startswith('videos/'):
+        # 历史数据 / 其它子目录的相对路径(不带 materials/ 前缀),
+        # 直接保留原路径, 由 /api/materials/file 路由拼接 base_dir
+        relative = normalized
     else:
-        # 兜底:取 basename
+        # 兜底:取 basename(用于纯文件名输入,虽然没法定位文件)
         relative = normalized.rsplit('/', 1)[-1]
     return f"/api/materials/file/{urllib.parse.quote(relative, safe='')}"
 
@@ -710,8 +714,6 @@ def get_settings():
             "autoSaveDraft": "true",
             "autoSaveInterval": "10",
             "accountCheckMode": "pre-publish",
-            "portraitRatio": "9:16",
-            "landscapeRatio": "16:9",
         }
         defaults.update(settings)
         # 转换布尔值类型
@@ -796,6 +798,7 @@ _PLATFORM_ID_MAP = {
     13: ('toutiao', '今日头条'),
     14: ('zhihu', '知乎'),
     15: ('csdn', 'CSDN'),
+    16: ('vivo', 'VIVO'),
 }
 
 
@@ -1007,7 +1010,7 @@ def _extract_channels_summary(draft_data):
         'tiktok': 'TikTok', 'youtube': 'YouTube', 'iqiyi': '爱奇艺',
         'tencent_video': '腾讯视频',
         'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条', 'zhihu': '知乎',
-        'csdn': 'CSDN',
+        'csdn': 'CSDN', 'vivo': 'VIVO',
     }
 
     try:
@@ -1025,6 +1028,7 @@ def _extract_channels_summary(draft_data):
             'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
             'tencent_video': 9, 'iqiyi': 10,
             'weibo': 11, 'alipay': 12, 'toutiao': 13, 'zhihu': 14, 'csdn': 15,
+            'vivo': 16,
         }.items()}
 
         platform_counts = {}

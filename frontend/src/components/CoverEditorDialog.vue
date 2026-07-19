@@ -10,48 +10,71 @@
   >
 
     <div class="cover-editor-body">
-      <div class="editor-main">
-        <!-- Crop area -->
+      <!-- 左侧：裁剪画布（主体） -->
+      <div class="editor-crop">
         <div class="crop-area">
           <div v-if="!currentImageSrc" class="crop-empty">
             <el-icon :size="32"><Picture /></el-icon>
-            <span>选择时间轴帧、上传图片或从素材库选取</span>
+            <span>选择右侧时间轴帧、上传图片或从素材库选取</span>
           </div>
-          <div v-else class="crop-canvas-wrap" ref="canvasWrapRef">
-            <canvas ref="cropCanvasRef" class="crop-canvas"></canvas>
-            <div class="crop-selection" :style="cropSelectionStyle" @mousedown="startCropDrag">
-              <div class="crop-handle top-left" data-handle="tl"></div>
-              <div class="crop-handle top-right" data-handle="tr"></div>
-              <div class="crop-handle bottom-left" data-handle="bl"></div>
-              <div class="crop-handle bottom-right" data-handle="br"></div>
+          <div
+            v-else
+            class="crop-canvas-wrap"
+            ref="canvasWrapRef"
+            @wheel.prevent="onWheel"
+            @pointerdown="onPointerDown"
+          >
+            <canvas ref="cropCanvasRef" class="crop-canvas" :style="canvasStyle"></canvas>
+            <div class="crop-selection" :style="cropSelectionStyle">
               <div class="crop-ratio-badge">{{ currentRatioLabel }}</div>
             </div>
+            <div class="crop-hint">滚轮缩放 · 拖动移动</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧：尺寸 tab + 时间轴 + 操作（侧栏） -->
+      <div class="editor-sidebar">
+        <!-- 尺寸 tab -->
+        <div class="sidebar-block">
+          <div class="sidebar-label">封面尺寸</div>
+          <div class="ratio-tabs">
+            <button
+              v-for="r in ratioTabs"
+              :key="r"
+              :class="['ratio-tab', { active: activeTab === r }]"
+              @click="switchTab(r)"
+            >{{ r }}</button>
           </div>
         </div>
 
         <!-- Timeline -->
-        <div class="timeline-section" v-if="frames.length > 0">
-          <div class="section-label-row">
-            <span class="section-label-text">视频时间轴</span>
-            <span class="section-label-hint">拖动选择帧画面</span>
+        <div class="sidebar-block" v-if="frames.length > 0">
+          <div class="sidebar-label">
+            视频时间轴
+            <span class="sidebar-hint">拖动选帧</span>
           </div>
           <VideoTimeline :frames="frames" :duration="videoDuration" :extracting="extracting" v-model="selectedSecond" @update:modelValue="onTimelineSelect" />
         </div>
 
-        <!-- Upload + Material Library buttons -->
-        <div class="editor-actions">
-          <button class="action-btn action-upload" @click="triggerLocalUpload">
-            <el-icon :size="18"><Upload /></el-icon>
-            <span>上传图片</span>
-          </button>
-          <button class="action-btn action-material" @click="materialSelectRef?.open()">
-            <el-icon :size="18"><PictureFilled /></el-icon>
-            <span>素材库</span>
-          </button>
+        <!-- 图片来源 -->
+        <div class="sidebar-block">
+          <div class="sidebar-label">图片来源</div>
+          <div class="editor-actions">
+            <button class="action-btn action-upload" @click="triggerLocalUpload">
+              <el-icon :size="16"><Upload /></el-icon>
+              <span>上传图片</span>
+            </button>
+            <button class="action-btn action-material" @click="materialSelectRef?.open()">
+              <el-icon :size="16"><PictureFilled /></el-icon>
+              <span>素材库</span>
+            </button>
+          </div>
         </div>
-        <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
-        <MaterialSelectDialog ref="materialSelectRef" filter-type="image" @select="onMaterialSelect" />
       </div>
+
+      <input ref="fileInputRef" type="file" accept="image/*" style="display: none" @change="onLocalFileSelected" />
+      <MaterialSelectDialog ref="materialSelectRef" filter-type="image" @select="onMaterialSelect" />
     </div>
 
     <template #footer>
@@ -78,16 +101,27 @@ import MaterialSelectDialog from './MaterialSelectDialog.vue'
 const props = defineProps({
   videoLandscape: { type: Object, default: null },
   videoPortrait: { type: Object, default: null },
-  coverLandscape: { type: Object, default: null },
-  coverPortrait: { type: Object, default: null },
-  portraitRatio: { type: String, default: '9:16' },
-  landscapeRatio: { type: String, default: '16:9' },
+  // 当前弹窗方向：'landscape'（横版）或 'portrait'（竖版）
+  orientation: { type: String, default: 'landscape' },
+  // 主尺寸封面（横版=4:3，竖版=3:4）
+  coverPrimary: { type: Object, default: null },
+  // 次尺寸封面（横版=16:9，竖版=9:16）
+  coverSecondary: { type: Object, default: null },
 })
 
-const emit = defineEmits(['update:coverLandscape', 'update:coverPortrait'])
+const emit = defineEmits(['coverSaved'])
 
 const visible = ref(false)
-const activeTab = ref('landscape')
+// 当前编辑方向（由 open(orientation) 同步设置，不依赖 props 异步更新，避免切换横竖版时 ratio 错乱）
+const activeOrientation = ref('landscape')
+
+// 根据方向决定两个尺寸 tab
+const ratioTabs = computed(() =>
+  activeOrientation.value === 'portrait' ? ['3:4', '9:16'] : ['4:3', '16:9']
+)
+// 主尺寸对应的 ratio（第一个 tab）
+const primaryRatio = computed(() => ratioTabs.value[0])
+const secondaryRatio = computed(() => ratioTabs.value[1])
 
 const frames = ref([])
 const videoDuration = ref(0)
@@ -99,43 +133,66 @@ const cropCanvasRef = ref(null)
 const canvasWrapRef = ref(null)
 const fileInputRef = ref(null)
 const materialSelectRef = ref(null)
-const cropImage = ref(null)
-const currentImageSrc = ref('')
-const cropDisplayScale = ref(1)
-const cropRect = reactive({ x: 0, y: 0, w: 0, h: 0 })
-const cropDragState = ref(null)
+const dragState = ref(null)
 
-const tabState = reactive({
-  landscape: { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } },
-  portrait: { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } },
-})
+// 每个 ratio 一个独立的裁剪面板状态（图片源、缩放、偏移各自隔离）
+// panels: { '4:3': { imageSrc, img, zoom, offset, displayScale, cropRect }, ... }
+const panels = reactive({})
+const activeTab = ref('4:3')
 
-const currentRatioLabel = computed(() => activeTab.value === 'portrait' ? props.portraitRatio : props.landscapeRatio)
+// 当前激活面板（便捷访问）
+const activePanel = computed(() => panels[activeTab.value])
+
+const currentRatioLabel = computed(() => activeTab.value)
+const currentImageSrc = computed(() => activePanel.value?.imageSrc || '')
 
 const aspectRatio = computed(() => {
   const [w, h] = currentRatioLabel.value.split(':').map(Number)
-  return activeTab.value === 'portrait' ? w / h : w / h
+  return w / h
 })
 
-const cropSelectionStyle = computed(() => ({
-  left: cropRect.x * cropDisplayScale.value + 'px',
-  top: cropRect.y * cropDisplayScale.value + 'px',
-  width: cropRect.w * cropDisplayScale.value + 'px',
-  height: cropRect.h * cropDisplayScale.value + 'px',
-}))
+// 裁剪框固定居中（canvas 显示像素空间）；canvas 用 transform 平移/缩放图片
+const cropSelectionStyle = computed(() => {
+  const p = activePanel.value
+  if (!p) return { left: 0, top: 0, width: 0, height: 0 }
+  const cw = p.cropRect.w * p.displayScale
+  const ch = p.cropRect.h * p.displayScale
+  const canvas = cropCanvasRef.value
+  const cwTotal = canvas ? canvas.width : cw
+  const chTotal = canvas ? canvas.height : ch
+  return {
+    left: (cwTotal - cw) / 2 + 'px',
+    top: (chTotal - ch) / 2 + 'px',
+    width: cw + 'px',
+    height: ch + 'px',
+  }
+})
 
-function open(tab = 'landscape') {
-  activeTab.value = tab
+const canvasStyle = computed(() => {
+  const p = activePanel.value
+  if (!p) return { transform: 'none', transformOrigin: '0 0' }
+  return {
+    transform: `translate(${p.offset.x}px, ${p.offset.y}px) scale(${p.zoom})`,
+    transformOrigin: '0 0',
+  }
+})
+
+function open(orientation) {
+  activeOrientation.value = orientation || 'landscape'
+  // 重置：每个 ratio 一个独立面板
+  Object.keys(panels).forEach((k) => delete panels[k])
+  ratioTabs.value.forEach((r) => {
+    panels[r] = { imageSrc: '', img: null, zoom: 1, offset: { x: 0, y: 0 }, displayScale: 1, cropRect: { x: 0, y: 0, w: 0, h: 0 } }
+  })
+  activeTab.value = primaryRatio.value
   visible.value = true
   loadFrames()
-  loadTabState()
+  // 等 canvas 挂载后，为已有 cover 的面板加载图片
+  nextTick(() => ratioTabs.value.forEach((r) => maybeLoadPanelCover(r)))
 }
 
 function currentVideoMaterialId() {
-  if (activeTab.value === 'landscape') {
-    return props.videoLandscape?.id || props.videoPortrait?.id || ''
-  }
-  return props.videoPortrait?.id || props.videoLandscape?.id || ''
+  return props.videoLandscape?.id || props.videoPortrait?.id || ''
 }
 
 async function loadFrames() {
@@ -185,89 +242,91 @@ function stopPolling() {
   }
 }
 
-function loadTabState() {
-  const state = tabState[activeTab.value]
-  if (state.imageSrc) {
-    currentImageSrc.value = state.imageSrc
-    loadImageToCanvas(state.imageSrc)
-  } else {
-    const cover = activeTab.value === 'landscape' ? props.coverLandscape : props.coverPortrait
-    if (cover?.url) {
-      let src = cover.url
-      if (cover._fromFrame !== undefined) {
-        const materialId = currentVideoMaterialId()
-        if (materialId) {
-          src = frameApi.getFrameImageUrl(materialId, cover._fromFrame, false)
-        }
-      }
-      currentImageSrc.value = src
-      loadImageToCanvas(src)
-    } else {
-      currentImageSrc.value = ''
-      cropImage.value = null
+// 当前 ratio 对应的封面 prop（用于打开时回填已有封面）
+function coverForTab(ratio) {
+  return ratio === secondaryRatio.value ? props.coverSecondary : props.coverPrimary
+}
+
+// 若该面板还没有图、但已有 cover，则加载 cover 图
+function maybeLoadPanelCover(ratio) {
+  const p = panels[ratio]
+  if (!p || p.imageSrc) return
+  const cover = coverForTab(ratio)
+  if (cover?.url) {
+    let src = cover.url
+    if (cover._fromFrame !== undefined) {
+      const materialId = currentVideoMaterialId()
+      if (materialId) src = frameApi.getFrameImageUrl(materialId, cover._fromFrame, false)
     }
+    loadImageToPanel(ratio, src)
   }
 }
 
-function saveTabState() {
-  const state = tabState[activeTab.value]
-  state.imageSrc = currentImageSrc.value
-  state.cropRect = { ...cropRect }
-}
-
+// 切换 tab：直接切 activeTab，把该面板的图重画到 canvas
 function switchTab(tab) {
-  saveTabState()
+  if (tab === activeTab.value) return
   activeTab.value = tab
-  loadTabState()
+  nextTick(() => redrawActivePanel())
 }
 
-function loadImageToCanvas(src) {
+// 为某面板加载图片
+function loadImageToPanel(ratio, src) {
+  const p = panels[ratio]
+  if (!p) return
+  p.imageSrc = src
   const img = new Image()
   img.crossOrigin = 'anonymous'
   img.onload = () => {
-    cropImage.value = img
-    nextTick(() => initCropCanvas(img))
+    p.img = img
+    initPanelCropRect(ratio, img)
+    if (ratio === activeTab.value) nextTick(() => redrawActivePanel())
   }
   img.src = src
 }
 
-function initCropCanvas(img) {
+// 计算某面板的裁剪框（居中、撑满最大、锁定该 ratio）
+function initPanelCropRect(ratio, img) {
+  const p = panels[ratio]
+  if (!p) return
+  const [w, h] = ratio.split(':').map(Number)
+  const r = w / h
+  let rw = img.width
+  let rh = rw / r
+  if (rh > img.height) { rh = img.height; rw = rh * r }
+  p.cropRect.x = (img.width - rw) / 2
+  p.cropRect.y = (img.height - rh) / 2
+  p.cropRect.w = rw
+  p.cropRect.h = rh
+  p.zoom = 1
+  p.offset.x = 0
+  p.offset.y = 0
+}
+
+// 把当前激活面板的图重画到 canvas
+function redrawActivePanel() {
   const canvas = cropCanvasRef.value
-  if (!canvas) return
+  const p = activePanel.value
+  if (!canvas || !p || !p.img) return
   const maxW = 520
   const maxH = 380
-  const scale = Math.min(maxW / img.width, maxH / img.height, 1)
-  cropDisplayScale.value = scale
-  canvas.width = img.width * scale
-  canvas.height = img.height * scale
+  const scale = Math.min(maxW / p.img.width, maxH / p.img.height, 1)
+  p.displayScale = scale
+  canvas.width = p.img.width * scale
+  canvas.height = p.img.height * scale
   const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-  const saved = tabState[activeTab.value].cropRect
-  if (saved.w > 0 && saved.h > 0) {
-    Object.assign(cropRect, saved)
-    return
-  }
-  const ratio = aspectRatio.value
-  let rw = img.width * 0.8
-  let rh = rw / ratio
-  if (rh > img.height * 0.8) { rh = img.height * 0.8; rw = rh * ratio }
-  cropRect.x = (img.width - rw) / 2
-  cropRect.y = (img.height - rh) / 2
-  cropRect.w = rw
-  cropRect.h = rh
+  ctx.drawImage(p.img, 0, 0, canvas.width, canvas.height)
+  clampPanelOffset(p)
 }
 
 function onTimelineSelect(seconds) {
   const materialId = currentVideoMaterialId()
   const url = frameApi.getFrameImageUrl(materialId, seconds, false)
-  currentImageSrc.value = url
-  loadImageToCanvas(url)
+  loadImageToPanel(activeTab.value, url)
 }
 
 function onMaterialSelect(material) {
   const url = material.url || getFileUrl(material.stored_path)
-  currentImageSrc.value = url
-  loadImageToCanvas(url)
+  loadImageToPanel(activeTab.value, url)
 }
 
 function triggerLocalUpload() { fileInputRef.value?.click() }
@@ -276,127 +335,149 @@ function onLocalFileSelected(e) {
   const file = e.target.files?.[0]
   if (!file) return
   const url = URL.createObjectURL(file)
-  currentImageSrc.value = url
-  loadImageToCanvas(url)
+  loadImageToPanel(activeTab.value, url)
   e.target.value = ''
 }
 
-function startCropDrag(e) {
-  e.preventDefault()
-  const handle = e.target.dataset.handle
-  cropDragState.value = { type: handle || 'move', startX: e.clientX, startY: e.clientY, origRect: { ...cropRect } }
-  const onMove = (ev) => {
-    if (!cropDragState.value) return
-    const dx = (ev.clientX - cropDragState.value.startX) / cropDisplayScale.value
-    const dy = (ev.clientY - cropDragState.value.startY) / cropDisplayScale.value
-    const orig = cropDragState.value.origRect
-    const img = cropImage.value
-    if (!img) return
-    const ratio = aspectRatio.value
-    const type = cropDragState.value.type
-    const imgW = img.width, imgH = img.height
-    const minSize = 60
-
-    if (type === 'move') {
-      cropRect.x = Math.max(0, Math.min(imgW - orig.w, orig.x + dx))
-      cropRect.y = Math.max(0, Math.min(imgH - orig.h, orig.y + dy))
-    } else {
-      let newW, newX, newY
-      if (type === 'br') {
-        newW = Math.max(minSize, orig.w + dx)
-        newX = orig.x
-      } else if (type === 'bl') {
-        newW = Math.max(minSize, orig.w - dx)
-        newX = orig.x + orig.w - newW
-      } else if (type === 'tr') {
-        newW = Math.max(minSize, orig.w + dx)
-        newX = orig.x
-      } else if (type === 'tl') {
-        newW = Math.max(minSize, orig.w - dx)
-        newX = orig.x + orig.w - newW
-      }
-      let newH = newW / ratio
-
-      if (newX < 0) { newX = 0; newW = orig.x + orig.w; newH = newW / ratio }
-      if (newX + newW > imgW) { newW = imgW - newX; newH = newW / ratio }
-
-      if (type === 'tl' || type === 'tr') {
-        newY = orig.y + orig.h - newH
-      } else {
-        newY = orig.y
-      }
-
-      if (newY < 0) {
-        newY = 0
-        newH = orig.y + orig.h
-        newW = newH * ratio
-        if (type === 'tl' || type === 'bl') { newX = orig.x + orig.w - newW }
-        if (newX < 0) { newX = 0; newW = Math.min(newW, imgW); newH = newW / ratio }
-      }
-      if (newY + newH > imgH) {
-        newH = imgH - newY
-        newW = newH * ratio
-        if (type === 'tl' || type === 'bl') { newX = orig.x + orig.w - newW }
-        if (newX < 0) { newX = 0; newW = Math.min(newW, imgW); newH = newW / ratio }
-      }
-
-      newW = Math.max(minSize, newW)
-      newH = newW / ratio
-
-      cropRect.x = newX
-      cropRect.y = newY
-      cropRect.w = newW
-      cropRect.h = newH
-    }
-  }
-  const onUp = () => {
-    cropDragState.value = null
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
-  }
-  window.addEventListener('mousemove', onMove)
-  window.addEventListener('mouseup', onUp)
+// 滚轮缩放图片：以鼠标位置为锚点
+function onWheel(e) {
+  const p = activePanel.value
+  if (!p || !p.img) return
+  const oldZoom = p.zoom
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
+  let newZoom = oldZoom * factor
+  newZoom = Math.max(1, Math.min(8, newZoom))
+  if (newZoom === oldZoom) return
+  const rect = cropCanvasRef.value.getBoundingClientRect()
+  const mx = e.clientX - rect.left
+  const my = e.clientY - rect.top
+  p.offset.x = mx - (mx - p.offset.x) * (newZoom / oldZoom)
+  p.offset.y = my - (my - p.offset.y) * (newZoom / oldZoom)
+  p.zoom = newZoom
+  clampPanelOffset(p)
 }
 
-async function confirmCrop() {
-  saveTabState()
-  const img = cropImage.value
-  if (!img) { ElMessage.warning('请先选择一张图片'); return }
-  const [rw, rh] = currentRatioLabel.value.split(':').map(Number)
+// 拖动平移图片
+function onPointerDown(e) {
+  const p = activePanel.value
+  if (!p || !p.img) return
+  e.preventDefault()
+  try { e.target.setPointerCapture(e.pointerId) } catch {}
+  dragState.value = {
+    startX: e.clientX, startY: e.clientY,
+    origX: p.offset.x, origY: p.offset.y,
+    pointerId: e.pointerId,
+  }
+  const onMove = (ev) => {
+    if (!dragState.value) return
+    const pp = activePanel.value
+    pp.offset.x = dragState.value.origX + (ev.clientX - dragState.value.startX)
+    pp.offset.y = dragState.value.origY + (ev.clientY - dragState.value.startY)
+    clampPanelOffset(pp)
+  }
+  const onUp = () => {
+    dragState.value = null
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
+}
+
+// 约束：图片覆盖裁剪框四边（不露白）
+function clampPanelOffset(p) {
+  const canvas = cropCanvasRef.value
+  if (!canvas || !p) return
+  const selW = p.cropRect.w * p.displayScale
+  const selH = p.cropRect.h * p.displayScale
+  const selX = (canvas.width - selW) / 2
+  const selY = (canvas.height - selH) / 2
+  const dispW = canvas.width * p.zoom
+  const dispH = canvas.height * p.zoom
+  const minX = selX + selW - dispW
+  const maxX = selX
+  const minY = selY + selH - dispH
+  const maxY = selY
+  p.offset.x = Math.max(minX, Math.min(maxX, p.offset.x))
+  p.offset.y = Math.max(minY, Math.min(maxY, p.offset.y))
+}
+
+// 裁剪单个面板并上传，返回 coverData
+async function cropAndUploadPanel(ratio) {
+  const p = panels[ratio]
+  if (!p || !p.img) return null
+  const [rw, rh] = ratio.split(':').map(Number)
   let targetW, targetH
-  if (activeTab.value === 'portrait') {
+  if (activeOrientation.value === 'portrait') {
     targetH = 1920
     targetW = Math.round(1920 * rw / rh)
   } else {
     targetW = 1920
     targetH = Math.round(1920 * rh / rw)
   }
+  const canvas = cropCanvasRef.value
+  // 用该面板的 displayScale 计算源矩形（切换 tab 时 canvas 已重画为当前面板的图）
+  const dispW = p.img.width * p.displayScale
+  const dispH = p.img.height * p.displayScale
+  const selW = p.cropRect.w * p.displayScale
+  const selH = p.cropRect.h * p.displayScale
+  const selX = (dispW - selW) / 2
+  const selY = (dispH - selH) / 2
+  const srcX = (selX - p.offset.x) / p.zoom / p.displayScale
+  const srcY = (selY - p.offset.y) / p.zoom / p.displayScale
+  const srcW = selW / p.zoom / p.displayScale
+  const srcH = selH / p.zoom / p.displayScale
   const offscreen = document.createElement('canvas')
-  offscreen.width = targetW; offscreen.height = targetH
-  const ctx = offscreen.getContext('2d')
-  ctx.drawImage(img, cropRect.x, cropRect.y, cropRect.w, cropRect.h, 0, 0, targetW, targetH)
+  offscreen.width = targetW
+  offscreen.height = targetH
+  offscreen.getContext('2d').drawImage(p.img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH)
   const blob = await new Promise(resolve => offscreen.toBlob(resolve, 'image/jpeg', 0.92))
-  if (!blob) { ElMessage.error('裁剪导出失败'); return }
+  if (!blob) return null
   const formData = new FormData()
-  formData.append('file', blob, `cover_${activeTab.value}_${Date.now()}.jpg`)
+  formData.append('file', blob, `cover_${activeOrientation.value}_${ratio.replace(':', 'x')}_${Date.now()}.jpg`)
+  const resp = await materialsApi.coversUpload(formData)
+  if (resp.code !== 200) return null
+  const d = resp.data
+  return { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
+}
+
+async function confirmCrop() {
+  // 校验：两个尺寸面板都必须选了图片
+  const missing = ratioTabs.value.filter((r) => !panels[r] || !panels[r].img)
+  if (missing.length > 0) {
+    ElMessage.warning(`请先为 ${missing.join('、')} 尺寸选择图片`)
+    if (missing[0]) switchTab(missing[0])
+    return
+  }
+  // 逐个裁剪上传（裁剪前先把该面板重画到 canvas，确保 canvas 内容匹配）
   try {
-    const resp = await materialsApi.upload(formData)
-    if (resp.code === 200) {
-      const d = resp.data
-      const coverData = { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
-      if (activeTab.value === 'portrait') emit('update:coverPortrait', coverData)
-      else emit('update:coverLandscape', coverData)
-      ElMessage.success('封面设置成功')
-      visible.value = false
-    } else { ElMessage.error(resp.msg || '上传失败') }
-  } catch { ElMessage.error('封面上传失败') }
+    for (const r of ratioTabs.value) {
+      activeTab.value = r
+      await nextTick()
+      redrawActivePanel()
+      await nextTick()
+      const coverData = await cropAndUploadPanel(r)
+      if (!coverData) {
+        ElMessage.error(`${r} 封面保存失败`)
+        return
+      }
+      emit('coverSaved', { orientation: activeOrientation.value, ratio: r, cover: coverData })
+    }
+    ElMessage.success('封面设置成功')
+    visible.value = false
+  } catch {
+    ElMessage.error('封面上传失败')
+  }
 }
 
 function onClosed() {
   stopPolling()
-  frames.value = []; videoDuration.value = 0; currentImageSrc.value = ''; cropImage.value = null; extracting.value = false
-  tabState.landscape = { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } }
-  tabState.portrait = { imageSrc: '', cropRect: { x: 0, y: 0, w: 0, h: 0 } }
+  frames.value = []
+  videoDuration.value = 0
+  extracting.value = false
+  Object.keys(panels).forEach((k) => delete panels[k])
 }
 
 defineExpose({ open })
@@ -435,7 +516,7 @@ defineExpose({ open })
   .el-dialog__footer {
     border-top: 1px solid $border;
     padding: 14px 24px;
-    background: rgba(0, 0, 0, 0.15);
+    background: rgba($bg-elevated-rgb, 0.04);
   }
 }
 </style>
@@ -446,9 +527,26 @@ defineExpose({ open })
 
 .cover-editor-body {
   display: flex;
-  gap: 0;
-  padding: 20px 24px;
-  max-height: 70vh;
+  gap: 16px;
+  padding: 16px 20px;
+  max-height: 72vh;
+  overflow: hidden;
+}
+
+// 左侧裁剪区：占满剩余宽度
+.editor-crop {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+// 右侧侧栏：固定宽度，纵向堆叠
+.editor-sidebar {
+  flex-shrink: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba($overlay-rgb, 0.08) transparent;
@@ -456,40 +554,59 @@ defineExpose({ open })
   &::-webkit-scrollbar-thumb { background: rgba($overlay-rgb, 0.1); border-radius: 2px; }
 }
 
-.editor-main {
-  flex: 1;
-  min-width: 0;
+.sidebar-block {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
-
-.section-label-row {
+.sidebar-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
-
-  .section-label-text {
-    font-size: 12px;
-    font-weight: 500;
-    color: $text-secondary;
-  }
-  .section-label-hint {
-    font-size: 11px;
-    color: $text-muted;
-  }
+  font-size: 12px;
+  font-weight: 600;
+  color: $text-secondary;
+}
+.sidebar-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: $text-muted;
 }
 
-.timeline-section {
-  overflow: hidden;
+// 尺寸 tab（侧栏内，撑满宽度）
+.ratio-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  background: rgba($overlay-rgb, 0.04);
+  border: 1px solid $border;
+  border-radius: 9px;
+}
+.ratio-tab {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: $text-muted;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  &:hover { color: $text-primary; }
+  &.active {
+    background: $gradient-brand;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba($brand-start, 0.35);
+  }
 }
 
 .crop-area {
-  background: $bg-base;
+  flex: 1;
+  background: $bg-surface;
   border: 1px solid $border;
   border-radius: $radius-base;
-  min-height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -513,6 +630,10 @@ defineExpose({ open })
   position: relative;
   display: inline-block;
   line-height: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  &:active { cursor: grabbing; }
 }
 
 .crop-canvas {
@@ -524,26 +645,8 @@ defineExpose({ open })
   position: absolute;
   border: 2px solid $brand-start;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
-  cursor: move;
+  pointer-events: none;
   transition: box-shadow 0.15s;
-}
-
-.crop-handle {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background: #fff;
-  border: 2px solid $brand-start;
-  border-radius: 2px;
-  z-index: 2;
-  transition: transform 0.1s;
-
-  &:hover { transform: scale(1.3); }
-
-  &.top-left { top: -6px; left: -6px; cursor: nw-resize; }
-  &.top-right { top: -6px; right: -6px; cursor: ne-resize; }
-  &.bottom-left { bottom: -6px; left: -6px; cursor: sw-resize; }
-  &.bottom-right { bottom: -6px; right: -6px; cursor: se-resize; }
 }
 
 .crop-ratio-badge {
@@ -554,26 +657,41 @@ defineExpose({ open })
   background: rgba(0, 0, 0, 0.6);
   border-radius: 3px;
   font-size: 10px;
-  color: rgba($overlay-rgb, 0.8);
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+  font-family: monospace;
+}
+
+.crop-hint {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
   pointer-events: none;
   font-family: monospace;
 }
 
 .editor-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .action-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
-  border-radius: 10px;
+  padding: 9px 14px;
+  border-radius: 8px;
   border: 1px solid $border;
   background: rgba($overlay-rgb, 0.04);
   color: $text-secondary;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -582,10 +700,6 @@ defineExpose({ open })
     border-color: $border-active;
     color: $text-primary;
     background: rgba($overlay-rgb, 0.08);
-  }
-
-  .el-icon {
-    font-size: 18px;
   }
 }
 

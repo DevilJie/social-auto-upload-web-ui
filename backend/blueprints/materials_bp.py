@@ -250,6 +250,125 @@ def upload():
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
+@materials_bp.route("/covers/upload", methods=["POST"])
+def covers_upload():
+    """封面专用上传：写 covers/ 目录，不入素材库（materials 表）。
+
+    与普通素材上传的区别：
+    - 存储前缀 covers/YYYY/MM/DD/<uuid><ext>（不是 materials/）
+    - 不写 materials 表（素材库里看不到）
+    - 不触发抽帧/探测时长/探测宽高等后台任务（封面是已裁剪定型的图片）
+    发布只靠 resolve_material_path(stored_path) 按路径读文件，不依赖素材表记录。
+    """
+    try:
+        from storage import get_storage
+
+        file = request.files.get("file")
+        if not file or not file.filename:
+            return jsonify({"code": 400, "msg": "未找到文件"})
+
+        print(f"[covers] 开始上传: {file.filename}")
+
+        file_id = str(uuid.uuid4())
+        ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+        now = datetime.now()
+        relative_path = f"covers/{now.strftime('%Y/%m/%d')}/{file_id}{ext}"
+
+        storage = get_storage()
+        mime_type = file.content_type or "image/jpeg"
+
+        CHUNK_SIZE = 1024 * 1024
+        total_size = 0
+
+        def chunk_iter():
+            nonlocal total_size
+            while True:
+                chunk = file.stream.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                yield chunk
+
+        storage.save_stream(chunk_iter(), relative_path)
+        file_size = total_size
+        url = storage.get_url(relative_path)
+        print(f"[covers] 上传完成: {file_id} ({file_size} bytes)")
+
+        return jsonify({
+            "code": 200,
+            "msg": "上传成功",
+            "data": {
+                "id": file_id,
+                "original_filename": file.filename,
+                "stored_path": relative_path,
+                "file_type": "image",
+                "mime_type": mime_type,
+                "file_size": file_size,
+                "url": url,
+                "thumbnail_path": None,
+            },
+        })
+    except Exception as e:
+        import traceback
+        print(f"[covers] upload error: {e}")
+        traceback.print_exc()
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+@materials_bp.route("/batch-delete", methods=["POST"])
+def batch_delete():
+    """批量删除素材。
+
+    入参: { ids: [id, ...] }
+    逐条复用单删逻辑：删 stored_path + thumbnail_path（按各素材 storage_type 选择后端）+ 删 DB 行。
+    单条失败不中断其余，返回成功/失败明细。
+    """
+    from storage import get_storage_by_type
+
+    data = request.get_json(force=True, silent=True) or {}
+    ids = data.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"code": 400, "msg": "缺少 ids"})
+
+    deleted = 0
+    failed = []
+    conn = _get_db()
+    try:
+        for material_id in ids:
+            try:
+                row = conn.execute(
+                    "SELECT * FROM materials WHERE id = ?", (material_id,)
+                ).fetchone()
+                if not row:
+                    failed.append({"id": material_id, "reason": "不存在"})
+                    continue
+                # 按素材自身的 storage_type 选择存储后端，保证 S3/本地都能正确删除
+                storage = get_storage_by_type(row["storage_type"] or "local")
+                if row["stored_path"]:
+                    try:
+                        storage.delete(row["stored_path"])
+                    except Exception as de:
+                        print(f"[materials] batch-delete 删文件失败 {row['stored_path']}: {de}")
+                if row["thumbnail_path"]:
+                    try:
+                        storage.delete(row["thumbnail_path"])
+                    except Exception as de:
+                        print(f"[materials] batch-delete 删缩略图失败 {row['thumbnail_path']}: {de}")
+                conn.execute("DELETE FROM materials WHERE id = ?", (material_id,))
+                deleted += 1
+            except Exception as e:
+                failed.append({"id": material_id, "reason": str(e)})
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "code": 200,
+        "msg": f"已删除 {deleted} 个素材",
+        "data": {"deleted": deleted, "failed": failed},
+    })
+
+
 @materials_bp.route("/list", methods=["GET"])
 def list_files():
     """分页素材列表

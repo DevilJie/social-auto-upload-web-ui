@@ -10,6 +10,8 @@ export const useAccountStore = defineStore('account', () => {
   // 设置账号列表
   const setAccounts = (accountsData) => {
     // 转换后端返回的数据格式为前端使用的格式
+    // 后端 SELECT * 列顺序:id/type/filePath/userName/status/avatar/fans/likes/follows,
+    // 然后 row.append(tags) → tags 为最后一列。新平台(如 VIVO)才同步运营数据,旧平台为 0。
     accounts.value = accountsData.map(item => {
       return {
         id: item[0],
@@ -19,7 +21,10 @@ export const useAccountStore = defineStore('account', () => {
         status: item[4] === -1 ? '验证中' : (item[4] === 1 ? '正常' : '异常'),
         platform: platformIdToName[item[1]] || '未知',
         avatar: item[5] || '',
-        tags: item[6] || []
+        fans: item[6] || 0,
+        likes: item[7] || 0,
+        follows: item[8] || 0,
+        tags: item[9] || item[item.length - 1] || []
       }
     })
   }

@@ -20,8 +20,10 @@ import logoAlipay from '@/assets/logos/alipay.png'
 import logoToutiao from '@/assets/logos/toutiao.png'
 import logoZhihu from '@/assets/logos/zhihu.png'
 import logoCsdn from '@/assets/logos/csdn.png'
+import logoVivo from '@/assets/logos/vivo.svg'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
+import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
 
 /**
  * 特殊作者声明值：表示「无需添加声明」。
@@ -74,11 +76,27 @@ export const PLATFORMS = {
     cssClass: 'channels',
     creatorUrl: 'https://channels.weixin.qq.com/',
     settingsFields: [
+      // 视频标注:发布页「选择视频标注」下拉,所有选项(含「无需标注」)都会去页面真正选中。
+      { key: 'channelsMarkTag', label: '视频标注', type: 'select', placeholder: '选择视频标注',
+        options: CHANNELS_MARK_TAGS.map(t => ({ label: t.tagName, value: t.tagName })) },
+      // 自行拍摄联动字段:拍摄时间 + 拍摄地点(国家/省/市级联)
+      { key: 'channelsShootDate', label: '拍摄时间', type: 'date', placeholder: '选择拍摄日期',
+        visibleWhen: { key: 'channelsMarkTag', value: '内容为自行拍摄' } },
+      { key: 'channelsShootRegion', label: '拍摄地点', type: 'cascader',
+        placeholder: '选择国家 / 省 / 市', options: CHANNELS_SHOOT_REGIONS,
+        // click 触发: 240 国长列表用 hover 易误触, click 更稳;
+        // 不用 checkStrictly(它会让点文字变成"选中并关闭"而非展开下一级,
+        // 导致中国→省 的二级面板永远展不开)。
+        props: { expandTrigger: 'click' },
+        visibleWhen: { key: 'channelsMarkTag', value: '内容为自行拍摄' } },
+      // 转载联动字段:转载来源(选填)
+      { key: 'channelsRepostSource', label: '转载来源', type: 'input', placeholder: '请输入转载来源（选填）',
+        visibleWhen: { key: 'channelsMarkTag', value: '内容为转载' } },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   DOUYIN: {
     id: 3,
@@ -176,11 +194,13 @@ export const PLATFORMS = {
         { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
         { label: '内容为转载', value: '内容为转载' },
       ] },
+      // 转载联动字段:创作声明选「内容为转载」时显示,B 站要求转载必填来源
+      { key: 'biliRepostSource', label: '转载来源', type: 'input', required: true, placeholder: '请输入转载来源(例:转自 https://xxx)', visibleWhen: { key: 'creationDeclaration', value: '内容为转载' } },
       { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', zone: '', creationDeclaration: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', zone: '', creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', videoFormat: '' },
   },
   BAIJIAHAO: {
     id: 6,
@@ -397,11 +417,13 @@ export const PLATFORMS = {
         { label: '内容含营销信息', value: '内容含营销信息' },
         { label: '内容为转载', value: '内容为转载' },
       ] },
+      // 转载来源联动字段:作者声明选「内容为转载」时显示,支付宝要求转载必填来源地址
+      { key: 'reprintUrl', label: '转载来源', type: 'input', required: true, placeholder: '请输入视频原地址(例:https://xxx)', visibleWhen: { key: 'authorStatement', value: '内容为转载' } },
       { key: 'compilation', label: '加入合集', type: 'compilationSelect', placeholder: '输入合集名称搜索' },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
       { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
     ],
-    defaultSettings: { title: '', description: '', authorStatement: '', compilation: '', scheduleTime: '', videoFormat: '' },
+    defaultSettings: { title: '', description: '', authorStatement: '', reprintUrl: '', compilation: '', scheduleTime: '', videoFormat: '' },
   },
   TOUTIAO: {
     id: 13,
@@ -568,6 +590,43 @@ export const PLATFORMS = {
       { key: 'recommend', label: '是否推荐', type: 'switch', description: '勾选后发布的视频将被推荐' },
     ],
     defaultSettings: { title: '', description: '', recommend: false, scheduleTime: '' },
+  },
+  VIVO: {
+    id: 16,
+    key: 'vivo',
+    name: 'VIVO',
+    shortName: 'VIVO',
+    letter: 'V',
+    logo: logoVivo,
+    color: '#4154FF',
+    bgColor: 'rgba(65, 84, 255, 0.15)',
+    cssClass: 'vivo',
+    creatorUrl: 'https://www.kaixinkan.com.cn/#/home',
+    settingsFields: [
+      // 位置(平台级):浏览器自动化打开 vivo 发布页搜索回传下拉数据,空=不显示位置
+      { key: 'vivoLocationName', label: '添加位置', type: 'poiSelect', placeholder: '输入地理位置' },
+      // 作品同步(平台级开关):勾选后同时分发到 vivo 浏览器、i 视频、阅图
+      { key: 'vivoDistribution', label: '作品同步', type: 'switch',
+        description: '同时分发到vivo浏览器、i视频、阅图，获取更多流量' },
+      // 自主声明(平台级下拉)
+      { key: 'vivoDeclaration', label: '自主声明', type: 'select', placeholder: '请选择', options: [
+        { label: '含AI生成内容', value: '含AI生成内容' },
+        { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+        { label: '内容含营销信息', value: '内容含营销信息' },
+        { label: '内容为转载', value: '内容为转载' },
+        { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+        { label: '内容无需标注', value: '内容无需标注' },
+      ] },
+      // 谁可以看 / 下载权限(默认与平台一致:公开 + 允许下载)
+      { key: 'vivoPrivacy', label: '谁可以看', type: 'radio',
+        options: [{ label: '公开', value: '公开' }, { label: '私密', value: '私密' }] },
+      { key: 'vivoDownloadPermission', label: '下载权限', type: 'radio',
+        options: [{ label: '允许', value: '允许' }, { label: '不允许', value: '不允许' }] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+    ],
+    defaultSettings: { title: '', description: '', vivoLocationName: '', vivoLocationData: null,
+      vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
+      vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   },
 }
 

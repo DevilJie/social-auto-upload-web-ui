@@ -88,7 +88,9 @@ def extract_frames():
             return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
         full_path = _resolve_video_path(video_path)
     if not full_path:
-        return jsonify({"code": 404, "msg": "Video file not found"}), 404
+        # 视频素材已被删除（清空素材库 / 草稿残留失效引用）→ 返回业务态 + 友好文案，
+        # 避免前端拿到生硬的 "Video file not found" HTTP 404。
+        return jsonify({"code": 404, "msg": "视频素材已失效，可能已被删除，请重新上传视频"})
 
     status = get_extraction_status(full_path)
 
@@ -122,7 +124,7 @@ def frames_status():
         return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
 
     if not full_path:
-        return jsonify({"code": 400, "msg": "file not found"}), 400
+        return jsonify({"code": 404, "msg": "视频素材已失效，可能已被删除，请重新上传视频"})
 
     status = get_extraction_status(full_path)
     return jsonify({"code": 200, "data": status})
@@ -141,7 +143,7 @@ def get_frames():
         return jsonify({"code": 400, "msg": "material_id or video_path is required"}), 400
 
     if not full_path:
-        return jsonify({"code": 400, "msg": "file not found"}), 400
+        return jsonify({"code": 404, "msg": "视频素材已失效，可能已被删除，请重新上传视频"})
 
     result = get_frame_list(BASE_DIR, full_path)
     status = get_extraction_status(full_path)
@@ -231,6 +233,18 @@ def clear_cache():
             os.makedirs(s3_cache_dir, exist_ok=True)
             results['s3_videos'] = {'cleared': 0, 'unit': 'files'}
 
+    if 'covers' in targets:
+        # 封面缓存：视频发布裁剪生成的封面文件（covers/YYYY/MM/DD/<uuid>.jpg）
+        covers_dir = os.path.join(str(BASE_DIR), 'covers')
+        if os.path.isdir(covers_dir):
+            file_count = sum(len(files) for _, _, files in os.walk(covers_dir))
+            shutil.rmtree(covers_dir)
+            os.makedirs(covers_dir, exist_ok=True)
+            results['covers'] = {'cleared': file_count, 'unit': 'files'}
+        else:
+            os.makedirs(covers_dir, exist_ok=True)
+            results['covers'] = {'cleared': 0, 'unit': 'files'}
+
     return jsonify({"code": 200, "data": results})
 
 
@@ -303,6 +317,20 @@ def system_info():
                 except OSError:
                     pass
 
+    # Calculate covers cache size
+    covers_dir = os.path.join(str(BASE_DIR), 'covers')
+    covers_size = 0
+    covers_count = 0
+    if os.path.isdir(covers_dir):
+        for dirpath, _, filenames in os.walk(covers_dir):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                try:
+                    covers_size += os.path.getsize(fp)
+                    covers_count += 1
+                except OSError:
+                    pass
+
     return jsonify({
         "code": 200,
         "data": {
@@ -311,6 +339,7 @@ def system_info():
                 "frames": {"count": frames_count, "size": frames_size},
                 "logs": {"count": logs_count, "size": logs_size, "oldCount": logs_old_count},
                 "s3_videos": {"count": s3_cache_count, "size": s3_cache_size},
+                "covers": {"count": covers_count, "size": covers_size},
             },
         },
     })

@@ -130,6 +130,10 @@ from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
 app.register_blueprint(toutiao_bp)
 logger.info("[Startup] toutiao_bp registered OK")
 
+from blueprints.vivo_bp import vivo_bp  # noqa: E402
+app.register_blueprint(vivo_bp)
+logger.info("[Startup] vivo_bp registered OK")
+
 from blueprints.xiaohongshu_bp import xiaohongshu_bp  # noqa: E402
 app.register_blueprint(xiaohongshu_bp)
 logger.info("[Startup] xiaohongshu_bp registered OK")
@@ -201,11 +205,11 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
-    11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn',
+    11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo',
 }
 
 
@@ -569,16 +573,33 @@ def sync_profile():
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型", "data": None}), 400
 
-    name, avatar = asyncio.run(platform.sync_profile(record['filePath']))
+    # sync_profile 约定:
+    #   2 元组 (name, avatar) — 旧平台/抓取失败
+    #   5 元组 (name, avatar, fans, likes, follows) — 新平台(如 VIVO)同步运营数据
+    profile = asyncio.run(platform.sync_profile(record['filePath']))
+    fans = likes = follows = 0
+    if len(profile) >= 5:
+        name, avatar, fans, likes, follows = profile[:5]
+    else:
+        name, avatar = profile[0], profile[1]
+
     if name or avatar:
         with sqlite3.connect(str(DB_PATH)) as conn:
             if name:
-                conn.execute('UPDATE user_info SET userName = ?, avatar = ? WHERE id = ?',
-                             (name, avatar, account_id))
+                conn.execute(
+                    'UPDATE user_info SET userName = ?, avatar = ?, fans = ?, likes = ?, follows = ? WHERE id = ?',
+                    (name, avatar, fans, likes, follows, account_id),
+                )
             else:
-                conn.execute('UPDATE user_info SET avatar = ? WHERE id = ?', (avatar, account_id))
+                conn.execute(
+                    'UPDATE user_info SET avatar = ?, fans = ?, likes = ?, follows = ? WHERE id = ?',
+                    (avatar, fans, likes, follows, account_id),
+                )
 
-    return jsonify({"code": 200, "msg": "同步成功", "data": {"name": name, "avatar": avatar}})
+    return jsonify({
+        "code": 200, "msg": "同步成功",
+        "data": {"name": name, "avatar": avatar, "fans": fans, "likes": likes, "follows": follows},
+    })
 
 
 @app.route('/api/image-proxy')
@@ -870,6 +891,9 @@ def postVideo():
 
     logger.info("postVideo data: tag_type=%s, tag_value=%s, hotspot=%s, mix_id=%s",
                  data.get('tag_type'), data.get('tag_value'), data.get('hotspot'), data.get('mix_id'))
+    # 诊断: B 站(platform_id=5) 请求体是否含转载来源
+    logger.info("[postVideo DIAG] type=%s, biliRepostSource=%r, creationDeclaration=%r",
+                data.get('type'), data.get('biliRepostSource'), data.get('creationDeclaration'))
 
     platform = get_platform(data.get('type'))
     if not platform:
@@ -899,6 +923,9 @@ def postVideo():
         file_list = [_resolve_material_path(f) for f in data.get('fileList', [])]
         thumbnail_landscape = _resolve_material_path(data.get('thumbnailLandscape', ''))
         thumbnail_portrait = _resolve_material_path(data.get('thumbnailPortrait', ''))
+        # 16:9 / 9:16 次尺寸封面(知乎等平台横版视频用 16:9)
+        thumbnail_landscape_169 = _resolve_material_path(data.get('thumbnailLandscape169', ''))
+        thumbnail_portrait_916 = _resolve_material_path(data.get('thumbnailPortrait916', ''))
 
         # 兜底：只上传了横版或竖版之一时，另一个用同图（保证 2 个封面都有内容）
         if thumbnail_landscape and not thumbnail_portrait:
@@ -942,12 +969,17 @@ def postVideo():
                 thumbnail_path=data.get('thumbnail', ''),
                 thumbnail_landscape_path=thumbnail_landscape,
                 thumbnail_portrait_path=thumbnail_portrait,
+                # 16:9 / 9:16 次尺寸封面(知乎横版视频用 16:9)
+                thumbnail_landscape_169_path=thumbnail_landscape_169,
+                thumbnail_portrait_916_path=thumbnail_portrait_916,
                 productLink=data.get('productLink', ''),
                 productTitle=data.get('productTitle', ''),
                 desc=data.get('description', ''),
                 schedule_time_str=data.get('scheduleTime', ''),
                 ai_content=data.get('aiContent', ''),
                 creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -964,6 +996,8 @@ def postVideo():
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
                 video_format=data.get('videoFormat', ''),
+                # 支付宝转载来源(作者声明=内容为转载 时必填)
+                reprint_url=data.get('reprintUrl', ''),
                 # 今日头条特有参数
                 enable_generate_image=data.get('enableGenerateImage', True),
                 collection_id=data.get('collection', ''),
@@ -985,8 +1019,19 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
+                channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
+                channels_shoot_date=data.get('channelsShootDate', ''),
+                channels_shoot_region=data.get('channelsShootRegion', []),
+                channels_repost_source=data.get('channelsRepostSource', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
+                # VIVO 平台特有参数
+                vivo_location_name=data.get('vivoLocationName', ''),
+                vivo_distribution=data.get('vivoDistribution', False),
+                vivo_declaration=data.get('vivoDeclaration', ''),
+                vivo_privacy=data.get('vivoPrivacy', '公开'),
+                vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
             ))
         else:
             result = publish_fn(
@@ -1003,12 +1048,17 @@ def postVideo():
                 thumbnail_path=data.get('thumbnail', ''),
                 thumbnail_landscape_path=thumbnail_landscape,
                 thumbnail_portrait_path=thumbnail_portrait,
+                # 16:9 / 9:16 次尺寸封面(知乎横版视频用 16:9)
+                thumbnail_landscape_169_path=thumbnail_landscape_169,
+                thumbnail_portrait_916_path=thumbnail_portrait_916,
                 productLink=data.get('productLink', ''),
                 productTitle=data.get('productTitle', ''),
                 desc=data.get('description', ''),
                 schedule_time_str=data.get('scheduleTime', ''),
                 ai_content=data.get('aiContent', ''),
                 creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1025,6 +1075,8 @@ def postVideo():
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
                 video_format=data.get('videoFormat', ''),
+                # 支付宝转载来源(作者声明=内容为转载 时必填)
+                reprint_url=data.get('reprintUrl', ''),
                 # 今日头条特有参数
                 enable_generate_image=data.get('enableGenerateImage', True),
                 collection_id=data.get('collection', ''),
@@ -1046,20 +1098,38 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
+                channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
+                channels_shoot_date=data.get('channelsShootDate', ''),
+                channels_shoot_region=data.get('channelsShootRegion', []),
+                channels_repost_source=data.get('channelsRepostSource', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
+                # VIVO 平台特有参数
+                vivo_location_name=data.get('vivoLocationName', ''),
+                vivo_distribution=data.get('vivoDistribution', False),
+                vivo_declaration=data.get('vivoDeclaration', ''),
+                vivo_privacy=data.get('vivoPrivacy', '公开'),
+                vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
         else:
             return jsonify({"code": 500, "msg": "发布失败：页面未跳转，表单校验未通过", "data": None}), 500
     except asyncio.CancelledError:
-        # 用户手动关闭了浏览器 → create_browser 的 disconnected 监听 cancel 了 task
+        # 用户手动关闭了浏览器 → watchdog/disconnected 监听 cancel 了 task
         logger.info("发布视频被取消：用户关闭了浏览器")
         return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
     except Exception as e:
-        logger.info(f"发布视频时出错: {str(e)}")
-        return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
+        err_msg = str(e)
+        # 浏览器被用户关闭时, Playwright 操作会抛 "Target page, context or
+        # browser has been closed" / "Browser has been closed" 等。watchdog
+        # 0.5s 轮询可能慢于异常抛出, 此时异常先冒泡到这里, 转成友好提示。
+        if "has been closed" in err_msg or "Target page" in err_msg:
+            logger.info("发布视频被取消：用户关闭了浏览器")
+            return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
+        logger.info(f"发布视频时出错: {err_msg}")
+        return jsonify({"code": 500, "msg": f"发布失败: {err_msg}", "data": None}), 500
 
 
 @app.route('/postVideoBatch', methods=['POST'])
@@ -1115,6 +1185,8 @@ def postVideoBatch():
                     schedule_time_str=data.get('scheduleTime', ''),
                     ai_content=data.get('aiContent', ''),
                     creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1142,6 +1214,8 @@ def postVideoBatch():
                     schedule_time_str=data.get('scheduleTime', ''),
                     ai_content=data.get('aiContent', ''),
                     creation_declaration=data.get('creationDeclaration', ''),
+                # B 站转载来源(创作声明=转载 时必填)
+                bili_repost_source=data.get('biliRepostSource', ''),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),

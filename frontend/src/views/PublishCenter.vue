@@ -924,6 +924,15 @@ function hasAccountOverride(accountId) {
 
 const form = reactive({})
 
+// 媒体字段由 currentEditTarget 直接管理（写入 commonConfig / platformOverrides / accountOverrides），
+// 不应该出现在 form 里。否则 watch(form) 的 diff 会把它们当成账号级差异写回 accountOverrides，
+// 其中的 null 会覆盖刚刚选好的视频/封面（详见 selectFromLibrary 后视频消失的 bug）。
+const MEDIA_KEYS = new Set([
+  'videoLandscape', 'videoPortrait',
+  'coverLandscape', 'coverPortrait',
+  'coverLandscape169', 'coverPortrait916',
+])
+
 function getMergedSettings() {
   const platformKey = selectedPlatform.value
   if (!platformKey) return {}
@@ -931,10 +940,16 @@ function getMergedSettings() {
   if (selectedAccountId.value) {
     const override = accountOverrides[selectedAccountId.value]
     if (override && Object.keys(override).length > 0) {
+      // 过滤媒体字段:它们由 currentEditTarget 管理,不应该进 form,
+      // 否则 watch(form) 的 diff 会把 null 写回 accountOverrides,覆盖已选的视频/封面
+      const pickFormFields = (obj) => Object.fromEntries(
+        Object.entries(obj).filter(([k, v]) => !MEDIA_KEYS.has(k))
+      )
       return {
-        ...platform,
+        ...pickFormFields(platform),
         ...Object.fromEntries(
-          Object.entries(override).filter(([_, v]) => v !== undefined && v !== '' && v !== false)
+          Object.entries(pickFormFields(override))
+            .filter(([_, v]) => v !== undefined && v !== '' && v !== false)
         ),
       }
     }
@@ -987,6 +1002,8 @@ watch(form, (newVal) => {
   if (selectedAccountId.value) {
     const diff = {}
     for (const key of Object.keys(newVal)) {
+      // 跳过媒体字段:它们由 currentEditTarget 管理,不属于 form 表单字段
+      if (MEDIA_KEYS.has(key)) continue
       if (newVal[key] !== platform[key]) {
         diff[key] = newVal[key]
       }

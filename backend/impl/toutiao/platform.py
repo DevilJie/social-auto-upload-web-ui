@@ -725,26 +725,46 @@ class ToutiaoPlatform(BasePlatform):
             await cover_input.set_input_files(thumb_path)
             await asyncio.sleep(2)
 
-            # Check if "完成裁剪" button appears and click it
-            clip_btn = page.locator('.clip-btn:has-text("完成裁剪")')
-            if await clip_btn.count():
-                await clip_btn.click()
-                await asyncio.sleep(1)
-                logger.info("[封面] 已点击完成裁剪")
+            # 上传后头条会进入裁剪/预览页,依次尝试点击「完成裁剪」「确定」按钮。
+            # 注意:不能用 class 定位(antd/头条自有 hash 会漂移),改用
+            # button + 文字精确定位 + role=button 兜底。
+            async def _click_btn_by_text(text, timeout_ms=5000):
+                """按可见文字点击按钮(button / [role=button]),不依赖 class。
 
-            # Click confirm button
-            confirm_btn = page.locator('button.btn-sure:has-text("确定")')
-            if await confirm_btn.count():
-                await confirm_btn.click()
-                await asyncio.sleep(2)
-                logger.info("[封面] 已点击确定")
+                返回 True 表示成功点击,False 表示没找到(允许调用方继续)。
+                """
+                # 优先 button 标签,避免误匹配非按钮元素
+                candidates = [
+                    f"button:has-text('{text}')",
+                    f"[role='button']:has-text('{text}')",
+                ]
+                for sel in candidates:
+                    loc = page.locator(sel).first
+                    try:
+                        await loc.wait_for(state="visible", timeout=timeout_ms)
+                        # 必须可点击(opacity>0 / 非 disabled)
+                        if await loc.is_enabled():
+                            await loc.click(timeout=timeout_ms)
+                            logger.info("[封面] 已点击「%s」(选择器=%s)", text, sel)
+                            return True
+                    except Exception:
+                        continue
+                logger.info("[封面] 未找到「%s」按钮,跳过", text)
+                return False
 
-            # Handle confirmation dialog if it appears
-            confirm_dialog = page.locator('.m-button.red:has-text("确定")')
-            if await confirm_dialog.count():
-                await confirm_dialog.click()
-                await asyncio.sleep(1)
-                logger.info("[封面] 确认对话框已处理")
+            # 1. 完成裁剪(可选,部分视频上传后不需要裁剪就直接到确定)
+            await _click_btn_by_text("完成裁剪", timeout_ms=3000)
+            await asyncio.sleep(1)
+
+            # 2. 确定(必点,关闭封面编辑弹窗)
+            ok = await _click_btn_by_text("确定", timeout_ms=8000)
+            if not ok:
+                logger.warning("[封面] 未点到「确定」按钮,封面可能未生效")
+            await asyncio.sleep(2)
+
+            # 3. 二次确认对话框(可选,某些场景会出现)
+            await _click_btn_by_text("确定", timeout_ms=2000)
+            await asyncio.sleep(1)
 
             logger.info("[封面] 封面设置完成")
         except Exception as e:

@@ -81,18 +81,22 @@
             <div class="cover-grid">
               <CoverCard
                 label="竖版封面"
-                ratio-label="3:4 · 9:16"
-                v-model="currentEditTarget.coverPortrait"
+                :ratios="['3:4', '9:16']"
+                v-model:active-ratio="coverPortraitActiveRatio"
+                :model-value="coverPortraitActiveCover"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
-                @edit="openCoverEditor('portrait')"
+                @update:modelValue="onPortraitCoverChange"
+                @edit="openCoverEditor('portrait', coverPortraitActiveRatio)"
                 @open-library="selectFromLibrary('cover', 'portrait')"
               />
               <CoverCard
                 label="横版封面"
-                ratio-label="4:3 · 16:9"
-                v-model="currentEditTarget.coverLandscape"
+                :ratios="['4:3', '16:9']"
+                v-model:active-ratio="coverLandscapeActiveRatio"
+                :model-value="coverLandscapeActiveCover"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
-                @edit="openCoverEditor('landscape')"
+                @update:modelValue="onLandscapeCoverChange"
+                @edit="openCoverEditor('landscape', coverLandscapeActiveRatio)"
                 @open-library="selectFromLibrary('cover', 'landscape')"
               />
             </div>
@@ -664,6 +668,12 @@ const commonConfig = reactive({
   coverPortrait916: null,    // 竖版封面 9:16（次尺寸）
 })
 
+// ===== 封面卡片 tab 激活比例 =====
+// 切换到不同编辑目标（公共/平台覆写/账号覆写）后重置到主尺寸
+// 对应的 watch 注册在 currentEditTarget 声明之后
+const coverPortraitActiveRatio = ref('3:4')    // 竖版卡：默认 3:4
+const coverLandscapeActiveRatio = ref('4:3')    // 横版卡：默认 4:3
+
 // 平台级覆写（spec §3.3）—— 公共区域的媒体字段覆写
 const platformOverrides = reactive({})         // { [platformKey]: { coverPortrait, coverLandscape, videoPortrait, videoLandscape } }
 const platformChecked = reactive({})           // { [platformKey]: boolean }
@@ -679,6 +689,12 @@ const currentEditTarget = computed(() => {
   const pk = selectedPlatform.value
   if (pk && platformChecked[pk] && platformOverrides[pk]) return platformOverrides[pk]
   return commonConfig
+})
+
+// 切换编辑目标（公共 / 平台覆写 / 账号覆写）时，封面卡片激活 tab 重置到主尺寸
+watch(currentEditTarget, () => {
+  coverPortraitActiveRatio.value = '3:4'
+  coverLandscapeActiveRatio.value = '4:3'
 })
 
 function hasPlatformOverrideContent(platformKey) {
@@ -1438,8 +1454,36 @@ function clearVideo() {
 
 // ========== Cover Editor ==========
 
-function openCoverEditor(orientation = 'landscape') {
+// 当前激活 tab 对应的封面对象（按 orientation + ratio 路由到 4 个字段之一）
+const coverPortraitActiveCover = computed(() => {
+  const t = currentEditTarget.value
+  if (!t) return null
+  return coverPortraitActiveRatio.value === '9:16' ? t.coverPortrait916 : t.coverPortrait
+})
+const coverLandscapeActiveCover = computed(() => {
+  const t = currentEditTarget.value
+  if (!t) return null
+  return coverLandscapeActiveRatio.value === '16:9' ? t.coverLandscape169 : t.coverLandscape
+})
+
+// 移除/更新当前激活 tab 的封面（v-model 回调）
+function onPortraitCoverChange(v) {
+  const t = currentEditTarget.value
+  if (!t) return
+  if (coverPortraitActiveRatio.value === '9:16') t.coverPortrait916 = v
+  else t.coverPortrait = v
+}
+function onLandscapeCoverChange(v) {
+  const t = currentEditTarget.value
+  if (!t) return
+  if (coverLandscapeActiveRatio.value === '16:9') t.coverLandscape169 = v
+  else t.coverLandscape = v
+}
+
+function openCoverEditor(orientation = 'landscape', _ratio) {
   coverEditOrientation.value = orientation
+  // 弹窗侧 CoverEditorDialog 不感知 ratio，保持原默认（orientation 主尺寸）打开；
+  // 用户进入弹窗后可自行切换 9:16 / 16:9 tab 编辑。
   coverEditorRef.value?.open(orientation)
 }
 

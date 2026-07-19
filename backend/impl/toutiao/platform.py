@@ -281,6 +281,9 @@ class ToutiaoPlatform(BasePlatform):
         schedule_time_str = kwargs.get("schedule_time_str", "")
         thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path", "")
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path", "")
+        # 16:9 / 9:16 次尺寸封面(头条横版视频用 16:9,竖版视频用 9:16)
+        thumbnail_landscape_169_path = kwargs.get("thumbnail_landscape_169_path", "")
+        thumbnail_portrait_916_path = kwargs.get("thumbnail_portrait_916_path", "")
         creation_declaration = kwargs.get("creation_declaration", "") or ""
         enable_generate_image = kwargs.get("enable_generate_image", True)
         collection_id = kwargs.get("collection_id", "")
@@ -313,6 +316,8 @@ class ToutiaoPlatform(BasePlatform):
         logger.info("[发布参数] 扩展链接: %s (URL: %s)", extend_link, extend_link_url or "无")
         logger.info("[发布参数] 横版封面: %s", thumbnail_landscape_path or "无")
         logger.info("[发布参数] 竖版封面: %s", thumbnail_portrait_path or "无")
+        logger.info("[发布参数] 横版16:9封面: %s", thumbnail_landscape_169_path or "无")
+        logger.info("[发布参数] 竖版9:16封面: %s", thumbnail_portrait_916_path or "无")
 
         # Resolve full paths
         account_paths = [str(Path(BASE_DIR / "cookiesFile" / f)) for f in account_file]
@@ -321,6 +326,10 @@ class ToutiaoPlatform(BasePlatform):
             thumbnail_landscape_path = str(thumbnail_landscape_path)
         if thumbnail_portrait_path:
             thumbnail_portrait_path = str(thumbnail_portrait_path)
+        if thumbnail_landscape_169_path:
+            thumbnail_landscape_169_path = str(thumbnail_landscape_169_path)
+        if thumbnail_portrait_916_path:
+            thumbnail_portrait_916_path = str(thumbnail_portrait_916_path)
 
         # Determine publish strategy and schedule times
         publish_strategy = "scheduled" if enableTimer and schedule_time_str else "immediate"
@@ -355,6 +364,8 @@ class ToutiaoPlatform(BasePlatform):
                         desc=desc,
                         thumbnail_landscape_path=thumbnail_landscape_path or None,
                         thumbnail_portrait_path=thumbnail_portrait_path or None,
+                        thumbnail_landscape_169_path=thumbnail_landscape_169_path or None,
+                        thumbnail_portrait_916_path=thumbnail_portrait_916_path or None,
                         creation_declaration=creation_declaration,
                         enable_generate_image=enable_generate_image,
                         collection_id=collection_id,
@@ -382,6 +393,8 @@ class ToutiaoPlatform(BasePlatform):
         desc="",
         thumbnail_landscape_path=None,
         thumbnail_portrait_path=None,
+        thumbnail_landscape_169_path=None,
+        thumbnail_portrait_916_path=None,
         creation_declaration=None,
         enable_generate_image=True,
         collection_id="",
@@ -518,10 +531,16 @@ class ToutiaoPlatform(BasePlatform):
                     logger.info("[填写标签] 无标签")
 
                 # Set thumbnail/cover
-                if thumbnail_landscape_path or thumbnail_portrait_path:
+                if (thumbnail_landscape_path or thumbnail_portrait_path
+                        or thumbnail_landscape_169_path or thumbnail_portrait_916_path):
                     logger.info("[设置封面] 开始设置封面...")
                     await self._set_thumbnail(
-                        page, thumbnail_landscape_path, thumbnail_portrait_path, is_portrait
+                        page,
+                        thumbnail_landscape_path,
+                        thumbnail_portrait_path,
+                        thumbnail_landscape_169_path,
+                        thumbnail_portrait_916_path,
+                        is_portrait,
                     )
                     logger.info("[设置封面] 封面设置完成")
                 else:
@@ -646,9 +665,25 @@ class ToutiaoPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _set_thumbnail(page, thumbnail_landscape_path=None, thumbnail_portrait_path=None, is_portrait=False):
-        """Set video cover/thumbnail."""
-        if not thumbnail_landscape_path and not thumbnail_portrait_path:
+    async def _set_thumbnail(
+        page,
+        thumbnail_landscape_path=None,
+        thumbnail_portrait_path=None,
+        thumbnail_landscape_169_path=None,
+        thumbnail_portrait_916_path=None,
+        is_portrait=False,
+    ):
+        """Set video cover/thumbnail.
+
+        封面尺寸选择策略(按视频方向):
+        - 横版视频 → 优先 16:9 横封面(thumbnail_landscape_169_path),
+                    没有则回退到 4:3 横封面(thumbnail_landscape_path)
+        - 竖版视频 → 优先 9:16 竖封面(thumbnail_portrait_916_path),
+                    没有则回退到 3:4 竖封面(thumbnail_portrait_path)
+        两者都为空才跳过。
+        """
+        if (not thumbnail_landscape_path and not thumbnail_portrait_path
+                and not thumbnail_landscape_169_path and not thumbnail_portrait_916_path):
             return
 
         logger.info("[封面] 开始设置视频封面")
@@ -674,12 +709,19 @@ class ToutiaoPlatform(BasePlatform):
             if not await cover_input.count():
                 cover_input = page.locator('input[type="file"]').first
 
-            # Choose the right thumbnail based on orientation
-            thumb_path = thumbnail_portrait_path if is_portrait else thumbnail_landscape_path
-            if not thumb_path:
-                thumb_path = thumbnail_portrait_path or thumbnail_landscape_path
+            # 按视频方向优先选 16:9 / 9:16 新尺寸,没有才回退到 4:3 / 3:4
+            if is_portrait:
+                thumb_path = (thumbnail_portrait_916_path
+                              or thumbnail_portrait_path
+                              or thumbnail_landscape_path)
+                size_label = "9:16 竖封面" if thumbnail_portrait_916_path else "3:4 竖封面(回退)"
+            else:
+                thumb_path = (thumbnail_landscape_169_path
+                              or thumbnail_landscape_path
+                              or thumbnail_portrait_path)
+                size_label = "16:9 横封面" if thumbnail_landscape_169_path else "4:3 横封面(回退)"
 
-            logger.info("[封面] 上传封面图片: %s", thumb_path)
+            logger.info("[封面] 上传封面图片[%s]: %s", size_label, thumb_path)
             await cover_input.set_input_files(thumb_path)
             await asyncio.sleep(2)
 

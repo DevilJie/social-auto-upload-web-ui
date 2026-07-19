@@ -774,32 +774,53 @@ class ToutiaoPlatform(BasePlatform):
             await asyncio.sleep(2)
 
             # 3. 二次确认对话框(可选)
-            #    DOM 结构:
-            #      <div>(对话框容器,类名带 hash 会漂移,不用)
-            #        <div>...完成后无法继续编辑,是否确定完成？</div>  ← body 文字(稳定)
-            #        <button>取消</button>
-            #        <button>确定</button>                            ← 要点这个
+            #    DOM 结构(用户提供的真实 DOM):
+            #      <div class="m-xigua-dialog m-modal m-dialog-edit">  ← 弹窗容器
+            #        <div class="mask"></div>                          ← 遮罩
+            #        <div class="m-content">
+            #          <svg class="close">...</svg>
+            #          <div class="content">
+            #            <div class="body">完成后无法继续编辑,是否确定完成？</div>
+            #            <div class="footer">
+            #              <button class="m-button">取消</button>
+            #              <button class="m-button red">确定</button>   ← 要点这个
+            #            </div>
+            #          </div>
+            #        </div>
             #      </div>
-            #    定位锚点:body 文字"完成后无法继续编辑"(产品文案稳定,不依赖 class)。
-            #    不能用 button:has-text('确定') 全局判断,会误匹配主弹窗残留的同名按钮。
-            #    用 XPath 一次定位:同时含「完成后无法继续编辑」文字 + 含「取消」「确定」
-            #    两个按钮的最小容器,再点其中的「确定」
+            #
+            # 定位策略(全程不依赖 class):
+            # 1) 先用 body 文字"完成后无法继续编辑"找到对话框(产品文案稳定)
+            # 2) 在该对话框范围内找 footer 里第 2 个 button(第 1 个是取消,第 2 个是确定)
+            #    不能用 button:has-text('确定') —— 主弹窗也含同名按钮会误匹配
+            # 3) 直接用 force=True 点击(避免被遮罩层/动画拦截)
             try:
-                # contains() 配合 normalize-space 处理空白,翻译全角逗号(中文文案)
-                dialog_root = page.locator(
-                    "xpath=//*[contains(normalize-space(.), '完成后无法继续编辑') "
+                # 用 XPath 精确定位二次确认弹窗的「确定」按钮:
+                # 1) 找同时含「完成后无法继续编辑」+「取消」+「确定」的元素(会匹配祖先链)
+                # 2) 排除有更深层匹配的祖先(not(.//*[...])),只留最深一层的弹窗容器
+                #    避免 Playwright 把 <html>/<body> 当匹配导致点中遮罩层
+                # 3) 在该容器内定位同时含「取消」「确定」的 footer 的确定按钮
+                #    (主弹窗只有「确定」无「取消」,不会误匹配)
+                cond = (
+                    ".//*[contains(normalize-space(.), '完成后无法继续编辑')] "
                     "and .//button[normalize-space()='取消'] "
-                    "and .//button[normalize-space()='确定']][last()]"
+                    "and .//button[normalize-space()='确定']"
                 )
-                if await dialog_root.count() > 0:
-                    dialog_ok_btn = dialog_root.locator(
-                        "button:has-text('确定')"
-                    ).first
-                    await dialog_ok_btn.wait_for(state="visible", timeout=3000)
-                    if await dialog_ok_btn.is_enabled():
-                        await dialog_ok_btn.click(timeout=3000)
-                        logger.info("[封面] 已点击二次确认弹窗「确定」")
-                        await asyncio.sleep(1)
+                dialog_ok_btn = page.locator(
+                    f"xpath=//*[{cond} and not(.//*[{cond}])]"
+                    "//div[button[normalize-space()='取消'] "
+                    "and button[normalize-space()='确定']]"
+                    "//button[normalize-space()='确定']"
+                ).first
+                if await dialog_ok_btn.count() > 0:
+                    try:
+                        await dialog_ok_btn.wait_for(state="visible", timeout=5000)
+                    except Exception:
+                        # 弹窗动画中可能 is_visible=False,继续 force click
+                        pass
+                    await dialog_ok_btn.click(force=True, timeout=5000)
+                    logger.info("[封面] 已点击二次确认弹窗「确定」")
+                    await asyncio.sleep(1)
                 else:
                     logger.info("[封面] 未出现二次确认弹窗,流程结束")
             except Exception as e:

@@ -151,20 +151,21 @@ const aspectRatio = computed(() => {
   return w / h
 })
 
-// 裁剪框固定居中（canvas 显示像素空间）；canvas 用 transform 平移/缩放图片
+// 裁剪框固定居中（与图片同比例 / 共享 displayScale，避免依赖 canvas DOM 尺寸来回切换错位）
 const cropSelectionStyle = computed(() => {
   const p = activePanel.value
-  if (!p) return { left: 0, top: 0, width: 0, height: 0 }
-  const cw = p.cropRect.w * p.displayScale
-  const ch = p.cropRect.h * p.displayScale
-  const canvas = cropCanvasRef.value
-  const cwTotal = canvas ? canvas.width : cw
-  const chTotal = canvas ? canvas.height : ch
+  if (!p || !p.img) return { left: 0, top: 0, width: 0, height: 0 }
+  const s = p.displayScale
+  const selW = p.cropRect.w * s
+  const selH = p.cropRect.h * s
+  // canvas 总尺寸 = 图片 × displayScale（与 redrawActivePanel 里 canvas.width = img.width * s 一致）
+  const cwTotal = p.img.width * s
+  const chTotal = p.img.height * s
   return {
-    left: (cwTotal - cw) / 2 + 'px',
-    top: (chTotal - ch) / 2 + 'px',
-    width: cw + 'px',
-    height: ch + 'px',
+    left: (cwTotal - selW) / 2 + 'px',
+    top: (chTotal - selH) / 2 + 'px',
+    width: selW + 'px',
+    height: selH + 'px',
   }
 })
 

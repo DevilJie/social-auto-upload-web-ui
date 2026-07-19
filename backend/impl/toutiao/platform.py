@@ -728,23 +728,30 @@ class ToutiaoPlatform(BasePlatform):
             # 上传后头条会进入裁剪/预览页,依次尝试点击「完成裁剪」「确定」按钮。
             # 注意:不能用 class 定位(antd/头条自有 hash 会漂移),改用
             # button + 文字精确定位 + role=button 兜底。
-            async def _click_btn_by_text(text, timeout_ms=5000):
+            #
+            # 规则:如果上传的图片就是头条规定比例(16:9 / 9:16),
+            # 头条不会弹「完成裁剪」,直接显示「确定」→ 这时必须立刻跳过
+            # 「完成裁剪」步骤,不能傻等。
+            async def _click_btn_by_text(text, wait_timeout_ms=5000):
                 """按可见文字点击按钮(button / [role=button]),不依赖 class。
 
-                返回 True 表示成功点击,False 表示没找到(允许调用方继续)。
+                先用 count() 毫秒级探测元素是否存在,不存在立即返回 False
+                (避免 wait_for 把整个 timeout 浪费在等一个不会出现的按钮上)。
+                存在才 wait_for + click。返回 True/False。
                 """
-                # 优先 button 标签,避免误匹配非按钮元素
                 candidates = [
                     f"button:has-text('{text}')",
                     f"[role='button']:has-text('{text}')",
                 ]
                 for sel in candidates:
                     loc = page.locator(sel).first
+                    # 毫秒级探测:不存在直接跳下一个,不浪费时间
+                    if await loc.count() == 0:
+                        continue
                     try:
-                        await loc.wait_for(state="visible", timeout=timeout_ms)
-                        # 必须可点击(opacity>0 / 非 disabled)
+                        await loc.wait_for(state="visible", timeout=wait_timeout_ms)
                         if await loc.is_enabled():
-                            await loc.click(timeout=timeout_ms)
+                            await loc.click(timeout=wait_timeout_ms)
                             logger.info("[封面] 已点击「%s」(选择器=%s)", text, sel)
                             return True
                     except Exception:
@@ -752,19 +759,24 @@ class ToutiaoPlatform(BasePlatform):
                 logger.info("[封面] 未找到「%s」按钮,跳过", text)
                 return False
 
-            # 1. 完成裁剪(可选,部分视频上传后不需要裁剪就直接到确定)
-            await _click_btn_by_text("完成裁剪", timeout_ms=3000)
-            await asyncio.sleep(1)
+            # 1. 完成裁剪(可选):图片符合规定比例时不会出现,直接跳过
+            #    用 count() 探测,不存在立即跳过,不会卡 3 秒
+            if await page.locator("button:has-text('完成裁剪')").count() > 0:
+                await _click_btn_by_text("完成裁剪", wait_timeout_ms=5000)
+                await asyncio.sleep(1)
+            else:
+                logger.info("[封面] 未出现「完成裁剪」(图片符合规定比例),直接点确定")
 
             # 2. 确定(必点,关闭封面编辑弹窗)
-            ok = await _click_btn_by_text("确定", timeout_ms=8000)
+            ok = await _click_btn_by_text("确定", wait_timeout_ms=8000)
             if not ok:
                 logger.warning("[封面] 未点到「确定」按钮,封面可能未生效")
             await asyncio.sleep(2)
 
             # 3. 二次确认对话框(可选,某些场景会出现)
-            await _click_btn_by_text("确定", timeout_ms=2000)
-            await asyncio.sleep(1)
+            if await page.locator("button:has-text('确定')").count() > 0:
+                await _click_btn_by_text("确定", wait_timeout_ms=3000)
+                await asyncio.sleep(1)
 
             logger.info("[封面] 封面设置完成")
         except Exception as e:

@@ -773,10 +773,37 @@ class ToutiaoPlatform(BasePlatform):
                 logger.warning("[封面] 未点到「确定」按钮,封面可能未生效")
             await asyncio.sleep(2)
 
-            # 3. 二次确认对话框(可选,某些场景会出现)
-            if await page.locator("button:has-text('确定')").count() > 0:
-                await _click_btn_by_text("确定", wait_timeout_ms=3000)
-                await asyncio.sleep(1)
+            # 3. 二次确认对话框(可选)
+            #    DOM 结构:
+            #      <div>(对话框容器,类名带 hash 会漂移,不用)
+            #        <div>...完成后无法继续编辑,是否确定完成？</div>  ← body 文字(稳定)
+            #        <button>取消</button>
+            #        <button>确定</button>                            ← 要点这个
+            #      </div>
+            #    定位锚点:body 文字"完成后无法继续编辑"(产品文案稳定,不依赖 class)。
+            #    不能用 button:has-text('确定') 全局判断,会误匹配主弹窗残留的同名按钮。
+            #    用 XPath 一次定位:同时含「完成后无法继续编辑」文字 + 含「取消」「确定」
+            #    两个按钮的最小容器,再点其中的「确定」
+            try:
+                # contains() 配合 normalize-space 处理空白,翻译全角逗号(中文文案)
+                dialog_root = page.locator(
+                    "xpath=//*[contains(normalize-space(.), '完成后无法继续编辑') "
+                    "and .//button[normalize-space()='取消'] "
+                    "and .//button[normalize-space()='确定']][last()]"
+                )
+                if await dialog_root.count() > 0:
+                    dialog_ok_btn = dialog_root.locator(
+                        "button:has-text('确定')"
+                    ).first
+                    await dialog_ok_btn.wait_for(state="visible", timeout=3000)
+                    if await dialog_ok_btn.is_enabled():
+                        await dialog_ok_btn.click(timeout=3000)
+                        logger.info("[封面] 已点击二次确认弹窗「确定」")
+                        await asyncio.sleep(1)
+                else:
+                    logger.info("[封面] 未出现二次确认弹窗,流程结束")
+            except Exception as e:
+                logger.warning("[封面] 二次确认弹窗处理失败: %s", e)
 
             logger.info("[封面] 封面设置完成")
         except Exception as e:

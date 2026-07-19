@@ -1,145 +1,153 @@
-# CSDN 平台接入 + Cookie 一键导入 15 平台 + 批量检查稳定性修复 — v1.2.0
+# PR: feat(v1.2.2) VIVO 平台接入 + 封面系统重构 + 10 平台稳定性修复
 
 ## 概述
 
-本次迭代围绕「账号接入效率」展开，做了三件事：**① 接入 CSDN 创作平台**（登录 + 视频发布）；**② 把 cookie 字符串一键导入账号的能力从 2 个平台扩展到全部 15 个**，并重设计了导入弹窗 UI；**③ 修复账号管理「批量检查」功能导致后端假死的严重 bug**。同时统一了 CSDN/知乎的资料同步为无头模式，CSDN 的 cookie 导入按真实多子域结构智能推断 domain/secure/httpOnly 属性。
+本次发布 16 个平台版 VIVO 内容创作平台正式接入，封面系统全面重构（4:3/16:9/3:4/9:16 多比例可设，不再污染素材库），账号运营数据（粉丝/获赞/关注）字段落地，并修复抖音/视频号/支付宝/B 站/百家号/快手/知乎/腾讯视频/头条 9 个平台的关键 Bug。
 
 ---
 
 ## PR 类型
 
-- [x] 新功能（CSDN 平台接入、15 平台 cookie 导入、导入弹窗重设计）
-- [x] Bug 修复（批量检查后端假死、检查弹窗不显示、CSDN cookie 登录态丢失）
-- [x] 工程效率（启动脚本强制更新）
-- [x] 文档（v1.2.0 更新日志）
+- [x] 新功能（VIVO 平台接入、账号运营数据、封面系统重构、新增赞助页面）
+- [x] Bug 修复（10 个平台 bug + 发布历史封面图 + 个性化选视频 bug + 浏览器关闭智能识别）
+- [x] 工程效率（util/_logger 修复 csdn/vivo 日志路由历史 bug）
+- [x] 文档（v1.2.2 更新日志）
 
 ---
 
 ## 核心变更
 
-### 1. CSDN 创作平台接入（`backend/impl/csdn/`）
+### 1. VIVO 内容创作平台接入（`backend/impl/vivo/`）
 
-- 新增 `CsdnPlatform`（platform_id=15），继承 `BasePlatform`，注册到 `registry.py`
-- **登录**：打开 `mp.csdn.net` 创作者首页，用户在可见浏览器手动登录，检测到 `div.user-info-box` 出现即视为登录成功
-- **check_cookie**：headless 访问创作者首页，判断用户信息卡是否存在
-- **sync_profile**：从 `div.user-info-box` 抓昵称（`p.name` 的 title 属性）+ 头像
-- **publish_video**：完整的视频发布流程
-  - 上传视频文件（定位 `input[type=file][accept*=video]`）
-  - 等待「上传成功」文案（`.gement li.text`）
-  - 设置封面（隐藏 input + 裁剪弹窗确认）
-  - 填写标题（≤30 字）、简介（≤150 字）、标签（≤3 个，输入+回车激活）
-  - 可选「是否推荐」勾选
-  - 点击发布按钮，页面跳转即成功
-- 视频限制常量：`CSDN_MAX_TAGS=3` / `CSDN_MAX_TITLE_LEN=30` / `CSDN_MAX_DESC_LEN=150`，同步到 `videoLimits.js`
-- 前端 logo + platforms.js 配置接入
+新增 `VivoPlatform`（platform_id=16），继承 `BasePlatform`，注册到 `registry.py`：
 
-### 2. Cookie 字符串一键导入 — 扩展到全部 15 平台
+- **创作者中心**：`https://www.kaixinkan.com.cn/#/home`
+- **视频发布**：`https://www.kaixinkan.com.cn/#/content/uploads`
+- **规范**：视频大小≤2G、时长≤90min、描述≤500字
+- **完整发布流程**：
+  1. 扫码登录（可见浏览器 + 轮询 `.user-info-area` 出现判定成功）
+  2. 资料同步（昵称/头像/粉丝/获赞，关注固定 0）
+  3. 上传视频文件（`input[type=file]`，轮询 `.success-text:has-text("上传成功")`，**4 小时超时**）
+  4. 描述+标签（contenteditable 逐字符输入；`#xxx` 末尾空格激活话题）
+  5. 3:4 竖版封面（点编辑封面 → 切上传 tab → 上传 → 处理裁剪 → div 确定）
+  6. 位置（`.sel-position-module` → 输入关键词 → 解析 `.position-list li`）
+  7. 作品同步（`label.el-checkbox` 文案定位勾选）
+  8. 自主声明（`div.el-select-dropdown__item` 文案匹配）
+  9. 谁可以看 / 下载权限（radio by label + option text）
+  10. 定时发布（直接 fill 两个文本框：yyyy-MM-dd + HH:mm）
+  11. 提交 → URL 跳转判定成功
+- **严格遵守**：所有 selector 用产品语义 class（`.user-info-area` / `.cover-photo-img` / `.sel-position-module` 等），**禁用 `data-v-xxx` 随机字符串**
 
-#### 后端：抽象到 BasePlatform，子类 3 行接入
+### 2. 账号运营数据（粉丝 / 获赞 / 关注）
 
-- `BasePlatform` 新增 `supports_cookie_import` / `platform_cookie_domain` 类属性 + `_parse_cookie_to_storage_state` hook
-- `BasePlatform.import_cookie` 默认实现，封装完整 4 步进度流程：
-  1. **解析 cookie 字符串**（子类 hook）
-  2. **生成 storage_state JSON**（先不写 user_info，验证有效性）
-  3. **sync_profile** 抓取真实昵称/头像（复用账号列表「同步」按钮的同一调用）
-  4. **创建账号记录**（写入 user_info；cookie 失效则清理临时文件并报错）
-- **15 个平台全部接入**，各平台只需声明 `supports_cookie_import = True` + `platform_cookie_domain` + `_parse_cookie_to_storage_state`：
+- `user_info` 表新增 `fans/likes/follows` 三列（幂等迁移，默认 0）
+- `BasePlatform.sync_profile` 约定支持 5 元组返回（向后兼容 2 元组）：
+  - 2 元组 `(name, avatar)` — 旧平台
+  - 5 元组 `(name, avatar, fans, likes, follows)` — 新平台（如 VIVO）
+- `save_login_result` / `syncProfile` 路由 / `setAccounts` store 全部按元组长度兼容解包写库
+- 前端账号卡片底部展示「粉丝 N · 获赞 N · 关注 N」，其余平台字段保留为 0 待后续版本接入
 
-  | 平台 | cookie domain |
-  |------|--------------|
-  | 小红书 | `.xiaohongshu.com` |
-  | 视频号 | `.qq.com` |
-  | 抖音 | `.douyin.com` |
-  | 快手 | `.kuaishou.com` |
-  | B站 | `.bilibili.com` |
-  | 百家号 | `.baidu.com` |
-  | TikTok | `.tiktok.com` |
-  | YouTube | `.youtube.com` |
-  | 腾讯视频 | `.qq.com` |
-  | 爱奇艺 | `.iqiyi.com` |
-  | 微博 | `.weibo.com` |
-  | 支付宝 | `.alipay.com` |
-  | 今日头条 | `.toutiao.com` |
-  | 知乎 | `.zhihu.com` |
-  | CSDN | `.csdn.net` |
+### 3. VIVO 位置搜索自动化（`/api/vivo/search-position`）
 
-#### CSDN 专属：智能推断 cookie 属性
+- 仿 `xiaohongshu_bp.py` 模式：浏览器自动化打开 VIVO 发布页 → 上传测试视频触发表单 → 在 `.sel-position-module` 输入关键词 → 解析 `.position-list li` 的 `.position-name` + `.position-info`
+- 前端 `VivoPositionSelect.vue` 复用模式与小红书 POI 一致，空值即不显示位置
 
-- CSDN 的登录态 cookie 散落在多个子域（`.csdn.net` / `passport.csdn.net` / `msg.csdn.net` 等），纯 `k=v` 字符串不带 domain/secure/httpOnly 信息
-- `_parse_cookie_to_storage_state` 重写，维护从真实文件 dump 得到的属性映射表：
-  - waf 系列（`https_waf_cookie`/`waf_captcha_marker`）分到 `passport.csdn.net`
-  - `SESSION` 复制一份到 `msg.csdn.net`
-  - `httpOnly`/`secure` 按真实登录态精确设置（不再一刀切 True/False）
+### 4. 封面系统全面重构
 
-#### 前端：导入弹窗 UI 重设计
+- **封面不再保存到素材库**（避免占用不必要资源），改为临时处理
+- 4:3 / 16:9 / 3:4 / 9:16 四种比例可按视频方向自动选择
+- 头条 / 腾讯视频 / 知乎 / 视频号 / 快手 已按方向自动选择新尺寸
+- CSDN 固定横版、百家号固定横竖各一
+- 爱奇艺封面弹窗新增 16:9 横封面 tab
+- 封面弹窗尺寸 tab 改造 + 布局重设计 + 亮色样式修复
+- 封面裁剪改为两个独立面板，确认时统一校验裁剪结果
 
-- 左右分栏布局（660px）：左侧平台扁平卡片列表 + 搜索框，右侧 cookie 输入
-- 平台卡片复用 `LoginDialog` 风格（32×32 logo + 品牌色背景）
-- 支持搜索过滤（按中文名/key）、垂直滚动（自定义滚动条）
-- cookie 输入框等宽字体 + 底部 InfoFilled 提示框
-- 导入进度走 SSE 4 步流式推送（解析 → 生成文件 → 同步资料 → 创建账号）
+### 5. 10 个平台稳定性修复
 
-### 3. 批量检查稳定性修复（后端假死）
+| 平台 | 修复内容 |
+|---|---|
+| 抖音 | 定时发布时间丢失 → Semi 时间滚轮选时/分 |
+| 视频号 | 封面遍历所有入口 + 横版封面 popover 处理 |
+| 支付宝 | 作者声明 radio 改点 label（antd5 受控组件）；新增转载来源联动 |
+| B 站 | 创作声明=转载时新增必填转载来源 |
+| 百家号 | 固定 16:9 横版 + 3:4 竖版 |
+| 快手 | 视频封面前按方向选裁剪比例 |
+| 知乎 | 横版视频优先 16:9 封面 |
+| 腾讯视频 | 封面按方向 + UploadNotify 4h 超时 + 永远等的 formTitle 移除 |
+| 头条 | 封面按方向选 16:9/9:16 + 二次确认弹窗精确点确定按钮 |
+| 全平台 | 浏览器关闭智能识别（disarm 标志），手动关浏览器不再卡死 |
 
-**根因**：账号管理「批量检查」复用了发布前检查弹窗 `PrePublishCheckDialog`，但该弹窗的 fixing 阶段会同时对所有失效账号自动发起 SSE 登录。并发 4 个 `checkAccount`（占满 Waitress 默认 4 线程）+ N 个 SSE `/login` 长连接（挤不进线程池）→ 后端假死（HTTP 000）。
+### 6. 体验优化
 
-**修复**：
-- **后端 Waitress 线程数 4 → 16**（`app.py`：`serve(..., threads=16)`），让并发 check + SSE login 不再互相挤占
-- **前端检查并发数 4 → 2**，降低同时拉起的 headless 浏览器数量
-- **fixing 阶段移除自动并发重登**，改为用户在失效列表里逐个点「重新登录」（不再一次弹 N 个浏览器窗口）
-- **修复检查弹窗不显示**：`PrePublishCheckDialog` 缺 `v-model` 绑定，导致 `emit('update:modelValue')` 无接收方，弹窗永远不显示
-- **新增 `mode` prop** 区分「账号检查」/「发布前检查」文案，交互逻辑完全一致
+- 亮色模式账号选中字体改用品牌紫，亮色下不再发白看不清
+- 勾选账号个性化后首次从素材库选视频不显示（`getMergedSettings` filter 漏过滤 null 修复）
+- 发布历史封面图显示修复（`_resolve_cover_from_path` 修复 `covers/` 前缀路径）
+- 新增赞助作者页面（侧边栏底部品牌色菜单 + 支付宝/微信收款码 + 顶部徽章心跳红点）
 
-### 4. CSDN / 知乎资料同步改无头
+### 7. 工程效率
 
-- `csdn/platform.py` + `zhihu/platform.py` 的 `sync_profile` 由 `headless=False` 改为 `headless=True`，与其它 13 个平台一致
-- 导入 cookie 时不再弹出可见浏览器窗口
-
-### 5. Dashboard 平台统计跑马灯
-
-- 参考 `DraftBox.channels` 风格，平台统计区改为横向滚动跑马灯
-- 有账号的平台高亮（品牌色），溢出时自动滚动
-- `ResizeObserver` 监听容器宽度变化，动态触发跑马灯
-
-### 6. 启动脚本强制更新
-
-- `start.sh` / `start-beta.sh` / `start.bat` / `start-beta.bat`
-- 移除「发现新版本！是否更新？[Y/n]」交互询问
-- 已有项目代码时直接 `git fetch + reset --hard origin/<branch>`
-- 无法连接 GitHub 时提示并继续使用本地版本
-- 修复 `start-beta.sh` 第 88/105 行误引 `start.sh` 的 bug
+- `util/_logger.CHANNELS` 补全 csdn + vivo，修复日志路由缺失历史 bug（csdn 平台之前的日志也丢了）
 
 ---
 
 ## 涉及文件
 
 ```
-backend/app.py                                    | 后端假死修复(threads=16)
-backend/impl/csdn/                                | 新增 CSDN 平台实现(852 行)
-backend/impl/base_platform.py                     | cookie 导入抽象层
-backend/impl/{各平台}/platform.py                 | 15 平台接入 cookie 导入
-backend/impl/zhihu/platform.py                    | sync_profile 改无头
-backend/impl/_utils.py                            | scrape_csdn_profile
-frontend/src/components/PrePublishCheckDialog.vue | mode prop + 交互修复
-frontend/src/views/AccountManagement.vue          | 批量检查复用 + 导入弹窗
-frontend/src/views/Dashboard.vue                  | 平台统计跑马灯
-frontend/src/views/PublishCenter.vue              | 适配
-changelog/20260708.html                           | v1.2.0 更新日志
-start*.sh / start*.bat                            | 强制更新
+后端新增(3 个):
+  backend/impl/vivo/__init__.py
+  backend/impl/vivo/platform.py            (540 行)
+  backend/blueprints/vivo_bp.py            (167 行)
+
+后端修改(10 个):
+  backend/init_db.py                       user_info 新增 3 列迁移
+  backend/impl/base_platform.py            sync_profile 文档说明 5 元组
+  backend/impl/_utils.py                   scrape_vivo_profile + save_login_result 兼容
+  backend/impl/registry.py                 注册 VivoPlatform
+  backend/util/_logger.py                  CHANNELS 补 csdn+vivo
+  backend/util/video_limits.py             vivo 校验规则
+  backend/app.py                           PLATFORM_MAP + blueprint + publish kwargs
+  backend/ext_api/__init__.py              硬编码字典补 vivo (修草稿箱显示)
+  backend/blueprints/image_publish_bp.py   platform_map 补 vivo
+
+前端新增(3 个):
+  frontend/src/api/vivo.js
+  frontend/src/components/vivo/PositionSelect.vue
+  frontend/src/assets/logos/vivo.svg       (3.4KB, Vite 内联到 bundle)
+
+前端修改(6 个):
+  frontend/src/config/platforms.js         VIVO 配置
+  frontend/src/config/videoLimits.js      vivo 镜像规则
+  frontend/src/stores/account.js           索引偏移适配
+  frontend/src/views/AccountManagement.vue 账号卡片显示粉丝/获赞/关注
+  frontend/src/views/PublishCenter.vue     集成 + poiSelect 分流
+  frontend/src/components/PrePublishCheckDialog.vue  platformTypeToKey
+
+文档 + 资源:
+  versions                                 1.2.1 → 1.2.2
+  changelog/20260719.html                  v1.2.2 更新日志页面
+  frontend/src/assets/alipay.jpg + weixin.jpg  赞助页面收款码
 ```
 
 ---
 
 ## 验证
 
-- ✅ Cookie 导入：15 平台粘贴 cookie 字符串 → 4 步进度 → 抓到昵称头像 → 账号列表出现
-- ✅ CSDN cookie 导入：属性对齐真实文件（domain/secure/httpOnly 分布一致）
-- ✅ 批量检查：进度条正常滚动 → 失效账号显示「重新登录」按钮（不再自动弹窗）→ 后端全程响应正常
-- ✅ 发布前检查：与账号管理交互一致，文案区分显示
+- ✅ 后端 Python 语法 OK
+- ✅ VIVO 平台通过 registry 成功加载（platform_id=16）
+- ✅ scrape_vivo_profile / PLATFORM_SYNC_URLS / VIDEO_LIMITS 注册正确
+- ✅ 数据库迁移成功（3 列添加，幂等无报错）
+- ✅ 前端 `npm run build` 成功（18.82s）
+- ✅ vivo.svg 内联为 data URI 进入 bundle
+- ✅ 实际登录/扫码流程验证通过
+- ✅ 实际视频发布流程（dry_run 模式）验证通过：描述+标签+封面+位置+作品同步+自主声明+定时发布 全部正常填写
+- ✅ 草稿箱显示「VIVO」+ vivo 图标（修复「平台16」问题）
+
+## 兼容性
+
+- ✅ 旧平台 sync_profile 返回 2 元组仍正常工作（save_login_result / syncProfile 路由按元组长度兼容解包）
+- ✅ 账号 store.setAccounts 按新列顺序索引映射（id/type/filePath/userName/status/avatar/fans/likes/follows/tags），向后兼容
+- ✅ logger CHANNELS 补全后，csdn 平台日志也恢复正常（顺带修复历史 bug）
 
 ---
 
-## 不在本次范围
-
-- 纯 `k=v` 字符串无法获取 httpOnly 的 WAF cookie（如 CSDN 的 `https_waf_cookie`），若平台强制校验 WAF 仍可能登录失败，需后续支持浏览器扩展导出完整 JSON
-- 不含数据库 schema 变更
+**37 个提交 · 104 文件 · 9774 行新增**

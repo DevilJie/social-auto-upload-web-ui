@@ -19,6 +19,7 @@ const routes = [
   { path: '/changelog', name: 'Changelog', component: () => import('../views/Changelog.vue'), meta: { icon: 'Notebook', title: '更新日志' } },
   { path: '/settings', name: 'Settings', component: Settings, meta: { icon: 'Setting', title: '系统设置', isBottom: true } },
   { path: '/author', name: 'Author', component: Author, meta: { icon: 'UserFilled', title: '关于作者', isBottom: true } },
+  { path: '/sponsor', name: 'Sponsor', component: () => import('../views/Sponsor.vue'), meta: { icon: 'Coffee', title: '赞助作者' } },
   { path: '/feedback', name: 'Feedback', component: () => import('../views/Feedback.vue'), meta: { icon: 'ChatDotRound', title: '一键反馈' } }
 ]
 

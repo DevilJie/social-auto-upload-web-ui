@@ -175,12 +175,12 @@ class VivoPlatform(BasePlatform):
     # sync_profile — refresh user name / avatar / fans / likes / follows
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
+    async def sync_profile(self, cookie_file: str) -> dict:
         """Sync profile info from VIVO creator centre.
 
         Returns:
-            ``(name, avatar, fans, likes, follows)`` 5-tuple. VIVO 平台
-            无关注数概念,follows 固定为 0。
+            dict: ``{"name": str, "avatar": str, "stats": [{"ICON","COUNT","NAME","SORT"}, ...]}``
+            VIVO 平台无关注数概念,follows 固定为 0。
         """
         logger.info("[同步资料] 开始同步用户资料: %s", cookie_file)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
@@ -203,7 +203,15 @@ class VivoPlatform(BasePlatform):
                     "[同步资料] 昵称: %s, 头像: %s, 粉丝: %d, 获赞: %d, 关注: %d",
                     name, avatar[:50] if avatar else "无", fans, likes, follows,
                 )
-                return name, avatar, fans, likes, follows
+                return {
+                    "name": name,
+                    "avatar": avatar,
+                    "stats": [
+                        {"ICON": "user",   "COUNT": fans,   "NAME": "粉丝", "SORT": 1},
+                        {"ICON": "like",   "COUNT": likes,  "NAME": "获赞", "SORT": 2},
+                        {"ICON": "follow", "COUNT": follows, "NAME": "关注", "SORT": 3},
+                    ],
+                }
             finally:
                 await context.close()
         finally:

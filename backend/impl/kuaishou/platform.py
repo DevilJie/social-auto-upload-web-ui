@@ -206,28 +206,120 @@ class KuaishouPlatform(BasePlatform):
     # Sync profile
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Kuaishou creator centre."""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """Sync profile info (name, avatar, stats) from Kuaishou creator centre.
+
+        抓取流程:
+        1. 访问 cp.kuaishou.com/profile
+        2. 点击右上角用户头像触发 popover
+        3. 在 popover 中读取 user-cnt__item(粉丝/关注/获赞)
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
-            await page.goto(_KS_UPLOAD_URL, timeout=15000)
-            await page.wait_for_load_state("domcontentloaded")
-            return await scrape_user_profile(page)
-        except Exception as exc:
-            logger.info(f"[kuaishou] sync_profile error: {exc}")
-            return ("", "")
-        finally:
             try:
+                await page.goto(_KS_UPLOAD_URL, timeout=15000)
+                await page.wait_for_load_state("domcontentloaded")
+                name, avatar = await scrape_user_profile(page)
+                stats = await self._scrape_kuaishou_stats(page)
+                return {"name": name, "avatar": avatar, "stats": stats}
+            except Exception as exc:
+                logger.info(f"[kuaishou] sync_profile error: {exc}")
+                return {"name": "", "avatar": "", "stats": []}
+            finally:
                 await context.close()
-            except Exception:
-                pass
+        finally:
             try:
                 await browser.close()
             except Exception:
                 pass
+
+
+    async def _scrape_kuaishou_stats(self, page) -> list:
+            """抓取快手创作者中心右上角弹出的 popover 中的运营数据。
+
+            页面 DOM 结构(参见用户提供的 2026-07-19 抓取样本):
+                <div class="user-info-dpd ...">  <!-- 触发器 -->
+                    <img class="user-info-avatar" src="...">
+                    <div class="user-info-name">菜鸡说电影CJ</div>
+                </div>
+                <!-- 点击后弹出 -->
+                <div class="el-popover ... user-info-popper">
+                    <div class="header-info-card">
+                        <img class="user-image">
+                        <div class="user-name">菜鸡说电影CJ</div>
+                        <div class="user-cnt">
+                            <div class="user-cnt__item">25<span>粉丝</span></div>
+                            <div class="user-cnt__item">7<span>关注</span></div>
+                            <div class="user-cnt__item">125<span>获赞</span></div>
+                        </div>
+                    </div>
+                </div>
+
+            Returns:
+                list[dict]: 按 SORT 排序的运营数据列表
+            """
+            stats = []
+            label_map = {
+                "粉丝": ("user",   1, "粉丝"),
+                "关注": ("follow", 2, "关注"),
+                "获赞": ("like",   3, "获赞"),
+            }
+
+            try:
+                # 点击右上角用户头像触发 popover
+                trigger = page.locator(".user-info-dpd").first
+                if await trigger.count() > 0:
+                    try:
+                        await trigger.click()
+                    except Exception:
+                        pass
+
+                try:
+                    await page.wait_for_selector(".user-cnt__item", timeout=6000)
+                except Exception:
+                    logger.info("[kuaishou stats] 等待 .user-cnt__item 超时")
+
+                raw = await page.evaluate(
+                    '''() => {
+                        const out = [];
+                        document.querySelectorAll('.user-cnt__item').forEach(div => {
+                            // label 在嵌套的 span 里,数字是文本节点
+                            const spans = div.querySelectorAll('span');
+                            let label = '';
+                            spans.forEach(s => {
+                                const t = (s.textContent || '').trim();
+                                if (t) label = t;
+                            });
+                            // 数字 = div 的第一个文本节点(去掉 label span 的内容)
+                            const numText = (div.childNodes[0] ? div.childNodes[0].textContent : '').trim();
+                            if (label) out.push({label, num: numText});
+                        });
+                        return out;
+                    }'''
+                )
+                for item in raw:
+                    label = item.get('label', '')
+                    if label in label_map:
+                        icon, sort_no, name = label_map[label]
+                        try:
+                            count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '') or '0')
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+
+                # 关闭 popover(点击页面其他位置)
+                try:
+                    await page.mouse.click(10, 10)
+                except Exception:
+                    pass
+            except Exception as exc:
+                logger.info(f"[kuaishou stats] 抓取失败: {exc}")
+
+            stats.sort(key=lambda x: x.get("SORT", 999))
+            return stats
 
     # ------------------------------------------------------------------
     # Open creator centre — KEEP AS-IS (sync CloakBrowser)

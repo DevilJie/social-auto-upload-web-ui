@@ -257,27 +257,158 @@ class BilibiliPlatform(BasePlatform):
     # Sync profile
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Bilibili account centre."""
-        cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        url = "https://account.bilibili.com/account/home"
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """Sync profile info (name, avatar, stats) from Bilibili creator centre.
 
-        browser = await self.create_browser(headless=True)
+        抓取流程(有头模式,便于处理登录态异常):
+        1. 访问 https://account.bilibili.com/account/home 抓 name/avatar
+        2. 跳转到 https://member.bilibili.com/platform/home 抓 8 项 stats
+           (播放量/评论/弹幕/点赞/分享/收藏/投币/粉丝总数)
+
+        共 8 项运营数据。前端会按 SORT 排序后展示前 4 项,剩余进入悬浮窗。
+
+        说明:B 站创作中心对自动化检测较严,headless 模式容易触发风控;
+        改为 headful 后,登录态异常时也能肉眼看到页面状态。
+        """
+        cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
+
+        browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
-                await page.goto(url, wait_until="networkidle", timeout=30000)
-                name, avatar = await scrape_bilibili_profile(page)
-                return name, avatar
+                # Step 1: 抓 name/avatar
+                try:
+                    await page.goto("https://account.bilibili.com/account/home",
+                                    wait_until="networkidle", timeout=30000)
+                    name, avatar = await scrape_bilibili_profile(page)
+                except Exception as exc:
+                    logger.info(f"[bilibili] 抓 name/avatar 失败: {exc}")
+                    name, avatar = "", ""
+
+                # Step 2: 跳到创作中心抓 stats
+                try:
+                    await page.goto("https://member.bilibili.com/platform/home",
+                                    wait_until="networkidle", timeout=30000)
+                    stats = await self._scrape_bilibili_stats(page)
+                except Exception as exc:
+                    logger.info(f"[bilibili] 抓 stats 失败(不影响 name/avatar): {exc}")
+                    stats = []
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             except Exception as e:
                 logger.info(f"[bilibili] sync profile failed: {e}")
-                return "", ""
+                return {"name": "", "avatar": "", "stats": []}
             finally:
-                await page.close()
-                await context.close()
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                try:
+                    await context.close()
+                except Exception:
+                    pass
         finally:
-            await browser.close()
+            try:
+                await browser.close()
+            except Exception:
+                pass
+
+
+    async def _scrape_bilibili_stats(self, page) -> list:
+            """抓取 B 站创作中心首页的 8 项运营数据。
+
+            页面 DOM 结构(参见用户提供的 2026-07-19 抓取样本):
+                <div class="video section">
+                  <div class="section-row first">
+                    <div class="data-card ct-info-card"><div class="name">播放量</div><div class="value">1,114</div></div>
+                    <div class="data-card ct-info-card"><div class="name">评论</div><div class="value">15</div></div>
+                    <div class="data-card ct-info-card"><div class="name">弹幕</div><div class="value">2</div></div>
+                  </div>
+                  <div class="section-row">
+                    <div class="data-card"><div class="name">点赞</div><div class="value">83</div></div>
+                    <div class="data-card"><div class="name">分享</div><div class="value">2</div></div>
+                    <div class="data-card"><div class="name">收藏</div><div class="value">21</div></div>
+                    <div class="data-card"><div class="name">投币</div><div class="value">24</div></div>
+                  </div>
+                </div>
+                <div class="data-right">
+                  <div class="fan-overview">
+                    <div class="fan-item">
+                      <div class="fan-label"><span>粉丝总数</span></div>
+                      <div class="fan-num">1</div>
+                    </div>
+                  </div>
+                </div>
+
+            Returns:
+                list[dict]: 按 SORT 排序的运营数据列表
+            """
+            stats = []
+            # label_map: B 站页面上的中文名 -> (ICON, SORT, 标准化 NAME)
+            # 8 项全部写入 stats;卡片只展示前 3 项(粉丝/点赞/收藏),
+            # 鼠标悬停"更多"占位时通过悬浮窗展示全部 8 项。
+            label_map = {
+                "播放量":  ("play",  5, "播放量"),
+                "评论":    ("chat",  6, "评论"),
+                "弹幕":    ("chat",  7, "弹幕"),
+                "点赞":    ("like",  2, "点赞"),
+                "分享":    ("share", 8, "分享"),
+                "收藏":    ("star",  3, "收藏"),
+                "投币":    ("coin",  4, "投币"),
+                "粉丝总数": ("user",  1, "粉丝"),
+            }
+
+            def _parse_int(text: str) -> int:
+                try:
+                    return int(str(text or '0').replace(',', '').replace(' ', '') or '0')
+                except (ValueError, TypeError):
+                    return 0
+
+            try:
+                try:
+                    await page.wait_for_selector(".data-card .value, .fan-num", timeout=10000)
+                except Exception:
+                    logger.info("[bilibili stats] 等待 .data-card/.fan-num 超时")
+
+                raw = await page.evaluate(
+                    '''() => {
+                        const out = [];
+                        // 视频数据 section: 每个 .data-card 里有 .name 和 .value
+                        document.querySelectorAll('.data-card').forEach(card => {
+                            const nameEl = card.querySelector('.name');
+                            const valEl = card.querySelector('.value');
+                            if (!nameEl || !valEl) return;
+                            const name = nameEl.textContent.trim();
+                            // 去掉图标和空格,只留文字
+                            const clean = name.replace(/\\s+/g, '');
+                            out.push({label: clean, num: valEl.textContent.trim()});
+                        });
+                        // 粉丝概览: .fan-item .fan-label .fan-num
+                        document.querySelectorAll('.fan-item').forEach(item => {
+                            const labelEl = item.querySelector('.fan-label');
+                            const numEl = item.querySelector('.fan-num');
+                            if (!labelEl || !numEl) return;
+                            // fan-label 第一个 span 是文字
+                            const span = labelEl.querySelector('span');
+                            const label = span ? span.textContent.trim() : '';
+                            out.push({label, num: numEl.textContent.trim()});
+                        });
+                        return out;
+                    }'''
+                )
+
+                for item in raw:
+                    label = item.get('label', '')
+                    if label in label_map:
+                        icon, sort_no, name = label_map[label]
+                        count = _parse_int(item.get('num', '0'))
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+            except Exception as exc:
+                logger.info(f"[bilibili stats] 抓取失败: {exc}")
+
+            stats.sort(key=lambda x: x.get("SORT", 999))
+            return stats
 
     # ------------------------------------------------------------------
     # Open creator center

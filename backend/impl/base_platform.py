@@ -133,17 +133,22 @@ class BasePlatform(ABC):
         ...
 
     @abstractmethod
-    async def sync_profile(self, cookie_file: str) -> tuple:
+    async def sync_profile(self, cookie_file: str):
         """Sync profile information from the platform.
 
-        Returns a ``(display_name, avatar_url)`` tuple, or ``("", "")``
-        on failure.
+        新约定:返回 dict,包含 name/avatar/stats 三项:
+          {
+            "name":   str,   # 昵称,失败为空字符串
+            "avatar": str,   # 头像 URL,失败为空字符串
+            "stats":  [      # 运营数据列表,失败或未实现为 []
+              {"ICON": "user", "COUNT": 12345, "NAME": "粉丝", "SORT": 1},
+              {"ICON": "like", "COUNT": 678,   "NAME": "获赞", "SORT": 2},
+              ...
+            ],
+          }
 
-        新平台(如 VIVO)可返回 5 元组 ``(name, avatar, fans, likes, follows)``
-        以同步账号运营数据(粉丝/获赞/关注)。调用方按元组长度解包:
-          len == 2 → 仅 name/avatar
-          len == 5 → 额外写入 user_info.fans/likes/follows
-        旧平台无需改动,继续返回 2 元组即可。
+        兼容旧实现:若仍返回 2 元组 ``(name, avatar)``,路由层会把 stats 视为 []。
+        调用方:写入 user_info.stats(JSON 字符串)。
         """
         ...
 

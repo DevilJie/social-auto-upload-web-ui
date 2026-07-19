@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 import sys
+import json
 
 sys.path.insert(0, str(Path(__file__).parent))
 from conf import BASE_DIR
@@ -294,6 +295,30 @@ def migrate_database():
             logger.info(f"已添加 user_info.{col} 列")
         except sqlite3.OperationalError:
             pass  # 列已存在
+
+    # user_info 升级:新增 stats JSON 列(账号运营数据列表,每条 {ICON, COUNT, NAME, SORT})
+    # 首次添加时,把 fans/likes/follows 非零的历史数据迁移进 stats
+    cursor.execute("PRAGMA table_info(user_info)")
+    user_info_cols = [row[1] for row in cursor.fetchall()]
+    if 'stats' not in user_info_cols:
+        cursor.execute('ALTER TABLE user_info ADD COLUMN stats TEXT DEFAULT "[]"')
+        logger.info('已添加 user_info.stats 列')
+        # 一次性数据迁移:把非零的 fans/likes/follows 写入 stats JSON
+        try:
+            cursor.execute('SELECT id, fans, likes, follows FROM user_info')
+            for row in cursor.fetchall():
+                acc_id, f, l, fo = row[0], row[1] or 0, row[2] or 0, row[3] or 0
+                if f == 0 and l == 0 and fo == 0:
+                    continue
+                stats_json = json.dumps([
+                    {"ICON": "user",   "COUNT": f,  "NAME": "粉丝", "SORT": 1},
+                    {"ICON": "like",   "COUNT": l,  "NAME": "获赞", "SORT": 2},
+                    {"ICON": "follow", "COUNT": fo, "NAME": "关注", "SORT": 3},
+                ], ensure_ascii=False)
+                cursor.execute('UPDATE user_info SET stats = ? WHERE id = ?', (stats_json, acc_id))
+                logger.info(f'[migrate] 账号 {acc_id} 的 fans/likes/follows 已迁移至 stats')
+        except Exception as e:
+            logger.warning(f'[migrate] fans/likes/follows → stats 数据迁移失败(可忽略): {e}')
 
     conn.commit()
     conn.close()

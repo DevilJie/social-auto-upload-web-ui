@@ -1209,8 +1209,14 @@ class ChannelsPlatform(BasePlatform):
     # sync_profile — open platform URL with cookies, scrape profile
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Channels creator centre."""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """Sync profile info (name, avatar, stats) from Channels creator centre.
+
+        抓取 finder-content-info 上的两个数字:
+        - 视频数  (DOM: `.finder-content-info > div:first-child .finder-info-num`)
+        - 关注者  (DOM: `.finder-content-info .second-info .finder-info-num`)
+        (视频号没有粉丝数概念,"关注者"等价于粉丝)
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
         try:
@@ -1218,17 +1224,73 @@ class ChannelsPlatform(BasePlatform):
             page = await context.new_page()
             await page.goto(TENCENT_PLATFORM_URL)
             name, avatar = await scrape_tencent_profile(page)
+            stats = await self._scrape_channels_stats(page)
             await page.close()
             await context.close()
-            return name, avatar
+            return {"name": name, "avatar": avatar, "stats": stats}
         except Exception as exc:
             logger.info(f"[发布] sync_profile error: {exc}")
-            return "", ""
+            return {"name": "", "avatar": "", "stats": []}
         finally:
             try:
                 await browser.close()
             except Exception:
                 pass
+
+
+    async def _scrape_channels_stats(self, page) -> list:
+            """抓取视频号创作者中心首页的运营数据。
+
+            页面 DOM 结构(参见用户提供的 2026-07-19 抓取样本):
+                <div class="finder-content-info">
+                  <div><span>视频</span><span class="finder-info-num">11</span></div>
+                  <div class="second-info"><span>关注者</span><span class="finder-info-num">2</span></div>
+                </div>
+
+            Returns:
+                list[dict]: 按 SORT 排序的运营数据列表
+            """
+            stats = []
+            label_map = {
+                "视频":   ("video",  1, "视频"),
+                "关注者": ("follow", 2, "关注者"),
+            }
+
+            try:
+                await page.wait_for_selector(".finder-info-num", timeout=8000)
+            except Exception:
+                logger.info("[channels stats] 等待 .finder-info-num 超时")
+
+            try:
+                raw = await page.evaluate(
+                    '''() => {
+                        const out = [];
+                        document.querySelectorAll('.finder-content-info > div').forEach(div => {
+                            const numEl = div.querySelector('.finder-info-num');
+                            if (!numEl) return;
+                            // 标签在前一个 span 里(不是 .finder-info-num)
+                            const labelSpan = div.querySelector('span:not(.finder-info-num)');
+                            const label = labelSpan ? labelSpan.textContent.trim() : '';
+                            const num = numEl.textContent.trim();
+                            if (label) out.push({label, num});
+                        });
+                        return out;
+                    }'''
+                )
+                for item in raw:
+                    label = item.get('label', '')
+                    if label in label_map:
+                        icon, sort_no, name = label_map[label]
+                        try:
+                            count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '') or '0')
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+            except Exception as exc:
+                logger.info(f"[channels stats] 抓取失败: {exc}")
+
+            stats.sort(key=lambda x: x.get("SORT", 999))
+            return stats
 
     # ------------------------------------------------------------------
     # open_creator_center — KEEP AS-IS (sync CloakBrowser in thread)

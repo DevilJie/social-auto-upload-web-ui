@@ -1610,6 +1610,9 @@ const submitAccountForm = () => {
       gap: 8px;
       margin-top: 8px;
       margin-bottom: 8px;
+      // 固定最小高度,让"已同步"(3 块 stat-block) 和"未同步"
+      // (1 块 stat-block-empty) 两种情况下卡片下半部分布局一致
+      min-height: 64px;
 
       // 存量未同步数据的占位块(跨满整行,提示用户点同步)
       .stat-block-empty {
@@ -1645,6 +1648,10 @@ const submitAccountForm = () => {
         border: 1px solid transparent;
         transition: all $transition-fast;
         min-width: 0;
+        // 固定 stat-block 高度,与 .stat-block-empty 保持一致,
+        // 这样无论"已同步"还是"未同步"账号,卡片下半部分
+        // (stats-row + tags-row + actions-row) 高度都一致
+        min-height: 64px;
 
         .stat-icon-wrap {
           width: 22px;

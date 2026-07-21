@@ -1053,15 +1053,30 @@ async def _fill_tags(page, tags: list) -> None:
     if await desc_el.count() and await desc_el.is_visible():
         await desc_el.click()
 
+    # 小红书话题联想下拉 (tippy 浮层):
+    #   <div id="creator-editor-topic-container" class="items">
+    #     <div class="item is-selected">#三亚</div>
+    #     <div class="item">#三亚的阳光</div>
+    #     ...
+    #   </div>
+    # 流程:输入 #xxx → 小红书自己弹出下拉 → 用户按 Space 选中默认项 #xxx → 下拉立刻关闭。
+    # 所以等待下拉出现必须在 Space 之前:Space 一按,下拉就被销毁,放 Space 之后 wait_for
+    # 永远超时(实测每个标签间隔 8s 全 timeout,见 2026-07-21 18:31 日志)。
+    tag_dropdown_item = page.locator(
+        'div#creator-editor-topic-container div.item'
+    ).first
     for tag in tags:
         # 输入 # 标签
         await page.keyboard.type("#" + tag, delay=30)
-        # 等待一下让输入完成
-        await asyncio.sleep(0.5)
-        # 按空格触发标签识别
+        # 一直等到话题联想下拉数据出来再按 Space,网络慢时旧 sleep(0.5) 不够
+        try:
+            await tag_dropdown_item.wait_for(state="visible", timeout=8000)
+        except Exception as exc:
+            logger.info("[填写标签] 话题下拉未出现 (#%s): %s", tag, exc)
+        # 按空格触发标签识别(选中默认项 #xxx,下拉会立即销毁)
         await page.keyboard.press("Space")
-        # 等待标签被识别
-        await asyncio.sleep(1)
+        # 给 React 一点时间消化 Space,把 #xxx 渲染成话题芯片,避免下一标签粘连
+        await asyncio.sleep(0.3)
 
 
 async def _set_thumbnail(page, thumbnail_path: str) -> None:

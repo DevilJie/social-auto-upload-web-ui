@@ -1,6 +1,6 @@
 <template>
   <RemoteSearchSelect
-    v-model="modelValue"
+    :model-value="modelValue"
     :data="data"
     :fetcher="fetchPoi"
     :field-map="poiFieldMap"
@@ -8,6 +8,7 @@
     empty-behavior="block"
     placeholder="搜索拍摄地点"
     search-placeholder="输入地点关键词,按回车搜索"
+    @update:model-value="(val) => $emit('update:modelValue', val)"
     @change="$emit('change', $event)"
   />
 </template>

@@ -216,6 +216,152 @@ def list_locations():
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
+@channels_bp.route('/activities', methods=['GET'])
+def list_activities():
+    """搜索可参与的活动列表。
+
+    Query params:
+        account_id: 账号 id(用于取 cookie)
+        keyword:    活动关键字(必填,后端用 CloakBrowser 真实搜索)
+
+    Returns:
+        {"code": 200, "data": {"list": [{activity_id, name, creator_name}], "total": N}}
+    """
+    account_id = request.args.get('account_id')
+    keyword = (request.args.get('keyword') or '').strip()
+    logger.info(f"[活动搜索] 收到请求: account_id={account_id}, keyword={keyword!r}")
+
+    if not keyword:
+        return jsonify({"code": 400, "msg": "缺少 keyword 参数"}), 400
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            return jsonify({"code": 404, "msg": "没有可用的视频号账号"}), 404
+
+        result = run_async(_fetch_activities_via_browser(cookie_file, keyword))
+
+        if result.get("success"):
+            data = result.get("data", {})
+            logger.info(f"[活动搜索] 成功,共 {data.get('total', 0)} 个活动")
+            return jsonify({"code": 200, "data": data})
+        else:
+            logger.error(f"[活动搜索] 失败: {result.get('error')}")
+            return jsonify({"code": 500, "msg": result.get("error", "请求失败")}), 500
+    except Exception as e:
+        logger.error(f"[活动搜索] 异常: {e}", exc_info=True)
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+async def _fetch_activities_via_browser(cookie_file: str, keyword: str) -> dict:
+    """打开视频号发布页,点活动卡 → 输入关键字 → 解析下拉 DOM 拿活动列表。
+
+    DOM(用户实际抓取,weui 框架):
+      入口: div.post-activity-wrap > div.activity-display (显示「不参与活动」/已选活动的卡片,点击展开)
+      搜索框: input[placeholder="搜索活动"] (.weui-desktop-form__input)
+      下拉: div.common-option-list-wrap .option-item
+        - 第一项 .option-item.active 永远是「不参与活动」(遍历时跳过 index 0)
+        - 每项内 .activity-item-info 下两个 span:
+            .creator-name(发起人,可能为空,不参与活动那项就没有)
+            .name(活动名)
+
+    与 _fetch_locations_via_browser 的差异:
+      - 入口是 div.post-activity-wrap(位置是 div.position-display-wrap)
+      - 搜索框 placeholder 是「搜索活动」(位置是「搜索附近位置」)
+      - 选项里 .creator-name 是发起人,.name 是活动名(位置是 .name + .desc)
+      - activity_id 由后端生成(index+1 或 hash),视频号页面 DOM 里没看到 id 属性
+    """
+    cookie_path = _get_cookie_path(cookie_file)
+
+    # 无头模式:不弹浏览器窗口
+    browser = await create_browser(headless=True)
+    try:
+        context = await create_context(browser, storage_state=cookie_path)
+        try:
+            page = await context.new_page()
+
+            # 1. 打开视频号发布页
+            logger.info("[活动搜索] 打开视频号发布页...")
+            try:
+                await page.goto(_CHANNELS_UPLOAD_URL, timeout=30000)
+                await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                await asyncio.sleep(3)
+            except Exception as e:
+                logger.info(f"[活动搜索] 页面加载(非致命): {e}")
+
+            # 2. 等待活动卡 div.post-activity-wrap 出现并点击展开
+            logger.info("[活动搜索] 等待活动卡出现...")
+            activity_wrap = page.locator("div.post-activity-wrap").first
+            ready = False
+            for _ in range(60):  # 最多等 30s
+                if await activity_wrap.count() > 0:
+                    ready = True
+                    break
+                await asyncio.sleep(0.5)
+            if not ready:
+                return {"success": False, "error": "页面加载超时,未找到活动卡(div.post-activity-wrap)"}
+            logger.info("[活动搜索] 点击活动卡展开搜索面板...")
+            await activity_wrap.click()
+            await asyncio.sleep(1)
+
+            # 3. 在搜索框输入关键字
+            search_input = page.locator('input[placeholder="搜索活动"]').first
+            if await search_input.count() == 0:
+                return {"success": False, "error": "未找到活动搜索框(input[placeholder=搜索活动])"}
+            await search_input.click()
+            await clear_and_type(page, keyword, delay=50)
+            logger.info(f"[活动搜索] 已输入关键字: {keyword},等下拉刷新...")
+            await asyncio.sleep(2)
+
+            # 4. 等待下拉 div.common-option-list-wrap .option-item 出现
+            options = page.locator("div.common-option-list-wrap .option-item")
+            ready = False
+            for _ in range(20):  # 最多等 10s
+                if await options.count() > 1:  # 至少要有 1 个真实活动(index 0 是「不参与活动」)
+                    ready = True
+                    break
+                await asyncio.sleep(0.5)
+            if not ready:
+                return {"success": False, "error": "输入关键字后未出现活动下拉"}
+
+            # 5. 解析下拉项(跳过 index 0,那是「不参与活动」)
+            count = await options.count()
+            logger.info(f"[活动搜索] 下拉出现 {count} 项(含「不参与活动」),开始解析")
+            items = []
+            for i in range(1, count):  # 跳过 index 0
+                opt = options.nth(i)
+                name_el = opt.locator(".activity-item-info .name").first
+                creator_el = opt.locator(".activity-item-info .creator-name").first
+                if await name_el.count() == 0:
+                    continue
+                try:
+                    name = (await name_el.inner_text()).strip()
+                except Exception:
+                    continue
+                if not name:
+                    continue
+                creator_name = ""
+                try:
+                    if await creator_el.count() > 0:
+                        creator_name = (await creator_el.inner_text()).strip().rstrip("· ").strip()
+                except Exception:
+                    pass
+                # video号 DOM 里没看到 activity_id 属性,后端用 f"{name}|{creator_name}" 生成稳定 key
+                activity_id = f"{name}|{creator_name}"
+                items.append({
+                    "activity_id": activity_id,
+                    "name": name,
+                    "creator_name": creator_name,
+                })
+
+            logger.info(f"[活动搜索] 解析完成,共 {len(items)} 个活动")
+            return {"success": True, "data": {"list": items, "total": len(items)}}
+        finally:
+            await context.close()
+    finally:
+        await browser.close()
+
+
 async def _fetch_locations_via_browser(cookie_file: str, keyword: str) -> dict:
     """打开视频号发布页,点位置卡 → 输入关键字 → 解析下拉 DOM 拿位置列表。
 

@@ -1079,6 +1079,7 @@ const VISIBLE_COUNTS = {
   '百家号': 3,    // 6 项 stats:粉丝 + 播放量 + 搜索量 + 更多占位
   '腾讯视频': 3,  // 8 项 stats:粉丝 + 总点赞 + 总评论 + 更多占位
   '知乎': 3,      // 9 项 stats:粉丝 + 赞同 + 阅读 + 更多占位
+  'CSDN': 3,      // 4 项 stats:粉丝 + 总阅读 + 收藏 + 更多占位
 }
 const getVisibleCount = (account) => {
   return VISIBLE_COUNTS[account?.platform] ?? 4
@@ -1139,6 +1140,7 @@ const ICON_PATHS = {
   coin:   '<circle cx="12" cy="12" r="10"></circle><path d="M9.5 9a2.5 2.5 0 1 1 5 0c0 1.5-2.5 2-2.5 3.5"></path><line x1="12" y1="17" x2="12" y2="17.01"></line>',
   chat:   '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>',
   share:  '<circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>',
+  edit:   '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>',
 }
 
 // 缓存 h() 组件(避免每次 render 重新创建)
@@ -1689,6 +1691,13 @@ const submitAccountForm = () => {
           background: rgba($accent-cyan, 0.12);
           border-color: rgba($accent-cyan, 0.3);
           .stat-icon-wrap { background: $accent-cyan; color: #fff; }
+        }
+
+        // 原创/编辑图标
+        &.stat-block-edit {
+          background: rgba($accent-amber, 0.15);
+          border-color: rgba($accent-amber, 0.35);
+          .stat-icon-wrap { background: $accent-amber; color: #fff; }
         }
 
         // "更多"块:中性灰(不抢眼)+ 作为悬浮浮窗的定位锚点

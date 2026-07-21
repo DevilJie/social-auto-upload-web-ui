@@ -128,6 +128,9 @@ class CsdnPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_csdn_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(粉丝/总阅读/收藏/累计收益),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -179,7 +182,18 @@ class CsdnPlatform(BasePlatform):
     # sync_profile
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """同步 CSDN 昵称、头像、运营数据(stats)。
+
+        CSDN 创作中心首页 (.home-exp-user-card) 同时包含头像昵称和 4 项 stats:
+          - .home-exp-user-card__head : 头像 + 昵称
+          - .home-exp-user-card__meta : 粉丝数(首页小卡片)
+          - .home-exp-user-card__stats : 4 个 .stat-item,分别是
+            总阅读量 / 累计收益 / 粉丝数(去重) / 收藏数
+
+        共 4 项 stats: 粉丝数 / 总阅读量 / 收藏数 / 累计收益
+        卡片显示粉丝/总阅读/收藏 3 项 + 更多占位,累计收益进悬浮窗。
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
         browser = await self.create_browser(headless=True)
@@ -190,15 +204,167 @@ class CsdnPlatform(BasePlatform):
                 await page.goto(
                     CSDN_HOME_URL, wait_until="domcontentloaded", timeout=30000
                 )
-                return await scrape_csdn_profile(page)
+                # 等用户卡片渲染(短超时即可)
+                try:
+                    await page.wait_for_selector(
+                        ".home-exp-user-card",
+                        timeout=8000,
+                    )
+                except Exception:
+                    logger.info("[csdn stats] 等待 .home-exp-user-card 超时")
+
+                # 抓取 name/avatar/stats(都在同一个 .home-exp-user-card 里)
+                result = await page.evaluate(
+                    '''() => {
+                        const out = {name: '', avatar: '', stats: []};
+                        const card = document.querySelector('.home-exp-user-card');
+                        if (!card) return out;
+
+                        // 头像:.home-exp-user-card__head img
+                        const av = card.querySelector('.home-exp-user-card__head img');
+                        if (av) out.avatar = av.getAttribute('src') || '';
+
+                        // 昵称:.home-exp-user-card__head .name
+                        const nm = card.querySelector('.home-exp-user-card__head .name');
+                        if (nm) out.name = (nm.textContent || '').trim();
+
+                        // 抓 .home-exp-user-card__meta 里的 3 项运营(原创/粉丝/博客积分)
+                        const meta = card.querySelector('.home-exp-user-card__meta');
+                        if (meta) {
+                            const origin = meta.querySelector('.origin');
+                            if (origin) out.stats.push({name: '原创', num: (origin.textContent || '').trim()});
+                            const fans = meta.querySelector('.fans');
+                            if (fans) out.stats.push({name: '粉丝数', num: (fans.textContent || '').trim()});
+                            const point = meta.querySelector('.point');
+                            if (point) out.stats.push({name: '博客积分', num: (point.textContent || '').trim()});
+                        }
+
+                        // 抓 .home-exp-user-card__stats 里的 4 个 stat-item,跳过与 meta 重复的"粉丝数"
+                        card.querySelectorAll('.home-exp-user-card__stats .stat-item').forEach(item => {
+                            const lbl = item.querySelector('.stat-item__label');
+                            const num = item.querySelector('.stat-item__num');
+                            if (!lbl || !num) return;
+                            const label = (lbl.textContent || '').trim();
+                            const value = (num.textContent || '').trim();
+                            // 跳过重复的"粉丝数"(已在 meta 抓过),保留其他
+                            if (label && label !== '粉丝数') {
+                                out.stats.push({name: label, num: value});
+                            }
+                        });
+
+                        return out;
+                    }'''
+                )
+                name = (result or {}).get('name', '')
+                avatar = (result or {}).get('avatar', '')
+                stats_raw = (result or {}).get('stats', [])
+
+                # 组装 stats JSON
+                # label_map: 中文 label -> (ICON, SORT, 标准化 NAME)
+                # SORT 1-3 进卡片;4-6 进悬浮窗
+                label_map = {
+                    "原创":       ("edit",   1, "原创"),
+                    "粉丝数":     ("user",   2, "粉丝数"),
+                    "博客积分":   ("star",   3, "博客积分"),
+                    "总阅读量":   ("play",   4, "总阅读量"),
+                    "收藏数":     ("star",   5, "收藏数"),
+                    "累计收益":   ("coin",   6, "累计收益"),
+                }
+                # 累计收益 value 是 "¥ 0" 格式,需要去掉 ¥ 符号
+                stats = []
+                for item in stats_raw:
+                    label = item.get('name', '')
+                    num_str = str(item.get('num', '0'))
+                    if label in label_map:
+                        icon, sort_no, std_name = label_map[label]
+                        # 去掉 ¥ 符号和千分位逗号
+                        cleaned = num_str.replace('¥', '').replace(',', '').replace(' ', '').strip()
+                        try:
+                            count = int(float(cleaned)) if '.' in cleaned else int(cleaned) if cleaned else 0
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+
+                if not name and not avatar and not stats:
+                    logger.info(f"[csdn] sync_profile 抓取为空,url={page.url}")
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             except Exception as e:
-                logger.info(f"[同步资料] 失败: {e}")
-                return "", ""
+                logger.info(f"[csdn] 同步资料失败: {e}")
+                return {"name": "", "avatar": "", "stats": []}
             finally:
                 await page.close()
                 await context.close()
         finally:
             await browser.close()
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用同一份 evaluate 抓取逻辑,
+        但 login 路径下旧 scrape_csdn_profile 已经写过 name/avatar,
+        这里只抓 stats 即可。
+        """
+        try:
+            await page.wait_for_selector(
+                ".home-exp-user-card",
+                timeout=8000,
+            )
+        except Exception:
+            pass
+
+        result = await page.evaluate(
+            '''() => {
+                const out = [];
+                const card = document.querySelector('.home-exp-user-card');
+                if (!card) return out;
+
+                // 抓 meta 区块的 3 项(原创/粉丝/博客积分)
+                const meta = card.querySelector('.home-exp-user-card__meta');
+                if (meta) {
+                    const origin = meta.querySelector('.origin');
+                    if (origin) out.push({name: '原创', num: (origin.textContent || '').trim()});
+                    const fans = meta.querySelector('.fans');
+                    if (fans) out.push({name: '粉丝数', num: (fans.textContent || '').trim()});
+                    const point = meta.querySelector('.point');
+                    if (point) out.push({name: '博客积分', num: (point.textContent || '').trim()});
+                }
+
+                // 抓 stats 区块的 4 项,跳过与 meta 重复的"粉丝数"
+                card.querySelectorAll('.home-exp-user-card__stats .stat-item').forEach(item => {
+                    const lbl = item.querySelector('.stat-item__label');
+                    const num = item.querySelector('.stat-item__num');
+                    if (!lbl || !num) return;
+                    const label = (lbl.textContent || '').trim();
+                    if (label && label !== '粉丝数') {
+                        out.push({name: label, num: (num.textContent || '').trim()});
+                    }
+                });
+                return out;
+            }'''
+        )
+
+        label_map = {
+            "原创":       ("edit",   1, "原创"),
+            "粉丝数":     ("user",   2, "粉丝数"),
+            "博客积分":   ("star",   3, "博客积分"),
+            "总阅读量":   ("play",   4, "总阅读量"),
+            "收藏数":     ("star",   5, "收藏数"),
+            "累计收益":   ("coin",   6, "累计收益"),
+        }
+        stats = []
+        for item in (result or []):
+            label = item.get('name', '')
+            num_str = str(item.get('num', '0'))
+            if label in label_map:
+                icon, sort_no, std_name = label_map[label]
+                cleaned = num_str.replace('¥', '').replace(',', '').replace(' ', '').strip()
+                try:
+                    count = int(float(cleaned)) if '.' in cleaned else int(cleaned) if cleaned else 0
+                except (ValueError, TypeError):
+                    count = 0
+                stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+        return stats
 
     # ------------------------------------------------------------------
     # open_creator_center

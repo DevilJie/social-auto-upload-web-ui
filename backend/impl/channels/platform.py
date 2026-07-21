@@ -283,9 +283,22 @@ async def _apply_activity(page, activity_name: str = "", activity_id: str = "") 
         return
     await search_input.click()
     await clear_and_type(page, activity_name, delay=50)
-    await asyncio.sleep(2)  # 等下拉刷新
 
-    # 3. 在下拉项里找精确匹配(index 0 是「不参与活动」,跳过)
+    # 3. 等待下拉真实数据渲染(参考小红书 _fill_tags 修法):
+    #    clear_and_type 后 sleep 固定 2s 不够,网络慢时下拉还没出来就遍历会
+    #    命中 0 项 → 误判「未找到」。改成 wait_for 等到下拉里至少 1 个 .option-item
+    #    (除 index 0「不参与活动」外)真正渲染可见再开始匹配。
+    real_option = page.locator(
+        'div.common-option-list-wrap .option-item .activity-item-info .name'
+    ).first
+    try:
+        await real_option.wait_for(state="visible", timeout=8000)
+    except Exception as exc:
+        logger.warning("[设置活动] 等待下拉数据超时: %s", exc)
+        # 不直接 return —— 继续走下面的匹配,可能是真的 0 结果
+    await asyncio.sleep(0.3)  # 给最后一项的 DOM 一点点缓冲
+
+    # 4. 在下拉项里找精确匹配(index 0 是「不参与活动」,跳过)
     #    优先按 (name, creator) 复合匹配,无 creator 时退化为按 name 匹配
     options = page.locator("div.common-option-list-wrap .option-item")
     count = await options.count()

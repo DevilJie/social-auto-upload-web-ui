@@ -116,7 +116,7 @@
           <!-- 存量数据无运营数据:显示占位提示,引导用户点同步 -->
           <div v-if="!sortStats(account?.stats).length" class="stat-block-empty">
             <el-icon class="empty-icon"><Clock /></el-icon>
-            <span class="empty-text">暂无运营数据，点上方同步按钮获取</span>
+            <span class="empty-text">暂无运营数据，点下方同步按钮获取</span>
           </div>
 
           <template v-for="(item, idx) in getVisibleStats(account)" :key="`${account.id}-${item.NAME}-${idx}`">

@@ -237,8 +237,8 @@ async def _apply_location(page, location_name: str = "") -> None:
     logger.warning("[设置位置] 未找到位置: %s", location_name)
 
 
-async def _apply_activity(page, activity_name: str = "") -> None:
-    """选择指定活动(按名称精确匹配);空字符串时跳过,保持默认「不参与活动」。
+async def _apply_activity(page, activity_name: str = "", activity_id: str = "") -> None:
+    """选择指定活动(按 name + creator 复合匹配);空字符串时跳过,保持默认「不参与活动」。
 
     DOM(用户实际抓取,weui 框架):
       入口: div.post-activity-wrap > div.activity-display (显示「不参与活动」/已选活动,点击展开)
@@ -253,9 +253,20 @@ async def _apply_activity(page, activity_name: str = "") -> None:
     策略(与 _apply_location 一致):
       - 空值 → 直接 return(视频号默认就是「不参与活动」)
       - 找不到精确匹配 → warning + return(保持当前状态)
+
+    复合匹配: activity_id 格式为 f\"{name}|{creator_name}\"(前端 RemoteSearchSelect
+    传的完整对象),用来区分同名不同发起人的活动。仅传 name 时退化为按 name 匹配。
     """
     if not activity_name:
         return  # 空值跳过,默认就是「不参与活动」
+
+    # 解析 activity_id 得到 creator_name(若有)
+    target_creator = ""
+    if activity_id and "|" in activity_id:
+        parts = activity_id.split("|", 1)
+        if len(parts) == 2:
+            # parts[0] = name(应等于 activity_name),parts[1] = creator_name
+            target_creator = parts[1].strip()
 
     # 1. 点击活动卡片展开搜索面板
     activity_wrap = page.locator("div.post-activity-wrap").first
@@ -275,21 +286,49 @@ async def _apply_activity(page, activity_name: str = "") -> None:
     await asyncio.sleep(2)  # 等下拉刷新
 
     # 3. 在下拉项里找精确匹配(index 0 是「不参与活动」,跳过)
+    #    优先按 (name, creator) 复合匹配,无 creator 时退化为按 name 匹配
     options = page.locator("div.common-option-list-wrap .option-item")
     count = await options.count()
+    name_only_fallback = None  # 记录第一个 name 匹配的选项,复合匹配失败时兜底
     for i in range(1, count):  # 跳过 index 0
         opt = options.nth(i)
-        name_el = opt.locator(".activity-item-info .name").first
+        info_el = opt.locator(".activity-item-info").first
+        if await info_el.count() == 0:
+            continue
+        name_el = info_el.locator(".name").first
+        creator_el = info_el.locator(".creator-name").first
         if await name_el.count() == 0:
             continue
         try:
             name = (await name_el.inner_text()).strip()
         except Exception:
             continue
-        if name == activity_name:
+        if name != activity_name:
+            continue
+        # name 匹配上了
+        if target_creator:
+            try:
+                creator_text = (await creator_el.inner_text()).strip().rstrip("· ").strip() if await creator_el.count() > 0 else ""
+            except Exception:
+                creator_text = ""
+            if creator_text == target_creator:
+                await opt.click()
+                logger.info("[设置活动] 已选择活动: %s (creator=%s)", activity_name, target_creator)
+                return
+            # name 匹配但 creator 不匹配 → 记录第一个用于后续兜底
+            if name_only_fallback is None:
+                name_only_fallback = (i, opt)
+        else:
+            # 没有 target_creator,直接按 name 匹配
             await opt.click()
-            logger.info("[设置活动] 已选择活动: %s", activity_name)
+            logger.info("[设置活动] 已选择活动: %s (按 name 匹配)", activity_name)
             return
+
+    # 复合匹配失败 → 兜底用 name 唯一匹配的那一个
+    if name_only_fallback is not None:
+        await name_only_fallback[1].click()
+        logger.warning("[设置活动] 复合匹配未命中,按 name 兜底: %s (期望 creator=%s)", activity_name, target_creator)
+        return
     logger.warning("[设置活动] 未找到活动: %s", activity_name)
 
 
@@ -1450,6 +1489,8 @@ class ChannelsPlatform(BasePlatform):
         channels_location_name = kwargs.get("channels_location_name", "")
         # 视频号活动(平台级,空字符串=不参与活动)
         channels_activity_name = kwargs.get("channels_activity_name", "")
+        # 视频号活动复合 id: 格式 f"{name}|{creator_name}",用于同名不同发起人的精确匹配
+        channels_activity_id = kwargs.get("channels_activity_id", "")
         # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
         channels_mark_tag = kwargs.get("channels_mark_tag", "无需标注")
         # 自行拍摄联动:拍摄时间(YYYY-MM-DD 字符串)+ 拍摄地点([国家, 省, 市] 文本数组)
@@ -1542,7 +1583,7 @@ class ChannelsPlatform(BasePlatform):
                             await _fill_title_and_tags(page, title, tags)
                             await _apply_collection(page, channels_collection_name)
                             await _apply_location(page, channels_location_name)
-                            await _apply_activity(page, channels_activity_name)
+                            await _apply_activity(page, channels_activity_name, channels_activity_id)
                             await _apply_original_statement(page, category)
                             await _apply_mark_tag(
                                 page,
@@ -1576,7 +1617,7 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("[发布调试] 竖版封面(portrait) : %s", thumbnail_portrait_path or "(无)")
                             logger.info("[发布调试] 合集(collection)  : %s", channels_collection_name or "(无)")
                             logger.info("[发布调试] 位置(location)     : %s", channels_location_name or "(无)")
-                            logger.info("[发布调试] 活动(activity)     : %s", channels_activity_name or "(无)")
+                            logger.info("[发布调试] 活动(activity)     : %s (id=%s)", channels_activity_name or "(无)", channels_activity_id or "(无)")
                             logger.info("[发布调试] 创作声明(category): %s", category or "(无)")
                             logger.info("[发布调试] 视频标注(mark_tag) : %s", channels_mark_tag or "(无)")
                             logger.info("[发布调试] 拍摄时间(shoot_dt): %s", channels_shoot_date or "(无)")

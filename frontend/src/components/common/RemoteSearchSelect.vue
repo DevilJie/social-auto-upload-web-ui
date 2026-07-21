@@ -400,18 +400,25 @@ watch(() => props.modelValue, (val) => {
     height: auto;
     min-height: 56px;
     padding: 0;
-    margin: 2px 8px;
+    // 加大上下间距:每项之间留出明显呼吸空间,避免视觉粘连
+    margin: 5px 10px;
     border-radius: 10px;
-    background: transparent !important;
-    transition: background 0.15s, transform 0.15s;
+    // 卡片式底色:比面板略亮一点点 + 1px 边框,每项独立成卡
+    background: rgba($overlay-rgb, 0.03) !important;
+    border: 1px solid rgba($overlay-rgb, 0.06);
+    transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 
     &:hover,
     &.hover {
-      background: rgba($overlay-rgb, 0.05) !important;
+      background: rgba($overlay-rgb, 0.08) !important;
+      border-color: rgba($overlay-rgb, 0.12);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
       transform: translateX(2px);
     }
     &.selected {
-      background: rgba($brand-start, 0.08) !important;
+      // 选中态:品牌色淡底 + 品牌色边框,与左侧渐变条呼应
+      background: rgba($brand-start, 0.10) !important;
+      border-color: rgba($brand-start, 0.35);
       font-weight: normal;
     }
   }
@@ -421,7 +428,7 @@ watch(() => props.modelValue, (val) => {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     min-height: 56px;
 
     // 选中态左侧紫蓝渐变条

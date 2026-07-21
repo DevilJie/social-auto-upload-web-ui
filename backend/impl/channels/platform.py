@@ -91,8 +91,12 @@ async def _fill_title_and_tags(page, title: str, tags: list[str]) -> None:
     """
     await page.locator("div.input-editor").click()
     for tag in tags:
-        await page.keyboard.type("#" + tag)
+        await page.keyboard.type("#" + tag, delay=30)
         await page.keyboard.press("Space")
+        # 每个标签输入完后停 0.5s,让 React 完整消化上一个 onChange
+        # 避免下一个标签的 '#' 字符和上一个 setState 在异步上撞车,
+        # 出现「最后一个标签没空格」/ 字符丢失 / 标签粘连等问题
+        await asyncio.sleep(0.5)
     logger.info(f"[填写标题] added {len(tags)} hashtags to description editor")
 
 

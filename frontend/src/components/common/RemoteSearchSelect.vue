@@ -428,7 +428,7 @@ watch(() => props.modelValue, (val) => {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 7px 10px;
+    padding: 6px 10px;
     min-height: 40px;
 
     // 选中态左侧紫蓝渐变条
@@ -469,14 +469,15 @@ watch(() => props.modelValue, (val) => {
   .rss-option-label {
     font-size: 14px;
     font-weight: 500;
+    line-height: 1.2;          // 紧凑行高,避免默认 1.5 在 label 下方留太多空白
     color: $text-primary;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .rss-option-desc {
-    margin-top: 2px;
     font-size: 12px;
+    line-height: 1.2;          // 同上,label 与 desc 真正贴在一起
     color: $text-secondary;
     overflow: hidden;
     text-overflow: ellipsis;

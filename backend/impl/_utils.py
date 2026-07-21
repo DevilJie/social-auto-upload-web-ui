@@ -1134,15 +1134,17 @@ async def save_login_result(
     await context.storage_state(path=cookies_dir / cookie_filename)
 
     # 3. Write to database
+    # 注意:不再写入 fans/likes/follows 旧字段(已废弃),仅写 userName/avatar/stats。
+    # 旧的 fans/likes/follows 保留在表中以备历史数据,但新数据不再更新。
     with sqlite3.connect(db_path) as conn:
         if account_id:
             conn.execute(
                 '''
                 UPDATE user_info
-                SET userName = ?, status = 1, avatar = ?, fans = ?, likes = ?, follows = ?
+                SET userName = ?, status = 1, avatar = ?
                 WHERE id = ?
                 ''',
-                (user_name, avatar_url, fans, likes, follows, account_id),
+                (user_name, avatar_url, account_id),
             )
             conn.commit()
             logger.info(f"[login] account {account_id} updated (re-login)")
@@ -1150,10 +1152,10 @@ async def save_login_result(
             cursor = conn.cursor()
             cursor.execute(
                 '''
-                INSERT INTO user_info (type, filePath, userName, status, avatar, fans, likes, follows)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_info (type, filePath, userName, status, avatar)
+                VALUES (?, ?, ?, ?, ?)
                 ''',
-                (platform_id, cookie_filename, user_name, 1, avatar_url, fans, likes, follows),
+                (platform_id, cookie_filename, user_name, 1, avatar_url),
             )
             conn.commit()
             # 回填 account_id(新登录场景下原 account_id 为 None),供后续 stats 抓取使用

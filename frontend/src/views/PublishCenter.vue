@@ -865,9 +865,10 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 视频号位置(账号级,空=不显示位置)
     channelsLocationName: accountOv?.channelsLocationName ?? platformOv?.channelsLocationName ?? platformDefault?.channelsLocationName ?? '',
     channelsLocationData: accountOv?.channelsLocationData ?? platformOv?.channelsLocationData ?? platformDefault?.channelsLocationData ?? null,
-    // 视频号活动(平台级,空=不参与活动):不需要按账号区分,只跟随平台默认/平台覆写
-    channelsActivityName: platformOv?.channelsActivityName ?? platformDefault?.channelsActivityName ?? '',
-    channelsActivityData: platformOv?.channelsActivityData ?? platformDefault?.channelsActivityData ?? null,
+    // 视频号活动:虽然卡片按平台级显示,但 watch(form) 把值回写到 accountOverrides
+    // (与合集/位置同模式),所以 4 级合并才能取到草稿恢复后的值
+    channelsActivityName: accountOv?.channelsActivityName ?? platformOv?.channelsActivityName ?? platformDefault?.channelsActivityName ?? '',
+    channelsActivityData: accountOv?.channelsActivityData ?? platformOv?.channelsActivityData ?? platformDefault?.channelsActivityData ?? null,
     // 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面真正选中
     channelsMarkTag: accountOv?.channelsMarkTag ?? platformOv?.channelsMarkTag ?? platformDefault?.channelsMarkTag ?? '无需标注',
     channelsShootDate: accountOv?.channelsShootDate ?? platformOv?.channelsShootDate ?? platformDefault?.channelsShootDate ?? '',

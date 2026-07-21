@@ -476,6 +476,7 @@ watch(() => props.modelValue, (val) => {
     white-space: nowrap;
   }
   .rss-option-desc {
+    margin-top: 1px;          // 1px 间距,line-height: 1.2 下视觉上仍紧凑但能区分
     font-size: 12px;
     line-height: 1.2;          // 同上,label 与 desc 真正贴在一起
     color: $text-secondary;

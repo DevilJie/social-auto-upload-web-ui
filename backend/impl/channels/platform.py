@@ -276,13 +276,17 @@ async def _apply_activity(page, activity_name: str = "", activity_id: str = "") 
     await activity_wrap.click()
     await asyncio.sleep(1)
 
-    # 2. 在搜索框输入关键字(打字机效果,触发视频号自身的搜索请求)
+    # 2. 在搜索框一次性填入关键字(替代之前的逐字 keyboard.type):
+    #    原写法 delay=50 一字一字敲,网络好时整个输入要几百 ms 起步,而且
+    #    视频号下拉的 debounce 是从最后一个 keyup 开始算,逐字输入拉长了
+    #    "最后一次输入"到"下拉出结果"的等待窗口。一次性 fill() 走单个
+    #    input 事件,React 监听能正常拿到。
     search_input = page.locator('input[placeholder="搜索活动"]').first
     if await search_input.count() == 0:
         logger.warning("[设置活动] 未找到活动搜索框,跳过")
         return
     await search_input.click()
-    await clear_and_type(page, activity_name, delay=50)
+    await search_input.fill(activity_name)
 
     # 3. 等待下拉真实数据渲染(参考小红书 _fill_tags 修法):
     #    clear_and_type 后 sleep 固定 2s 不够,网络慢时下拉还没出来就遍历会

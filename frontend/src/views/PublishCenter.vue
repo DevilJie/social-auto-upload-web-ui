@@ -260,7 +260,25 @@
               </div>
             </template>
 
-            <!-- 视频号专属卡片(合集为账号级,选中账号后才显示) -->
+            <!-- 视频号平台级字段(选中平台就显示,无需先选账号) -->
+            <template v-if="selectedPlatform === 'channels'">
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">活动</div>
+                <RemoteSearchSelect
+                  v-model="form.channelsActivityName"
+                  :data="form.channelsActivityData"
+                  :fetcher="fetchChannelsActivities"
+                  :field-map="channelsActivityFieldMap"
+                  search-mode="backend"
+                  empty-behavior="block"
+                  placeholder="输入活动名称搜索"
+                  search-placeholder="输入活动关键词,按回车搜索"
+                  @change="handleChannelsActivityChange"
+                />
+              </div>
+            </template>
+
+            <!-- 视频号账号级字段(选中账号后才显示) -->
             <template v-if="selectedPlatform === 'channels' && selectedAccountId">
               <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
                 <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择合集</div>
@@ -288,20 +306,6 @@
                   placeholder="输入位置关键词搜索"
                   search-placeholder="输入位置关键词,按回车搜索"
                   @change="handleChannelsLocationChange"
-                />
-              </div>
-              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">活动</div>
-                <RemoteSearchSelect
-                  v-model="form.channelsActivityName"
-                  :data="form.channelsActivityData"
-                  :fetcher="fetchChannelsActivities"
-                  :field-map="channelsActivityFieldMap"
-                  search-mode="backend"
-                  empty-behavior="block"
-                  placeholder="输入活动名称搜索"
-                  search-placeholder="输入活动关键词,按回车搜索"
-                  @change="handleChannelsActivityChange"
                 />
               </div>
             </template>
@@ -861,9 +865,9 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 视频号位置(账号级,空=不显示位置)
     channelsLocationName: accountOv?.channelsLocationName ?? platformOv?.channelsLocationName ?? platformDefault?.channelsLocationName ?? '',
     channelsLocationData: accountOv?.channelsLocationData ?? platformOv?.channelsLocationData ?? platformDefault?.channelsLocationData ?? null,
-    // 视频号活动(账号级,空=不参与活动)
-    channelsActivityName: accountOv?.channelsActivityName ?? platformOv?.channelsActivityName ?? platformDefault?.channelsActivityName ?? '',
-    channelsActivityData: accountOv?.channelsActivityData ?? platformOv?.channelsActivityData ?? platformDefault?.channelsActivityData ?? null,
+    // 视频号活动(平台级,空=不参与活动):不需要按账号区分,只跟随平台默认/平台覆写
+    channelsActivityName: platformOv?.channelsActivityName ?? platformDefault?.channelsActivityName ?? '',
+    channelsActivityData: platformOv?.channelsActivityData ?? platformDefault?.channelsActivityData ?? null,
     // 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面真正选中
     channelsMarkTag: accountOv?.channelsMarkTag ?? platformOv?.channelsMarkTag ?? platformDefault?.channelsMarkTag ?? '无需标注',
     channelsShootDate: accountOv?.channelsShootDate ?? platformOv?.channelsShootDate ?? platformDefault?.channelsShootDate ?? '',
@@ -1356,7 +1360,11 @@ async function fetchChannelsLocations(keyword) {
 // DOM: option-item 内 .creator-name(发起人)+ .name(活动名) 两个 span,
 // label 拼成「creator-name + 空格 + name」,desc 单放 .name(后端已分好)
 async function fetchChannelsActivities(keyword) {
-  const resp = await channelsApi.searchActivities(selectedAccountId.value, keyword || '')
+  // 活动是平台级字段:未选账号时退回到该平台第一个账号的 cookie 去搜
+  const aid = selectedAccountId.value
+    || accountStore.accounts.find(a => a.platform === '视频号')?.id
+    || ''
+  const resp = await channelsApi.searchActivities(aid, keyword || '')
   return { list: resp.data?.list || [] }
 }
 const channelsActivityFieldMap = {

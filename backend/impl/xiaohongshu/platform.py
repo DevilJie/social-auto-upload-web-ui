@@ -144,6 +144,9 @@ class XiaohongshuPlatform(BasePlatform):
                     platform_name=self.platform_name,
                     status_queue=status_queue,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(关注数/粉丝数/获赞与收藏),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -221,6 +224,22 @@ class XiaohongshuPlatform(BasePlatform):
                 await context.close()
         finally:
             await browser.close()
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_xhs_stats 抓取逻辑,
+        保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
+        """
+        try:
+            try:
+                await page.goto(_XHS_CREATOR_URL, wait_until="networkidle", timeout=30000)
+            except Exception:
+                pass
+            return await _scrape_xhs_stats(page)
+        except Exception as exc:
+            logger.info(f"[xhs login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center()

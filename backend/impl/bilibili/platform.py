@@ -208,6 +208,10 @@ class BilibiliPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_bilibili_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(粉丝/点赞/收藏/投币/...),
+                    # 避免登录后还需用户再点"同步"才能看到运营数据。
+                    # 与 sync_profile 内部抓取逻辑共用同一个 _scrape_bilibili_stats 方法。
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -260,19 +264,17 @@ class BilibiliPlatform(BasePlatform):
     async def sync_profile(self, cookie_file: str) -> dict:
         """Sync profile info (name, avatar, stats) from Bilibili creator centre.
 
-        抓取流程(有头模式,便于处理登录态异常):
+        抓取流程(无头模式):
         1. 访问 https://account.bilibili.com/account/home 抓 name/avatar
         2. 跳转到 https://member.bilibili.com/platform/home 抓 8 项 stats
            (播放量/评论/弹幕/点赞/分享/收藏/投币/粉丝总数)
 
-        共 8 项运营数据。前端会按 SORT 排序后展示前 4 项,剩余进入悬浮窗。
-
-        说明:B 站创作中心对自动化检测较严,headless 模式容易触发风控;
-        改为 headful 后,登录态异常时也能肉眼看到页面状态。
+        共 8 项运营数据。前端会按 SORT 排序后展示前 3 项(粉丝/点赞/收藏),
+        其余进入"更多"悬浮窗展示全部 8 项。
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
-        browser = await self.create_browser(headless=False)
+        browser = await self.create_browser(headless=True)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
@@ -313,6 +315,23 @@ class BilibiliPlatform(BasePlatform):
                 await browser.close()
             except Exception:
                 pass
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用同一个 _scrape_bilibili_stats 抓取逻辑,
+        保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
+        """
+        try:
+            await page.goto(
+                "https://member.bilibili.com/platform/home",
+                wait_until="networkidle",
+                timeout=30000,
+            )
+            return await self._scrape_bilibili_stats(page)
+        except Exception as exc:
+            logger.info(f"[bilibili login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
 
     async def _scrape_bilibili_stats(self, page) -> list:

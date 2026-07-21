@@ -128,10 +128,12 @@
           </template>
 
           <!-- 超出卡片显示位数的(超过 visible count),用"更多"占位 + 原生 CSS hover 浮窗;
-             浮窗在卡片 DOM 内,完全自控,不受全局 popper 样式影响 -->
+             浮窗在卡片 DOM 内,完全自控,不受全局 popper 样式影响。
+             浮窗位置由 JS 在 mouseenter 时计算,避免最右侧卡片溢出视口触发横向滚动条 -->
           <div
             v-if="sortStats(account?.stats).length > getVisibleCount(account)"
             class="stat-block stat-block-more stats-more-wrap"
+            @mouseenter="handleStatsHover"
           >
             <div class="stat-icon-wrap">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1070,11 +1072,13 @@ const sortStats = (stats) => {
 }
 
 // 卡片显示的 stats:按 SORT 排序后取前 N 项(N 由平台决定)
-// 大多数平台 stats 总数 ≤ 4,正常展示;B 站有 8 项但卡片只展示粉丝/点赞/收藏
-// 3 项,加上"更多"占位共占满 4 格
-// 注意 key 用 platform name(中文,如 'B站'),与 store 解包后的 account.platform 一致
+// 大多数平台 stats 总数 ≤ 4,正常展示;超过 4 项的平台只展示前 3 项(剩余进悬浮窗)
+// 注意 key 用 platform name(中文),与 store 解包后的 account.platform 一致
 const VISIBLE_COUNTS = {
-  'B站': 3,  // 粉丝 + 点赞 + 收藏 + 更多占位
+  'B站': 3,       // 8 项 stats:粉丝 + 点赞 + 收藏 + 更多占位
+  '百家号': 3,    // 6 项 stats:粉丝 + 播放量 + 搜索量 + 更多占位
+  '腾讯视频': 3,  // 8 项 stats:粉丝 + 总点赞 + 总评论 + 更多占位
+  '知乎': 3,      // 9 项 stats:粉丝 + 赞同 + 阅读 + 更多占位
 }
 const getVisibleCount = (account) => {
   return VISIBLE_COUNTS[account?.platform] ?? 4
@@ -1088,6 +1092,39 @@ const getVisibleStats = (account) => {
 // 鼠标悬停时能看到完整运营数据
 const getExtraStats = (account) => {
   return sortStats(account?.stats)
+}
+
+// "更多"块 hover 时,动态调整浮窗水平位置,避免最右侧卡片溢出视口触发横向滚动条
+// 浮窗本身用 left:50% + transform:translateX(-50%) 居中,JS 在 hover 时根据
+// 浮窗实际位置算出溢出量,通过 --stats-popover-offset CSS 变量微调 translateX
+const handleStatsHover = (event) => {
+  const trigger = event.currentTarget
+  if (!trigger) return
+  const popover = trigger.querySelector('.stats-more-popover')
+  if (!popover) return
+
+  // 触发块的视口位置
+  const triggerRect = trigger.getBoundingClientRect()
+  // 浮窗的预期尺寸(先用临时显示拿真实尺寸,或者用默认 min-width 220)
+  const popoverWidth = popover.offsetWidth || 220
+  // 浮窗居中时左边缘 = 触发块中心 - 浮窗宽度/2
+  const centeredLeft = triggerRect.left + triggerRect.width / 2 - popoverWidth / 2
+  // 浮窗居中时右边缘
+  const centeredRight = centeredLeft + popoverWidth
+  // 视口宽度
+  const vw = window.innerWidth
+  // 安全边距(避免贴边)
+  const margin = 8
+
+  let offsetPx = 0
+  if (centeredRight > vw - margin) {
+    // 右边溢出 → 往左推
+    offsetPx = centeredRight - (vw - margin)
+  } else if (centeredLeft < margin) {
+    // 左边溢出 → 往右推
+    offsetPx = -(margin - centeredLeft)
+  }
+  trigger.style.setProperty('--stats-popover-offset', `${-offsetPx}px`)
 }
 
 // ICON 字符串 -> 渲染组件(SVG),通过 h() 创建组件实例(避免每个 ICON 写一个 .vue 文件)
@@ -1675,14 +1712,15 @@ const submitAccountForm = () => {
             // 默认隐藏
             visibility: hidden;
             opacity: 0;
-            transform: translateY(4px);
             transition: opacity 150ms ease, transform 150ms ease, visibility 150ms;
 
             // 浮窗样式:品牌紫渐变背景,白色文字,跟卡片整体调性一致
             position: absolute;
             bottom: calc(100% + 8px);
             left: 50%;
-            transform: translateX(-50%) translateY(4px);
+            // 水平方向:默认居中(translateX(-50%)),JS 在 hover 时根据视口边界
+            // 设置 --stats-popover-offset 变量微调,避免最右侧卡片溢出
+            transform: translateX(calc(-50% + var(--stats-popover-offset, 0px))) translateY(4px);
             z-index: 100;
 
             min-width: 220px;
@@ -1704,7 +1742,7 @@ const submitAccountForm = () => {
           &:hover .stats-more-popover {
             visibility: visible;
             opacity: 1;
-            transform: translateX(-50%) translateY(0);
+            transform: translateX(calc(-50% + var(--stats-popover-offset, 0px))) translateY(0);
             pointer-events: auto;
           }
 

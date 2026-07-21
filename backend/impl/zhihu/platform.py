@@ -108,6 +108,9 @@ class ZhihuPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_zhihu_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(9 项运营数据),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -159,26 +162,214 @@ class ZhihuPlatform(BasePlatform):
     # sync_profile
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """同步知乎昵称、头像、运营数据(stats)。
+
+        重要:必须先抓 name/avatar,再抓 stats。
+        scrape_zhihu_profile 依赖页面顶部 AppHeader 导航栏(点击头像→跳主页),
+        如果先访问创作中心页面再回来,该页面可能没有 AppHeader,scraper 会失败。
+        共 9 项 stats:关注者/赞同/喜欢/评论/收藏/分享/转发/阅读/播放
+        卡片显示粉丝/赞同/阅读 3 项 + 更多占位,其余 6 项进悬浮窗。
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
-        browser = await self.create_browser(headless=True)
+        browser = await self.create_browser(headless=False)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
-                await page.goto(
-                    ZHIHU_LOGIN_URL, wait_until="domcontentloaded", timeout=30000
-                )
-                return await scrape_zhihu_profile(page)
+                # 1. 先抓 name/avatar(使用原有 _utils.scrape_zhihu_profile,不改)
+                try:
+                    await page.goto(
+                        ZHIHU_LOGIN_URL, wait_until="domcontentloaded", timeout=30000
+                    )
+                    name, avatar = await scrape_zhihu_profile(page)
+                except Exception as exc:
+                    logger.info(f"[zhihu] 抓 name/avatar 失败: {exc}")
+                    name, avatar = "", ""
+
+                # 2. 后抓 stats(跳转到创作中心两个页面)
+                try:
+                    stats = await self._scrape_zhihu_stats(page)
+                except Exception as exc:
+                    logger.info(f"[zhihu] 抓 stats 失败(不影响 name/avatar): {exc}")
+                    stats = [] 
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             except Exception as e:
                 logger.info(f"[同步资料] 失败: {e}")
-                return "", ""
+                return {"name": "", "avatar": "", "stats": []}
             finally:
                 await page.close()
                 await context.close()
         finally:
             await browser.close()
+
+    async def _scrape_zhihu_stats(self, page) -> list:
+        """抓取知乎创作中心的 9 项运营数据,来自两个页面。
+
+        页面 1: https://www.zhihu.com/creator/followers (数据总览)
+            关注者总数 / 昨日关注者变化 / 活跃关注者 / 活跃关注者占比
+
+        页面 2: https://www.zhihu.com/creator/analytics/work/all (作品分析)
+            需先点击"累计"切换 tab,然后抓:
+            流量: 阅读总量 / 播放总量
+            互动: 赞同总量 / 喜欢总量 / 评论总量 / 收藏总量 / 分享总量 / 转发总数
+
+        Returns:
+            list[dict]: 按 SORT 排序的运营数据列表
+        """
+        stats = []
+        # label_map: 知乎原始 DOM label text -> (ICON, SORT, NAME)
+        # NAME 字段去掉"总数""总量"等冗余后缀,保留核心语义词
+        # (关注者/赞同/阅读/喜欢/评论/收藏/分享/转发/播放)
+        # SORT 1-3 卡片显示;4-9 进悬浮窗
+        label_map = {
+            "关注者总数":       ("user",  1, "关注者"),
+            "赞同总量":         ("like",  2, "赞同"),
+            "阅读总量":         ("play",  3, "阅读"),
+            "喜欢总量":         ("star",  4, "喜欢"),
+            "评论总量":         ("chat",  5, "评论"),
+            "收藏总量":         ("star",  6, "收藏"),
+            "分享总量":         ("share", 7, "分享"),
+            "转发总数":         ("share", 8, "转发"),
+            "播放总量":         ("play",  9, "播放"),
+            # 占比/昨日变化类统一跳过(非数值或非稳定指标)
+        }
+
+        def _parse_int(text: str) -> int:
+            try:
+                # 处理 "1,234" / "0.0%" / "0"
+                s = str(text or '0').replace(',', '').strip()
+                if s.endswith('%'):
+                    s = s[:-1]
+                return int(float(s)) if '.' in s else int(s)
+            except (ValueError, TypeError):
+                return 0
+
+        # === 阶段 1: 数据总览 ===
+        try:
+            await page.goto(
+                "https://www.zhihu.com/creator/followers",
+                wait_until="domcontentloaded",
+                timeout=20000,
+            )
+            # 等统计行渲染(缩短超时,数据大多数时候已就绪)
+            try:
+                await page.wait_for_selector("[class*='css-1fu8ne5'], [class*='css-js8qof']", timeout=6000)
+            except Exception:
+                logger.info("[zhihu stats] 阶段1 等待数据超时")
+
+            # 用 evaluate 抓标签 + 数值对(忽略占比/昨日变化,只保留关注者总数)
+            raw = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    // 数据总览 .css-js8qof 是一行行,每行有 .css-zkfaav (label) + .css-1woiwqg (value)
+                    document.querySelectorAll('[class*="css-js8qof"]').forEach(row => {
+                        const labelEl = row.querySelector('[class*="css-15box0"]');
+                        const valueEl = row.querySelector('[class*="css-1woiwqg"]');
+                        if (!labelEl || !valueEl) return;
+                        // 去除各种空白和零宽字符 (知乎 DOM 混入 U+200B 等)
+                        // 跟阶段 2 一致的清理方式,确保 label_map 能匹配
+                        const cleanText = (s) => (s || '').replace(/[\\s\u200B-\u200D\uFEFF]+/g, '');
+                        const label = cleanText(labelEl.textContent);
+                        const value = cleanText(valueEl.textContent);
+                        // 跳过占比类(% 结尾)和昨日变化(数字后面跟"增加 计算中")
+                        if (label && value && !value.endsWith('%')) {
+                            out.push({label, value});
+                        }
+                    });
+                    return out;
+                }'''
+            )
+            for item in raw:
+                label = item.get('label', '')
+                if label in label_map:
+                    icon, sort_no, name = label_map[label]
+                    count = _parse_int(item.get('value', '0'))
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+                else:
+                    logger.info(f"[zhihu stats] 阶段1 未匹配 label: {label!r}")
+        except Exception as exc:
+            logger.info(f"[zhihu stats] 阶段1(数据总览)抓取失败: {exc}")
+
+        # === 阶段 2: 作品分析 - 先点累计,再抓流量+互动 ===
+        try:
+            await page.goto(
+                "https://www.zhihu.com/creator/analytics/work/all",
+                wait_until="domcontentloaded",
+                timeout=20000,
+            )
+
+            # 点"累计"按钮(短超时,找不到则直接抓当前页)
+            accumulated_btn = page.locator('button:has-text("累计")').first
+            if await accumulated_btn.count() > 0:
+                try:
+                    await accumulated_btn.click(timeout=3000)
+                except Exception as exc:
+                    logger.info(f"[zhihu stats] 累计按钮点击失败: {exc}")
+
+            # 等 .StatisticCard 渲染(短超时即可,默认数据可能已就绪)
+            try:
+                await page.wait_for_selector(".StatisticCard", timeout=8000)
+            except Exception:
+                logger.info("[zhihu stats] 阶段2 等待 .StatisticCard 超时")
+            # 短 sleep 等 tab 切换后数据 fetch(0.6s 一般够)
+            await asyncio.sleep(0.6)
+
+            raw = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    document.querySelectorAll('.StatisticCard').forEach(card => {
+                        const labelEl = card.querySelector('[class*="css-1fu8ne5"]');
+                        const valueEl = card.querySelector('[class*="css-anmzua"]');
+                        if (!labelEl || !valueEl) return;
+                        // 去除零宽空格等不可见字符(知乎 DOM 混入 U+200B 等)
+                        const cleanText = (s) => (s || '').replace(/[\\s\u200B-\u200D\uFEFF]+/g, '');
+                        const label = cleanText(labelEl.textContent);
+                        const value = cleanText(valueEl.textContent);
+                        if (label && value) out.push({label, value});
+                    });
+                    return out;
+                }'''
+            )
+            for item in raw:
+                label = item.get('label', '')
+                if label in label_map:
+                    icon, sort_no, name = label_map[label]
+                    count = _parse_int(item.get('value', '0'))
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+                else:
+                    logger.info(f"[zhihu stats] 阶段2 未匹配 label: {label!r}")
+
+            if not raw:
+                logger.info(f"[zhihu stats] 阶段2 raw 数据为空,url={page.url}")
+        except Exception as exc:
+            logger.info(f"[zhihu stats] 阶段2(作品分析)抓取失败: {exc}")
+
+        # 去重(同一 label 多次抓取时保留第一次)
+        seen = set()
+        unique = []
+        for s in stats:
+            key = s['NAME']
+            if key not in seen:
+                seen.add(key)
+                unique.append(s)
+        stats = unique
+
+        stats.sort(key=lambda x: x.get("SORT", 999))
+        return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_zhihu_stats 抓取逻辑。
+        """
+        try:
+            return await self._scrape_zhihu_stats(page)
+        except Exception as exc:
+            logger.info(f"[zhihu login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center

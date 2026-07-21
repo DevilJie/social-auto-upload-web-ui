@@ -143,6 +143,9 @@ class KuaishouPlatform(BasePlatform):
                 status_queue=status_queue,
                 scrape_fn=scrape_user_profile,
                 account_id=account_id,
+                # 登录成功后在同一个 session 内补抓 stats(粉丝/关注/获赞),
+                # 与 sync_profile 共用同一份抓取逻辑
+                stats_fn=self._login_stats_fn,
             )
             success = True
         except Exception as exc:
@@ -320,6 +323,24 @@ class KuaishouPlatform(BasePlatform):
 
             stats.sort(key=lambda x: x.get("SORT", 999))
             return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_kuaishou_stats 抓取逻辑,
+        保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
+        """
+        try:
+            try:
+                if not page.url.startswith(_KS_UPLOAD_URL):
+                    await page.goto(_KS_UPLOAD_URL, timeout=15000)
+                    await page.wait_for_load_state("domcontentloaded")
+            except Exception:
+                pass
+            return await self._scrape_kuaishou_stats(page)
+        except Exception as exc:
+            logger.info(f"[kuaishou login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # Open creator centre — KEEP AS-IS (sync CloakBrowser)

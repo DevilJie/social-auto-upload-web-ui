@@ -154,6 +154,9 @@ class IqiyiPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=_scrape_iqiyi_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(获赞/关注/粉丝),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
             finally:
                 await context.close()
@@ -193,7 +196,7 @@ class IqiyiPlatform(BasePlatform):
     # sync_profile — scrape user name and avatar
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple[str, str]:
+    async def sync_profile(self, cookie_file: str) -> dict:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
         try:
@@ -202,14 +205,115 @@ class IqiyiPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto(_LOGIN_URL, wait_until="domcontentloaded")
                 await page.wait_for_load_state("networkidle")
-                return await _scrape_iqiyi_profile(page)
+                name, avatar = await _scrape_iqiyi_profile(page)
+                # 同一个 user-info 区块也包含 stats(获赞/关注/粉丝),用 evaluate 一次抓完
+                stats = await self._scrape_iqiyi_stats(page)
+                return {"name": name, "avatar": avatar, "stats": stats}
             finally:
                 await context.close()
         except Exception as e:
             logger.warning("sync_profile failed: %s", e)
-            return "", ""
+            return {"name": "", "avatar": "", "stats": []}
         finally:
             await browser.close()
+
+    async def _scrape_iqiyi_stats(self, page) -> list:
+        """抓取爱奇艺创作者中心首页的 3 项运营数据(获赞/关注/粉丝)。
+
+        页面 DOM 结构(参见用户提供的 2026-07-20 抓取样本):
+            <div class="user-info">
+                <div class="user-info__avatar"><img src="..."></div>
+                <div class="user-info__main">
+                    <h2 class="user-info__name"><span>惡v魔</span></h2>
+                    <div class="user-info__row user-info__row--stats">
+                        <span class="user-info__label">获赞</span>
+                        <span class="user-info__value">2</span>
+                        <span class="user-info__label">关注</span>
+                        <span class="user-info__value">0</span>
+                        <div class="user-info__fans">
+                            <span class="user-info__label">粉丝</span>
+                            <span class="user-info__value user-info__value_link">1</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        Returns:
+            list[dict]: 按 SORT 排序的运营数据列表
+        """
+        stats = []
+        # label_map: label 文本 -> (ICON, SORT, 标准化 NAME)
+        # SORT 顺序: 粉丝最重要(1)、获赞(2)、关注(3)
+        label_map = {
+            "粉丝": ("user",   1, "粉丝"),
+            "获赞": ("like",   2, "获赞"),
+            "关注": ("follow", 3, "关注"),
+        }
+
+        try:
+            try:
+                await page.wait_for_selector(".user-info__row--stats", timeout=10000)
+            except Exception:
+                logger.info("[iqiyi stats] 等待 .user-info__row--stats 超时")
+
+            raw = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    const statsRow = document.querySelector('.user-info__row--stats');
+                    if (!statsRow) return out;
+                    // 按 DOM 顺序遍历,label 与 value 交替出现
+                    const children = Array.from(statsRow.children);
+                    for (let i = 0; i < children.length; i++) {
+                        const el = children[i];
+                        if (el.classList.contains('user-info__label')) {
+                            const label = (el.textContent || '').trim();
+                            // 找下一个 value
+                            const next = children[i + 1];
+                            if (next && next.classList.contains('user-info__value')) {
+                                const num = (next.textContent || '').trim();
+                                if (label && num) out.push({label, num});
+                                i++; // 跳过 value
+                            }
+                        }
+                        // 处理嵌套的 .user-info__fans div
+                        if (el.classList.contains('user-info__fans')) {
+                            const lblEl = el.querySelector('.user-info__label');
+                            const valEl = el.querySelector('.user-info__value');
+                            if (lblEl && valEl) {
+                                const label = (lblEl.textContent || '').trim();
+                                const num = (valEl.textContent || '').trim();
+                                if (label && num) out.push({label, num});
+                            }
+                        }
+                    }
+                    return out;
+                }'''
+            )
+            for item in raw:
+                label = item.get('label', '')
+                if label in label_map:
+                    icon, sort_no, name = label_map[label]
+                    try:
+                        count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '') or '0')
+                    except (ValueError, TypeError):
+                        count = 0
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+        except Exception as exc:
+            logger.info(f"[iqiyi stats] 抓取失败: {exc}")
+
+        stats.sort(key=lambda x: x.get("SORT", 999))
+        return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_iqiyi_stats 抓取逻辑。
+        """
+        try:
+            return await self._scrape_iqiyi_stats(page)
+        except Exception as exc:
+            logger.info(f"[iqiyi login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center — open visible browser with stored cookies

@@ -133,6 +133,9 @@ class TencentVideoPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=_scrape_tencent_video_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(8 项运营数据),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -174,7 +177,7 @@ class TencentVideoPlatform(BasePlatform):
     # sync_profile — scrape user name and avatar
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple[str, str]:
+    async def sync_profile(self, cookie_file: str) -> dict:
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
         try:
@@ -183,14 +186,146 @@ class TencentVideoPlatform(BasePlatform):
                 page = await context.new_page()
                 await page.goto(_HOME_URL, wait_until="domcontentloaded")
                 await page.wait_for_load_state("networkidle")
-                return await _scrape_tencent_video_profile(page)
+                name, avatar = await _scrape_tencent_video_profile(page)
+
+                # 抓 stats(运营数据):访问数据分析总览页
+                try:
+                    await page.goto(
+                        "https://mp.v.qq.com/analysis/overview/data",
+                        wait_until="domcontentloaded",
+                        timeout=30000,
+                    )
+                    # 等数据接口完成(SPA 页面需要等异步请求)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=15000)
+                    except Exception:
+                        pass
+                    stats = await self._scrape_tencent_video_stats(page)
+                except Exception as exc:
+                    logger.info(f"[tencent_video] 抓 stats 失败(不影响 name/avatar): {exc}")
+                    stats = []
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             finally:
                 await context.close()
         except Exception as e:
             logger.warning("sync_profile failed: %s", e)
-            return "", ""
+            return {"name": "", "avatar": "", "stats": []}
         finally:
             await browser.close()
+
+    async def _scrape_tencent_video_stats(self, page) -> list:
+        """抓取腾讯视频数据分析总览页的运营数据。
+
+        页面 DOM 结构(参见用户提供的 2026-07-20 抓取样本):
+            <ul class="_groupTabs_...">
+                <li class="_group_...">
+                    <div class="_groupName_...">播放量</div>
+                    <ul class="_colList_...">
+                        <li class="_colItem_...">
+                            <div class="_colName_..." data-name="in_anti_vfinish_cnt">总播放量</div>
+                            <div class="_number_...">0</div>
+                        </li>
+                        ...
+                    </ul>
+                </li>
+                <li class="_group_..."> <!-- 播放时长 --> ... </li>
+                <li class="_group_..."> <!-- 互动类 --> ... </li>
+            </ul>
+
+        总共 8 项 stats:总播放量/总有效播放量(忽略占比)/总播放时长/粉丝数/总在追数/总点赞/总评论/总分享
+
+        Returns:
+            list[dict]: 按 SORT 排序的运营数据列表
+        """
+        stats = []
+# 用 data-name 属性作为索引(比 class 稳定,class 带 CSS modules hash)
+        # label_map: data-name 值 -> (ICON, SORT, 标准化 NAME)
+        # SORT 1-3 是卡片显示的优先项(粉丝/总点赞/总评论);4-8 进悬浮窗
+        data_name_map = {
+            "in_subscribe_cnt":          ("user",  1, "粉丝"),
+            "in_like_cnt":               ("like",  2, "总点赞"),
+            "in_comment_cnt":            ("chat",  3, "总评论"),
+            "in_anti_vfinish_cnt":       ("play",  4, "总播放量"),
+            "in_vfinish_valid_cnt":      ("play",  5, "有效播放量"),
+            "in_pdtm_ms":                ("play",  6, "播放时长"),
+            "in_binge_uv":               ("user",  7, "在迂数"),
+            "in_call_share_page_cnt":    ("share", 8, "总分享"),
+        }
+
+        try:
+            # 1. 等待数据渲染:用 [data-name] 属性(更稳定,不依赖 CSS modules hash)
+            try:
+                await page.wait_for_selector("[data-name]", timeout=15000)
+            except Exception:
+                logger.info(f"[tencent_video stats] 等待 [data-name] 超时, url={page.url}")
+                # 打印当前页面 title + 部分 body 文本作为诊断
+                try:
+                    title = await page.title()
+                    body_text = (await page.evaluate("document.body.innerText") or "")[:300]
+                    logger.info(f"[tencent_video stats] title={title!r}, body 预览={body_text!r}")
+                except Exception:
+                    pass
+
+            # 2. 用 evaluate 一次性拿所有 (data-name, 数值) 对
+            raw = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    document.querySelectorAll('li [data-name]').forEach(el => {
+                        const key = el.getAttribute('data-name');
+                        if (!key) return;
+                        // 数值在同级或子级的 .xxx_number_xxx 元素里;用属性选择器更稳
+                        const numEl = el.parentElement.querySelector('[class*="_number_"]');
+                        const num = numEl ? (numEl.textContent || '').trim() : '';
+                        // 过滤掉百分比(占比类指标)
+                        if (num.endsWith('%')) return;
+                        if (key && num !== '') out.push({key, num});
+                    });
+                    return out;
+                }'''
+            )
+
+            for item in raw:
+                key = item.get('key', '')
+                if key in data_name_map:
+                    icon, sort_no, name = data_name_map[key]
+                    try:
+                        count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '') or '0')
+                    except (ValueError, TypeError):
+                        count = 0
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+
+            if not stats:
+                logger.info(f"[tencent_video stats] 未抓到任何 stats,raw 数据={raw[:3] if raw else '[]'}")
+        except Exception as exc:
+            logger.info(f"[tencent_video stats] 抓取失败: {exc}")
+
+        stats.sort(key=lambda x: x.get("SORT", 999))
+        return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_tencent_video_stats 抓取逻辑。
+        """
+        try:
+            try:
+                await page.goto(
+                    "https://mp.v.qq.com/analysis/overview/data",
+                    wait_until="domcontentloaded",
+                    timeout=30000,
+                )
+                # 等数据接口完成(SPA 页面需要等异步请求)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return await self._scrape_tencent_video_stats(page)
+        except Exception as exc:
+            logger.info(f"[tencent_video login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center — open visible browser with stored cookies

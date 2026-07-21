@@ -260,7 +260,25 @@
               </div>
             </template>
 
-            <!-- 视频号专属卡片(合集为账号级,选中账号后才显示) -->
+            <!-- 视频号平台级字段(选中平台就显示,无需先选账号) -->
+            <template v-if="selectedPlatform === 'channels'">
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">活动</div>
+                <RemoteSearchSelect
+                  v-model="form.channelsActivityName"
+                  :data="form.channelsActivityData"
+                  :fetcher="fetchChannelsActivities"
+                  :field-map="channelsActivityFieldMap"
+                  search-mode="backend"
+                  empty-behavior="block"
+                  placeholder="输入活动名称搜索"
+                  search-placeholder="输入活动关键词,按回车搜索"
+                  @change="handleChannelsActivityChange"
+                />
+              </div>
+            </template>
+
+            <!-- 视频号账号级字段(选中账号后才显示) -->
             <template v-if="selectedPlatform === 'channels' && selectedAccountId">
               <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
                 <div class="setting-label" :style="{ color: currentPlatformConfig.color }">选择合集</div>
@@ -847,6 +865,10 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // 视频号位置(账号级,空=不显示位置)
     channelsLocationName: accountOv?.channelsLocationName ?? platformOv?.channelsLocationName ?? platformDefault?.channelsLocationName ?? '',
     channelsLocationData: accountOv?.channelsLocationData ?? platformOv?.channelsLocationData ?? platformDefault?.channelsLocationData ?? null,
+    // 视频号活动:虽然卡片按平台级显示,但 watch(form) 把值回写到 accountOverrides
+    // (与合集/位置同模式),所以 4 级合并才能取到草稿恢复后的值
+    channelsActivityName: accountOv?.channelsActivityName ?? platformOv?.channelsActivityName ?? platformDefault?.channelsActivityName ?? '',
+    channelsActivityData: accountOv?.channelsActivityData ?? platformOv?.channelsActivityData ?? platformDefault?.channelsActivityData ?? null,
     // 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面真正选中
     channelsMarkTag: accountOv?.channelsMarkTag ?? platformOv?.channelsMarkTag ?? platformDefault?.channelsMarkTag ?? '无需标注',
     channelsShootDate: accountOv?.channelsShootDate ?? platformOv?.channelsShootDate ?? platformDefault?.channelsShootDate ?? '',
@@ -916,7 +938,7 @@ const platformConfigs = reactive({
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '' },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
@@ -1333,6 +1355,32 @@ async function fetchChannelsCollections(keyword) {
 async function fetchChannelsLocations(keyword) {
   const resp = await channelsApi.getLocations(selectedAccountId.value, keyword || '')
   return { list: resp.data?.list || [] }
+}
+
+// 视频号活动 —— RemoteSearchSelect 数据源(后端搜索模式,必须传 keyword)
+// DOM: option-item 内 .creator-name(发起人)+ .name(活动名) 两个 span,
+// label 拼成「creator-name + 空格 + name」,desc 单放 .name(后端已分好)
+async function fetchChannelsActivities(keyword) {
+  // 活动是平台级字段:未选账号时退回到该平台第一个账号的 cookie 去搜
+  const aid = selectedAccountId.value
+    || accountStore.accounts.find(a => a.platform === '视频号')?.id
+    || ''
+  const resp = await channelsApi.searchActivities(aid, keyword || '')
+  return { list: resp.data?.list || [] }
+}
+const channelsActivityFieldMap = {
+  key: 'activity_id',
+  label: 'name',
+  desc: (item) => item.creator_name ? `发起人: ${item.creator_name}` : ''
+}
+
+// 视频号活动选择回调:存完整对象到 form.channelsActivityData
+function handleChannelsActivityChange(act) {
+  if (act) {
+    form.channelsActivityData = act
+  } else {
+    form.channelsActivityData = null
+  }
 }
 
 // ========== Init ==========
@@ -2359,6 +2407,8 @@ async function publishAll() {
         channelsCollectionName: merged.channelsCollectionName || '',
         // 视频号位置(账号级,空=不显示位置)
         channelsLocationName: merged.channelsLocationName || '',
+        // 视频号活动(账号级,空=不参与活动)
+        channelsActivityName: merged.channelsActivityName || '',
         // 视频号视频标注(平台级):tagName 文本,后端据此在发布页下拉里选中对应项
         channelsMarkTag: merged.channelsMarkTag || '无需标注',
         channelsShootDate: merged.channelsShootDate || '',

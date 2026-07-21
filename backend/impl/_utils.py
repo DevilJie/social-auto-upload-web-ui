@@ -1066,12 +1066,19 @@ async def save_login_result(
     status_queue,
     scrape_fn=None,
     account_id=None,
+    stats_fn=None,
 ):
     """Shared post-login flow: scrape profile, save cookie, write DB, send SSE.
 
     This consolidates the repeated pattern found in every platform's login
     handler (Douyin, Bilibili, Xiaohongshu, Kuaishou, Channels, Baijiahao,
     YouTube, TikTok).
+
+    新增 stats_fn 参数:登录成功写入 DB 后,在同一个 session 内调用
+    stats_fn(page, account_id) 抓运营数据,把结果写入 user_info.stats JSON 列。
+    stats_fn 自己负责 page.goto 等所有动作;返回 list[dict] 或 []。
+    失败不阻塞登录成功流程。与 platform.sync_profile 内部用同一份抓取逻辑,
+    保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
 
     Args:
         context: Playwright BrowserContext (used for cookie storage).
@@ -1149,7 +1156,9 @@ async def save_login_result(
                 (platform_id, cookie_filename, user_name, 1, avatar_url, fans, likes, follows),
             )
             conn.commit()
-            logger.info(f"[login] {platform_name} user record saved")
+            # 回填 account_id(新登录场景下原 account_id 为 None),供后续 stats 抓取使用
+            account_id = cursor.lastrowid
+            logger.info(f"[login] {platform_name} user record saved (id={account_id})")
 
     # 4. Send SSE status
     status_queue.put(json.dumps({
@@ -1157,6 +1166,25 @@ async def save_login_result(
         "name": user_name,
         "avatar": avatar_url,
     }))
+
+    # 5. 可选:补抓运营数据(stats)。stats_fn 自己负责 goto + 抓取,
+    # 返回 [{ICON, COUNT, NAME, SORT}, ...];失败不阻塞登录成功。
+    if stats_fn and account_id:
+        try:
+            stats = await stats_fn(page, account_id)
+            if stats:
+                import json as _json
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        'UPDATE user_info SET stats = ? WHERE id = ?',
+                        (_json.dumps(stats, ensure_ascii=False), account_id),
+                    )
+                    conn.commit()
+                logger.info(f"[login] account {account_id} stats 已补抓({len(stats)} 项)")
+            else:
+                logger.info(f"[login] account {account_id} stats 抓取为空,跳过")
+        except Exception as exc:
+            logger.info(f"[login] 补抓 stats 失败(不影响登录成功): {exc}")
 
 
 # ---------------------------------------------------------------------------

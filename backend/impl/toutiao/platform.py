@@ -153,6 +153,9 @@ class ToutiaoPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_toutiao_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(粉丝数/总阅读量/累计收益),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 logger.info("[登录] 登录流程完成!")
                 success = True
@@ -198,8 +201,17 @@ class ToutiaoPlatform(BasePlatform):
     # sync_profile — refresh user name / avatar
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Toutiao creator centre."""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """同步头条昵称、头像、运营数据(stats)。
+
+        创作中心首页 (https://mp.toutiao.com/profile_v4/index) 有一个
+        .data-board 区块,内含 3 个 .data-board-item:
+          - .data-board-item-title  标题(嵌在 svg 间的文字)
+          - .data-board-item-primary 主数值(<a> 文本)
+          - .data-board-item-secondary 昨日变化
+
+        3 项 stats: 粉丝数 / 总阅读(播放)量 / 累计收益
+        """
         logger.info("[同步资料] 开始同步用户资料: %s", cookie_file)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
@@ -216,13 +228,114 @@ class ToutiaoPlatform(BasePlatform):
                 except Exception:
                     pass
                 await asyncio.sleep(3)
+                # 抓 name/avatar(用原有 scraper)
                 name, avatar = await scrape_toutiao_profile(page)
-                logger.info("[同步资料] 获取到用户信息 - 昵称: %s, 头像: %s", name, avatar[:50] if avatar else "无")
-                return name, avatar
+                logger.info(
+                    "[同步资料] 获取到用户信息 - 昵称: %s, 头像: %s",
+                    name, avatar[:50] if avatar else "无"
+                )
+
+                # 抓 stats(3 项 .data-board-item)
+                try:
+                    await page.wait_for_selector(".data-board-item", timeout=8000)
+                except Exception:
+                    logger.info("[toutiao stats] 等待 .data-board-item 超时")
+
+                result = await page.evaluate(
+                    '''() => {
+                        const out = [];
+                        document.querySelectorAll('.data-board-item').forEach(item => {
+                            // 标题: 嵌在 svg 里,textContent 自动剥离 svg 内容
+                            const titleEl = item.querySelector('.data-board-item-title');
+                            // 主数值: <a> 里的文本
+                            const primaryEl = item.querySelector('.data-board-item-primary');
+                            if (!titleEl || !primaryEl) return;
+                            // title 可能含 svg + 真实文字 + svg(问号图标)
+                            // 我们想要的是 svg 后面的真实文字(粉丝数/总阅读(播放)量/累计收益)
+                            const title = (titleEl.textContent || '').trim();
+                            const num = (primaryEl.textContent || '').trim();
+                            if (title && num) {
+                                out.push({title, num});
+                            }
+                        });
+                        return out;
+                    }'''
+                )
+
+                # label_map: 标题文 -> (ICON, SORT, 标准化 NAME)
+                label_map = {
+                    "粉丝数":        ("user",   1, "粉丝数"),
+                    "总阅读(播放)量": ("play",   2, "总阅读(播放)量"),
+                    "累计收益":       ("coin",   3, "累计收益"),
+                }
+                stats = []
+                for item in (result or []):
+                    title = item.get('title', '')
+                    num_str = str(item.get('num', '0'))
+                    if title in label_map:
+                        icon, sort_no, std_name = label_map[title]
+                        # 累计收益值形如 "0元" 或 "6,275";去掉"元"和千分位逗号
+                        cleaned = num_str.replace('元', '').replace(',', '').replace(' ', '').strip()
+                        try:
+                            count = int(float(cleaned)) if '.' in cleaned else int(cleaned) if cleaned else 0
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+
+                if not name and not avatar and not stats:
+                    logger.info(f"[toutiao] sync_profile 抓取为空,url={page.url}")
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             finally:
                 await context.close()
         finally:
             await browser.close()
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用同一份 evaluate 抓取逻辑,
+        但 login 路径下旧 scrape_toutiao_profile 已经写过 name/avatar,
+        这里只抓 stats 即可。
+        """
+        try:
+            await page.wait_for_selector(".data-board-item", timeout=8000)
+        except Exception:
+            logger.info("[toutiao login] 等待 .data-board-item 超时")
+
+        result = await page.evaluate(
+            '''() => {
+                const out = [];
+                document.querySelectorAll('.data-board-item').forEach(item => {
+                    const titleEl = item.querySelector('.data-board-item-title');
+                    const primaryEl = item.querySelector('.data-board-item-primary');
+                    if (!titleEl || !primaryEl) return;
+                    const title = (titleEl.textContent || '').trim();
+                    const num = (primaryEl.textContent || '').trim();
+                    if (title && num) out.push({title, num});
+                });
+                return out;
+            }'''
+        )
+
+        label_map = {
+            "粉丝数":        ("user",   1, "粉丝数"),
+            "总阅读(播放)量": ("play",   2, "总阅读(播放)量"),
+            "累计收益":       ("coin",   3, "累计收益"),
+        }
+        stats = []
+        for item in (result or []):
+            title = item.get('title', '')
+            num_str = str(item.get('num', '0'))
+            if title in label_map:
+                icon, sort_no, std_name = label_map[title]
+                cleaned = num_str.replace('元', '').replace(',', '').replace(' ', '').strip()
+                try:
+                    count = int(float(cleaned)) if '.' in cleaned else int(cleaned) if cleaned else 0
+                except (ValueError, TypeError):
+                    count = 0
+                stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+        return stats
 
     # ------------------------------------------------------------------
     # open_creator_center — visible browser window

@@ -9,10 +9,16 @@ export const useAccountStore = defineStore('account', () => {
   
   // 设置账号列表
   const setAccounts = (accountsData) => {
-    // 转换后端返回的数据格式为前端使用的格式
-    // 后端 SELECT * 列顺序:id/type/filePath/userName/status/avatar/fans/likes/follows,
-    // 然后 row.append(tags) → tags 为最后一列。新平台(如 VIVO)才同步运营数据,旧平台为 0。
+    // 后端 SELECT * 列顺序:id/type/filePath/userName/status/avatar/fans/likes/follows/stats,
+    // 然后 row.append(tags) → tags 为最后一列。stats 是 JSON 字符串,需要解析。
     accounts.value = accountsData.map(item => {
+      let stats = []
+      const rawStats = item[9]
+      if (typeof rawStats === 'string' && rawStats) {
+        try { stats = JSON.parse(rawStats) } catch { stats = [] }
+      } else if (Array.isArray(rawStats)) {
+        stats = rawStats
+      }
       return {
         id: item[0],
         type: item[1],
@@ -24,7 +30,8 @@ export const useAccountStore = defineStore('account', () => {
         fans: item[6] || 0,
         likes: item[7] || 0,
         follows: item[8] || 0,
-        tags: item[9] || item[item.length - 1] || []
+        stats,
+        tags: item[10] || item[item.length - 1] || []
       }
     })
   }

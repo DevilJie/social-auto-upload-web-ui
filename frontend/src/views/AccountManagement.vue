@@ -111,11 +111,58 @@
         </div>
 
         <!-- 标签行(独立一行,溢出跑马灯) -->
-        <!-- 账号运营数据(粉丝/获赞/关注),仅当任一 > 0 时显示 -->
-        <div v-if="hasStats(account)" class="account-stats-row">
-          <span class="stat-item">粉丝 <strong>{{ account.fans || 0 }}</strong></span>
-          <span class="stat-item">获赞 <strong>{{ account.likes || 0 }}</strong></span>
-          <span class="stat-item">关注 <strong>{{ account.follows || 0 }}</strong></span>
+        <!-- 账号运营数据(stats JSON),按 SORT 升序,最多展示 4 块,超过走悬浮窗 -->
+        <div class="account-stats-row" :class="{ 'has-overflow': getExtraStats(account).length > 0 }">
+          <!-- 存量数据无运营数据:显示占位提示,引导用户点同步 -->
+          <div v-if="!sortStats(account?.stats).length" class="stat-block-empty">
+            <el-icon class="empty-icon"><Clock /></el-icon>
+            <span class="empty-text">暂无运营数据，点下方同步按钮获取</span>
+          </div>
+
+          <template v-for="(item, idx) in getVisibleStats(account)" :key="`${account.id}-${item.NAME}-${idx}`">
+            <div
+              class="stat-block"
+              :class="[`stat-block-${item.ICON}`, { 'is-empty': !Number(item.COUNT) }]"
+              :title="item.NAME"
+            >
+              <div class="stat-icon-wrap">
+                <component :is="getIconComponent(item.ICON)" />
+              </div>
+              <div class="stat-value">{{ formatStat(item.COUNT) }}</div>
+              <div class="stat-label">{{ item.NAME }}</div>
+            </div>
+          </template>
+
+          <!-- 超出卡片显示位数的(超过 visible count),用"更多"占位 + 原生 CSS hover 浮窗;
+             浮窗在卡片 DOM 内,完全自控,不受全局 popper 样式影响。
+             浮窗位置由 JS 在 mouseenter 时计算,避免最右侧卡片溢出视口触发横向滚动条 -->
+          <div
+            v-if="sortStats(account?.stats).length > getVisibleCount(account)"
+            class="stat-block stat-block-more stats-more-wrap"
+            @mouseenter="handleStatsHover"
+          >
+            <div class="stat-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="5" cy="12" r="1"></circle>
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+              </svg>
+            </div>
+            <div class="stat-value">+{{ sortStats(account?.stats).length - getVisibleCount(account) }}</div>
+            <div class="stat-label">更多</div>
+
+            <!-- 悬浮浮窗:绝对定位在 stat-block 上方 -->
+            <div class="stats-more-popover">
+              <div
+                v-for="(item, idx) in getExtraStats(account)"
+                :key="`extra-${item.NAME}-${idx}`"
+                class="stats-more-item"
+              >
+                <span class="name">{{ item.NAME }}</span>
+                <strong class="value">{{ formatStat(item.COUNT) }}</strong>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="account-tags-row">
           <span class="account-tags-label">标签:</span>
@@ -432,8 +479,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search } from '@element-plus/icons-vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from 'vue'
+import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search, Clock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
@@ -977,31 +1024,31 @@ const handleReLogin = (row) => {
 const syncingIds = reactive(new Set())
 
 const handleSyncProfile = async (row) => {
-  if (syncingIds.has(row.id)) return
-  syncingIds.add(row.id)
-  try {
-    const res = await accountApi.syncProfile(row.id)
-    if (res.code === 200 && res.data) {
-      accountStore.updateAccount(row.id, {
-        id: row.id,
-        name: res.data.name || row.name,
-        avatar: res.data.avatar || row.avatar,
-        // 新平台(如 VIVO)同步账号运营数据;旧平台后端不返回,保留原值
-        fans: res.data.fans ?? row.fans ?? 0,
-        likes: res.data.likes ?? row.likes ?? 0,
-        follows: res.data.follows ?? row.follows ?? 0,
-      })
-      ElMessage.success('资料同步成功')
-    } else {
-      ElMessage.error(res.msg || '同步失败')
+    if (syncingIds.has(row.id)) return
+    syncingIds.add(row.id)
+    try {
+      const res = await accountApi.syncProfile(row.id)
+      if (res.code === 200 && res.data) {
+        // 新接口返回 {name, avatar, stats: [{ICON, COUNT, NAME, SORT}, ...]}
+        // 旧平台 stats 为 [] 时保留原值;新平台返回新数组时覆盖
+        const newStats = Array.isArray(res.data.stats) ? res.data.stats : null
+        accountStore.updateAccount(row.id, {
+          id: row.id,
+          name: res.data.name || row.name,
+          avatar: res.data.avatar || row.avatar,
+          stats: newStats !== null ? newStats : (row.stats || []),
+        })
+        ElMessage.success('资料同步成功')
+      } else {
+        ElMessage.error(res.msg || '同步失败')
+      }
+    } catch (error) {
+      console.error('同步资料失败:', error)
+      ElMessage.error('同步资料失败')
+    } finally {
+      syncingIds.delete(row.id)
     }
-  } catch (error) {
-    console.error('同步资料失败:', error)
-    ElMessage.error('同步资料失败')
-  } finally {
-    syncingIds.delete(row.id)
   }
-}
 
 // 账号运营数据(粉丝/获赞/关注)是否需要展示:任一 > 0 才显示
 const hasStats = (account) => {
@@ -1009,6 +1056,121 @@ const hasStats = (account) => {
   const l = Number(account.likes) || 0
   const fo = Number(account.follows) || 0
   return f > 0 || l > 0 || fo > 0
+}
+
+// 数值格式化:10000 → 1.0w, 12345 → 1.2w, 100000000 → 1.0亿
+const formatStat = (value) => {
+  const n = Number(value) || 0
+  if (n < 1000) return String(n)
+  if (n < 10000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'k'
+  if (n < 100000000) {
+    const v = n / 10000
+    return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + 'w'
+  }
+  const v = n / 100000000
+  return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + '亿'
+}
+
+// 账号 stats 排序:按 SORT 升序(SORT 缺失时排到最后)
+const sortStats = (stats) => {
+  if (!Array.isArray(stats)) return []
+  return [...stats].sort((a, b) => (Number(a?.SORT) || 999) - (Number(b?.SORT) || 999))
+}
+
+// 卡片显示的 stats:按 SORT 排序后取前 N 项(N 由平台决定)
+// 大多数平台 stats 总数 ≤ 4,正常展示;超过 4 项的平台只展示前 3 项(剩余进悬浮窗)
+// 注意 key 用 platform name(中文),与 store 解包后的 account.platform 一致
+const VISIBLE_COUNTS = {
+  'B站': 3,       // 8 项 stats:粉丝 + 点赞 + 收藏 + 更多占位
+  '百家号': 3,    // 6 项 stats:粉丝 + 播放量 + 搜索量 + 更多占位
+  '腾讯视频': 3,  // 8 项 stats:粉丝 + 总点赞 + 总评论 + 更多占位
+  '知乎': 3,      // 9 项 stats:粉丝 + 赞同 + 阅读 + 更多占位
+  'CSDN': 3,      // 4 项 stats:粉丝 + 总阅读 + 收藏 + 更多占位
+}
+const getVisibleCount = (account) => {
+  return VISIBLE_COUNTS[account?.platform] ?? 4
+}
+
+const getVisibleStats = (account) => {
+  return sortStats(account?.stats).slice(0, getVisibleCount(account))
+}
+
+// "更多"占位需要显示时,展示该账号的**全部** stats(不是剩余),
+// 鼠标悬停时能看到完整运营数据
+const getExtraStats = (account) => {
+  return sortStats(account?.stats)
+}
+
+// "更多"块 hover 时,动态调整浮窗水平位置,避免最右侧卡片溢出视口触发横向滚动条
+// 浮窗本身用 left:50% + transform:translateX(-50%) 居中,JS 在 hover 时根据
+// 浮窗实际位置算出溢出量,通过 --stats-popover-offset CSS 变量微调 translateX
+const handleStatsHover = (event) => {
+  const trigger = event.currentTarget
+  if (!trigger) return
+  const popover = trigger.querySelector('.stats-more-popover')
+  if (!popover) return
+
+  // 触发块的视口位置
+  const triggerRect = trigger.getBoundingClientRect()
+  // 浮窗的预期尺寸(先用临时显示拿真实尺寸,或者用默认 min-width 220)
+  const popoverWidth = popover.offsetWidth || 220
+  // 浮窗居中时左边缘 = 触发块中心 - 浮窗宽度/2
+  const centeredLeft = triggerRect.left + triggerRect.width / 2 - popoverWidth / 2
+  // 浮窗居中时右边缘
+  const centeredRight = centeredLeft + popoverWidth
+  // 视口宽度
+  const vw = window.innerWidth
+  // 安全边距(避免贴边)
+  const margin = 8
+
+  let offsetPx = 0
+  if (centeredRight > vw - margin) {
+    // 右边溢出 → 往左推
+    offsetPx = centeredRight - (vw - margin)
+  } else if (centeredLeft < margin) {
+    // 左边溢出 → 往右推
+    offsetPx = -(margin - centeredLeft)
+  }
+  trigger.style.setProperty('--stats-popover-offset', `${-offsetPx}px`)
+}
+
+// ICON 字符串 -> 渲染组件(SVG),通过 h() 创建组件实例(避免每个 ICON 写一个 .vue 文件)
+// SVG 风格保持与项目现有统计图标一致(Feather/Lucide 风格,14px stroke)
+const ICON_PATHS = {
+  user:   '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
+  like:   '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>',
+  follow: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line>',
+  play:   '<polygon points="5 3 19 12 5 21 5 3"></polygon>',
+  video:  '<polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>',
+  star:   '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>',
+  coin:   '<circle cx="12" cy="12" r="10"></circle><path d="M9.5 9a2.5 2.5 0 1 1 5 0c0 1.5-2.5 2-2.5 3.5"></path><line x1="12" y1="17" x2="12" y2="17.01"></line>',
+  chat:   '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>',
+  share:  '<circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>',
+  edit:   '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>',
+}
+
+// 缓存 h() 组件(避免每次 render 重新创建)
+const _iconCache = {}
+const getIconComponent = (iconKey) => {
+  const key = iconKey || 'user'
+  if (_iconCache[key]) return _iconCache[key]
+  const inner = ICON_PATHS[key] || ICON_PATHS.user
+  const comp = {
+    name: `StatIcon-${key}`,
+    render() {
+      return h('svg', {
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        innerHTML: inner,
+      })
+    },
+  }
+  _iconCache[key] = comp
+  return comp
 }
 
 // getDefaultAvatar / proxyAvatar 已抽到 @/utils/avatar
@@ -1295,7 +1457,8 @@ const submitAccountForm = () => {
     padding: 20px;
     transition: all $transition-base;
     position: relative;
-    overflow: hidden;
+    // 注意:不能用 overflow: hidden,否则账号卡片"更多"悬浮浮窗(绝对定位、向上超出
+    // 卡片边界)会被裁切。卡片内元素均在 padding 内,圆角由 border-radius 自然形成。
 
     &::before {
       content: '';
@@ -1305,6 +1468,7 @@ const submitAccountForm = () => {
       right: 0;
       height: 3px;
       background: linear-gradient(90deg, transparent, rgba($overlay-rgb, 0.1), transparent);
+      border-radius: 16px 16px 0 0;
       opacity: 0;
       transition: opacity $transition-base;
     }
@@ -1439,25 +1603,240 @@ const submitAccountForm = () => {
       min-height: 22px;
     }
 
-    // 账号运营数据行(粉丝/获赞/关注)
+    // 账号运营数据行(stats JSON):动态渲染统计块
     .account-stats-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-top: 6px;
-      padding: 4px 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+      // 固定最小高度,让"已同步"(3 块 stat-block) 和"未同步"
+      // (1 块 stat-block-empty) 两种情况下卡片下半部分布局一致
+      min-height: 64px;
 
-      .stat-item {
-        font-size: 12px;
+      // 存量未同步数据的占位块(跨满整行,提示用户点同步)
+      .stat-block-empty {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 12px;
+        border-radius: $radius-sm;
+        border: 1px dashed $border-light;
+        background: rgba($overlay-rgb, 0.03);
         color: $text-muted;
+        font-size: 12px;
 
-        strong {
+        .empty-icon {
+          font-size: 14px;
+          opacity: 0.7;
+        }
+
+        .empty-text {
+          font-size: 12px;
+        }
+      }
+
+      .stat-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 7px 4px 6px;
+        border-radius: $radius-sm;
+        border: 1px solid transparent;
+        transition: all $transition-fast;
+        min-width: 0;
+        // 固定 stat-block 高度,与 .stat-block-empty 保持一致,
+        // 这样无论"已同步"还是"未同步"账号,卡片下半部分
+        // (stats-row + tags-row + actions-row) 高度都一致
+        min-height: 64px;
+
+        .stat-icon-wrap {
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 3px;
+
+          svg {
+            width: 12px;
+            height: 12px;
+          }
+        }
+
+        .stat-value {
+          font-size: 16px;
+          font-weight: 700;
           color: $text-primary;
-          font-weight: 600;
-          margin-left: 2px;
+          font-variant-numeric: tabular-nums;
+          line-height: 1.15;
+          white-space: nowrap;
+        }
+
+        .stat-label {
+          font-size: 11px;
+          color: $text-muted;
+          margin-top: 1px;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        // 按 ICON 字符串动态配色(stats JSON 里的 ICON 字段值)
+        &.stat-block-user {
+          background: rgba($brand-start, 0.15);
+          border-color: rgba($brand-start, 0.35);
+          .stat-icon-wrap { background: $brand-start; color: #fff; }
+        }
+        &.stat-block-like {
+          background: rgba($accent-rose, 0.15);
+          border-color: rgba($accent-rose, 0.35);
+          .stat-icon-wrap { background: $accent-rose; color: #fff; }
+        }
+        &.stat-block-follow {
+          background: rgba($accent-cyan, 0.15);
+          border-color: rgba($accent-cyan, 0.35);
+          .stat-icon-wrap { background: $accent-cyan; color: #fff; }
+        }
+        &.stat-block-play,
+        &.stat-block-video {
+          background: rgba($info-color, 0.15);
+          border-color: rgba($info-color, 0.35);
+          .stat-icon-wrap { background: $info-color; color: #fff; }
+        }
+        &.stat-block-star {
+          background: rgba($accent-amber, 0.15);
+          border-color: rgba($accent-amber, 0.35);
+          .stat-icon-wrap { background: $accent-amber; color: #fff; }
+        }
+        &.stat-block-coin {
+          background: rgba(#eab308, 0.18);
+          border-color: rgba(#eab308, 0.4);
+          .stat-icon-wrap { background: #eab308; color: #fff; }
+        }
+        &.stat-block-chat {
+          background: rgba($accent-green, 0.15);
+          border-color: rgba($accent-green, 0.35);
+          .stat-icon-wrap { background: $accent-green; color: #fff; }
+        }
+        &.stat-block-share {
+          background: rgba($accent-cyan, 0.12);
+          border-color: rgba($accent-cyan, 0.3);
+          .stat-icon-wrap { background: $accent-cyan; color: #fff; }
+        }
+
+        // 原创/编辑图标
+        &.stat-block-edit {
+          background: rgba($accent-amber, 0.15);
+          border-color: rgba($accent-amber, 0.35);
+          .stat-icon-wrap { background: $accent-amber; color: #fff; }
+        }
+
+        // "更多"块:中性灰(不抢眼)+ 作为悬浮浮窗的定位锚点
+        &.stat-block-more {
+          background: rgba($overlay-rgb, 0.05);
+          border-color: $border-light;
+          cursor: help;
+          position: relative;
+
+          .stat-icon-wrap {
+            background: rgba($overlay-rgb, 0.1);
+            color: $text-muted;
+          }
+
+          .stat-value {
+            color: $text-secondary;
+          }
+
+          // 原生 hover 浮窗:绝对定位在 more 块上方,卡片 DOM 内完全自控
+          .stats-more-popover {
+            // 默认隐藏
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 150ms ease, transform 150ms ease, visibility 150ms;
+
+            // 浮窗样式:品牌紫渐变背景,白色文字,跟卡片整体调性一致
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            // 水平方向:默认居中(translateX(-50%)),JS 在 hover 时根据视口边界
+            // 设置 --stats-popover-offset 变量微调,避免最右侧卡片溢出
+            transform: translateX(calc(-50% + var(--stats-popover-offset, 0px))) translateY(4px);
+            z-index: 100;
+
+            min-width: 220px;
+            padding: 10px 14px;
+            border-radius: $radius-base;
+            background: linear-gradient(135deg, rgba($brand-start, 0.95), rgba($brand-end, 0.92));
+            border: 1px solid rgba($brand-start, 0.6);
+            box-shadow: 0 6px 20px rgba($brand-start, 0.35), 0 2px 6px rgba(0, 0, 0, 0.15);
+
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 18px;
+
+            // 鼠标悬停 more 块或浮窗自身时显示
+            pointer-events: none;
+          }
+
+          // hover 时显示浮窗
+          &:hover .stats-more-popover {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(calc(-50% + var(--stats-popover-offset, 0px))) translateY(0);
+            pointer-events: auto;
+          }
+
+          // 浮窗内的每一项
+          .stats-more-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-width: 0;
+
+            .name {
+              font-size: 12px;
+              color: rgba(255, 255, 255, 0.78);
+              font-weight: 500;
+            }
+
+            .value {
+              font-size: 13px;
+              font-weight: 700;
+              color: #fff;
+              font-variant-numeric: tabular-nums;
+            }
+          }
+        }
+
+        // 数据为 0 时:数字和图标淡化,背景保留彩色(避免变成"灰板")
+        &.is-empty {
+          .stat-icon-wrap {
+            opacity: 0.5;
+          }
+
+          .stat-value {
+            color: $text-muted;
+            font-weight: 600;
+          }
+        }
+
+        &:hover {
+          transform: translateY(-1px);
+          border-color: $border-active;
         }
       }
     }
+
+    // 悬浮窗内的"更多数据"网格 —— 移到全局 <style> 块定义(el-tooltip 内容渲染到 body,
+    // scoped CSS 里的 :deep() 编译后仍带外层选择器前缀,无法匹配 popper DOM)
+    // 见 <style lang="scss"> 块末尾的全局 .account-stats-tooltip 样式
 
     .account-tags-label {
       font-size: 12px;
@@ -1582,11 +1961,13 @@ const submitAccountForm = () => {
         display: flex;
         align-items: center;
         gap: 6px;
+        width: 100%;
       }
 
       .action-btn {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 4px;
         padding: 6px 8px;
         border: none;
@@ -1598,7 +1979,8 @@ const submitAccountForm = () => {
         background: rgba($overlay-rgb, 0.05);
         color: $text-secondary;
         white-space: nowrap;
-        flex-shrink: 0;
+        flex: 1 1 0;
+        min-width: 0;
 
         .el-icon {
           font-size: 14px;

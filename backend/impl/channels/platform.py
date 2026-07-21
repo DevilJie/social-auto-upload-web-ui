@@ -91,8 +91,12 @@ async def _fill_title_and_tags(page, title: str, tags: list[str]) -> None:
     """
     await page.locator("div.input-editor").click()
     for tag in tags:
-        await page.keyboard.type("#" + tag)
+        await page.keyboard.type("#" + tag, delay=30)
         await page.keyboard.press("Space")
+        # 每个标签输入完后停 0.5s,让 React 完整消化上一个 onChange
+        # 避免下一个标签的 '#' 字符和上一个 setState 在异步上撞车,
+        # 出现「最后一个标签没空格」/ 字符丢失 / 标签粘连等问题
+        await asyncio.sleep(0.5)
     logger.info(f"[填写标题] added {len(tags)} hashtags to description editor")
 
 
@@ -235,6 +239,118 @@ async def _apply_location(page, location_name: str = "") -> None:
             logger.info("[设置位置] 已选择位置: %s", location_name)
             return
     logger.warning("[设置位置] 未找到位置: %s", location_name)
+
+
+async def _apply_activity(page, activity_name: str = "", activity_id: str = "") -> None:
+    """选择指定活动(按 name + creator 复合匹配);空字符串时跳过,保持默认「不参与活动」。
+
+    DOM(用户实际抓取,weui 框架):
+      入口: div.post-activity-wrap > div.activity-display (显示「不参与活动」/已选活动,点击展开)
+      搜索框: input[placeholder="搜索活动"] (.weui-desktop-form__input)
+      下拉: div.common-option-list-wrap .option-item
+        - 第一项 .option-item.active 永远是「不参与活动」(遍历时跳过 index 0)
+        - 每项内 .activity-item-info 下两个 span:
+            .creator-name(发起人,可能为空)
+            .name(活动名)
+        - 已选项内含 .yes-icon svg
+
+    策略(与 _apply_location 一致):
+      - 空值 → 直接 return(视频号默认就是「不参与活动」)
+      - 找不到精确匹配 → warning + return(保持当前状态)
+
+    复合匹配: activity_id 格式为 f\"{name}|{creator_name}\"(前端 RemoteSearchSelect
+    传的完整对象),用来区分同名不同发起人的活动。仅传 name 时退化为按 name 匹配。
+    """
+    if not activity_name:
+        return  # 空值跳过,默认就是「不参与活动」
+
+    # 解析 activity_id 得到 creator_name(若有)
+    target_creator = ""
+    if activity_id and "|" in activity_id:
+        parts = activity_id.split("|", 1)
+        if len(parts) == 2:
+            # parts[0] = name(应等于 activity_name),parts[1] = creator_name
+            target_creator = parts[1].strip()
+
+    # 1. 点击活动卡片展开搜索面板
+    activity_wrap = page.locator("div.post-activity-wrap").first
+    if await activity_wrap.count() == 0:
+        logger.info("[设置活动] 未找到活动卡片,跳过")
+        return
+    await activity_wrap.click()
+    await asyncio.sleep(1)
+
+    # 2. 在搜索框一次性填入关键字(替代之前的逐字 keyboard.type):
+    #    原写法 delay=50 一字一字敲,网络好时整个输入要几百 ms 起步,而且
+    #    视频号下拉的 debounce 是从最后一个 keyup 开始算,逐字输入拉长了
+    #    "最后一次输入"到"下拉出结果"的等待窗口。一次性 fill() 走单个
+    #    input 事件,React 监听能正常拿到。
+    search_input = page.locator('input[placeholder="搜索活动"]').first
+    if await search_input.count() == 0:
+        logger.warning("[设置活动] 未找到活动搜索框,跳过")
+        return
+    await search_input.click()
+    await search_input.fill(activity_name)
+
+    # 3. 等待下拉真实数据渲染(参考小红书 _fill_tags 修法):
+    #    clear_and_type 后 sleep 固定 2s 不够,网络慢时下拉还没出来就遍历会
+    #    命中 0 项 → 误判「未找到」。改成 wait_for 等到下拉里至少 1 个 .option-item
+    #    (除 index 0「不参与活动」外)真正渲染可见再开始匹配。
+    real_option = page.locator(
+        'div.common-option-list-wrap .option-item .activity-item-info .name'
+    ).first
+    try:
+        await real_option.wait_for(state="visible", timeout=8000)
+    except Exception as exc:
+        logger.warning("[设置活动] 等待下拉数据超时: %s", exc)
+        # 不直接 return —— 继续走下面的匹配,可能是真的 0 结果
+    await asyncio.sleep(0.3)  # 给最后一项的 DOM 一点点缓冲
+
+    # 4. 在下拉项里找精确匹配(index 0 是「不参与活动」,跳过)
+    #    优先按 (name, creator) 复合匹配,无 creator 时退化为按 name 匹配
+    options = page.locator("div.common-option-list-wrap .option-item")
+    count = await options.count()
+    name_only_fallback = None  # 记录第一个 name 匹配的选项,复合匹配失败时兜底
+    for i in range(1, count):  # 跳过 index 0
+        opt = options.nth(i)
+        info_el = opt.locator(".activity-item-info").first
+        if await info_el.count() == 0:
+            continue
+        name_el = info_el.locator(".name").first
+        creator_el = info_el.locator(".creator-name").first
+        if await name_el.count() == 0:
+            continue
+        try:
+            name = (await name_el.inner_text()).strip()
+        except Exception:
+            continue
+        if name != activity_name:
+            continue
+        # name 匹配上了
+        if target_creator:
+            try:
+                creator_text = (await creator_el.inner_text()).strip().rstrip("· ").strip() if await creator_el.count() > 0 else ""
+            except Exception:
+                creator_text = ""
+            if creator_text == target_creator:
+                await opt.click()
+                logger.info("[设置活动] 已选择活动: %s (creator=%s)", activity_name, target_creator)
+                return
+            # name 匹配但 creator 不匹配 → 记录第一个用于后续兜底
+            if name_only_fallback is None:
+                name_only_fallback = (i, opt)
+        else:
+            # 没有 target_creator,直接按 name 匹配
+            await opt.click()
+            logger.info("[设置活动] 已选择活动: %s (按 name 匹配)", activity_name)
+            return
+
+    # 复合匹配失败 → 兜底用 name 唯一匹配的那一个
+    if name_only_fallback is not None:
+        await name_only_fallback[1].click()
+        logger.warning("[设置活动] 复合匹配未命中,按 name 兜底: %s (期望 creator=%s)", activity_name, target_creator)
+        return
+    logger.warning("[设置活动] 未找到活动: %s", activity_name)
 
 
 async def _apply_original_statement(page, category: str | None = None) -> None:
@@ -1114,6 +1230,9 @@ class ChannelsPlatform(BasePlatform):
                         status_queue=status_queue,
                         scrape_fn=scrape_tencent_profile,
                         account_id=account_id,
+                        # 登录成功后在同一个 session 内补抓 stats(视频/关注者),
+                        # 与 sync_profile 共用同一份抓取逻辑
+                        stats_fn=self._login_stats_fn,
                     )
                     success = True
                     return
@@ -1209,8 +1328,14 @@ class ChannelsPlatform(BasePlatform):
     # sync_profile — open platform URL with cookies, scrape profile
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Channels creator centre."""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """Sync profile info (name, avatar, stats) from Channels creator centre.
+
+        抓取 finder-content-info 上的两个数字:
+        - 视频数  (DOM: `.finder-content-info > div:first-child .finder-info-num`)
+        - 关注者  (DOM: `.finder-content-info .second-info .finder-info-num`)
+        (视频号没有粉丝数概念,"关注者"等价于粉丝)
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
         try:
@@ -1218,17 +1343,89 @@ class ChannelsPlatform(BasePlatform):
             page = await context.new_page()
             await page.goto(TENCENT_PLATFORM_URL)
             name, avatar = await scrape_tencent_profile(page)
+            stats = await self._scrape_channels_stats(page)
             await page.close()
             await context.close()
-            return name, avatar
+            return {"name": name, "avatar": avatar, "stats": stats}
         except Exception as exc:
             logger.info(f"[发布] sync_profile error: {exc}")
-            return "", ""
+            return {"name": "", "avatar": "", "stats": []}
         finally:
             try:
                 await browser.close()
             except Exception:
                 pass
+
+
+    async def _scrape_channels_stats(self, page) -> list:
+            """抓取视频号创作者中心首页的运营数据。
+
+            页面 DOM 结构(参见用户提供的 2026-07-19 抓取样本):
+                <div class="finder-content-info">
+                  <div><span>视频</span><span class="finder-info-num">11</span></div>
+                  <div class="second-info"><span>关注者</span><span class="finder-info-num">2</span></div>
+                </div>
+
+            Returns:
+                list[dict]: 按 SORT 排序的运营数据列表
+            """
+            stats = []
+            label_map = {
+                "视频":   ("video",  1, "视频"),
+                "关注者": ("follow", 2, "关注者"),
+            }
+
+            try:
+                await page.wait_for_selector(".finder-info-num", timeout=8000)
+            except Exception:
+                logger.info("[channels stats] 等待 .finder-info-num 超时")
+
+            try:
+                raw = await page.evaluate(
+                    '''() => {
+                        const out = [];
+                        document.querySelectorAll('.finder-content-info > div').forEach(div => {
+                            const numEl = div.querySelector('.finder-info-num');
+                            if (!numEl) return;
+                            // 标签在前一个 span 里(不是 .finder-info-num)
+                            const labelSpan = div.querySelector('span:not(.finder-info-num)');
+                            const label = labelSpan ? labelSpan.textContent.trim() : '';
+                            const num = numEl.textContent.trim();
+                            if (label) out.push({label, num});
+                        });
+                        return out;
+                    }'''
+                )
+                for item in raw:
+                    label = item.get('label', '')
+                    if label in label_map:
+                        icon, sort_no, name = label_map[label]
+                        try:
+                            count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '') or '0')
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+            except Exception as exc:
+                logger.info(f"[channels stats] 抓取失败: {exc}")
+
+            stats.sort(key=lambda x: x.get("SORT", 999))
+            return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_channels_stats 抓取逻辑,
+        保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
+        """
+        try:
+            try:
+                await page.goto(TENCENT_PLATFORM_URL, timeout=15000)
+            except Exception:
+                pass
+            return await self._scrape_channels_stats(page)
+        except Exception as exc:
+            logger.info(f"[channels login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center — KEEP AS-IS (sync CloakBrowser in thread)
@@ -1311,6 +1508,10 @@ class ChannelsPlatform(BasePlatform):
         channels_collection_name = kwargs.get("channels_collection_name", "")
         # 视频号位置(平台级,空字符串=不显示位置)
         channels_location_name = kwargs.get("channels_location_name", "")
+        # 视频号活动(平台级,空字符串=不参与活动)
+        channels_activity_name = kwargs.get("channels_activity_name", "")
+        # 视频号活动复合 id: 格式 f"{name}|{creator_name}",用于同名不同发起人的精确匹配
+        channels_activity_id = kwargs.get("channels_activity_id", "")
         # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
         channels_mark_tag = kwargs.get("channels_mark_tag", "无需标注")
         # 自行拍摄联动:拍摄时间(YYYY-MM-DD 字符串)+ 拍摄地点([国家, 省, 市] 文本数组)
@@ -1403,6 +1604,7 @@ class ChannelsPlatform(BasePlatform):
                             await _fill_title_and_tags(page, title, tags)
                             await _apply_collection(page, channels_collection_name)
                             await _apply_location(page, channels_location_name)
+                            await _apply_activity(page, channels_activity_name, channels_activity_id)
                             await _apply_original_statement(page, category)
                             await _apply_mark_tag(
                                 page,
@@ -1436,6 +1638,7 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("[发布调试] 竖版封面(portrait) : %s", thumbnail_portrait_path or "(无)")
                             logger.info("[发布调试] 合集(collection)  : %s", channels_collection_name or "(无)")
                             logger.info("[发布调试] 位置(location)     : %s", channels_location_name or "(无)")
+                            logger.info("[发布调试] 活动(activity)     : %s (id=%s)", channels_activity_name or "(无)", channels_activity_id or "(无)")
                             logger.info("[发布调试] 创作声明(category): %s", category or "(无)")
                             logger.info("[发布调试] 视频标注(mark_tag) : %s", channels_mark_tag or "(无)")
                             logger.info("[发布调试] 拍摄时间(shoot_dt): %s", channels_shoot_date or "(无)")

@@ -112,6 +112,9 @@ class BaijiahaoPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_baijiahao_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(6 项运营数据),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -162,15 +165,16 @@ class BaijiahaoPlatform(BasePlatform):
     # sync_profile -- refresh user name / avatar
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Baijiahao account settings page.
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """Sync profile info (name, avatar, stats) from Baijiahao.
 
-        Uses ``scrape_baijiahao_profile`` from ``_utils`` to scrape the
-        rendered account settings page.
+        抓取流程:
+        1. 访问 https://baijiahao.baidu.com/builder/rc/home 抓 name/avatar
+        2. 访问 https://baijiahao.baidu.com/ 抓 6 项 stats:
+           累计投稿量/累计阅读(播放)量/累计百度搜索量/总粉丝量/累计总收益/近30天分润收益
+        3. 同步完成后立即回写 storage_state,把本轮产生的 cookie + localStorage 一并落盘
 
-        使用无头模式（``headless=True``）。同步完成后立即回写
-        storage_state，把本轮产生的 cookie 更新 + 百家号 localStorage
-        一并落盘，让后续 check_cookie / publish 可用同一份登录态。
+        卡片显示 3 项(粉丝量/累计阅读(播放)量/累计百度搜索量),其余 3 项进悬浮窗。
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
@@ -185,10 +189,18 @@ class BaijiahaoPlatform(BasePlatform):
                 )
                 name, avatar = await scrape_baijiahao_profile(page)
 
-                # 同步完成后立即把 storage_state 写回（关键）：
+                # 抓 stats(运营数据)
+                try:
+                    await page.goto("https://baijiahao.baidu.com/", wait_until="domcontentloaded", timeout=30000)
+                    stats = await self._scrape_baijiahao_stats(page)
+                except Exception as exc:
+                    logger.info(f"[baijiahao] 抓 stats 失败(不影响 name/avatar): {exc}")
+                    stats = []
+
+                # 同步完成后立即把 storage_state 写回(关键):
                 # 1) cookie 的真实 expires / httponly 等属性
                 # 2) 百家号域下产生的 localStorage (userinfo / token 等)
-                # 手工导入的 cookie 没有这些数据，不写回后续流程仍会失败。
+                # 手工导入的 cookie 没有这些数据,不写回后续流程仍会失败。
                 try:
                     await context.storage_state(path=cookie_path)
                     logger.info(
@@ -197,11 +209,88 @@ class BaijiahaoPlatform(BasePlatform):
                 except Exception as e:
                     logger.info(f"[baijiahao] 回写 storage_state 失败: {e}")
 
-                return name, avatar
+                return {"name": name, "avatar": avatar, "stats": stats}
             finally:
                 await context.close()
         finally:
             await browser.close()
+
+    async def _scrape_baijiahao_stats(self, page) -> list:
+        """抓取百家号首页 6 项运营数据。
+
+        页面 DOM 结构(参见用户提供的 2026-07-20 抓取样本):
+            <div class="FeReactApp-...-filterItem">
+                <div class="FeReactApp-...-title">累计投稿量<span>...</span></div>
+                <div class="FeReactApp-...-numbers"><span>18</span></div>
+                ...
+            </div>
+        每块 .filterItem 都有 title(指标名)和 numbers(数值)。
+
+        Returns:
+            list[dict]: 按 SORT 排序的运营数据列表
+        """
+        stats = []
+        # label_map: 百家号页面上的中文指标名 -> (ICON, SORT, 标准化 NAME)
+        # SORT 1-3 是卡片显示的优先项(粉丝/播放量/搜索量);4-6 进悬浮窗
+        label_map = {
+            "总粉丝量":         ("user",  1, "粉丝"),
+            "累计阅读(播放)量": ("play",  2, "播放量"),
+            "累计百度搜索量":   ("play",  3, "搜索量"),
+            "累计投稿量":       ("edit",  4, "投稿量"),
+            "累计总收益":       ("coin",  5, "累计收益"),
+            "近30天分润收益":   ("coin",  6, "近30天分润"),
+        }
+
+        try:
+            try:
+                await page.wait_for_selector(".FeReactApp-_3a492ee4f8f1a936-filterItem", timeout=10000)
+            except Exception:
+                logger.info("[baijiahao stats] 等待 .filterItem 超时")
+
+            raw = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    document.querySelectorAll('.FeReactApp-_3a492ee4f8f1a936-filterItem').forEach(item => {
+                        const titleEl = item.querySelector('.FeReactApp-_3a492ee4f8f1a936-title');
+                        const numEl = item.querySelector('.FeReactApp-_3a492ee4f8f1a936-numbers span');
+                        if (!titleEl || !numEl) return;
+                        // title 文本去掉内嵌的 svg/icon 节点,只保留文字
+                        const label = (titleEl.textContent || '').trim();
+                        const num = (numEl.textContent || '').trim();
+                        if (label && num) out.push({label, num});
+                    });
+                    return out;
+                }'''
+            )
+            for item in raw:
+                label = item.get('label', '')
+                if label in label_map:
+                    icon, sort_no, name = label_map[label]
+                    try:
+                        count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '').replace('+', '') or '0')
+                    except (ValueError, TypeError):
+                        count = 0
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+        except Exception as exc:
+            logger.info(f"[baijiahao stats] 抓取失败: {exc}")
+
+        stats.sort(key=lambda x: x.get("SORT", 999))
+        return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_baijiahao_stats 抓取逻辑。
+        """
+        try:
+            try:
+                await page.goto("https://baijiahao.baidu.com/", wait_until="domcontentloaded", timeout=30000)
+            except Exception:
+                pass
+            return await self._scrape_baijiahao_stats(page)
+        except Exception as exc:
+            logger.info(f"[baijiahao login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center -- visible browser window (sync CloakBrowser)

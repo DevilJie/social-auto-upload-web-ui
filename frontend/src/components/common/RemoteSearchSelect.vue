@@ -22,6 +22,7 @@
               class="rss-search-input"
               :placeholder="searchPlaceholder"
               @keyup.enter="handleSearch"
+              @input="scheduleAutoSearch"
               @focus="searchFocused = true"
               @blur="searchFocused = false"
             />
@@ -33,7 +34,7 @@
           </div>
           <div class="rss-hint">
             <el-icon><Promotion /></el-icon>
-            <span>按 Enter 搜索</span>
+            <span>输入停顿 2 秒自动搜索,也可按 Enter 立即搜索</span>
           </div>
         </div>
         <!-- loading:三个脉冲点(autoLoad / 手动搜索 都显示) -->
@@ -90,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { Search, CircleClose, Promotion, Picture, Check, MagicStick } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -211,7 +212,34 @@ function onCoverError(e) {
 }
 
 // ─────────── 搜索逻辑 ───────────
+// 自动搜索 debounce:用户停止输入 2s 后自动触发(同时保留 Enter 立即触发)
+const AUTO_SEARCH_DELAY_MS = 2000
+let autoSearchTimer = null
+
+function scheduleAutoSearch() {
+  // 每次输入都重置计时器,实现「停顿 2s 自动触发」的 debounce 效果
+  if (autoSearchTimer) clearTimeout(autoSearchTimer)
+  autoSearchTimer = setTimeout(() => {
+    autoSearchTimer = null
+    handleSearch()
+  }, AUTO_SEARCH_DELAY_MS)
+}
+
+function cancelAutoSearch() {
+  if (autoSearchTimer) {
+    clearTimeout(autoSearchTimer)
+    autoSearchTimer = null
+  }
+}
+
+// 组件卸载时清理未触发的计时器,避免内存泄漏 + 卸载后仍触发 fetcher
+onUnmounted(cancelAutoSearch)
+
 async function handleSearch() {
+  // 立即触发(Enter / 点击清空外的任何按钮)时,把未到点的 debounce 计时器也取消掉,
+  // 避免 2s 后又重复请求一次
+  cancelAutoSearch()
+
   const kw = searchKeyword.value?.trim()
 
   // 空关键词行为分流
@@ -243,6 +271,8 @@ async function handleSearch() {
 }
 
 function handleClear() {
+  // 清空按钮不会触发 @input,这里主动取消 debounce 保险一下
+  cancelAutoSearch()
   searchKeyword.value = ''
   list.value = []
   searched.value = false
@@ -398,20 +428,27 @@ watch(() => props.modelValue, (val) => {
   // ─────────── 列表项 ───────────
   .el-select-dropdown__item {
     height: auto;
-    min-height: 56px;
+    min-height: 40px;
     padding: 0;
+    // 紧凑间距:项之间 2px,面板边缘 8px,既保留分隔又不挤占可见项数
     margin: 2px 8px;
-    border-radius: 10px;
-    background: transparent !important;
-    transition: background 0.15s, transform 0.15s;
+    border-radius: 8px;
+    // 卡片式底色:比面板略亮一点点 + 1px 边框,每项独立成卡
+    background: rgba($overlay-rgb, 0.03) !important;
+    border: 1px solid rgba($overlay-rgb, 0.06);
+    transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 
     &:hover,
     &.hover {
-      background: rgba($overlay-rgb, 0.05) !important;
+      background: rgba($overlay-rgb, 0.08) !important;
+      border-color: rgba($overlay-rgb, 0.12);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
       transform: translateX(2px);
     }
     &.selected {
-      background: rgba($brand-start, 0.08) !important;
+      // 选中态:品牌色淡底 + 品牌色边框,与左侧渐变条呼应
+      background: rgba($brand-start, 0.10) !important;
+      border-color: rgba($brand-start, 0.35);
       font-weight: normal;
     }
   }
@@ -420,14 +457,14 @@ watch(() => props.modelValue, (val) => {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    min-height: 56px;
+    gap: 10px;
+    padding: 6px 10px;
+    min-height: 40px;
 
     // 选中态左侧紫蓝渐变条
     .rss-option-bar {
       position: absolute;
-      left: 0; top: 14px; bottom: 14px;
+      left: 0; top: 10px; bottom: 10px;
       width: 3px;
       border-radius: 0 3px 3px 0;
       background: $gradient-brand;
@@ -439,8 +476,8 @@ watch(() => props.modelValue, (val) => {
 
   .rss-option-cover {
     flex-shrink: 0;
-    width: 44px; height: 44px;
-    border-radius: 8px;
+    width: 32px; height: 32px;
+    border-radius: 6px;
     overflow: hidden;
     background: rgba($overlay-rgb, 0.03);
     img {
@@ -462,14 +499,16 @@ watch(() => props.modelValue, (val) => {
   .rss-option-label {
     font-size: 14px;
     font-weight: 500;
+    line-height: 1.2;          // 紧凑行高,避免默认 1.5 在 label 下方留太多空白
     color: $text-primary;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .rss-option-desc {
-    margin-top: 3px;
+    margin-top: 1px;          // 1px 间距,line-height: 1.2 下视觉上仍紧凑但能区分
     font-size: 12px;
+    line-height: 1.2;          // 同上,label 与 desc 真正贴在一起
     color: $text-secondary;
     overflow: hidden;
     text-overflow: ellipsis;

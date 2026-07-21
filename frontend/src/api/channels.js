@@ -11,4 +11,9 @@ export const channelsApi = {
   getLocations(accountId, keyword) {
     return http.get(`/api/channels/locations?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}`)
   },
+  // 搜索可参与的活动(后端 CloakBrowser 打开发布页→点活动卡→输入关键字→解析下拉 DOM)
+  // 与位置同模式:必传 keyword,后端真实搜索;index 0 是「不参与活动」会被跳过
+  searchActivities(accountId, keyword) {
+    return http.get(`/api/channels/activities?account_id=${accountId}&keyword=${encodeURIComponent(keyword)}`)
+  },
 }

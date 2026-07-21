@@ -116,6 +116,9 @@ class VivoPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_vivo_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(粉丝/获赞/关注),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 logger.info("[登录] 登录流程完成!")
                 success = True
@@ -175,12 +178,12 @@ class VivoPlatform(BasePlatform):
     # sync_profile — refresh user name / avatar / fans / likes / follows
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
+    async def sync_profile(self, cookie_file: str) -> dict:
         """Sync profile info from VIVO creator centre.
 
         Returns:
-            ``(name, avatar, fans, likes, follows)`` 5-tuple. VIVO 平台
-            无关注数概念,follows 固定为 0。
+            dict: ``{"name": str, "avatar": str, "stats": [{"ICON","COUNT","NAME","SORT"}, ...]}``
+            VIVO 平台无关注数概念,follows 固定为 0。
         """
         logger.info("[同步资料] 开始同步用户资料: %s", cookie_file)
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
@@ -203,11 +206,41 @@ class VivoPlatform(BasePlatform):
                     "[同步资料] 昵称: %s, 头像: %s, 粉丝: %d, 获赞: %d, 关注: %d",
                     name, avatar[:50] if avatar else "无", fans, likes, follows,
                 )
-                return name, avatar, fans, likes, follows
+                return {
+                    "name": name,
+                    "avatar": avatar,
+                    "stats": [
+                        {"ICON": "user",   "COUNT": fans,   "NAME": "粉丝", "SORT": 1},
+                        {"ICON": "like",   "COUNT": likes,  "NAME": "获赞", "SORT": 2},
+                        {"ICON": "follow", "COUNT": follows, "NAME": "关注", "SORT": 3},
+                    ],
+                }
             finally:
                 await context.close()
         finally:
             await browser.close()
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 scrape_vivo_profile 抓取逻辑 + 组装为 stats JSON,
+        保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
+        """
+        try:
+            try:
+                await page.goto(_VIVO_HOME_URL, wait_until="domcontentloaded", timeout=30000)
+            except Exception:
+                pass
+            await asyncio.sleep(3)
+            _name, _avatar, fans, likes, follows = await scrape_vivo_profile(page)
+            return [
+                {"ICON": "user",   "COUNT": fans,    "NAME": "粉丝", "SORT": 1},
+                {"ICON": "like",   "COUNT": likes,   "NAME": "获赞", "SORT": 2},
+                {"ICON": "follow", "COUNT": follows, "NAME": "关注", "SORT": 3},
+            ]
+        except Exception as exc:
+            logger.info(f"[vivo login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # open_creator_center — visible browser window

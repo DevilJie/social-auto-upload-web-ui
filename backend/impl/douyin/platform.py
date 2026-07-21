@@ -127,6 +127,9 @@ class DouyinPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_user_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(关注/粉丝/获赞),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -183,8 +186,14 @@ class DouyinPlatform(BasePlatform):
     # sync_profile — refresh user name / avatar
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Douyin creator centre."""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """同步抖音昵称、头像、运营数据(stats)。
+
+        创作中心首页 (creator.douyin.com/) 同一个容器里有
+        头像 / 昵称 / 3 项 stats(关注/粉丝/获赞)。
+        抖音 CSS-in-JS class 名带 hash 后缀,易变,
+        用 .statics-item-MDWoNA 容器 + 文本节点(关注/粉丝/获赞)定位。
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         browser = await self.create_browser(headless=True)
         try:
@@ -194,18 +203,122 @@ class DouyinPlatform(BasePlatform):
                 try:
                     await page.goto(
                         "https://creator.douyin.com/",
-                        wait_until="networkidle",
+                        wait_until="domcontentloaded",
                         timeout=30000,
                     )
                 except Exception:
-                    # networkidle can timeout; page content may still be usable
                     pass
+                # 等用户卡片渲染(短超时)
+                try:
+                    await page.wait_for_selector(
+                        "[class*='statics-'], [class*='statics-item-']",
+                        timeout=8000,
+                    )
+                except Exception:
+                    logger.info("[douyin stats] 等待 statics 超时")
+
                 name, avatar = await scrape_user_profile(page)
-                return name, avatar
+
+                # 抓 3 项 stats(关注/粉丝/获赞),用文本节点匹配而非 id/class hash
+                result = await page.evaluate(
+                    '''() => {
+                        const out = [];
+                        document.querySelectorAll('[class*="statics-item-"]').forEach(item => {
+                            // textContent 包含 "关注"/"粉丝"/"获赞" + 数字 (在 <span> 里)
+                            const spans = item.querySelectorAll('span');
+                            if (!spans.length) return;
+                            // 取最后一个 span(数字)
+                            const numEl = spans[spans.length - 1];
+                            const num = (numEl.textContent || '').trim();
+                            // textContent 是 label + 数字拼接,识别 label
+                            const full = (item.textContent || '').trim();
+                            let label = '';
+                            if (full.startsWith('关注')) label = '关注';
+                            else if (full.startsWith('粉丝')) label = '粉丝';
+                            else if (full.startsWith('获赞')) label = '获赞';
+                            if (label && num) {
+                                out.push({label, num});
+                            }
+                        });
+                        return out;
+                    }'''
+                )
+
+                label_map = {
+                    "关注": ("follow", 1, "关注"),
+                    "粉丝": ("user",   2, "粉丝"),
+                    "获赞": ("like",   3, "获赞"),
+                }
+                stats = []
+                for item in (result or []):
+                    lbl = item.get('label', '')
+                    num_str = str(item.get('num', '0'))
+                    if lbl in label_map:
+                        icon, sort_no, std_name = label_map[lbl]
+                        try:
+                            count = int(num_str.replace(',', '').replace(' ', '') or '0')
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+
+                if not name and not avatar and not stats:
+                    logger.info(f"[douyin] sync_profile 抓取为空,url={page.url}")
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             finally:
                 await context.close()
         finally:
             await browser.close()
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用同一份 evaluate 抓取逻辑。
+        """
+        try:
+            await page.wait_for_selector(
+                "[class*='statics-item-']",
+                timeout=8000,
+            )
+        except Exception:
+            logger.info("[douyin login] 等待 statics 超时")
+
+        result = await page.evaluate(
+            '''() => {
+                const out = [];
+                document.querySelectorAll('[class*="statics-item-"]').forEach(item => {
+                    const spans = item.querySelectorAll('span');
+                    if (!spans.length) return;
+                    const numEl = spans[spans.length - 1];
+                    const num = (numEl.textContent || '').trim();
+                    const full = (item.textContent || '').trim();
+                    let label = '';
+                    if (full.startsWith('关注')) label = '关注';
+                    else if (full.startsWith('粉丝')) label = '粉丝';
+                    else if (full.startsWith('获赞')) label = '获赞';
+                    if (label && num) out.push({label, num});
+                });
+                return out;
+            }'''
+        )
+
+        label_map = {
+            "关注": ("follow", 1, "关注"),
+            "粉丝": ("user",   2, "粉丝"),
+            "获赞": ("like",   3, "获赞"),
+        }
+        stats = []
+        for item in (result or []):
+            lbl = item.get('label', '')
+            num_str = str(item.get('num', '0'))
+            if lbl in label_map:
+                icon, sort_no, std_name = label_map[lbl]
+                try:
+                    count = int(num_str.replace(',', '').replace(' ', '') or '0')
+                except (ValueError, TypeError):
+                    count = 0
+                stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+        return stats
 
     # ------------------------------------------------------------------
     # open_creator_center — visible browser window (sync CloakBrowser)

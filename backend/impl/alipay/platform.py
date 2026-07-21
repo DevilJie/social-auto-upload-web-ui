@@ -130,6 +130,9 @@ class AlipayPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_alipay_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(粉丝/获赞),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -208,8 +211,12 @@ class AlipayPlatform(BasePlatform):
     # sync_profile()
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """同步昵称 + 头像。"""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """同步昵称 + 头像 + 运营数据(stats)。
+
+        访问 https://c.alipay.com/page/life-account/index,同一个 DOM 里同时抓
+        name/avatar 和 stats(粉丝/获赞)。
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
         url = _ALIPAY_CREATOR_URL
 
@@ -219,14 +226,91 @@ class AlipayPlatform(BasePlatform):
             page = await context.new_page()
             try:
                 await page.goto(url, wait_until="networkidle", timeout=30000)
-                return await scrape_alipay_profile(page)
+                name, avatar = await scrape_alipay_profile(page)
+                # stats 与 name/avatar 在同一个 DOM 区块(.numBox),不用 goto 第二次
+                stats = await self._scrape_alipay_stats(page)
+                return {"name": name, "avatar": avatar, "stats": stats}
             except Exception as e:
                 logger.info(f"[alipay] 同步资料失败: {e}")
-                return "", ""
+                return {"name": "", "avatar": "", "stats": []}
             finally:
                 await context.close()
         finally:
             await browser.close()
+
+    async def _scrape_alipay_stats(self, page) -> list:
+        """抓取支付宝创作中心 .numBox 区块里的运营数据。
+
+        页面 DOM 结构(参见用户提供的 2026-07-21 抓取样本):
+            <div class="numBox___BlEq0">
+                <span class="cntBox___HEIqZ">粉丝<span class="cnt___PTXo2">0</span></span>
+                <span class="cntBox___HEIqZ">获赞<span class="cnt___PTXo2">0</span></span>
+                <div class="ant-divider ant-divider-vertical" role="separator"></div>
+                <div class="appId___lVu45">生活号ID:...</div>
+            </div>
+
+        每块 .cntBox 包含一个中文 label + 一个 .cnt 数值 span。
+
+        Returns:
+            list[dict]: 按 SORT 排序的运营数据列表
+        """
+        stats = []
+        # label_map: 区块里的纯文本 label -> (ICON, SORT, 标准化 NAME)
+        label_map = {
+            "粉丝": ("user", 1, "粉丝"),
+            "获赞": ("like", 2, "获赞"),
+        }
+
+        try:
+            try:
+                await page.wait_for_selector(".cntBox___HEIqZ, [class*='cntBox_']", timeout=8000)
+            except Exception:
+                logger.info("[alipay stats] 等待 .cntBox 超时")
+
+            raw = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    // CSS modules class 名带 hash,用属性选择器更稳:[class*="cntBox_"]
+                    document.querySelectorAll('[class*="cntBox_"]').forEach(item => {
+                        // 数值 span:[class*="cnt_"] 开头(排除 cntBox_)
+                        const numEl = item.querySelector('[class^="cnt_"]:not([class*="cntBox_"])');
+                        if (!numEl) return;
+                        // label 是 .cntBox 里的纯文本节点(去掉嵌套 span 后)
+                        const clone = item.cloneNode(true);
+                        clone.querySelectorAll('span').forEach(s => s.remove());
+                        const label = (clone.textContent || '').trim();
+                        const num = (numEl.textContent || '').trim();
+                        if (label && num) out.push({label, num});
+                    });
+                    return out;
+                }'''
+            )
+
+            for item in raw:
+                label = item.get('label', '')
+                if label in label_map:
+                    icon, sort_no, name = label_map[label]
+                    try:
+                        count = int(str(item.get('num', '0')).replace(',', '').replace(' ', '') or '0')
+                    except (ValueError, TypeError):
+                        count = 0
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": name, "SORT": sort_no})
+        except Exception as exc:
+            logger.info(f"[alipay stats] 抓取失败: {exc}")
+
+        stats.sort(key=lambda x: x.get("SORT", 999))
+        return stats
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用 _scrape_alipay_stats 抓取逻辑。
+        """
+        try:
+            return await self._scrape_alipay_stats(page)
+        except Exception as exc:
+            logger.info(f"[alipay login] _login_stats_fn 抓取失败: {exc}")
+            return []
 
     # ------------------------------------------------------------------
     # publish_video -- sync entry point

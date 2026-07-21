@@ -573,32 +573,39 @@ def sync_profile():
     if not platform:
         return jsonify({"code": 400, "msg": "不支持的平台类型", "data": None}), 400
 
-    # sync_profile 约定:
-    #   2 元组 (name, avatar) — 旧平台/抓取失败
-    #   5 元组 (name, avatar, fans, likes, follows) — 新平台(如 VIVO)同步运营数据
-    profile = asyncio.run(platform.sync_profile(record['filePath']))
-    fans = likes = follows = 0
-    if len(profile) >= 5:
-        name, avatar, fans, likes, follows = profile[:5]
+    # sync_profile 新约定:返回 dict{name, avatar, stats}
+    # 兼容旧实现:返回 2 元组 (name, avatar) 时 stats 为 []
+    result = asyncio.run(platform.sync_profile(record['filePath']))
+    if isinstance(result, dict):
+        name = result.get('name', '') or ''
+        avatar = result.get('avatar', '') or ''
+        stats = result.get('stats', []) or []
+        if not isinstance(stats, list):
+            stats = []
+    elif isinstance(result, tuple):
+        name = result[0] if len(result) > 0 else ''
+        avatar = result[1] if len(result) > 1 else ''
+        stats = []
     else:
-        name, avatar = profile[0], profile[1]
+        name, avatar, stats = '', '', []
 
     if name or avatar:
+        stats_json = json.dumps(stats, ensure_ascii=False)
         with sqlite3.connect(str(DB_PATH)) as conn:
             if name:
                 conn.execute(
-                    'UPDATE user_info SET userName = ?, avatar = ?, fans = ?, likes = ?, follows = ? WHERE id = ?',
-                    (name, avatar, fans, likes, follows, account_id),
+                    'UPDATE user_info SET userName = ?, avatar = ?, stats = ? WHERE id = ?',
+                    (name, avatar, stats_json, account_id),
                 )
             else:
                 conn.execute(
-                    'UPDATE user_info SET avatar = ?, fans = ?, likes = ?, follows = ? WHERE id = ?',
-                    (avatar, fans, likes, follows, account_id),
+                    'UPDATE user_info SET avatar = ?, stats = ? WHERE id = ?',
+                    (avatar, stats_json, account_id),
                 )
 
     return jsonify({
         "code": 200, "msg": "同步成功",
-        "data": {"name": name, "avatar": avatar, "fans": fans, "likes": likes, "follows": follows},
+        "data": {"name": name, "avatar": avatar, "stats": stats},
     })
 
 
@@ -1019,6 +1026,10 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号活动(平台级,空=不参与活动)
+                channels_activity_name=data.get('channelsActivityName', ''),
+                # 视频号活动复合 id: name|creator_name,用于同名不同发起人的精确匹配
+                channels_activity_id=(data.get('channelsActivityData') or {}).get('activity_id', ''),
                 # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
                 channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
                 channels_shoot_date=data.get('channelsShootDate', ''),
@@ -1098,6 +1109,10 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号活动(平台级,空=不参与活动)
+                channels_activity_name=data.get('channelsActivityName', ''),
+                # 视频号活动复合 id: name|creator_name,用于同名不同发起人的精确匹配
+                channels_activity_id=(data.get('channelsActivityData') or {}).get('activity_id', ''),
                 # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
                 channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
                 channels_shoot_date=data.get('channelsShootDate', ''),

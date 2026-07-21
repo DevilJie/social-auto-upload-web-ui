@@ -113,6 +113,12 @@
         <!-- 标签行(独立一行,溢出跑马灯) -->
         <!-- 账号运营数据(stats JSON),按 SORT 升序,最多展示 4 块,超过走悬浮窗 -->
         <div class="account-stats-row" :class="{ 'has-overflow': getExtraStats(account).length > 0 }">
+          <!-- 存量数据无运营数据:显示占位提示,引导用户点同步 -->
+          <div v-if="!sortStats(account?.stats).length" class="stat-block-empty">
+            <el-icon class="empty-icon"><Clock /></el-icon>
+            <span class="empty-text">暂无运营数据，点上方同步按钮获取</span>
+          </div>
+
           <template v-for="(item, idx) in getVisibleStats(account)" :key="`${account.id}-${item.NAME}-${idx}`">
             <div
               class="stat-block"
@@ -474,7 +480,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from 'vue'
-import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search } from '@element-plus/icons-vue'
+import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search, Clock } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
@@ -1604,6 +1610,30 @@ const submitAccountForm = () => {
       gap: 8px;
       margin-top: 8px;
       margin-bottom: 8px;
+
+      // 存量未同步数据的占位块(跨满整行,提示用户点同步)
+      .stat-block-empty {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 12px;
+        border-radius: $radius-sm;
+        border: 1px dashed $border-light;
+        background: rgba($overlay-rgb, 0.03);
+        color: $text-muted;
+        font-size: 12px;
+
+        .empty-icon {
+          font-size: 14px;
+          opacity: 0.7;
+        }
+
+        .empty-text {
+          font-size: 12px;
+        }
+      }
 
       .stat-block {
         display: flex;

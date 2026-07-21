@@ -22,6 +22,7 @@
               class="rss-search-input"
               :placeholder="searchPlaceholder"
               @keyup.enter="handleSearch"
+              @input="scheduleAutoSearch"
               @focus="searchFocused = true"
               @blur="searchFocused = false"
             />
@@ -33,7 +34,7 @@
           </div>
           <div class="rss-hint">
             <el-icon><Promotion /></el-icon>
-            <span>按 Enter 搜索</span>
+            <span>输入停顿 2 秒自动搜索,也可按 Enter 立即搜索</span>
           </div>
         </div>
         <!-- loading:三个脉冲点(autoLoad / 手动搜索 都显示) -->
@@ -90,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { Search, CircleClose, Promotion, Picture, Check, MagicStick } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -211,7 +212,34 @@ function onCoverError(e) {
 }
 
 // ─────────── 搜索逻辑 ───────────
+// 自动搜索 debounce:用户停止输入 2s 后自动触发(同时保留 Enter 立即触发)
+const AUTO_SEARCH_DELAY_MS = 2000
+let autoSearchTimer = null
+
+function scheduleAutoSearch() {
+  // 每次输入都重置计时器,实现「停顿 2s 自动触发」的 debounce 效果
+  if (autoSearchTimer) clearTimeout(autoSearchTimer)
+  autoSearchTimer = setTimeout(() => {
+    autoSearchTimer = null
+    handleSearch()
+  }, AUTO_SEARCH_DELAY_MS)
+}
+
+function cancelAutoSearch() {
+  if (autoSearchTimer) {
+    clearTimeout(autoSearchTimer)
+    autoSearchTimer = null
+  }
+}
+
+// 组件卸载时清理未触发的计时器,避免内存泄漏 + 卸载后仍触发 fetcher
+onUnmounted(cancelAutoSearch)
+
 async function handleSearch() {
+  // 立即触发(Enter / 点击清空外的任何按钮)时,把未到点的 debounce 计时器也取消掉,
+  // 避免 2s 后又重复请求一次
+  cancelAutoSearch()
+
   const kw = searchKeyword.value?.trim()
 
   // 空关键词行为分流
@@ -243,6 +271,8 @@ async function handleSearch() {
 }
 
 function handleClear() {
+  // 清空按钮不会触发 @input,这里主动取消 debounce 保险一下
+  cancelAutoSearch()
   searchKeyword.value = ''
   list.value = []
   searched.value = false

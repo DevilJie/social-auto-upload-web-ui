@@ -1026,6 +1026,8 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号活动(平台级,空=不参与活动)
+                channels_activity_name=data.get('channelsActivityName', ''),
                 # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
                 channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
                 channels_shoot_date=data.get('channelsShootDate', ''),
@@ -1105,6 +1107,8 @@ def postVideo():
                 channels_collection_name=data.get('channelsCollectionName', ''),
                 # 视频号位置(平台级,空=不显示位置)
                 channels_location_name=data.get('channelsLocationName', ''),
+                # 视频号活动(平台级,空=不参与活动)
+                channels_activity_name=data.get('channelsActivityName', ''),
                 # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
                 channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
                 channels_shoot_date=data.get('channelsShootDate', ''),

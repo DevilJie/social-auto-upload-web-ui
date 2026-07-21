@@ -173,7 +173,7 @@ class ZhihuPlatform(BasePlatform):
         """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
 
-        browser = await self.create_browser(headless=False)
+        browser = await self.create_browser(headless=True)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()

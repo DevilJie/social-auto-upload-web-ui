@@ -129,6 +129,9 @@ class WeiboPlatform(BasePlatform):
                     status_queue=status_queue,
                     scrape_fn=scrape_weibo_profile,
                     account_id=account_id,
+                    # 登录成功后在同一个 session 内补抓 stats(粉丝/关注/转评赞),
+                    # 与 sync_profile 共用同一份抓取逻辑
+                    stats_fn=self._login_stats_fn,
                 )
                 success = True
             finally:
@@ -210,25 +213,152 @@ class WeiboPlatform(BasePlatform):
     # sync_profile()
     # ------------------------------------------------------------------
 
-    async def sync_profile(self, cookie_file: str) -> tuple:
-        """Sync profile info (name, avatar) from Weibo creator centre."""
+    async def sync_profile(self, cookie_file: str) -> dict:
+        """同步微博昵称、头像、运营数据(stats)。
+
+        抓取流程:
+        1. 访问 weibo.com 首页,点击右上角头像 → 跳转到个人主页 weibo.com/u/<id>
+        2. 在个人主页抓 name/avatar/stats(粉丝/关注/转评赞)
+
+        与 login 路径(使用 scrape_weibo_profile)独立,stats 不在原 scraper 里,
+        这里新实现抓取。从个人主页一个 DOM 一次抓全 3 项 stats + 昵称头像。
+        """
         cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
-        url = _WEIBO_CREATOR_URL
 
         browser = await self.create_browser(headless=True)
         try:
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
-                await page.goto(url, wait_until="networkidle", timeout=30000)
-                return await scrape_weibo_profile(page)
+                # 1. 访问微博首页
+                await page.goto("https://weibo.com/", wait_until="domcontentloaded", timeout=20000)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+
+                # 2. 点击右上角用户头像 → 跳转到个人主页
+                try:
+                    avatar_btn = page.locator('.woo-badge-box img').first
+                    await avatar_btn.wait_for(state="visible", timeout=8000)
+                    await avatar_btn.click()
+                    # 等跳转到 /u/<id>
+                    await page.wait_for_url("**/u/**", timeout=10000)
+                except Exception as exc:
+                    logger.info(f"[weibo] 点击头像跳转个人主页失败: {exc}")
+
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+
+                # 3. 抓 name/avatar/stats(都在同一个 ._h3_/._h4_ 区块附近)
+                result = await page.evaluate(
+                    '''() => {
+                        const out = {name: '', avatar: '', stats: []};
+                        // 头像:.woo-avatar-img
+                        const av = document.querySelector('.woo-avatar-img');
+                        if (av) out.avatar = av.getAttribute('src') || '';
+                        // 昵称:._name_1yc79_291(后端 hash 改了,用 [class*="_name_"] 兜底)
+                        const nameEl = document.querySelector('[class*="_name_"]');
+                        if (nameEl) out.name = (nameEl.textContent || '').trim();
+                        // stats:3 个 _h5_ span,分别是 粉丝 / 关注 / 转评赞
+                        document.querySelectorAll('[class*="_h5_"]').forEach(el => {
+                            const numEl = el.querySelector('span');
+                            const text = (el.textContent || '').trim();
+                            if (!numEl) return;
+                            const num = (numEl.textContent || '').trim();
+                            // label 在 num 之后的文本里(例如 "2粉丝" 或 "粉丝 2")
+                            // 简单规则:含"粉丝"→粉丝;含"关注"→关注;含"转评赞"→转评赞
+                            if (text.includes('粉丝')) {
+                                out.stats.push({name: '粉丝', num});
+                            } else if (text.includes('转评赞')) {
+                                out.stats.push({name: '转评赞', num});
+                            } else if (text.includes('关注')) {
+                                out.stats.push({name: '关注', num});
+                            }
+                        });
+                        return out;
+                    }'''
+                )
+                name = (result or {}).get('name', '')
+                avatar = (result or {}).get('avatar', '')
+                stats_raw = (result or {}).get('stats', [])
+
+                # 组装 stats JSON
+                stats = []
+                label_map = {
+                    "粉丝":   ("user",   1, "粉丝"),
+                    "关注":   ("follow", 2, "关注"),
+                    "转评赞": ("like",   3, "转评赞"),
+                }
+                for item in stats_raw:
+                    label = item.get('name', '')
+                    num = item.get('num', '0')
+                    if label in label_map:
+                        icon, sort_no, std_name = label_map[label]
+                        try:
+                            count = int(str(num).replace(',', '').replace(' ', '') or '0')
+                        except (ValueError, TypeError):
+                            count = 0
+                        stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+
+                if not name and not avatar and not stats:
+                    logger.info(f"[weibo] sync_profile 抓取为空,url={page.url}")
+
+                return {"name": name, "avatar": avatar, "stats": stats}
             except Exception as e:
                 logger.info(f"[weibo] sync profile failed: {e}")
-                return "", ""
+                return {"name": "", "avatar": "", "stats": []}
             finally:
                 await context.close()
         finally:
             await browser.close()
+
+    async def _login_stats_fn(self, page, account_id) -> list:
+        """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
+
+        与 sync_profile 内部共用同一套 js evaluate 抓取逻辑。
+        """
+        try:
+            await asyncio.sleep(1)
+            result = await page.evaluate(
+                '''() => {
+                    const out = [];
+                    document.querySelectorAll('[class*="_h5_"]').forEach(el => {
+                        const numEl = el.querySelector('span');
+                        const text = (el.textContent || '').trim();
+                        if (!numEl) return;
+                        const num = (numEl.textContent || '').trim();
+                        if (text.includes('粉丝')) out.push({name:'粉丝', num});
+                        else if (text.includes('转评赞')) out.push({name:'转评赞', num});
+                        else if (text.includes('关注')) out.push({name:'关注', num});
+                    });
+                    return out;
+                }'''
+            )
+            label_map = {
+                "粉丝":   ("user",   1, "粉丝"),
+                "关注":   ("follow", 2, "关注"),
+                "转评赞": ("like",   3, "转评赞"),
+            }
+            stats = []
+            for item in (result or []):
+                label = item.get('name', '')
+                num = item.get('num', '0')
+                if label in label_map:
+                    icon, sort_no, std_name = label_map[label]
+                    try:
+                        count = int(str(num).replace(',', '').replace(' ', '') or '0')
+                    except (ValueError, TypeError):
+                        count = 0
+                    stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
+            return stats
+        except Exception as exc:
+            logger.info(f"[weibo login] _login_stats_fn 抓取失败: {exc}")
+            return [] 
 
     # ------------------------------------------------------------------
     # publish_video -- full Weibo upload pipeline (sync entry point)

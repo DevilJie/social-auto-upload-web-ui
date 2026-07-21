@@ -398,11 +398,11 @@ watch(() => props.modelValue, (val) => {
   // ─────────── 列表项 ───────────
   .el-select-dropdown__item {
     height: auto;
-    min-height: 56px;
+    min-height: 40px;
     padding: 0;
-    // 加大上下间距:每项之间留出明显呼吸空间,避免视觉粘连
-    margin: 5px 10px;
-    border-radius: 10px;
+    // 紧凑间距:项之间 2px,面板边缘 8px,既保留分隔又不挤占可见项数
+    margin: 2px 8px;
+    border-radius: 8px;
     // 卡片式底色:比面板略亮一点点 + 1px 边框,每项独立成卡
     background: rgba($overlay-rgb, 0.03) !important;
     border: 1px solid rgba($overlay-rgb, 0.06);
@@ -427,14 +427,14 @@ watch(() => props.modelValue, (val) => {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    min-height: 56px;
+    gap: 10px;
+    padding: 7px 10px;
+    min-height: 40px;
 
     // 选中态左侧紫蓝渐变条
     .rss-option-bar {
       position: absolute;
-      left: 0; top: 14px; bottom: 14px;
+      left: 0; top: 10px; bottom: 10px;
       width: 3px;
       border-radius: 0 3px 3px 0;
       background: $gradient-brand;
@@ -446,8 +446,8 @@ watch(() => props.modelValue, (val) => {
 
   .rss-option-cover {
     flex-shrink: 0;
-    width: 44px; height: 44px;
-    border-radius: 8px;
+    width: 32px; height: 32px;
+    border-radius: 6px;
     overflow: hidden;
     background: rgba($overlay-rgb, 0.03);
     img {
@@ -475,7 +475,7 @@ watch(() => props.modelValue, (val) => {
     white-space: nowrap;
   }
   .rss-option-desc {
-    margin-top: 3px;
+    margin-top: 2px;
     font-size: 12px;
     color: $text-secondary;
     overflow: hidden;

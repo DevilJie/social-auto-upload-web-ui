@@ -18,8 +18,12 @@
         :class="['group-wrap', { 'is-selected': selectedPlatform === group.key }]"
       >
         <div class="group-header cursor-pointer" @click="$emit('toggle-group', group.key)">
-          <el-icon class="expand-icon" :style="{ color: selectedPlatform === group.key ? group.color : '' }">
-            <component :is="expandedGroups.has(group.key) ? ArrowDown : ArrowRight" />
+          <el-icon
+            class="expand-icon"
+            :class="{ 'is-expanded': expandedGroups.has(group.key) }"
+            :style="{ color: selectedPlatform === group.key ? group.color : '' }"
+          >
+            <component :is="ArrowRight" />
           </el-icon>
           <span class="platform-badge">
             <img v-if="group.logo" :src="group.logo" :alt="group.name" class="platform-badge-img">
@@ -29,7 +33,11 @@
           <span class="group-count">{{ mode === 'readonly' ? group.accounts.length : group.accounts.filter(a => publishAccountIds.has(a.id)).length }}</span>
         </div>
 
-        <transition name="slide">
+        <transition
+          name="slide"
+          @enter="onSlideEnter"
+          @leave="onSlideLeave"
+        >
           <div v-show="expandedGroups.has(group.key)" class="group-accounts">
             <div
               v-for="account in group.accounts.filter(a => mode === 'readonly' ? true : publishAccountIds.has(a.id))"
@@ -63,7 +71,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { ArrowDown, ArrowRight, StarFilled, Close } from '@element-plus/icons-vue'
+import { ArrowRight, StarFilled, Close } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
 
@@ -101,6 +109,17 @@ const visibleAccountGroups = computed(() =>
     return true
   })
 )
+
+// 展开/收起过渡:动态设置 max-height,避免硬编码上限导致内容被裁剪
+function onSlideEnter(el) {
+  el.style.maxHeight = el.scrollHeight + 'px'
+}
+function onSlideLeave(el) {
+  el.style.maxHeight = el.scrollHeight + 'px'
+  // 强制重排后再改为 0,确保 leave 动画能播放
+  void el.offsetHeight
+  el.style.maxHeight = '0px'
+}
 </script>
 
 <style lang="scss" scoped>
@@ -173,7 +192,13 @@ const visibleAccountGroups = computed(() =>
     .expand-icon {
       font-size: 12px;
       color: $text-muted;
-      transition: all 0.2s ease;
+      // 旋转动画:展开时 90°,收起时 0°,与下方 .group-accounts 的 slide 过渡协调
+      transform: rotate(0deg);
+      transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease;
+
+      &.is-expanded {
+        transform: rotate(90deg);
+      }
     }
 
     .platform-badge {
@@ -244,11 +269,24 @@ const visibleAccountGroups = computed(() =>
   }
 
   .slide-enter-active, .slide-leave-active {
-    transition: all 200ms ease;
+    // max-height 由 JS 钩子动态设置,这里只负责 transition 曲线和 padding 过渡
+    transition: max-height 260ms cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 200ms ease,
+                padding 200ms ease;
     overflow: hidden;
   }
-  .slide-enter-from, .slide-leave-to { opacity: 0; max-height: 0; }
-  .slide-enter-to, .slide-leave-from { opacity: 1; max-height: 500px; }
+  .slide-enter-from, .slide-leave-to {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .slide-enter-to, .slide-leave-from {
+    opacity: 1;
+    // max-height 由 onSlideEnter/onSlideLeave 动态写入实际 scrollHeight
+    padding-top: 0;
+    padding-bottom: 8px;
+  }
 
   .account-item {
     display: flex;

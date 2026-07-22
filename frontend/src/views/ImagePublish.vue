@@ -569,11 +569,17 @@ const publishAccountIds = reactive(new Set())
 
 function toggleGroup(key) {
   if (expandedGroups.value.has(key)) {
+    // 再次点击已展开的平台:收起并取消平台选中
     expandedGroups.value.delete(key)
+    if (selectedPlatform.value === key) {
+      selectedPlatform.value = null
+    }
   } else {
+    // 互斥展开:收起所有其它平台,只展开当前平台,并设为选中
+    expandedGroups.value.clear()
     expandedGroups.value.add(key)
+    selectedPlatform.value = key
   }
-  selectedPlatform.value = key
   selectedAccountId.value = null
 }
 
@@ -585,6 +591,8 @@ function removePublishAccount(id) {
 function selectAccount(account, group) {
   selectedAccountId.value = account.id
   selectedPlatform.value = group.key
+  // 互斥展开:只展开账号所属平台
+  expandedGroups.value.clear()
   expandedGroups.value.add(group.key)
 }
 

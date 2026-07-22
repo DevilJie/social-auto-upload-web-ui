@@ -292,7 +292,8 @@ function onSlideLeave(el) {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 8px;
+    // padding-left: 5px 抵消选中态左侧 3px 紫色色条,避免文字位置跳动
+    padding: 7px 8px 7px 5px;
     border-radius: 8px;
     transition: all 0.2s ease;
     border: 1px solid transparent;
@@ -303,15 +304,25 @@ function onSlideLeave(el) {
     }
 
     &.active {
-      background: rgba($brand-start, 0.1);
-      border-color: rgba($brand-start, 0.15);
+      // 选中态:加深紫色背景 + 紫色边框 + 左侧 3px 紫色色条,多重视觉锚点更醒目
+      background: rgba($brand-start, 0.22);
+      border-color: rgba($brand-start, 0.45);
+      box-shadow: inset 3px 0 0 0 $brand-start, 0 1px 4px rgba($brand-start, 0.15);
 
-      // 选中态文字加深+加粗, 亮色模式从 text-secondary(#64748b) 提到 brand-start
+      // 文字加深+加粗, 亮色模式从 text-secondary(#64748b) 提到 brand-start
       // 在浅紫底上对比度足够, 不会再"发白"; 暗色模式仍清晰
       .account-name {
         color: $brand-start;
         font-weight: 600;
       }
+
+      // avatar 加紫色描边,呼应选中态
+      .account-avatar {
+        border-color: $brand-start;
+      }
+
+      // 状态点也点亮
+      .dot.on { box-shadow: 0 0 8px rgba($success-color, 0.7); }
     }
 
     .account-avatar {

@@ -1081,26 +1081,6 @@ watch(form, (newVal) => {
   }
 }, { deep: true })
 
-// 上传视频/选素材时,若开启了"自动填充标题",需要全量覆盖所有平台和所有已勾选账号的 title。
-// 注意:必须绕过 watch(form) 的 diff,直接写入 accountOverrides 和 platformConfigs,
-// 否则只会改动当前选中的单个账号,且某些场景下 diff 为空会跳过更新。
-function applyAutoFillTitle(title) {
-  // 1) 全量替换所有平台 title
-  for (const key of Object.keys(platformConfigs)) {
-    platformConfigs[key].title = title
-  }
-  // 2) 全量替换所有已勾选账号的 accountOverrides.title(保留其它字段,如已上传的视频/封面)
-  for (const aid of publishAccountIds) {
-    if (accountOverrides[aid]) {
-      accountOverrides[aid] = { ...accountOverrides[aid], title }
-    } else {
-      accountOverrides[aid] = { title }
-    }
-  }
-  // 3) 同步当前 form.title(右侧表单显示)
-  form.title = title
-}
-
 function getAccountName(accountId) {
   const account = accountStore.accounts.find(a => a.id === accountId)
   return account ? account.name : '未知'
@@ -1109,6 +1089,34 @@ function getAccountName(accountId) {
 function resetAccountOverride(accountId) {
   delete accountOverrides[accountId]
   ElMessage.success('已恢复为渠道默认设置')
+}
+
+// 上传视频/选素材时按"左侧选中层级"全量替换 title:
+//   - 选中账号:仅替换该账号的 title(其它字段保留)
+//   - 选中平台(默认):替换所有平台的 title,并同步所有已勾选账号的 accountOverrides.title
+// 直接绕过 watch(form) 的 diff,避免 diff 跳过更新。
+function fillTitleForAccount(accountId, title) {
+  const existing = accountOverrides[accountId]
+  accountOverrides[accountId] = existing
+    ? { ...existing, title }
+    : { title }
+  if (selectedAccountId.value === accountId) {
+    form.title = title
+  }
+}
+
+function fillTitleForAllPlatformsAndAccounts(title) {
+  for (const key of Object.keys(platformConfigs)) {
+    platformConfigs[key].title = title
+  }
+  for (const aid of publishAccountIds) {
+    if (accountOverrides[aid]) {
+      accountOverrides[aid] = { ...accountOverrides[aid], title }
+    } else {
+      accountOverrides[aid] = { title }
+    }
+  }
+  form.title = title
 }
 
 // ========== Auto-save ==========
@@ -1602,7 +1610,14 @@ async function onVideoUploaded(d) {
   videoUploadDialogVisible.value = false
   ElMessage.success('视频上传成功')
   if (appStore.autoFillTitle) {
-    applyAutoFillTitle(videoData.name.replace(/\.[^.]+$/, ''))
+    const title = videoData.name.replace(/\.[^.]+$/, '')
+    if (selectedAccountId.value) {
+      // 选中账号:仅替换该账号的 title
+      fillTitleForAccount(selectedAccountId.value, title)
+    } else {
+      // 选中平台(或默认):全量替换所有平台 + 所有已勾选账号的 title
+      fillTitleForAllPlatformsAndAccounts(title)
+    }
   }
   triggerFrameExtraction(videoData, videoUploadTarget.value)
 }
@@ -1641,7 +1656,14 @@ function onMaterialSelect(material) {
     }
     ElMessage.success('视频已设置')
     if (appStore.autoFillTitle) {
-      applyAutoFillTitle(material.name.replace(/\.[^.]+$/, ''))
+      const title = material.name.replace(/\.[^.]+$/, '')
+      if (selectedAccountId.value) {
+        // 选中账号:仅替换该账号的 title
+        fillTitleForAccount(selectedAccountId.value, title)
+      } else {
+        // 选中平台(或默认):全量替换所有平台 + 所有已勾选账号的 title
+        fillTitleForAllPlatformsAndAccounts(title)
+      }
     }
     triggerFrameExtraction(material, materialLibraryVideoTarget.value)
   }

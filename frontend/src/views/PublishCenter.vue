@@ -1091,36 +1091,6 @@ function resetAccountOverride(accountId) {
   ElMessage.success('已恢复为渠道默认设置')
 }
 
-// 检测当前是否存在账号级或渠道级的 title 覆写,用于决定是否弹出"是否全量替换"确认框。
-// 平台级覆写 platformOverrides 仅存放媒体字段,与 title 无关,所以这里只看 accountOverrides.title 与 platformConfigs[*].title。
-function hasAnyTitleOverride() {
-  for (const aid of publishAccountIds) {
-    const ov = accountOverrides[aid]
-    if (ov && typeof ov.title === 'string' && ov.title.trim() !== '') return true
-  }
-  for (const key of Object.keys(platformConfigs)) {
-    const t = platformConfigs[key]?.title
-    if (typeof t === 'string' && t.trim() !== '') return true
-  }
-  return false
-}
-
-// 上传视频/选素材时全量替换所有平台和所有已勾选账号的 title(保留其它字段)。
-// 必须绕过 watch(form) 的 diff,直接写入 accountOverrides 和 platformConfigs。
-function applyAutoFillTitle(title) {
-  for (const key of Object.keys(platformConfigs)) {
-    platformConfigs[key].title = title
-  }
-  for (const aid of publishAccountIds) {
-    if (accountOverrides[aid]) {
-      accountOverrides[aid] = { ...accountOverrides[aid], title }
-    } else {
-      accountOverrides[aid] = { title }
-    }
-  }
-  form.title = title
-}
-
 // ========== Auto-save ==========
 const currentDraftId = ref(null)
 const { hasChanges, startAutoSaveTimer } = useAutoSave(() => saveDraft())
@@ -1613,18 +1583,7 @@ async function onVideoUploaded(d) {
   ElMessage.success('视频上传成功')
   if (appStore.autoFillTitle) {
     const title = videoData.name.replace(/\.[^.]+$/, '')
-    if (hasAnyTitleOverride()) {
-      // 已存在账号/渠道级 title 覆写,弹窗让用户确认是否全量替换,避免误覆盖已精心调整过的标题
-      ElMessageBox.confirm(
-        `检测到您上传了新的视频「${videoData.name}」,是否将该文件名同步为所有平台/账号的标题?选择「取消」将保留原有标题`,
-        '全量替换标题',
-        { confirmButtonText: '替换', cancelButtonText: '取消', type: 'warning' }
-      ).then(() => {
-        applyAutoFillTitle(title)
-      }).catch(() => {
-        // 用户取消,保留原标题
-      })
-    } else if (selectedAccountId.value && accountChecked[selectedAccountId.value]) {
+    if (selectedAccountId.value && accountChecked[selectedAccountId.value]) {
       // 账号级别：只更新 form.title（form watcher 会把 diff 写到 accountOverrides）
       form.title = title
     } else if (selectedPlatform.value && platformChecked[selectedPlatform.value]) {
@@ -1681,18 +1640,7 @@ function onMaterialSelect(material) {
     ElMessage.success('视频已设置')
     if (appStore.autoFillTitle) {
       const title = material.name.replace(/\.[^.]+$/, '')
-      if (hasAnyTitleOverride()) {
-        // 已存在账号/渠道级 title 覆写,弹窗让用户确认是否全量替换,避免误覆盖已精心调整过的标题
-        ElMessageBox.confirm(
-          `检测到您选择了新的素材「${material.name}」,是否将该名称同步为所有平台/账号的标题?选择「取消」将保留原有标题`,
-          '全量替换标题',
-          { confirmButtonText: '替换', cancelButtonText: '取消', type: 'warning' }
-        ).then(() => {
-          applyAutoFillTitle(title)
-        }).catch(() => {
-          // 用户取消,保留原标题
-        })
-      } else if (selectedAccountId.value && accountChecked[selectedAccountId.value]) {
+      if (selectedAccountId.value && accountChecked[selectedAccountId.value]) {
         // 账号级别：只更新 form.title（form watcher 会写到 accountOverrides）
         form.title = title
       } else if (selectedPlatform.value && platformChecked[selectedPlatform.value]) {

@@ -1091,9 +1091,10 @@ function resetAccountOverride(accountId) {
   ElMessage.success('已恢复为渠道默认设置')
 }
 
-// 上传视频/选素材时按"左侧选中层级"全量替换 title:
+// 上传视频/选素材时按"左侧选中层级"决定 title 填充范围:
 //   - 选中账号:仅替换该账号的 title(其它字段保留)
-//   - 选中平台(默认):替换所有平台的 title,并同步所有已勾选账号的 accountOverrides.title
+//   - 选中平台:替换所选平台的 title,并替换该平台下所有已勾选账号的 accountOverrides.title
+//   - 什么都没选(默认):替换所有平台的 title + 所有已勾选账号的 accountOverrides.title
 // 直接绕过 watch(form) 的 diff,避免 diff 跳过更新。
 function fillTitleForAccount(accountId, title) {
   const existing = accountOverrides[accountId]
@@ -1101,6 +1102,26 @@ function fillTitleForAccount(accountId, title) {
     ? { ...existing, title }
     : { title }
   if (selectedAccountId.value === accountId) {
+    form.title = title
+  }
+}
+
+function fillTitleForPlatform(platformKey, title) {
+  if (platformConfigs[platformKey]) {
+    platformConfigs[platformKey].title = title
+  }
+  // 替换该平台下所有已勾选账号的 accountOverrides.title
+  const group = accountGroups.value.find(g => g.key === platformKey)
+  if (group) {
+    for (const acc of group.accounts) {
+      if (!publishAccountIds.has(acc.id)) continue
+      const existing = accountOverrides[acc.id]
+      accountOverrides[acc.id] = existing
+        ? { ...existing, title }
+        : { title }
+    }
+  }
+  if (selectedPlatform.value === platformKey && !selectedAccountId.value) {
     form.title = title
   }
 }
@@ -1622,8 +1643,11 @@ async function onVideoUploaded(d) {
     if (selectedAccountId.value) {
       // 选中账号:仅替换该账号的 title
       fillTitleForAccount(selectedAccountId.value, title)
+    } else if (selectedPlatform.value) {
+      // 选中平台:替换所选平台 + 该平台下所有已勾选账号的 title
+      fillTitleForPlatform(selectedPlatform.value, title)
     } else {
-      // 选中平台(或默认):全量替换所有平台 + 所有已勾选账号的 title
+      // 什么都没选(默认):全量替换所有平台 + 所有已勾选账号的 title
       fillTitleForAllPlatformsAndAccounts(title)
     }
   }
@@ -1668,8 +1692,11 @@ function onMaterialSelect(material) {
       if (selectedAccountId.value) {
         // 选中账号:仅替换该账号的 title
         fillTitleForAccount(selectedAccountId.value, title)
+      } else if (selectedPlatform.value) {
+        // 选中平台:替换所选平台 + 该平台下所有已勾选账号的 title
+        fillTitleForPlatform(selectedPlatform.value, title)
       } else {
-        // 选中平台(或默认):全量替换所有平台 + 所有已勾选账号的 title
+        // 什么都没选(默认):全量替换所有平台 + 所有已勾选账号的 title
         fillTitleForAllPlatformsAndAccounts(title)
       }
     }

@@ -249,13 +249,31 @@ class BasePlatform(ABC):
         # ---- Step 3: sync_profile（与账号列表「同步」按钮完全一致的调用）----
         # 复用 platform.sync_profile —— 就是 /syncProfile 路由里调的同一个方法，
         # 同一套 scrape 逻辑、同样的 headless 配置，不做任何特殊处理。
-        name, avatar = "", ""
+        #
+        # sync_profile 返回值存在两种形态（与 /syncProfile 路由保持同一套兼容逻辑）：
+        #   - 新约定: dict{"name", "avatar", "stats"}    （主流平台，含运营数据）
+        #   - 旧约定: tuple(name, avatar)                 （少数旧实现，stats 视为 []）
+        # 不能直接 `name, avatar = await sync_profile(...)`: dict 会迭代出 3 个 key
+        # 触发 "too many values to unpack (expected 2)"。
+        name, avatar, stats = "", "", []
         sync_failed = False
         try:
             status_queue.put(json.dumps({
                 "step": 3, "status": "running", "msg": "同步用户资料",
             }))
-            name, avatar = await self.sync_profile(cookie_filename)
+            result = await self.sync_profile(cookie_filename)
+            if isinstance(result, dict):
+                name = result.get('name', '') or ''
+                avatar = result.get('avatar', '') or ''
+                stats = result.get('stats', []) or []
+                if not isinstance(stats, list):
+                    stats = []
+            elif isinstance(result, tuple):
+                name = result[0] if len(result) > 0 else ''
+                avatar = result[1] if len(result) > 1 else ''
+                stats = []
+            else:
+                name, avatar, stats = '', '', []
         except Exception as e:
             sync_failed = True
             _base_logger.info(
@@ -290,15 +308,16 @@ class BasePlatform(ABC):
             "step": 4, "status": "running", "msg": "创建账号记录",
         }))
         account_id_saved: int = 0
+        stats_json = json.dumps(stats, ensure_ascii=False)
         try:
             db_path = Path(BASE_DIR) / "db" / "database.db"
             with sqlite3.connect(str(db_path)) as conn:
                 cursor = conn.cursor()
                 if account_id:
                     cursor.execute(
-                        "UPDATE user_info SET filePath=?, status=1, userName=?, avatar=? "
+                        "UPDATE user_info SET filePath=?, status=1, userName=?, avatar=?, stats=? "
                         "WHERE id=?",
-                        (cookie_filename, name, avatar, account_id),
+                        (cookie_filename, name, avatar, stats_json, account_id),
                     )
                     account_id_saved = int(account_id)
                     _base_logger.info(
@@ -307,14 +326,14 @@ class BasePlatform(ABC):
                     )
                 else:
                     cursor.execute(
-                        "INSERT INTO user_info (type, filePath, userName, status, avatar) "
-                        "VALUES (?, ?, ?, 1, ?)",
-                        (self.platform_id, cookie_filename, name, avatar),
+                        "INSERT INTO user_info (type, filePath, userName, status, avatar, stats) "
+                        "VALUES (?, ?, ?, 1, ?, ?)",
+                        (self.platform_id, cookie_filename, name, avatar, stats_json),
                     )
                     account_id_saved = cursor.lastrowid
                     _base_logger.info(
-                        "[import_cookie] %s 新建账号 id=%s, name=%r",
-                        self.platform_name, account_id_saved, name,
+                        "[import_cookie] %s 新建账号 id=%s, name=%r, stats=%d项",
+                        self.platform_name, account_id_saved, name, len(stats),
                     )
                 conn.commit()
         except Exception as e:
@@ -326,11 +345,12 @@ class BasePlatform(ABC):
         status_queue.put(json.dumps({
             "step": 4, "status": "done", "msg": "导入完成",
             "account_id": account_id_saved,
-            "userName": name, "avatar": avatar,
+            "userName": name, "avatar": avatar, "stats": stats,
         }))
         return {
             "account_id": account_id_saved,
             "userName": name, "avatar": avatar,
+            "stats": stats,
             "cookie_filename": cookie_filename,
         }
 

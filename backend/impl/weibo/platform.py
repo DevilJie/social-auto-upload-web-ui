@@ -1832,20 +1832,44 @@ class WeiboPlatform(BasePlatform):
             v2_optional: 版本2「可选」区声明值。空=不选。
         """
         # 先探测版本2 trigger「请进行内容声明（必填）」是否存在
-        v2_trigger = page.get_by_text("请进行内容声明（必填）", exact=True).first
+        # 注意:不能用 exact=True,实际 DOM 文本可能含全角括号或前后空白,
+        # 用 contains 匹配更稳。探测全程打日志,绝不静默吞异常。
+        logger.info(
+            "[内容声明] 开始探测页面 UI 版本(v2_required=%s)",
+            v2_required or "(空)",
+        )
+        v2_detected = False
         try:
-            if await v2_trigger.count() > 0:
-                logger.info("[内容声明] 检测到版本2 UI(必填下拉),走 v2 逻辑")
+            # 多个候选文本:全角括号 / 半角括号 / 含空白
+            v2_trigger = page.get_by_text("请进行内容声明", exact=False).first
+            cnt = await v2_trigger.count()
+            logger.info("[内容声明] 探测「请进行内容声明」count=%d", cnt)
+            if cnt > 0:
+                v2_detected = True
+        except Exception as e:
+            # 探测本身异常:打印详情,不静默吞
+            logger.warning("[内容声明] 探测版本2 trigger 异常: %s", e)
+
+        if v2_detected:
+            logger.info("[内容声明] ✓ 检测到版本2 UI(必填下拉),走 v2 逻辑")
+            try:
                 await WeiboPlatform._set_content_statement_v2(
                     page, v2_required, v2_optional
                 )
-                return
-        except Exception:
-            pass
+            except Exception as e:
+                logger.error(
+                    "[内容声明] 版本2 处理异常: %s", e, exc_info=True
+                )
+            return
 
         # 否则走版本1(老弹窗)
         logger.info("[内容声明] 未检测到版本2,走版本1(弹窗)逻辑")
-        await WeiboPlatform._set_content_statement_v1(page, v1_stmt)
+        try:
+            await WeiboPlatform._set_content_statement_v1(page, v1_stmt)
+        except Exception as e:
+            logger.error(
+                "[内容声明] 版本1 处理异常: %s", e, exc_info=True
+            )
 
     @staticmethod
     async def _set_content_statement_v1(page, statement: str):
@@ -1915,14 +1939,17 @@ class WeiboPlatform(BasePlatform):
             required_text = "内容无需标注"
 
         # 点 trigger 展开「必填」下拉(woo-pop-ctrl 同样有 intercept 问题,force)
-        trigger = page.get_by_text("请进行内容声明（必填）", exact=True).first
+        # exact=False:实际文本可能含全角括号/前后空白,用包含匹配
+        trigger = page.get_by_text("请进行内容声明", exact=False).first
         try:
             await trigger.wait_for(state="visible", timeout=5000)
+            logger.info("[内容声明v2] 找到 trigger「请进行内容声明」")
         except Exception as e:
-            logger.warning("[发布] 未找到内容声明(版本2)入口: %s", e)
+            logger.warning("[内容声明v2] 未找到 trigger 入口: %s", e)
             return
 
         await trigger.click(force=True)
+        logger.info("[内容声明v2] 已点击 trigger,等待面板展开")
         # 面板展开是动画,实测 0.5s 偶尔不够,给 1s 让 _panel 完整渲染
         await asyncio.sleep(1)
 

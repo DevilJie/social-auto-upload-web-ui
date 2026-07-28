@@ -995,6 +995,58 @@ async def scrape_csdn_profile(page):
     return name, avatar
 
 
+async def scrape_weixin_gzh_profile(page):
+    """微信公众号专用 scraper。
+
+    当前页应为 ``https://mp.weixin.qq.com/cgi-bin/home?...&token=XXX`` 首页，
+    已登录。DOM 结构（用户提供）：
+      <div class="weui-personal_info">
+        <img class="weui-desktop-account__img" src="https://wx.qlogo.cn/...">
+        <div class="weui-desktop_name">czy个人测试</div>
+      </div>
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        try:
+            await page.locator(".weui-desktop_name").first.wait_for(
+                state="visible", timeout=12000
+            )
+        except Exception as e:
+            logger.info(f"[weixin_gzh] 昵称容器等待超时 (url={page.url}): {e}")
+        await asyncio.sleep(1)
+
+        # 头像：.weui-desktop-account__img 的 src
+        try:
+            avatar_el = page.locator(".weui-desktop-account__img").first
+            if await avatar_el.count() > 0:
+                avatar = (await avatar_el.get_attribute("src") or "").strip()
+        except Exception as e:
+            logger.info(f"[weixin_gzh] 头像抓取失败: {e}")
+
+        # 昵称：.weui-desktop_name（优先 title 兜底 text）
+        try:
+            name_el = page.locator(".weui-desktop_name").first
+            if await name_el.count() > 0:
+                name = (await name_el.get_attribute("title") or "").strip()
+                if not name:
+                    name = (await name_el.text_content() or "").strip()
+        except Exception as e:
+            logger.info(f"[weixin_gzh] 昵称抓取失败: {e}")
+
+        logger.info(
+            f"[weixin_gzh] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[weixin_gzh] profile scrape error: {e}")
+
+    return name, avatar
+
+
 # ---------------------------------------------------------------------------
 # Schedule time parser
 # Source: original postVideo.py schedule parser
@@ -1162,15 +1214,11 @@ async def save_login_result(
             account_id = cursor.lastrowid
             logger.info(f"[login] {platform_name} user record saved (id={account_id})")
 
-    # 4. Send SSE status
-    status_queue.put(json.dumps({
-        "status": "200",
-        "name": user_name,
-        "avatar": avatar_url,
-    }))
-
-    # 5. 可选:补抓运营数据(stats)。stats_fn 自己负责 goto + 抓取,
-    # 返回 [{ICON, COUNT, NAME, SORT}, ...];失败不阻塞登录成功。
+    # 4. 可选:补抓运营数据(stats)。
+    # 注意顺序:stats 必须在「推 SSE 200」之前写库,否则前端收到 200 立即刷新
+    # 账号列表时 DB 里还没有 stats,导致登录瞬间运营数据为空。
+    # stats_fn 自己负责 goto + 抓取,返回 [{ICON, COUNT, NAME, SORT}, ...];
+    # 失败不阻塞登录成功。
     if stats_fn and account_id:
         try:
             stats = await stats_fn(page, account_id)
@@ -1187,6 +1235,16 @@ async def save_login_result(
                 logger.info(f"[login] account {account_id} stats 抓取为空,跳过")
         except Exception as exc:
             logger.info(f"[login] 补抓 stats 失败(不影响登录成功): {exc}")
+
+    # 5. Send SSE status (放在 stats 之后,确保前端刷新时 DB 已有运营数据)
+    status_queue.put(json.dumps({
+        "status": "200",
+        "name": user_name,
+        "avatar": avatar_url,
+    }))
+
+    # 返回 account_id,供调用方(login)做后续处理(如公众号自己掌控 stats 时序)
+    return account_id
 
 
 # ---------------------------------------------------------------------------
@@ -1210,6 +1268,7 @@ PLATFORM_SYNC_URLS = {
     14: "https://www.zhihu.com/settings/account",
     15: "https://mp.csdn.net/",
     16: "https://www.kaixinkan.com.cn/#/home",
+    17: "https://mp.weixin.qq.com/",
 }
 
 
@@ -1232,6 +1291,7 @@ PLATFORM_SCRAPE_FNS = {
     14: scrape_zhihu_profile,       # Zhihu
     15: scrape_csdn_profile,        # CSDN
     16: scrape_vivo_profile,        # VIVO
+    17: scrape_weixin_gzh_profile,  # 微信公众号
 }
 
 

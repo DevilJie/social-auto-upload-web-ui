@@ -1926,14 +1926,35 @@ class WeiboPlatform(BasePlatform):
         # 面板展开是动画,实测 0.5s 偶尔不够,给 1s 让 _panel 完整渲染
         await asyncio.sleep(1)
 
-        # 通用:在弹出面板里点某个选项 button(用 force 跳过 intercept)
+        # 校验面板是否真正展开(区分"没展开"和"展开了没点到")
+        panel = page.locator("._panel_nsgmr_114, [class*='_panel_']").first
+        try:
+            await panel.wait_for(state="visible", timeout=3000)
+            logger.info("[发布] 内容声明(版本2)面板已展开")
+        except Exception as e:
+            logger.warning("[发布] 内容声明(版本2)面板未展开(trigger 点击无效?): %s", e)
+            return
+
+        # 通用:在弹出面板里点某个选项
+        # 关键:不用 get_by_role(button, name=) — 选项 button 内部是
+        # <span class="_check"><!----></span> + <span class="_optionLabel">文案</span>,
+        # accessible name 计算不稳定。改为用 CSS 类直接定位 _optionLabel 文案,
+        # 再点其父级 button。
         async def _click_option(text, timeout=5000):
-            """点面板里的选项 button,返回是否成功。"""
-            btn = page.get_by_role("button", name=text, exact=True).first
+            """点面板里文案为 text 的选项,返回是否成功。"""
+            # 定位文案 span,再点其所在 button(用 force 跳过 intercept)
+            label = page.locator(
+                f"[class*='_optionLabel']:has-text('{text}')"
+            ).first
             try:
-                await btn.wait_for(state="visible", timeout=timeout)
-                # woo-pop 弹层选项同样会被判 intercept,必须 force=True
-                await btn.click(force=True)
+                await label.wait_for(state="visible", timeout=timeout)
+                # 点 label 的父级 button(label 本身不是可点击区,button 才是)
+                btn = label.locator("xpath=ancestor::button[1]")
+                if await btn.count() == 0:
+                    # 兜底:直接点 label
+                    await label.click(force=True)
+                else:
+                    await btn.first.click(force=True)
                 return True
             except Exception as e:
                 logger.warning("[发布] 内容声明(版本2)点击选项「%s」失败: %s", text, e)
@@ -1957,10 +1978,19 @@ class WeiboPlatform(BasePlatform):
                 await asyncio.sleep(0.4)
 
         # 点「确定」按钮提交选择(必点,否则选择不生效)
+        # DOM:<button class="woo-button-..."><span class="woo-button-content"> 确定 </span></button>
+        # 用 woo-button-content 文本定位,不依赖 accessible name
         try:
-            confirm_btn = page.get_by_role("button", name="确定", exact=True).first
+            confirm_btn = page.locator(
+                ".woo-button-content:has-text('确定')"
+            ).first
             await confirm_btn.wait_for(state="visible", timeout=3000)
-            await confirm_btn.click(force=True)
+            # 点 button(woo-button-content 的父级),force 跳过 intercept
+            confirm_button = confirm_btn.locator("xpath=ancestor::button[1]")
+            if await confirm_button.count() > 0:
+                await confirm_button.first.click(force=True)
+            else:
+                await confirm_btn.click(force=True)
             logger.info("[发布] 内容声明(版本2)已点确定,选择提交")
             await asyncio.sleep(0.5)
         except Exception as e:

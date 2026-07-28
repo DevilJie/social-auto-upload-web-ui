@@ -42,6 +42,7 @@ _PLATFORM_NAMES = {
     "zhihu": "知乎",
     "csdn": "CSDN",
     "vivo": "VIVO",
+    "weixin_gzh": "微信公众号",
 }
 
 

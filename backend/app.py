@@ -205,11 +205,12 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO", 17: "微信公众号"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
     11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo',
+    17: 'weixin_gzh',
 }
 
 
@@ -999,6 +1000,8 @@ def postVideo():
                 mini_link=mini_link,
                 mix_id=mix_id,
                 content_statement=data.get('contentStatement', ''),
+                content_statement2=data.get('contentStatement2', ''),
+                content_statement2_optional=data.get('contentStatement2Optional', ''),
                 weibo_collection=data.get('weiboCollection', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),
@@ -1082,6 +1085,8 @@ def postVideo():
                 mini_link=mini_link,
                 mix_id=mix_id,
                 content_statement=data.get('contentStatement', ''),
+                content_statement2=data.get('contentStatement2', ''),
+                content_statement2_optional=data.get('contentStatement2Optional', ''),
                 weibo_collection=data.get('weiboCollection', ''),
                 author_statement=data.get('authorStatement', ''),
                 compilation=data.get('compilation', ''),

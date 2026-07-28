@@ -21,6 +21,7 @@ import logoToutiao from '@/assets/logos/toutiao.png'
 import logoZhihu from '@/assets/logos/zhihu.png'
 import logoCsdn from '@/assets/logos/csdn.png'
 import logoVivo from '@/assets/logos/vivo.svg'
+import logoWeixinGzh from '@/assets/logos/weixin_gzh.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
@@ -394,8 +395,26 @@ export const PLATFORMS = {
           { label: '内容由AI生成', value: '内容由AI生成' },
           { label: '内容为虚构演绎', value: '内容为虚构演绎' },
         ] },
+      { key: 'contentStatement2', label: '内容声明2', type: 'select',
+        placeholder: '请选择内容声明2（必选）',
+        options: [
+          { label: '内容无需标注', value: '内容无需标注' },
+          { label: '内容为转载', value: '内容为转载' },
+          { label: '含AI生成内容', value: '含AI生成内容' },
+          { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+          { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+          { label: '内容含营销信息', value: '内容含营销信息' },
+        ] },
+      { key: 'contentStatement2Optional', label: '内容声明2(可选)', type: 'select',
+        placeholder: '选填，可不选',
+        options: [
+          { label: '内容可能引人不适，请谨慎观看', value: '内容可能引人不适，请谨慎观看' },
+          { label: '内容含有高危险行为，请勿模仿', value: '内容含有高危险行为，请勿模仿' },
+          { label: '请理性适度消费', value: '请理性适度消费' },
+          { label: '未成年人请在监护人指导下浏览', value: '未成年人请在监护人指导下浏览' },
+        ] },
     ],
-    defaultSettings: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '' },
+    defaultSettings: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', contentStatement2: '', contentStatement2Optional: '' },
   },
   ALIPAY: {
     id: 12,
@@ -627,6 +646,20 @@ export const PLATFORMS = {
     defaultSettings: { title: '', description: '', vivoLocationName: '', vivoLocationData: null,
       vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
       vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
+  },
+  WEIXIN_GZH: {
+    id: 17,
+    key: 'weixin_gzh',
+    name: '微信公众号',
+    shortName: '公众号',
+    letter: '微',
+    logo: logoWeixinGzh,
+    color: '#07C160',
+    bgColor: 'rgba(7, 193, 96, 0.15)',
+    cssClass: 'weixin_gzh',
+    creatorUrl: 'https://mp.weixin.qq.com/',
+    settingsFields: [],
+    defaultSettings: { title: '', description: '', scheduleTime: '' },
   },
 }
 

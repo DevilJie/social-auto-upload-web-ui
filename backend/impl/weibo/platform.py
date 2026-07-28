@@ -427,6 +427,9 @@ class WeiboPlatform(BasePlatform):
         tags = kwargs.get("tags", []) or []
         desc = kwargs.get("desc", "") or ""
         ai_content = kwargs.get("ai_content", "") or ""
+        content_statement = kwargs.get("content_statement", "") or ""
+        content_statement2 = kwargs.get("content_statement2", "") or ""
+        content_statement2_optional = kwargs.get("content_statement2_optional", "") or ""
         # 忽略字段(微博图集不支持)
         # is_original / enableTimer / schedule_time_str / cover_path
         _ = kwargs.get("is_original")  # noqa
@@ -466,6 +469,9 @@ class WeiboPlatform(BasePlatform):
                     account_file=cookie_path,
                     desc=desc,
                     ai_content=ai_content,
+                    content_statement=content_statement,
+                    content_statement2=content_statement2,
+                    content_statement2_optional=content_statement2_optional,
                 )
 
         logger.info("=" * 60)
@@ -484,6 +490,9 @@ class WeiboPlatform(BasePlatform):
         account_file: str,
         desc: str = "",
         ai_content: str = "",
+        content_statement: str = "",
+        content_statement2: str = "",
+        content_statement2_optional: str = "",
     ):
         """Upload one image album to one Weibo account.
 
@@ -534,9 +543,17 @@ class WeiboPlatform(BasePlatform):
                 logger.info("[填写简介] 开始填写微博正文...")
                 await self._set_description(page, desc, title, tags)
 
-                # 3. 内容声明 (复用 video 版)
-                logger.info("[内容声明] 开始设置内容声明: %s", ai_content or "无")
-                await self._set_content_statement(page, ai_content)
+                # 3. 内容声明 (复用 video 版,自动探测版本1/版本2 UI)
+                # 版本1:优先用 content_statement(前端下拉),为空时回退到
+                # ai_content(兼容旧图集流程把类型声明当内容声明用的历史行为)
+                v1_stmt = content_statement or ai_content
+                logger.info(
+                    "[内容声明] 开始设置内容声明: 版本1=%s, 版本2必选=%s, 版本2可选=%s",
+                    v1_stmt or "无", content_statement2 or "无", content_statement2_optional or "无",
+                )
+                await self._set_content_statement(
+                    page, v1_stmt, content_statement2, content_statement2_optional
+                )
 
                 # 4. 发送
                 logger.info("[发布] 正在点击发送按钮...")
@@ -799,6 +816,8 @@ class WeiboPlatform(BasePlatform):
         category = kwargs.get("category")
         ai_content = kwargs.get("ai_content", "") or ""
         content_statement = kwargs.get("content_statement", "") or ""
+        content_statement2 = kwargs.get("content_statement2", "") or ""
+        content_statement2_optional = kwargs.get("content_statement2_optional", "") or ""
         weibo_collection = kwargs.get("weibo_collection", "") or ""
 
         # 打印发布参数摘要
@@ -843,6 +862,8 @@ class WeiboPlatform(BasePlatform):
                         category=category,
                         ai_content=ai_content,
                         content_statement=content_statement,
+                        content_statement2=content_statement2,
+                        content_statement2_optional=content_statement2_optional,
                         weibo_collection=weibo_collection,
                     )
 
@@ -866,6 +887,8 @@ class WeiboPlatform(BasePlatform):
         category=None,
         ai_content="",
         content_statement="",
+        content_statement2="",
+        content_statement2_optional="",
         weibo_collection="",
     ):
         """Upload a single video to one Weibo account."""
@@ -967,9 +990,14 @@ class WeiboPlatform(BasePlatform):
                 logger.info("[填写简介] 开始填写微博正文...")
                 await self._set_description(page, desc, title, tags)
 
-                # 内容声明(可选)
-                logger.info("[内容声明] 开始设置内容声明: %s", content_statement or "无")
-                await self._set_content_statement(page, content_statement)
+                # 内容声明(可选):自动探测版本1弹窗 / 版本2必选+可选下拉
+                logger.info(
+                    "[内容声明] 开始设置内容声明: 版本1=%s, 版本2必选=%s, 版本2可选=%s",
+                    content_statement or "无", content_statement2 or "无", content_statement2_optional or "无",
+                )
+                await self._set_content_statement(
+                    page, content_statement, content_statement2, content_statement2_optional
+                )
 
                 # 点发布
                 logger.info("[发布] 正在点击发布按钮...")
@@ -1768,8 +1796,45 @@ class WeiboPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _set_content_statement(page, statement: str):
-        """选择底部工具栏的「内容声明」。
+    async def _set_content_statement(page, v1_stmt: str = "", v2_required: str = "", v2_optional: str = ""):
+        """选择发布页的「内容声明」。
+
+        微博有两种内容声明 UI,对不同账号/场景展示其中一种,运行时自动探测:
+
+        版本1(老):底部工具栏「内容声明」文本触发弹窗,5 选项单选
+            (无/内容为自主创作/内容为转载/内容由AI生成/内容为虚构演绎)。
+        版本2(新):「请进行内容声明（必填）」触发下拉,分「必选」6 项 +
+            「可选」4 项两组,选完点「确定」。
+
+        前端用 3 个独立下拉分别承载两套声明,后端探测到哪种 UI 就用对应那套值:
+        - 版本1 UI → 用 v1_stmt
+        - 版本2 UI → 用 v2_required(必选) + v2_optional(可选)
+
+        Args:
+            v1_stmt: 版本1 声明值(5 选 1,或「无」/空=不设置)。
+            v2_required: 版本2「必选」区声明值(6 选 1)。空或「内容无需标注」
+                时点「内容无需标注」(必选区必须选一个)。
+            v2_optional: 版本2「可选」区声明值。空=不选。
+        """
+        # 先探测版本2 trigger「请进行内容声明（必填）」是否存在
+        v2_trigger = page.get_by_text("请进行内容声明（必填）", exact=True).first
+        try:
+            if await v2_trigger.count() > 0:
+                logger.info("[内容声明] 检测到版本2 UI(必填下拉),走 v2 逻辑")
+                await WeiboPlatform._set_content_statement_v2(
+                    page, v2_required, v2_optional
+                )
+                return
+        except Exception:
+            pass
+
+        # 否则走版本1(老弹窗)
+        logger.info("[内容声明] 未检测到版本2,走版本1(弹窗)逻辑")
+        await WeiboPlatform._set_content_statement_v1(page, v1_stmt)
+
+    @staticmethod
+    async def _set_content_statement_v1(page, statement: str):
+        """版本1:底部工具栏「内容声明」弹窗单选。
 
         spec line 7206: 5 个选项 — 无(默认)、内容为自主创作、内容为转载、
         内容由AI生成、内容为虚构演绎。
@@ -1778,6 +1843,7 @@ class WeiboPlatform(BasePlatform):
         if not statement or statement.strip() == "无":
             return
 
+        stmt_text = statement.strip()
         # trigger 是「内容声明」文本节点,click 冒泡到父级 woo-pop-ctrl
         # 但父级 <span class="woo-pop-ctrl"> 在 actionability 检查里
         # 会被判为「intercept pointer events」(2026-06-17 实测:50+ 次
@@ -1793,17 +1859,96 @@ class WeiboPlatform(BasePlatform):
         await asyncio.sleep(0.5)
 
         # 弹窗里的选项是 button,文本就是选项值
-        option = page.get_by_role("button", name=statement.strip(), exact=True).first
+        option = page.get_by_role("button", name=stmt_text, exact=True).first
         try:
             await option.wait_for(state="visible", timeout=5000)
             await option.click()
-            logger.info("[发布] 已选内容声明: %s", statement)
+            logger.info("[发布] 已选内容声明(版本1): %s", stmt_text)
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.warning(
-                "[发布] 选择内容声明失败(%s): %s", statement, e,
+                "[发布] 选择内容声明失败(%s): %s", stmt_text, e,
             )
             # ESC 关闭弹出的内容声明面板
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
+
+    @staticmethod
+    async def _set_content_statement_v2(page, required_stmt: str, optional_stmt: str = ""):
+        """版本2:「请进行内容声明（必填）」下拉,分必选/可选两组。
+
+        DOM 结构(用户提供):
+          trigger: <div class="_triggerText...">请进行内容声明（必填）</div>
+          面板: <div class="_panel...">
+                   <div class="_sectionTitle">必选</div>
+                   <button>...内容无需标注 / 内容为转载 / 含AI生成内容 /
+                           含虚构演绎内容 / 个人观点，仅供参考 / 内容含营销信息</button>
+                   <div class="_sectionTitle">可选</div>
+                   <button>...内容可能引人不适... / 内容含有高危险行为... /
+                           请理性适度消费 / 未成年人请在监护人指导下浏览</button>
+                   <div class="_footer"><button>确定</button></div>
+                </div>
+
+        Args:
+            required_stmt: 必选声明值。空或「内容无需标注」时点「内容无需标注」
+                (必选区必须选一个)。
+            optional_stmt: 可选声明值。空=不选。
+        """
+        # 必选区:空或「内容无需标注」默认选「内容无需标注」(必选必填一个)
+        required_text = (required_stmt or "").strip()
+        if not required_text or required_text == "无":
+            required_text = "内容无需标注"
+
+        # 点 trigger 展开「必填」下拉(woo-pop-ctrl 同样有 intercept 问题,force)
+        trigger = page.get_by_text("请进行内容声明（必填）", exact=True).first
+        try:
+            await trigger.wait_for(state="visible", timeout=5000)
+        except Exception as e:
+            logger.warning("[发布] 未找到内容声明(版本2)入口: %s", e)
+            return
+
+        await trigger.click(force=True)
+        await asyncio.sleep(0.5)
+
+        # 选必选项
+        try:
+            required_btn = page.get_by_role("button", name=required_text, exact=True).first
+            await required_btn.wait_for(state="visible", timeout=5000)
+            await required_btn.click()
+            logger.info("[发布] 已选内容声明(版本2必选): %s", required_text)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.warning("[发布] 选择内容声明(版本2必选 %s)失败: %s", required_text, e)
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
+            return
+
+        # 选可选项(可选,空则跳过)
+        if optional_stmt and optional_stmt.strip():
+            try:
+                optional_btn = page.get_by_role(
+                    "button", name=optional_stmt.strip(), exact=True
+                ).first
+                await optional_btn.wait_for(state="visible", timeout=3000)
+                await optional_btn.click()
+                logger.info("[发布] 已选内容声明(版本2可选): %s", optional_stmt.strip())
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.warning(
+                    "[发布] 选择内容声明(版本2可选 %s)失败: %s",
+                    optional_stmt.strip(), e,
+                )
+                # 可选失败不中断,继续点确定
+
+        # 点「确定」按钮提交选择
+        try:
+            confirm_btn = page.get_by_role("button", name="确定", exact=True).first
+            await confirm_btn.wait_for(state="visible", timeout=3000)
+            await confirm_btn.click()
+            logger.info("[发布] 内容声明(版本2)已确定")
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning("[发布] 点内容声明(版本2)确定按钮失败: %s", e)
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.3)
 

@@ -846,6 +846,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     weiboCategory: accountOv?.weiboCategory ?? platformOv?.weiboCategory ?? platformDefault?.weiboCategory ?? [],
     weiboCollectionName: accountOv?.weiboCollectionName ?? platformOv?.weiboCollectionName ?? platformDefault?.weiboCollectionName ?? '',
     contentStatement: accountOv?.contentStatement ?? platformOv?.contentStatement ?? platformDefault?.contentStatement ?? '',
+    contentStatement2: accountOv?.contentStatement2 ?? platformOv?.contentStatement2 ?? platformDefault?.contentStatement2 ?? '',
+    contentStatement2Optional: accountOv?.contentStatement2Optional ?? platformOv?.contentStatement2Optional ?? platformDefault?.contentStatement2Optional ?? '',
     // 支付宝
     authorStatement: accountOv?.authorStatement ?? platformOv?.authorStatement ?? platformDefault?.authorStatement ?? '',
     reprintUrl: accountOv?.reprintUrl ?? platformOv?.reprintUrl ?? platformDefault?.reprintUrl ?? '',
@@ -944,7 +946,7 @@ const platformConfigs = reactive({
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
   iqiyi: { title: '', description: '', creationDeclaration: '', riskWarning: '', enableCashActivity: false, scheduleTime: '', tags: [] },
   tencent_video: { title: '', description: '', creationDeclaration: [], scheduleTime: '', tags: [] },
-  weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', tags: [], weiboCollectionName: '', weiboCollectionData: null },
+  weibo: { title: '', description: '', videoType: '', weiboCategory: [], contentStatement: '', contentStatement2: '', contentStatement2Optional: '', tags: [], weiboCollectionName: '', weiboCollectionData: null },
   alipay: { title: '', description: '', authorStatement: '', reprintUrl: '', compilation: '', scheduleTime: '', tags: [] },
   toutiao: { title: '', description: '', creationDeclaration: [], enableGenerateImage: true, collection: '', extendLink: false, extendLinkUrl: '', scheduleTime: '', tags: [] },
   zhihu: { title: '', description: '', creationDeclaration: '内容无需标注', category: '', scheduleTime: '', tags: [] },
@@ -2416,8 +2418,10 @@ async function publishAll() {
         aiContent: group.key === 'weibo'
           ? (merged.videoType || '')
           : (merged.aiContent || ''),
-        // 微博「内容声明」单独透传
+        // 微博「内容声明」单独透传(版本1 + 版本2必选 + 版本2可选)
         contentStatement: group.key === 'weibo' ? (merged.contentStatement || '') : '',
+        contentStatement2: group.key === 'weibo' ? (merged.contentStatement2 || '') : '',
+        contentStatement2Optional: group.key === 'weibo' ? (merged.contentStatement2Optional || '') : '',
         // 微博「合集」单独透传(合集名称,后端切换开关+勾选对应项)
         weiboCollection: group.key === 'weibo' ? (merged.weiboCollectionName || '') : '',
         // 支付宝「作者声明」+「转载来源」+「合集」单独透传(其他平台忽略)

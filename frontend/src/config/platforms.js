@@ -658,8 +658,21 @@ export const PLATFORMS = {
     bgColor: 'rgba(7, 193, 96, 0.15)',
     cssClass: 'weixin_gzh',
     creatorUrl: 'https://mp.weixin.qq.com/',
-    settingsFields: [],
-    defaultSettings: { title: '', description: '', scheduleTime: '' },
+    settingsFields: [
+      { key: 'isOriginal', label: '原创声明', type: 'radio', options: [{ label: '原创', value: true }, { label: '非原创', value: false }] },
+      { key: 'gzhClaimSource', label: '创作来源', type: 'select',
+        placeholder: '请选择创作来源（可选）',
+        options: [
+          { label: '内容由AI生成', value: '内容由AI生成' },
+          { label: '内容剧情演绎，仅供娱乐', value: '内容剧情演绎，仅供娱乐' },
+          { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+          { label: '健康医疗分享，仅供参考', value: '健康医疗分享，仅供参考' },
+          { label: '投资观点，仅供参考', value: '投资观点，仅供参考' },
+          { label: '无需声明', value: '无需声明' },
+        ] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间（最近7天，需大于当前1小时）' },
+    ],
+    defaultSettings: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', videoFormat: '' },
   },
 }
 

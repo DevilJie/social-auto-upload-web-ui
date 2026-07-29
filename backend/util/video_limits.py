@@ -22,7 +22,9 @@ VIDEO_LIMITS: dict[str, dict] = {
     # CSDN: 视频大小≤2G, 时长不限, 标题≤30字
     "csdn":          {"min_duration": 0,    "max_duration": math.inf,         "max_size": 2 * 1024**3,  "max_title_length": 30},
     # VIVO: 视频大小≤2G, 时长≤90min(5400s), 用「视频描述」非标题故不限标题
-    "vivo":          {"min_duration": 0,    "max_duration": 5400,             "max_size": 2 * 1024**3,  "max_title_length": math.inf},
+    "vivo":          {"min_duration": 0, "max_duration": 5400,             "max_size": 2 * 1024**3,  "max_title_length": math.inf},
+    # 微信公众号: 视频时长<1h, 标题≤64字, 描述(含#标签)≤300字
+    "weixin_gzh":    {"min_duration": 0, "max_duration": 3600,             "max_size": math.inf,     "max_title_length": 64, "max_desc_length": 300},
 }
 
 

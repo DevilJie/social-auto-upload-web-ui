@@ -327,6 +327,23 @@
               </div>
             </template>
 
+            <!-- 微信公众号合集(账号级,选中账号后才显示) -->
+            <template v-if="selectedPlatform === 'weixin_gzh' && selectedAccountId">
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">加入合集</div>
+                <RemoteSearchSelect
+                  v-model="form.gzhCollectionName"
+                  :data="form.gzhCollectionData"
+                  :fetcher="fetchGzhCollections"
+                  :field-map="{ label: 'name' }"
+                  search-mode="frontend"
+                  empty-behavior="load-all"
+                  placeholder="选择合集"
+                  @change="handleGzhCollectionChange"
+                />
+              </div>
+            </template>
+
             <!-- settingsFields（排除已在通用字段渲染的） -->
             <template v-for="field in currentPlatformConfig.settingsFields" :key="field.key">
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
@@ -629,6 +646,7 @@ import { douyinImageApi } from '@/api/douyinImage'
 import { alipayApi } from '@/api/alipay'
 import { toutiaoApi } from '@/api/toutiao'
 import { weiboApi } from '@/api/weibo'
+import { weixinGzhApi } from '@/api/weixin_gzh'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
@@ -885,6 +903,11 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     vivoDeclaration: accountOv?.vivoDeclaration ?? platformOv?.vivoDeclaration ?? platformDefault?.vivoDeclaration ?? '',
     vivoPrivacy: accountOv?.vivoPrivacy ?? platformOv?.vivoPrivacy ?? platformDefault?.vivoPrivacy ?? '公开',
     vivoDownloadPermission: accountOv?.vivoDownloadPermission ?? platformOv?.vivoDownloadPermission ?? platformDefault?.vivoDownloadPermission ?? '允许',
+    // 微信公众号合集(账号级)
+    gzhCollectionName: accountOv?.gzhCollectionName ?? platformOv?.gzhCollectionName ?? platformDefault?.gzhCollectionName ?? '',
+    gzhCollectionData: accountOv?.gzhCollectionData ?? platformOv?.gzhCollectionData ?? platformDefault?.gzhCollectionData ?? null,
+    // 微信公众号创作来源(平台级)
+    gzhClaimSource: accountOv?.gzhClaimSource ?? platformOv?.gzhClaimSource ?? platformDefault?.gzhClaimSource ?? '',
   }
 }
 
@@ -954,6 +977,7 @@ const platformConfigs = reactive({
   vivo: { title: '', description: '', vivoLocationName: '', vivoLocationData: null,
     vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
+  weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1322,6 +1346,25 @@ function handleWeiboCollectionChange(col) {
     form.weiboCollectionData = col
   } else {
     form.weiboCollectionData = null
+  }
+}
+
+// 微信公众号合集 —— RemoteSearchSelect 数据源(后端一次返回全量,前端过滤)
+async function fetchGzhCollections(keyword) {
+  const resp = await weixinGzhApi.getCollections(selectedAccountId.value)
+  const all = resp.data?.list || []
+  const kw = keyword?.trim().toLowerCase()
+  return {
+    list: kw ? all.filter(c => c.name?.toLowerCase().includes(kw)) : all
+  }
+}
+
+// 微信公众号合集选择回调
+function handleGzhCollectionChange(col) {
+  if (col) {
+    form.gzhCollectionData = col
+  } else {
+    form.gzhCollectionData = null
   }
 }
 
@@ -2441,6 +2484,10 @@ async function publishAll() {
         vivoDeclaration: merged.vivoDeclaration || '',
         vivoPrivacy: merged.vivoPrivacy || '公开',
         vivoDownloadPermission: merged.vivoDownloadPermission || '允许',
+        // 微信公众号特有参数(原创声明/创作来源/合集)
+        isOriginal: merged.isOriginal ?? false,
+        gzhClaimSource: merged.gzhClaimSource || '',
+        gzhCollectionName: merged.gzhCollectionName || '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

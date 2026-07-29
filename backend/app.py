@@ -150,6 +150,10 @@ from blueprints.channels_bp import channels_bp  # noqa: E402
 app.register_blueprint(channels_bp)
 logger.info("[Startup] channels_bp registered OK")
 
+from blueprints.weixin_gzh_bp import weixin_gzh_bp  # noqa: E402
+app.register_blueprint(weixin_gzh_bp)
+logger.info("[Startup] weixin_gzh_bp registered OK")
+
 from blueprints.materials_bp import materials_bp  # noqa: E402
 app.register_blueprint(materials_bp)
 logger.info("[Startup] materials_bp registered OK")
@@ -1046,6 +1050,10 @@ def postVideo():
                 vivo_declaration=data.get('vivoDeclaration', ''),
                 vivo_privacy=data.get('vivoPrivacy', '公开'),
                 vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
+                # 微信公众号特有参数
+                is_original=data.get('isOriginal', False),
+                gzh_collection_name=data.get('gzhCollectionName', ''),
+                gzh_claim_source=data.get('gzhClaimSource', ''),
             ))
         else:
             result = publish_fn(
@@ -1131,6 +1139,10 @@ def postVideo():
                 vivo_declaration=data.get('vivoDeclaration', ''),
                 vivo_privacy=data.get('vivoPrivacy', '公开'),
                 vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
+                # 微信公众号特有参数
+                is_original=data.get('isOriginal', False),
+                gzh_collection_name=data.get('gzhCollectionName', ''),
+                gzh_claim_source=data.get('gzhClaimSource', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -1213,6 +1225,10 @@ def postVideoBatch():
                     is_draft=data.get('isDraft', False),
                     audience=data.get('audience', 'not_kids'),
                     altered_content=data.get('alteredContent', False),
+                    # 微信公众号特有参数
+                    is_original=data.get('isOriginal', False),
+                    gzh_collection_name=data.get('gzhCollectionName', ''),
+                    gzh_claim_source=data.get('gzhClaimSource', ''),
                 ))
             else:
                 result = publish_fn(
@@ -1242,6 +1258,10 @@ def postVideoBatch():
                     is_draft=data.get('isDraft', False),
                     audience=data.get('audience', 'not_kids'),
                     altered_content=data.get('alteredContent', False),
+                    # 微信公众号特有参数
+                    is_original=data.get('isOriginal', False),
+                    gzh_collection_name=data.get('gzhCollectionName', ''),
+                    gzh_claim_source=data.get('gzhClaimSource', ''),
                 )
             if not result:
                 failures.append({"index": idx, "reason": "发布失败：页面未跳转"})

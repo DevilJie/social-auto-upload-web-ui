@@ -812,6 +812,9 @@ class WeiboPlatform(BasePlatform):
         account_file = kwargs.get("account_file", []) or []
         thumbnail_landscape_path = kwargs.get("thumbnail_landscape_path")
         thumbnail_portrait_path = kwargs.get("thumbnail_portrait_path")
+        # 16:9 / 9:16 封面(微博封面框实际比例,优先于 4:3 / 3:4 使用)
+        thumbnail_landscape_169_path = kwargs.get("thumbnail_landscape_169_path")
+        thumbnail_portrait_916_path = kwargs.get("thumbnail_portrait_916_path")
         desc = kwargs.get("desc", "") or ""
         category = kwargs.get("category")
         ai_content = kwargs.get("ai_content", "") or ""
@@ -858,6 +861,8 @@ class WeiboPlatform(BasePlatform):
                         account_file=cookie_path,
                         thumbnail_landscape_path=thumbnail_landscape_path,
                         thumbnail_portrait_path=thumbnail_portrait_path,
+                        thumbnail_landscape_169_path=thumbnail_landscape_169_path,
+                        thumbnail_portrait_916_path=thumbnail_portrait_916_path,
                         desc=desc,
                         category=category,
                         ai_content=ai_content,
@@ -883,6 +888,8 @@ class WeiboPlatform(BasePlatform):
         account_file: str,
         thumbnail_landscape_path=None,
         thumbnail_portrait_path=None,
+        thumbnail_landscape_169_path=None,
+        thumbnail_portrait_916_path=None,
         desc="",
         category=None,
         ai_content="",
@@ -972,6 +979,8 @@ class WeiboPlatform(BasePlatform):
                     page,
                     thumbnail_landscape_path,
                     thumbnail_portrait_path,
+                    thumbnail_landscape_169_path,
+                    thumbnail_portrait_916_path,
                 )
                 logger.info("[设置封面] 封面设置完成")
 
@@ -1483,6 +1492,8 @@ class WeiboPlatform(BasePlatform):
         page,
         thumbnail_landscape_path=None,
         thumbnail_portrait_path=None,
+        thumbnail_landscape_169_path=None,
+        thumbnail_portrait_916_path=None,
     ):
         """上传封面。
 
@@ -1494,11 +1505,15 @@ class WeiboPlatform(BasePlatform):
         4. 等待「编辑封面」弹层出现
         5. 找到弹层内的隐藏 ``input[type=file]`` 上传图片
         6. 点击「完成」按钮
+
+        封面尺寸优先级:微博封面框实际是 16:9 / 9:16,优先用
+        ``thumbnail_landscape_169_path``(16:9) / ``thumbnail_portrait_916_path``
+        (9:16);没有时回退到 4:3 / 3:4。
         """
         cover_path = await WeiboPlatform._pick_cover_by_aspect(
             page,
-            landscape_path=thumbnail_landscape_path,
-            portrait_path=thumbnail_portrait_path,
+            landscape_path=thumbnail_landscape_169_path or thumbnail_landscape_path,
+            portrait_path=thumbnail_portrait_916_path or thumbnail_portrait_path,
         )
         if not cover_path or not os.path.exists(cover_path):
             logger.info("[发布] 无封面文件,跳过封面上传")
@@ -1817,20 +1832,44 @@ class WeiboPlatform(BasePlatform):
             v2_optional: 版本2「可选」区声明值。空=不选。
         """
         # 先探测版本2 trigger「请进行内容声明（必填）」是否存在
-        v2_trigger = page.get_by_text("请进行内容声明（必填）", exact=True).first
+        # 注意:不能用 exact=True,实际 DOM 文本可能含全角括号或前后空白,
+        # 用 contains 匹配更稳。探测全程打日志,绝不静默吞异常。
+        logger.info(
+            "[内容声明] 开始探测页面 UI 版本(v2_required=%s)",
+            v2_required or "(空)",
+        )
+        v2_detected = False
         try:
-            if await v2_trigger.count() > 0:
-                logger.info("[内容声明] 检测到版本2 UI(必填下拉),走 v2 逻辑")
+            # 多个候选文本:全角括号 / 半角括号 / 含空白
+            v2_trigger = page.get_by_text("请进行内容声明", exact=False).first
+            cnt = await v2_trigger.count()
+            logger.info("[内容声明] 探测「请进行内容声明」count=%d", cnt)
+            if cnt > 0:
+                v2_detected = True
+        except Exception as e:
+            # 探测本身异常:打印详情,不静默吞
+            logger.warning("[内容声明] 探测版本2 trigger 异常: %s", e)
+
+        if v2_detected:
+            logger.info("[内容声明] ✓ 检测到版本2 UI(必填下拉),走 v2 逻辑")
+            try:
                 await WeiboPlatform._set_content_statement_v2(
                     page, v2_required, v2_optional
                 )
-                return
-        except Exception:
-            pass
+            except Exception as e:
+                logger.error(
+                    "[内容声明] 版本2 处理异常: %s", e, exc_info=True
+                )
+            return
 
         # 否则走版本1(老弹窗)
         logger.info("[内容声明] 未检测到版本2,走版本1(弹窗)逻辑")
-        await WeiboPlatform._set_content_statement_v1(page, v1_stmt)
+        try:
+            await WeiboPlatform._set_content_statement_v1(page, v1_stmt)
+        except Exception as e:
+            logger.error(
+                "[内容声明] 版本1 处理异常: %s", e, exc_info=True
+            )
 
     @staticmethod
     async def _set_content_statement_v1(page, statement: str):
@@ -1900,52 +1939,86 @@ class WeiboPlatform(BasePlatform):
             required_text = "内容无需标注"
 
         # 点 trigger 展开「必填」下拉(woo-pop-ctrl 同样有 intercept 问题,force)
-        trigger = page.get_by_text("请进行内容声明（必填）", exact=True).first
+        # exact=False:实际文本可能含全角括号/前后空白,用包含匹配
+        trigger = page.get_by_text("请进行内容声明", exact=False).first
         try:
             await trigger.wait_for(state="visible", timeout=5000)
+            logger.info("[内容声明v2] 找到 trigger「请进行内容声明」")
         except Exception as e:
-            logger.warning("[发布] 未找到内容声明(版本2)入口: %s", e)
+            logger.warning("[内容声明v2] 未找到 trigger 入口: %s", e)
             return
 
         await trigger.click(force=True)
-        await asyncio.sleep(0.5)
+        logger.info("[内容声明v2] 已点击 trigger,等待面板展开")
+        # 面板展开是动画,实测 0.5s 偶尔不够,给 1s 让 _panel 完整渲染
+        await asyncio.sleep(1)
 
-        # 选必选项
+        # 校验面板是否真正展开(区分"没展开"和"展开了没点到")
+        panel = page.locator("._panel_nsgmr_114, [class*='_panel_']").first
         try:
-            required_btn = page.get_by_role("button", name=required_text, exact=True).first
-            await required_btn.wait_for(state="visible", timeout=5000)
-            await required_btn.click()
-            logger.info("[发布] 已选内容声明(版本2必选): %s", required_text)
-            await asyncio.sleep(0.3)
+            await panel.wait_for(state="visible", timeout=3000)
+            logger.info("[发布] 内容声明(版本2)面板已展开")
         except Exception as e:
-            logger.warning("[发布] 选择内容声明(版本2必选 %s)失败: %s", required_text, e)
+            logger.warning("[发布] 内容声明(版本2)面板未展开(trigger 点击无效?): %s", e)
+            return
+
+        # 通用:在弹出面板里点某个选项
+        # 关键:不用 get_by_role(button, name=) — 选项 button 内部是
+        # <span class="_check"><!----></span> + <span class="_optionLabel">文案</span>,
+        # accessible name 计算不稳定。改为用 CSS 类直接定位 _optionLabel 文案,
+        # 再点其父级 button。
+        async def _click_option(text, timeout=5000):
+            """点面板里文案为 text 的选项,返回是否成功。"""
+            # 定位文案 span,再点其所在 button(用 force 跳过 intercept)
+            label = page.locator(
+                f"[class*='_optionLabel']:has-text('{text}')"
+            ).first
+            try:
+                await label.wait_for(state="visible", timeout=timeout)
+                # 点 label 的父级 button(label 本身不是可点击区,button 才是)
+                btn = label.locator("xpath=ancestor::button[1]")
+                if await btn.count() == 0:
+                    # 兜底:直接点 label
+                    await label.click(force=True)
+                else:
+                    await btn.first.click(force=True)
+                return True
+            except Exception as e:
+                logger.warning("[发布] 内容声明(版本2)点击选项「%s」失败: %s", text, e)
+                return False
+
+        # 选必选项(必选区必须选一个,失败则 ESC 退出)
+        ok = await _click_option(required_text, timeout=5000)
+        if not ok:
+            logger.warning("[发布] 内容声明(版本2)必选项「%s」选择失败,放弃", required_text)
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.3)
             return
+        logger.info("[发布] 已选内容声明(版本2必选): %s", required_text)
+        await asyncio.sleep(0.4)
 
-        # 选可选项(可选,空则跳过)
+        # 选可选项(可选,空则跳过;失败不中断,继续点确定)
         if optional_stmt and optional_stmt.strip():
-            try:
-                optional_btn = page.get_by_role(
-                    "button", name=optional_stmt.strip(), exact=True
-                ).first
-                await optional_btn.wait_for(state="visible", timeout=3000)
-                await optional_btn.click()
-                logger.info("[发布] 已选内容声明(版本2可选): %s", optional_stmt.strip())
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                logger.warning(
-                    "[发布] 选择内容声明(版本2可选 %s)失败: %s",
-                    optional_stmt.strip(), e,
-                )
-                # 可选失败不中断,继续点确定
+            opt_text = optional_stmt.strip()
+            if await _click_option(opt_text, timeout=3000):
+                logger.info("[发布] 已选内容声明(版本2可选): %s", opt_text)
+                await asyncio.sleep(0.4)
 
-        # 点「确定」按钮提交选择
+        # 点「确定」按钮提交选择(必点,否则选择不生效)
+        # DOM:<button class="woo-button-..."><span class="woo-button-content"> 确定 </span></button>
+        # 用 woo-button-content 文本定位,不依赖 accessible name
         try:
-            confirm_btn = page.get_by_role("button", name="确定", exact=True).first
+            confirm_btn = page.locator(
+                ".woo-button-content:has-text('确定')"
+            ).first
             await confirm_btn.wait_for(state="visible", timeout=3000)
-            await confirm_btn.click()
-            logger.info("[发布] 内容声明(版本2)已确定")
+            # 点 button(woo-button-content 的父级),force 跳过 intercept
+            confirm_button = confirm_btn.locator("xpath=ancestor::button[1]")
+            if await confirm_button.count() > 0:
+                await confirm_button.first.click(force=True)
+            else:
+                await confirm_btn.click(force=True)
+            logger.info("[发布] 内容声明(版本2)已点确定,选择提交")
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.warning("[发布] 点内容声明(版本2)确定按钮失败: %s", e)

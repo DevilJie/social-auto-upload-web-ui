@@ -1151,7 +1151,15 @@ class BilibiliPlatform(BasePlatform):
             # 不使用 data-v-* scoped hash（每次发版会变）
             dialog_opened = False
             trigger_selectors = [
-                # 最精确：完整路径，不依赖 scoped hash
+                # 新版 B 站(2026): cover-module 改版后的封面触发
+                # DOM: .cover-module .cover-empty .cover-empty-pill > .add-text(添加主封面)
+                '.cover-empty-pill',
+                '.cover-empty .cover-empty-pill',
+                '.cover-module .cover-empty-pill',
+                'span.add-text:has-text("添加主封面")',
+                '.cover-empty:has-text("添加主封面")',
+                'div[class*="cover-empty"]:has-text("封面")',
+                # 旧版(保留兼容): 完整路径,不依赖 scoped hash
                 'div.cover-main div.cover-item div.cover-img span.edit-text',
                 # class 子串 + 文本
                 '[class*="cover-main"] [class*="cover-item"] [class*="cover-img"] [class*="edit-text"]',
@@ -1191,22 +1199,36 @@ class BilibiliPlatform(BasePlatform):
                 return
 
             # Wait for cover editor dialog
-            # 兼容旧版"封面制作"和新版"封面设置"两种标题
+            # 兼容旧版"封面制作"/"封面设置"(bcc-dialog)和新版弹窗(可能改用别的容器)
             dialog = None
             for dialog_sel in [
                 'div.bcc-dialog:has-text("封面制作")',
                 'div.bcc-dialog:has-text("封面设置")',
                 'div.bcc-dialog',
+                # 新版可能用的弹窗容器
+                'div[class*="cover-editor"]:visible',
+                'div[class*="cover-dialog"]:visible',
+                'div[class*="upload-cover"]:visible',
             ]:
                 cand = page.locator(dialog_sel).first
                 try:
-                    await cand.wait_for(state="visible", timeout=8000)
+                    await cand.wait_for(state="visible", timeout=5000)
                     dialog = cand
                     break
                 except Exception:
                     continue
             if dialog is None:
-                raise RuntimeError("封面编辑弹窗未出现")
+                # 兜底:弹窗容器选择器都没命中,但若页面已出现图片上传 input,
+                # 说明封面编辑器其实已打开(只是 DOM 结构变了),继续往下走
+                has_input = await page.locator(
+                    'input[type="file"][accept*="image"]'
+                ).count()
+                if has_input > 0:
+                    logger.info("[设置封面] 弹窗容器选择器未命中,但检测到图片上传 input,继续")
+                    # dialog 用 page 兜底,后续 confirm 按钮查找走 page
+                    dialog = page
+                else:
+                    raise RuntimeError("封面编辑弹窗未出现")
             await asyncio.sleep(1)
             await asyncio.sleep(1)
 

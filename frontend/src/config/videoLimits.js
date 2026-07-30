@@ -26,6 +26,8 @@ export const VIDEO_LIMITS = {
   csdn:          { minDuration: 0,    maxDuration: Infinity,     maxSize: 2 * GB, maxTitleLength: 30 },
   // VIVO: 视频大小≤2G, 时长≤90min(5400s), 用「视频描述」非标题故不限标题
   vivo:          { minDuration: 0,    maxDuration: 5400,         maxSize: 2 * GB, maxTitleLength: Infinity },
+  // 微信公众号: 视频时长<1h, 标题≤64字, 描述(含#标签)≤300字
+  weixin_gzh:    { minDuration: 0,    maxDuration: 3600,         maxSize: Infinity, maxTitleLength: 64, maxDescLength: 300 },
 }
 
 const PLATFORM_NAMES = {
@@ -44,6 +46,7 @@ const PLATFORM_NAMES = {
   zhihu: '知乎',
   csdn: 'CSDN',
   vivo: 'VIVO',
+  weixin_gzh: '微信公众号',
 }
 
 export function formatSize(sizeBytes) {

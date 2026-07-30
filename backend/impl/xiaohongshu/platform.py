@@ -653,7 +653,11 @@ async def _publish_single_image(
 
             # Navigate to image publish page
             logger.info("[上传图集] 正在打开图集发布页面...")
-            await page.goto(_XHS_PUBLISH_IMAGE_URL, wait_until="networkidle")
+            # 注意: 不用 wait_until="networkidle" —— 小红书 creator 页存在持续后台
+            # 请求(心跳/统计), 极难达到 networkidle, 30s 默认超时易触发 goto 超时。
+            # 后续 wait_for_selector 上传区域才是真正的就绪信号(与视频发布侧一致)。
+            await page.goto(_XHS_PUBLISH_IMAGE_URL)
+            await page.wait_for_url(_XHS_PUBLISH_IMAGE_URL)
             await asyncio.sleep(3)  # 等待页面完全加载
             logger.info("[上传图集] 图集发布页面已打开")
 

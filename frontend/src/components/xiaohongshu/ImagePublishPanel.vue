@@ -49,16 +49,14 @@
 
       <div class="setting-card">
         <div class="setting-label">定时发布</div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <el-switch v-model="form.enableTimer" :disabled="disabled" />
-          <el-date-picker
-            v-if="form.enableTimer"
-            v-model="form.scheduleTime"
-            type="datetime"
-            placeholder="选择发布时间"
-            :disabled="disabled"
-          />
-        </div>
+        <div class="setting-hint">不选时间表示立即发布，选择时间即定时发布</div>
+        <el-date-picker
+          v-model="form.scheduleTime"
+          type="datetime"
+          placeholder="选择发布时间（留空立即发布）"
+          :disabled="disabled"
+          style="width: 100%;"
+        />
       </div>
     </div>
   </div>
@@ -86,7 +84,7 @@ const accountStore = useAccountStore()
 const aiContentField = PLATFORMS.XIAOHONGSHU.settingsFields.find(f => f.key === 'aiContent')
 const aiContentOptions = computed(() => aiContentField?.options || [])
 
-const XHS_DEFAULTS = { ...PLATFORMS.XIAOHONGSHU.defaultSettings, tags: [], enableTimer: false, isOriginal: false }
+const XHS_DEFAULTS = { ...PLATFORMS.XIAOHONGSHU.defaultSettings, tags: [], isOriginal: false }
 
 const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
   XHS_DEFAULTS,
@@ -104,8 +102,10 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
           account_configs: {
             account_id: accountId, platform: account.platform, filePath: account.filePath,
             title: merged.title, description: merged.description || '',
-            tags: merged.tags || [], scheduleTime: merged.enableTimer ? merged.scheduleTime : '',
+            tags: merged.tags || [], scheduleTime: merged.scheduleTime || '',
             aiContent: merged.aiContent || '', isOriginal: merged.isOriginal || false,
+            // enableTimer 由 scheduleTime 是否非空派生，选了时间即代表定时发布
+            enableTimer: !!merged.scheduleTime,
             cover_path: commonData.coverImage?.stored_path || '',
             dry_run: false,
           },
@@ -121,7 +121,6 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
     validateFn: (accountId, merged) => {
       const errors = []
       if (!merged.title || !merged.title.trim()) errors.push('标题不能为空')
-      if (merged.enableTimer && !merged.scheduleTime) errors.push('请选择定时发布时间')
       return { valid: errors.length === 0, errors }
     },
   },
@@ -151,7 +150,9 @@ useAutoExtractHashtags({
 defineExpose(publicApi)
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
+
 .xiaohongshu-image-publish-panel {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));

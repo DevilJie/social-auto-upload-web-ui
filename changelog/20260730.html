@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v1.2.4 更新日志 · 千帆云递</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&family=Nunito+Sans:wght@300;400;600;700;800;900&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/ScrollTrigger.min.js"></script>
+<style>
+  :root{
+    --bg: #F6F8FB;
+    --bg-elev: #FFFFFF;
+    --bg-card: rgba(15,23,42,0.025);
+    --bg-card-hover: rgba(15,23,42,0.045);
+    --border: rgba(15,23,42,0.10);
+    --border-strong: rgba(15,23,42,0.18);
+    --fg: #0F172A;
+    --fg-soft: #334155;
+    --fg-muted: #64748B;
+    --accent: #07C160;
+    --accent-2: #0AAD55;
+    --accent-glow: rgba(7,193,96,0.30);
+    --pink: #E11D48;
+    --green: #059669;
+    --amber: #D97706;
+    --purple: #7C3AED;
+    --red: #DC2626;
+    --display: 'Rubik', system-ui, sans-serif;
+    --body: 'Nunito Sans', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+  body{
+    font-family:var(--body);
+    background:var(--bg);
+    color:var(--fg);
+    line-height:1.55;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  html{font-size: clamp(16px, 0.75vw + 12px, 22px)}
+
+  .bg-decor{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;}
+  .bg-decor::before{
+    content:"";position:absolute;inset:-20%;
+    background:
+      radial-gradient(ellipse 60% 50% at 20% 20%, rgba(7,193,96,0.14), transparent 60%),
+      radial-gradient(ellipse 50% 40% at 80% 30%, rgba(124,58,237,0.10), transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 90%, rgba(37,99,235,0.10), transparent 60%);
+    filter:blur(40px);
+  }
+  .bg-grid{
+    position:absolute;inset:-10%;
+    background-image:
+      linear-gradient(rgba(15,23,42,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15,23,42,0.04) 1px, transparent 1px);
+    background-size:80px 80px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 75%);
+    animation: grid-drift 60s linear infinite;
+  }
+  @keyframes grid-drift{
+    0%{transform: translate(0,0)}
+    100%{transform: translate(80px,80px)}
+  }
+
+  .light-leak{
+    position:fixed;top:0;left:0;right:0;height:3px;z-index:-1;
+    background:linear-gradient(90deg, transparent, var(--green), var(--accent), var(--purple), transparent);
+    opacity:.55;
+    animation: leak-pulse 8s ease-in-out infinite;
+  }
+  @keyframes leak-pulse{0%,100%{opacity:.3}50%{opacity:.8}}
+
+  section{
+    max-width:1280px;margin:0 auto;
+    padding: clamp(3rem, 6vw, 5rem) clamp(1.5rem, 5vw, 4rem);
+  }
+
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:100;
+    display:flex;align-items:center;justify-content:space-between;
+    padding: 1rem clamp(1.5rem, 5vw, 4rem);
+    background: rgba(246,248,251,0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom:1px solid var(--border);
+    transition: all .3s;
+  }
+  .topbar.scrolled{background: rgba(246,248,251,0.92);}
+  .brand{display:flex;align-items:center;gap:.6rem;font-family:var(--display);font-weight:700;font-size:1.1rem;}
+  .brand-mark{
+    width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(135deg, var(--green), var(--accent));
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:800;font-size:1rem;
+    box-shadow: 0 4px 20px rgba(7,193,96,0.28);
+  }
+  .topbar nav{display:flex;gap:1.5rem;}
+  .topbar nav a{
+    color:var(--fg-muted);text-decoration:none;font-size:.92rem;font-weight:600;
+    transition:color .2s;
+  }
+  .topbar nav a:hover{color:var(--fg)}
+  .topbar .ver{
+    font-family:var(--mono);font-size:.82rem;color:var(--accent);
+    background:rgba(7,193,96,0.1);padding:.3rem .7rem;border-radius:6px;
+    border:1px solid rgba(7,193,96,0.25);
+  }
+
+  /* ===== HERO ===== */
+  .hero{
+    min-height:90vh;display:flex;flex-direction:column;justify-content:center;align-items:center;
+    text-align:center;position:relative;padding-top:8rem;
+  }
+  .hero-brand{
+    display:inline-flex;align-items:center;gap:.6rem;
+    margin-bottom:1.5rem;color:var(--fg-muted);font-size:.9rem;
+  }
+  .hero-brand .brand-mark{width:30px;height:30px;font-size:.85rem;}
+  .hero-brand em{font-style:normal;color:var(--fg-muted);font-family:var(--display);}
+
+  .hero-eyebrow{
+    display:inline-flex;align-items:center;gap:.6rem;
+    padding:.5rem 1.1rem;border-radius:99px;
+    background:rgba(7,193,96,0.1);border:1px solid rgba(7,193,96,0.25);
+    font-family:var(--mono);font-size:.78rem;color:var(--accent);
+    letter-spacing:.08em;margin-bottom:1.5rem;
+  }
+  .hero-eyebrow .dot{
+    width:8px;height:8px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px var(--accent);animation:pulse 2s infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
+
+  .hero-version{
+    font-family:var(--display);font-weight:900;
+    font-size: clamp(6rem, 16vw, 14rem);
+    line-height:.9;letter-spacing:-.04em;
+    background:linear-gradient(135deg, #0F172A 0%, var(--accent) 50%, var(--purple) 100%);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    margin-bottom:.5rem;
+  }
+  .hero-version .dot-sep{color:var(--fg-muted);-webkit-text-fill-color:var(--fg-muted);}
+
+  .hero-title{
+    font-family:var(--display);font-weight:700;
+    font-size: clamp(1.6rem, 3vw, 2.6rem);
+    margin:1rem 0 1.5rem;line-height:1.25;
+  }
+  .hero-title .accent{
+    background:linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  }
+
+  .hero-desc{
+    max-width:760px;color:var(--fg-soft);font-size:clamp(1rem,1.15vw,1.15rem);
+    line-height:1.7;margin-bottom:2rem;
+  }
+  .hero-desc strong{color:var(--fg);font-weight:700;}
+
+  .hero-stats{
+    display:flex;flex-wrap:wrap;gap:.75rem;justify-content:center;
+  }
+  .stat-chip{
+    display:inline-flex;align-items:center;gap:.5rem;
+    padding:.6rem 1.1rem;border-radius:10px;
+    background:var(--bg-elev);border:1px solid var(--border);
+    font-size:.88rem;color:var(--fg-soft);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .stat-chip svg{width:16px;height:16px;color:var(--accent);}
+  .stat-chip .num{font-family:var(--mono);font-weight:800;color:var(--accent);}
+
+  /* ===== Section title ===== */
+  .sec-title{
+    font-family:var(--display);font-weight:800;
+    font-size:clamp(1.8rem, 3.5vw, 2.8rem);
+    margin-bottom:.5rem;letter-spacing:-.02em;
+  }
+  .sec-sub{color:var(--fg-muted);margin-bottom:2.5rem;font-size:1rem;}
+
+  /* ===== Highlights cards ===== */
+  .hl-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.25rem;
+  }
+  .hl-card{
+    background:var(--bg-elev);border:1px solid var(--border);
+    border-radius:16px;padding:1.6rem;
+    transition:all .3s;position:relative;overflow:hidden;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .hl-card::before{
+    content:"";position:absolute;top:0;left:0;right:0;height:3px;
+    background:var(--card-color, var(--accent));
+    transform:scaleX(0);transform-origin:left;transition:transform .4s;
+  }
+  .hl-card:hover{background:var(--bg-elev);border-color:var(--border-strong);transform:translateY(-3px);box-shadow: 0 12px 30px rgba(15,23,42,0.08);}
+  .hl-card:hover::before{transform:scaleX(1);}
+  .hl-icon{
+    width:44px;height:44px;border-radius:11px;
+    background:var(--card-bg, rgba(7,193,96,0.1));
+    color:var(--card-color, var(--accent));
+    display:flex;align-items:center;justify-content:center;
+    margin-bottom:1rem;font-size:1.3rem;
+  }
+  .hl-card h3{font-family:var(--display);font-weight:700;font-size:1.15rem;margin-bottom:.5rem;}
+  .hl-card p{color:var(--fg-muted);font-size:.92rem;line-height:1.6;}
+  .hl-card .tag{
+    display:inline-block;margin-top:.8rem;font-family:var(--mono);
+    font-size:.72rem;padding:.2rem .55rem;border-radius:5px;
+    background:rgba(7,193,96,0.1);color:var(--accent);
+    border:1px solid rgba(7,193,96,0.25);
+  }
+  .hl-card .tag.fix{background:rgba(220,38,38,0.1);color:var(--red);border-color:rgba(220,38,38,0.25);}
+
+  /* ===== Feature list ===== */
+  .feat-list{display:flex;flex-direction:column;gap:.75rem;}
+  .feat-item{
+    display:flex;gap:1rem;padding:1.1rem 1.3rem;
+    background:var(--bg-elev);border:1px solid var(--border);border-radius:12px;
+    transition:all .2s;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .feat-item:hover{background:var(--bg-elev);border-color:var(--border-strong);box-shadow: 0 6px 18px rgba(15,23,42,0.06);}
+  .feat-item .feat-check{
+    flex-shrink:0;width:24px;height:24px;border-radius:6px;
+    background:rgba(7,193,96,0.12);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;
+  }
+  .feat-item .feat-body{flex:1;}
+  .feat-item h4{font-weight:700;font-size:1rem;margin-bottom:.2rem;}
+  .feat-item p{color:var(--fg-muted);font-size:.9rem;line-height:1.55;}
+  .feat-item code{
+    font-family:var(--mono);font-size:.82rem;
+    background:rgba(15,23,42,0.06);padding:.1rem .4rem;border-radius:4px;color:var(--accent);
+  }
+
+  /* platform pills */
+  .pills{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem;}
+  .pill{
+    font-family:var(--mono);font-size:.75rem;
+    padding:.25rem .6rem;border-radius:6px;
+    background:var(--bg-elev);border:1px solid var(--border);color:var(--fg-soft);
+  }
+
+  /* Footer */
+  footer{
+    padding: clamp(3rem, 6vw, 5rem) clamp(1.5rem, 5vw, 4rem);
+    border-top:1px solid var(--border);text-align:center;
+    margin-top: clamp(3rem, 7vw, 6rem);
+  }
+  .footer-mark{display:inline-flex;align-items:center;gap:.6rem;margin-bottom:1rem;}
+  .footer-mark .brand-mark{width:36px;height:36px;}
+  .footer-mark span{font-family:var(--display);font-weight:700;font-size:1.2rem;}
+  .footer-meta{color:var(--fg-muted);font-size:clamp(.9rem,1vw,1rem);line-height:1.7;}
+  .footer-meta a{color:var(--accent);text-decoration:none;}
+
+  .reveal{opacity:0}
+
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1!important;transform:none!important;transition:none!important}
+    *{animation:none!important}
+    html{scroll-behavior:auto}
+  }
+  @media (min-width: 2200px){section{max-width:2000px}html{font-size:22px}.hero-version{font-size:clamp(8rem,18vw,22rem)}}
+  @media (max-width: 1024px){.topbar nav{display:none}}
+  @media (max-width: 640px){.hero{padding-top:6rem}.hero-stats{gap:.5rem}.stat-chip{padding:.55rem 1rem}}
+</style>
+</head>
+<body>
+
+<div class="bg-decor"><div class="bg-grid"></div></div>
+<div class="light-leak" aria-hidden="true"></div>
+
+<header class="topbar" id="topbar">
+  <div class="brand"><div class="brand-mark">千</div><span>千帆云递</span></div>
+  <nav>
+    <a href="#highlights">亮点</a>
+    <a href="#features">新功能</a>
+    <a href="#fixes">修复优化</a>
+  </nav>
+  <span class="ver">v1.2.4</span>
+</header>
+
+<!-- ===== HERO ===== -->
+<section class="hero">
+  <div class="hero-brand reveal d1">
+    <div class="brand-mark">千</div>
+    <span>千帆云递 <em>· QianFan Sync</em></span>
+  </div>
+
+  <div class="hero-eyebrow reveal d1">
+    <span class="dot"></span><span>UPDATE · 2026.07.30</span>
+  </div>
+
+  <h1 class="hero-version reveal d2" data-text="v1.2.4">
+    v1<span class="dot-sep">.</span>2<span class="dot-sep">.</span>4
+  </h1>
+
+  <h2 class="hero-title reveal d3">
+    微信公众号 <span class="accent">正式上线</span> · 微博发布更稳了
+  </h2>
+
+  <p class="hero-desc reveal d4">
+    v1.2.4 是一次<strong>「平台扩展 + 稳定性」</strong>的版本 —— 全平台第 <strong>17</strong> 个成员<strong>「微信公众号」</strong>正式接入,支持<strong>视频发布</strong>与<strong>图集(贴图)发布</strong>全流程,涵盖封面上传、原创声明、创作来源、合集选择、定时发布等完整能力;同时修复了<strong>微博内容声明</strong>选不上的关键 Bug,自动化更稳了。
+  </p>
+
+  <div class="hero-stats reveal d5">
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M2 12h20"/></svg>
+      <span class="num">2</span> 项重大更新
+    </span>
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+      <span class="num">视频+图集</span> 双发布
+    </span>
+    <span class="stat-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
+      <span class="num">17</span> 个平台
+    </span>
+  </div>
+</section>
+
+<!-- ===== HIGHLIGHTS ===== -->
+<section id="highlights">
+  <h2 class="sec-title reveal">本次更新亮点</h2>
+  <p class="sec-sub reveal">一图速览本次 v1.2.4 的所有变化</p>
+
+  <div class="hl-grid">
+    <div class="hl-card reveal" style="--card-color:#07C160;--card-bg:rgba(7,193,96,0.10);">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      </div>
+      <h3>微信公众号视频发布</h3>
+      <p>视频素材上传 → 封面 → 标题 → 原创 → 创作来源 → 合集 → 定时,两阶段全流程打通,支持扫码确认发表。</p>
+      <span class="tag">新功能</span>
+    </div>
+
+    <div class="hl-card reveal" style="--card-color:#7C3AED;--card-bg:rgba(124,58,237,0.10);">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      </div>
+      <h3>微信公众号图集(贴图)发布</h3>
+      <p>创作中心点「贴图」进入编辑页,多图一次性上传,标题/描述/合集/创作来源/定时全支持,与视频一致。</p>
+      <span class="tag">新功能</span>
+    </div>
+
+    <div class="hl-card reveal" style="--card-color:#DC2626;--card-bg:rgba(220,38,38,0.10);">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11V7a3 3 0 016 0v4"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>
+      </div>
+      <h3>微博内容声明选不上</h3>
+      <p>微博内容声明版本 2 的选项点击不到、accessible name 不稳定等关键 Bug 修复,声明选择恢复稳定。</p>
+      <span class="tag fix">关键修复</span>
+    </div>
+
+    <div class="hl-card reveal" style="--card-color:#D97706;--card-bg:rgba(217,119,6,0.10);">
+      <div class="hl-icon">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </div>
+      <h3>公众号细节全面打磨</h3>
+      <p>发布前标题校验前置、账号检查弹窗平台图标、发布历史/草稿箱公众号枚举、定时开关精确选择等多项细节修复。</p>
+      <span class="tag">体验优化</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FEATURES ===== -->
+<section id="features">
+  <h2 class="sec-title reveal">新功能 · 微信公众号发布</h2>
+  <p class="sec-sub reveal">全平台第 17 个成员,视频与图集双发布能力</p>
+
+  <div class="feat-list">
+    <div class="feat-item reveal">
+      <div class="feat-check">+</div>
+      <div class="feat-body">
+        <h4>微信公众号视频发布 <code>v1.2.4</code></h4>
+        <p>打通公众号视频发布的完整两阶段流程:① 素材上传页上传视频 → 封面(16:9) → 标题 → 原创声明 → 服务规则 → 保存并发表;② 发布编辑页填标题/描述(含 # 标签) → 合集 → 创作来源 → 立即/定时发表(支持扫码确认)。覆盖公众号所有发布选项,token 动态解析、按钮 disabled 态轮询、弹窗确认等细节均已打磨。</p>
+        <div class="pills">
+          <span class="pill">两阶段流程</span>
+          <span class="pill">定时发布</span>
+          <span class="pill">原创声明</span>
+          <span class="pill">创作来源</span>
+          <span class="pill">合集</span>
+          <span class="pill">扫码确认</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">+</div>
+      <div class="feat-body">
+        <h4>微信公众号图集(贴图)发布</h4>
+        <p>创作中心首页点击「贴图」进入编辑页(type=77),多张图片一次性上传,标题(≤20字)、描述(≤1000字,含 # 标签)、贴图合集、创作来源、定时发布全支持。发表流程(含定时开关、二次确认、扫码等待)与视频完全一致,复用同一套发布逻辑。图集合集与视频合集数据来源分离(贴图合集 / 视频合集独立 tab)。</p>
+        <div class="pills">
+          <span class="pill">多图一次性上传</span>
+          <span class="pill">贴图合集</span>
+          <span class="pill">创作来源</span>
+          <span class="pill">定时发布</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">+</div>
+      <div class="feat-body">
+        <h4>公众号合集数据来源接入</h4>
+        <p>新增公众号合集列表抓取 API,打开合集管理页 → 点击「视频合集」或「贴图合集」tab → 解析表格获取合集数据。找不到对应 tab 时自动返回空(代表该账号无此类型合集),视频与图集合集互不干扰。</p>
+        <div class="pills">
+          <span class="pill">视频合集</span>
+          <span class="pill">贴图合集</span>
+          <span class="pill">无合集自动判空</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FIXES ===== -->
+<section id="fixes">
+  <h2 class="sec-title reveal">修复优化 · 5 项</h2>
+  <p class="sec-sub reveal">微博关键修复 + 公众号细节打磨</p>
+
+  <div class="feat-list">
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>微博内容声明版本 2 选择不上</h4>
+        <p>微博内容声明版本 2 的下拉选项点击不稳定,accessible name 定位方式在新版前端下失效,导致选项选不上。改为用 CSS 类 ``_optionLabel`` 定位选项文案再点父级按钮,并补全日志消灭静默吞异常,声明选择恢复稳定。</p>
+        <div class="pills">
+          <span class="pill">微博</span>
+          <span class="pill">内容声明</span>
+          <span class="pill">关键修复</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>公众号发布前标题长度校验前置</h4>
+        <p>公众号标题 ≤64 字的校验原来只在后端 /postVideo 发生(账号检查之后才拦),前端表单校验阶段直接放行。现前端 videoLimits 补全公众号规则,标题超长在账号检查前就被拦截,不再白跑账号检查。</p>
+        <div class="pills">
+          <span class="pill">微信公众号</span>
+          <span class="pill">表单校验</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>账号检查弹窗公众号平台图标缺失</h4>
+        <p>发布前账号检查弹窗里公众号只显示昵称,平台 logo 不显示。根因是平台 ID→Key 映射漏了 17(weixin_gzh),补全后图标正常显示。</p>
+        <div class="pills">
+          <span class="pill">微信公众号</span>
+          <span class="pill">账号检查</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>发布历史 / 草稿箱公众号枚举遗漏</h4>
+        <p>后端多处硬编码的平台 ID→名称映射漏了公众号(17),导致发布历史脏数据兜底、草稿箱渠道摘要里公众号显示异常。统一补全后发布历史与草稿箱的公众号显示正常。</p>
+        <div class="pills">
+          <span class="pill">发布历史</span>
+          <span class="pill">草稿箱</span>
+          <span class="pill">枚举补全</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>图集定时发布时间发布时被清空</h4>
+        <p>图集发布设定时时间后点发布,时间被清空导致变成立即发布。根因是图集 mergeConfig 合并 scheduleTime 时漏了 panelAccountOv 层级,修复后账号级定时时间在发布时不再丢失(该修复惠及所有图集平台)。</p>
+        <div class="pills">
+          <span class="pill">图集发布</span>
+          <span class="pill">定时发布</span>
+          <span class="pill">通用修复</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-mark">
+    <div class="brand-mark">千</div>
+    <span>千帆云递</span>
+  </div>
+  <div class="footer-meta">
+    一款多平台视频自动上传工具<br>
+    v1.2.4 · 2026.07.30 · <a href="https://github.com/DevilJie/social-auto-upload-web-ui">GitHub</a>
+  </div>
+</footer>
+
+<script>
+  // 顶部栏滚动时加深背景
+  const topbar = document.getElementById('topbar');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 20) topbar.classList.add('scrolled');
+    else topbar.classList.remove('scrolled');
+  });
+
+  // GSAP 入场动画(沿用 v1.2.3 风格)
+  if (window.gsap) {
+    gsap.registerPlugin(ScrollTrigger);
+    gsap.to('.reveal', {
+      opacity: 1, y: 0, duration: .8, ease: 'power3.out', stagger: .08,
+      scrollTrigger: { trigger: '.reveal', start: 'top 90%', toggleActions: 'play none none none' }
+    });
+    // hero 内元素逐级入场
+    const tl = gsap.timeline();
+    tl.to('.hero .reveal', { opacity: 1, y: 0, duration: .8, ease: 'power3.out', stagger: .12 }, 0.1);
+  } else {
+    document.querySelectorAll('.reveal').forEach(el => el.style.opacity = 1);
+  }
+</script>
+
+</body>
+</html>

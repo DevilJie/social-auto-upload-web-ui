@@ -1391,17 +1391,28 @@ class WeixinGzhPlatform(BasePlatform):
         #    **关键(实测根因)**: 点完必须校验 input.checked===true 且时间选择器
         #    dl 不再 display:none —— 否则后续选时分全无效(dl 隐藏,点不到)。
         #    之前只 return 'ok' 不校验,导致开关没真开就往下走。
+        #
+        # **校验判据修正(实测根因)**: 必须同时满足 ① 定时开关 checked ② 时间选择器
+        # dl 真实存在(dlExists=true)。之前 dlExists=False 时因 dlHidden 也为 false
+        # 被误判通过 —— dl 不存在不等于"可见",必须 dlExists 强制为真。
         switched = False
         sw_deadline = asyncio.get_event_loop().time() + 20
         attempt = 0
         while asyncio.get_event_loop().time() < sw_deadline:
             res = await page.evaluate(
                 """() => {
-                    const switches = document.querySelectorAll(
-                        '.mass-send__timer-wrp .weui-desktop-switch'
+                    // 优先取「定时发表」区块(.mass-send__td-setting)下的开关,
+                    // 回退到所有 .mass-send__timer-wrp 开关。
+                    let wraps = document.querySelectorAll(
+                        '.mass-send__td-setting .mass-send__timer-wrp .weui-desktop-switch'
                     );
-                    const out = {clicked: false, checked: false, reason: 'none'};
-                    for (const sw of switches) {
+                    if (!wraps.length) {
+                        wraps = document.querySelectorAll(
+                            '.mass-send__timer-wrp .weui-desktop-switch'
+                        );
+                    }
+                    const out = {clicked: false, checked: false, reason: 'none', count: wraps.length};
+                    for (const sw of wraps) {
                         const input = sw.querySelector('input.weui-desktop-switch__input');
                         if (!input) continue;
                         if (input.disabled) { out.reason = 'disabled'; continue; }  // 群发通知开关
@@ -1415,39 +1426,47 @@ class WeixinGzhPlatform(BasePlatform):
                 }"""
             )
             await asyncio.sleep(0.8)
-            # 校验: 开关 checked 且 时间选择器 dl 可见
+            # 校验: 定时开关 checked 且 时间选择器 dl 真实存在且可见
             verify = await page.evaluate(
                 """() => {
-                    const switches = document.querySelectorAll(
-                        '.mass-send__timer-wrp .weui-desktop-switch'
+                    let wraps = document.querySelectorAll(
+                        '.mass-send__td-setting .mass-send__timer-wrp .weui-desktop-switch'
                     );
+                    if (!wraps.length) {
+                        wraps = document.querySelectorAll(
+                            '.mass-send__timer-wrp .weui-desktop-switch'
+                        );
+                    }
                     let on = false;
-                    for (const sw of switches) {
+                    for (const sw of wraps) {
                         const input = sw.querySelector('input.weui-desktop-switch__input');
                         if (input && !input.disabled && input.checked) { on = true; break; }
                     }
                     const dl = document.querySelector('dl.weui-desktop-picker__time');
-                    let dlHidden = false;
+                    let dlVisible = false;
                     if (dl) {
                         const styleAttr = dl.getAttribute('style') || '';
                         const computed = window.getComputedStyle(dl).display;
-                        dlHidden = styleAttr.replace(' ', '').indexOf('display:none') !== -1
-                                   || computed === 'none';
+                        const inlineHidden = styleAttr.replace(' ', '').indexOf('display:none') !== -1;
+                        dlVisible = !inlineHidden && computed !== 'none';
                     }
-                    return {on, dlHidden, dlExists: !!dl};
+                    return {on, dlExists: !!dl, dlVisible};
                 }"""
             )
             logger.info(
                 "[阶段②][开关] 第%d次 res=%s verify=%s", attempt, res, verify
             )
-            if verify.get("on") and not verify.get("dlHidden"):
+            # 必须开关已开 + 时间选择器真实存在且可见(dlVisible) 才算成功
+            if verify.get("on") and verify.get("dlVisible"):
                 switched = True
                 break
             attempt += 1
         if switched:
-            logger.info("[阶段②] 已开启「定时发表」开关(校验通过: dl 已可见)")
+            logger.info("[阶段②] 已开启「定时发表」开关(校验通过: dl 已存在且可见)")
         else:
-            logger.error("[阶段②] 定时开关校验失败:开关未开或时间选择器仍 display:none")
+            logger.error(
+                "[阶段②] 定时开关校验失败:开关未开或时间选择器未出现 verify=%s", verify
+            )
         await asyncio.sleep(1.0)
 
         # 3. 选择日期(最近 7 天的下拉,按目标日期匹配)

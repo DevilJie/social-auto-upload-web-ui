@@ -800,6 +800,24 @@ function resolveAccountConfig(platformKey, accountId) {
   return mergeConfig(commonConfig, platformDefault, platformOv, accountOv)
 }
 
+/**
+ * 解析定时发布时间:账号级优先,且账号级显式设置(含清空)就以账号级为准。
+ *
+ * 关键: accountOv.scheduleTime === null 表示用户在账号级"清空了定时"(=不定时),
+ * 不能用 ?? fallback 到平台级默认 —— 否则平台级的定时时间会强制定时该账号。
+ * 仅当账号 override 完全没带 scheduleTime key(未操作过)时,才 fallback 到平台级。
+ */
+function _resolveScheduleTime(accountOv, platformOv, platformDefault) {
+  if (accountOv && Object.prototype.hasOwnProperty.call(accountOv, 'scheduleTime')) {
+    // 账号级显式设置过(含 null/'') → 以账号级为准(null/'' = 不定时)
+    return accountOv.scheduleTime || ''
+  }
+  if (platformOv && Object.prototype.hasOwnProperty.call(platformOv, 'scheduleTime')) {
+    return platformOv.scheduleTime || ''
+  }
+  return platformDefault?.scheduleTime || ''
+}
+
 function mergeConfig(common, platformDefault, platformOv, accountOv) {
   return {
     // 文本字段 4 级合并（账号 > 渠道 > 平台默认），与视频/封面/平台特有字段一致
@@ -815,7 +833,10 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     videoPortrait:  accountOv?.videoPortrait  ?? platformOv?.videoPortrait  ?? common.videoPortrait,
     // 平台特有字段走 platformDefault 兜底
     enableTimer: accountOv?.enableTimer ?? platformOv?.enableTimer ?? platformDefault?.enableTimer ?? 0,
-    scheduleTime: accountOv?.scheduleTime ?? platformOv?.scheduleTime ?? platformDefault?.scheduleTime ?? '',
+    // scheduleTime: 账号级若已显式设置(含清空为 null/'')就以账号级为准,不 fallback
+    // 到平台级默认 —— 否则平台级的定时时间会污染"账号没设定时"的账号(实测 bug)。
+    // 用 _hasOwn 判断:账号 override 显式带过该 key 才采纳账号级值(含 null/空=不定时)。
+    scheduleTime: _resolveScheduleTime(accountOv, platformOv, platformDefault),
     aiContent: accountOv?.aiContent ?? platformOv?.aiContent ?? platformDefault?.aiContent ?? '',
     isOriginal: accountOv?.isOriginal ?? platformOv?.isOriginal ?? platformDefault?.isOriginal ?? false,
     // 平台特有字段：4 级合并（账号 > 渠道 > 平台默认），与视频/封面一致

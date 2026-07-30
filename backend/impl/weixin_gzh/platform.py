@@ -1401,21 +1401,20 @@ class WeixinGzhPlatform(BasePlatform):
         while asyncio.get_event_loop().time() < sw_deadline:
             res = await page.evaluate(
                 """() => {
-                    // 优先取「定时发表」区块(.mass-send__td-setting)下的开关,
-                    // 回退到所有 .mass-send__timer-wrp 开关。
-                    let wraps = document.querySelectorAll(
-                        '.mass-send__td-setting .mass-send__timer-wrp .weui-desktop-switch'
+                    // 只取「定时发表」开关 —— 它在 .mass-send__td-setting.timer_setting 区块下。
+                    // **绝不能**用 .mass-send__td-setting 作选择器 —— 「分组通知」开关也在
+                    // .mass-send__td-setting(group_setting)下,两者结构一样,只有第二个 class 不同:
+                    //   分组通知: .mass-send__td-setting.group_setting
+                    //   定时发表: .mass-send__td-setting.timer_setting
+                    // 之前用 .mass-send__td-setting 选到了第一个(分组通知)并误开它。
+                    const wraps = document.querySelectorAll(
+                        '.mass-send__td-setting.timer_setting .mass-send__timer-wrp .weui-desktop-switch'
                     );
-                    if (!wraps.length) {
-                        wraps = document.querySelectorAll(
-                            '.mass-send__timer-wrp .weui-desktop-switch'
-                        );
-                    }
                     const out = {clicked: false, checked: false, reason: 'none', count: wraps.length};
                     for (const sw of wraps) {
                         const input = sw.querySelector('input.weui-desktop-switch__input');
                         if (!input) continue;
-                        if (input.disabled) { out.reason = 'disabled'; continue; }  // 群发通知开关
+                        if (input.disabled) { out.reason = 'disabled'; continue; }
                         if (input.checked) { out.checked = true; out.reason = 'already-on'; continue; }
                         sw.click();
                         out.clicked = true;
@@ -1429,14 +1428,10 @@ class WeixinGzhPlatform(BasePlatform):
             # 校验: 定时开关 checked 且 时间选择器 dl 真实存在且可见
             verify = await page.evaluate(
                 """() => {
-                    let wraps = document.querySelectorAll(
-                        '.mass-send__td-setting .mass-send__timer-wrp .weui-desktop-switch'
+                    // 与点击逻辑一致:只看「定时发表」开关(.timer_setting),不看「分组通知」(.group_setting)
+                    const wraps = document.querySelectorAll(
+                        '.mass-send__td-setting.timer_setting .mass-send__timer-wrp .weui-desktop-switch'
                     );
-                    if (!wraps.length) {
-                        wraps = document.querySelectorAll(
-                            '.mass-send__timer-wrp .weui-desktop-switch'
-                        );
-                    }
                     let on = false;
                     for (const sw of wraps) {
                         const input = sw.querySelector('input.weui-desktop-switch__input');

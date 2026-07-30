@@ -176,6 +176,7 @@ def publish_images():
                 'weibo': 11, '微博': 11,   # 新增
                 'alipay': 12, '支付宝': 12,  # 图集发布
                 'vivo': 16, 'VIVO': 16,
+                'weixin_gzh': 17, '微信公众号': 17,  # 公众号贴图
             }
             platform_id = platform_map.get(platform_type)
             if not platform_id:
@@ -222,6 +223,9 @@ def publish_images():
                 author_statement=config.get('author_statement', '') or config.get('authorStatement', ''),
                 music_id=config.get('music_id', ''),
                 music_title=config.get('music_title', ''),
+                # 微信公众号图集特有字段(视频发布侧用的 snake_case 此处补 camelCase 读取)
+                gzh_collection_name=config.get('gzhCollectionName', '') or config.get('gzh_collection_name', ''),
+                gzh_claim_source=config.get('gzhClaimSource', '') or config.get('gzh_claim_source', ''),
                 dry_run=dry_run,
             )
             if asyncio.iscoroutinefunction(publish_fn):

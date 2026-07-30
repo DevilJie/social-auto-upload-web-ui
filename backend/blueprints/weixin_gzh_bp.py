@@ -80,22 +80,27 @@ def run_async(coro):
 
 @weixin_gzh_bp.route('/collections', methods=['GET'])
 def list_collections():
-    """获取账号的视频合集列表。
+    """获取账号的合集列表(视频合集 / 贴图合集)。
 
     Query params:
         account_id: 账号 id(用于取 cookie)
+        collection_type: 合集类型 tab 文案,默认「视频合集」;
+                         图集传「贴图合集」。
+                         若页面上找不到该 tab,说明账号无此类型合集,
+                         返回空列表(不报错)。
 
     流程:
         1. 用账号 cookie 打开公众号首页,等 cookie 触发跳转,解析 token
         2. 用 token 打开合集管理页(appmsgalbummgr)
-        3. 点「视频合集」tab
+        3. 点对应 tab(视频合集/贴图合集);找不到则返回空
         4. 解析表格 tbody tr 的 .album-title 文本(合集名)
 
     Returns:
         {"code": 200, "data": {"list": [{"name": "..."}], "total": N}}
     """
     account_id = request.args.get('account_id')
-    logger.info(f"[合集列表] 收到请求: account_id={account_id}")
+    collection_type = request.args.get('collection_type') or '视频合集'
+    logger.info(f"[合集列表] 收到请求: account_id={account_id}, collection_type={collection_type}")
 
     try:
         cookie_file = _get_account_cookie_file(account_id)
@@ -103,11 +108,11 @@ def list_collections():
             logger.warning(f"[合集列表] 账号不存在: {account_id}")
             return jsonify({"code": 404, "msg": "没有可用的微信公众号账号"}), 404
 
-        result = run_async(_fetch_collections_via_browser(cookie_file))
+        result = run_async(_fetch_collections_via_browser(cookie_file, collection_type))
 
         if result.get("success"):
             data = result.get("data", {})
-            logger.info(f"[合集列表] 成功,共 {data.get('total', 0)} 个合集")
+            logger.info(f"[合集列表] 成功[{collection_type}],共 {data.get('total', 0)} 个合集")
             return jsonify({"code": 200, "data": data})
         else:
             logger.error(f"[合集列表] 失败: {result.get('error')}")
@@ -119,11 +124,11 @@ def list_collections():
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
-async def _fetch_collections_via_browser(cookie_file: str) -> dict:
-    """打开公众号合集管理页,点「视频合集」tab,解析表格 DOM 拿合集列表。
+async def _fetch_collections_via_browser(cookie_file: str, collection_type: str = '视频合集') -> dict:
+    """打开公众号合集管理页,点指定类型 tab,解析表格 DOM 拿合集列表。
 
     DOM 结构(需求文档):
-      tab: <li class="weui-desktop-tag">视频合集</li>
+      tab: <li class="weui-desktop-tag">视频合集/贴图合集</li>
       表格: table.weui-desktop-table > tbody > tr > td.album-title
         合集名在 .album-title-tips 文本里
 
@@ -165,14 +170,20 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
             except Exception as e:
                 logger.info(f"[合集列表] 合集页加载(非致命): {e}")
 
-            # 3. 点「视频合集」tab
-            tag = page.locator("li.weui-desktop-tag", has_text="视频合集").first
+            # 3. 点对应类型 tab(视频合集/贴图合集)
+            #    **找不到 tab = 账号无该类型合集,直接返回空**(不报错、不继续解析)
+            tag = page.locator(
+                "li.weui-desktop-tag", has_text=collection_type
+            ).first
+            tag_found = False
             try:
-                await tag.wait_for(state="visible", timeout=10000)
+                await tag.wait_for(state="visible", timeout=8000)
                 await tag.click()
-                logger.info("[合集列表] 已点击「视频合集」tab")
-            except Exception as e:
-                logger.info(f"[合集列表] 未找到「视频合集」tab(可能默认已选中): {e}")
+                tag_found = True
+                logger.info(f"[合集列表] 已点击「{collection_type}」tab")
+            except Exception:
+                logger.info(f"[合集列表] 未找到「{collection_type}」tab → 账号无该类型合集,返回空")
+                return {"success": True, "data": {"list": [], "total": 0}}
             await asyncio.sleep(1.5)
 
             # 4. 解析表格 tbody tr 的 .album-title 文本
@@ -184,8 +195,8 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
                     break
                 await asyncio.sleep(0.5)
             if not ready:
-                # 没有合集也是正常情况
-                logger.info("[合集列表] 表格中未发现合集(账号可能无合集)")
+                # tab 找到了但表格空 = 该类型下无合集
+                logger.info(f"[合集列表] 「{collection_type}」tab 下无合集")
                 return {"success": True, "data": {"list": [], "total": 0}}
 
             count = await title_els.count()

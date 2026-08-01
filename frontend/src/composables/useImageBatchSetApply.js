@@ -1,3 +1,5 @@
+import { getPlatformByKey } from '@/config/platforms'
+
 /**
  * 图集发布批量设 composable。
  * 通过 panel.publicApi 调 useChannelForm 扩展的 setPlatformConfig / setAccountOverride。
@@ -6,10 +8,13 @@
  *   小红书 panel 的 publishFn 用 `enableTimer ? scheduleTime : ''` 门控，故必须同步写 enableTimer，
  *   否则批量设的 scheduleTime 会被小红书的开关（默认 false）清空。
  *
- * @param {object} refs  { panels: Map<string, panelRef> } — panels 用 platformKey 索引
+ * 批量设置会替换所选渠道下**所有**账号（无论是否已个性化），full/partial 两种模式机制由
+ * setAccountOverride 内部处理。
+ *
+ * @param {object} refs  { panels, accountStore } — panels 用 platformKey 索引
  * @returns {{ applyImageBatchSet: (checkedPlatformKeys: string[], payload: { title: string, description: string, tags: string[], scheduleTime: string }) => void }}
  */
-export function useImageBatchSetApply({ panels }) {
+export function useImageBatchSetApply({ panels, accountStore }) {
   function applyImageBatchSet(checkedPlatformKeys, payload) {
     const { title, description, tags, scheduleTime } = payload
     const mode = payload.mode || 'full'
@@ -53,10 +58,14 @@ export function useImageBatchSetApply({ panels }) {
       // 1. 写 panel 内的 platformConfig（覆盖）
       api.setPlatformConfig(fields)
 
-      // 2. 写该 panel 下已个性化账号（覆盖）
-      const checkedIds = api.getCheckedAccountIds?.() || []
-      for (const aid of checkedIds) {
-        api.setAccountOverride(aid, fields)
+      // 2. 写该 panel 下所有账号（覆盖）—— 不再用 getCheckedAccountIds 筛选：
+      //    批量设置应替换所选渠道下所有账号，无论是否已个性化（五角星）。
+      const platformCfg = getPlatformByKey(pk)
+      if (platformCfg) {
+        const accounts = (accountStore?.accounts || []).filter(a => a.platform === platformCfg.name)
+        for (const acc of accounts) {
+          api.setAccountOverride(acc.id, fields)
+        }
       }
     }
   }

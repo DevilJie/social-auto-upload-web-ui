@@ -34,18 +34,18 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
       if (!isPartial || hasTags) platformConfigs[pk].tags = tagsCopy
       if (!isPartial || hasScheduleTime) platformConfigs[pk].scheduleTime = scheduleTimeValue
 
-      // 2. 该渠道下已开 accountChecked 的账号（覆盖）
+      // 2. 该渠道下所有账号（覆盖）—— 不再用 accountChecked 筛选：
+      //    五角星(账号级表单个性化)走的是 accountOverrides，与媒体开关 accountChecked 无关，
+      //    故批量设置应替换该渠道下所有账号，无论是否已个性化。
       const platformCfg = getPlatformByKey(pk)
       if (!platformCfg) continue
       const accounts = (accountStore?.accounts || []).filter(a => a.platform === platformCfg.name)
       for (const acc of accounts) {
-        if (accountChecked[acc.id]) {
-          if (!accountOverrides[acc.id]) accountOverrides[acc.id] = {}
-          if (!isPartial || hasTitle) accountOverrides[acc.id].title = title
-          if (!isPartial || hasDescription) accountOverrides[acc.id].description = description
-          if (!isPartial || hasTags) accountOverrides[acc.id].tags = tagsCopy
-          if (!isPartial || hasScheduleTime) accountOverrides[acc.id].scheduleTime = scheduleTimeValue
-        }
+        if (!accountOverrides[acc.id]) accountOverrides[acc.id] = {}
+        if (!isPartial || hasTitle) accountOverrides[acc.id].title = title
+        if (!isPartial || hasDescription) accountOverrides[acc.id].description = description
+        if (!isPartial || hasTags) accountOverrides[acc.id].tags = tagsCopy
+        if (!isPartial || hasScheduleTime) accountOverrides[acc.id].scheduleTime = scheduleTimeValue
       }
     }
   }

@@ -1147,17 +1147,21 @@ class BilibiliPlatform(BasePlatform):
             )
 
             # Step 1: Open cover editor dialog
-            # 路径：div.cover-main > div.cover-item > div.cover-img > span.edit-text
             # 不使用 data-v-* scoped hash（每次发版会变）
             dialog_opened = False
             trigger_selectors = [
                 # 新版 B 站(2026): cover-module 改版后的封面触发
-                # DOM: .cover-module .cover-empty .cover-empty-pill > .add-text(添加主封面)
+                # DOM: .cover-module .cover-empty .cover-empty-pill > (.add-icon + .add-text "添加封面")
+                # 优先点内部 .add-text / .add-icon: 直接点 .cover-empty-pill 时 hit-test
+                # 落在 icon 与 text 之间的缝隙, Vue @click 若绑在子元素则不触发
+                '[data-reporter-id="80"] .cover-empty-pill .add-text',
+                '[data-reporter-id="80"] .cover-empty-pill .add-icon',
+                '.cover-empty-pill .add-text',
+                '.cover-empty-pill .add-icon',
+                'span.add-text:has-text("添加封面")',
                 '.cover-empty-pill',
                 '.cover-empty .cover-empty-pill',
                 '.cover-module .cover-empty-pill',
-                'span.add-text:has-text("添加主封面")',
-                '.cover-empty:has-text("添加主封面")',
                 'div[class*="cover-empty"]:has-text("封面")',
                 # 旧版(保留兼容): 完整路径,不依赖 scoped hash
                 'div.cover-main div.cover-item div.cover-img span.edit-text',
@@ -1181,15 +1185,30 @@ class BilibiliPlatform(BasePlatform):
                 'div[class*="cover"] >> text=选择封面',
                 'div[class*="cover"] >> text=封面',
             ]
+            # 三档点击策略: 普通 click → force click(绕过 hit-test) → dispatch_event(合成事件)
+            # 同一 selector 失败后,先升级策略再换下一个 selector,避免漏掉命中元素
             for sel in trigger_selectors:
-                count = await page.locator(sel).count()
-                if count > 0:
+                loc = page.locator(sel).first
+                if await loc.count() == 0:
+                    continue
+                for strategy in ("normal", "force", "dispatch"):
                     try:
-                        await page.locator(sel).first.click(timeout=3000)
+                        if strategy == "normal":
+                            await loc.click(timeout=3000)
+                        elif strategy == "force":
+                            await loc.click(timeout=3000, force=True)
+                        else:
+                            await loc.dispatch_event("click")
                         dialog_opened = True
+                        logger.info(
+                            "[设置封面] trigger clicked via %s strategy: %s",
+                            strategy, sel,
+                        )
                         break
                     except Exception:
                         continue
+                if dialog_opened:
+                    break
 
             if not dialog_opened:
                 logger.info(

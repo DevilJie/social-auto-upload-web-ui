@@ -361,13 +361,19 @@ class TaobaoGuanghePlatform(BasePlatform):
             start_days = kwargs.get("start_days", 0)
             thumbnail_landscape = kwargs.get("thumbnail_landscape_path", "") or ""
             thumbnail_portrait = kwargs.get("thumbnail_portrait_path", "") or ""
+            # 16:9 横版 / 9:16 竖版封面（光合推荐比例）
+            thumbnail_landscape_169 = kwargs.get("thumbnail_landscape_169_path", "") or ""
+            thumbnail_portrait_916 = kwargs.get("thumbnail_portrait_916_path", "") or ""
             schedule_time_str = kwargs.get("schedule_time_str", "") or ""
+            # 视频方向：'landscape'(横版) / 'portrait'(竖版)，由 app.py 根据素材表 orientation 推导
+            video_format = kwargs.get("video_format", "") or ""
 
             logger.info("[发布参数] 标题: %s", title)
             logger.info("[发布参数] 文件数量: %d", len(files))
             logger.info("[发布参数] 标签: %s", tags)
             logger.info("[发布参数] 账号数量: %d", len(account_files))
             logger.info("[发布参数] 创作者声明: %s", claim or "无")
+            logger.info("[发布参数] 视频方向: %s", video_format or "未知")
 
             cookie_paths = [
                 str(Path(BASE_DIR / "cookiesFile") / f) for f in account_files
@@ -389,9 +395,16 @@ class TaobaoGuanghePlatform(BasePlatform):
                     "[发布进度] 处理第 %d/%d 个视频: %s",
                     index + 1, len(file_paths), file_path,
                 )
-                # 光合推荐 9:16 竖版，优先竖版封面
-                picked_thumb = thumbnail_portrait or thumbnail_landscape
-                logger.info("[发布参数] 封面: %s", picked_thumb or "无")
+                # 根据视频方向选择对应格式封面（优先 16:9 / 9:16，兜底普通横竖版）：
+                # 横版视频→16:9 横版封面，竖版视频→9:16 竖版封面
+                if video_format == "landscape":
+                    picked_thumb = (thumbnail_landscape_169 or thumbnail_landscape
+                                     or thumbnail_portrait_916 or thumbnail_portrait)
+                else:
+                    # 竖版或未知，优先 9:16 竖版封面
+                    picked_thumb = (thumbnail_portrait_916 or thumbnail_portrait
+                                     or thumbnail_landscape_169 or thumbnail_landscape)
+                logger.info("[发布参数] 封面: %s (方向=%s)", picked_thumb or "无", video_format or "未知")
 
                 publish_date = (
                     publish_datetimes[index]
@@ -492,12 +505,12 @@ class TaobaoGuanghePlatform(BasePlatform):
                 # 6. 填写描述 + 标签（cangjie 富文本，≤1000 字符）
                 await self._fill_desc_and_tags(frame, desc, tags)
 
-                # 7. 创作者声明（可选）
-                if claim and claim in _CLAIM_OPTIONS:
-                    await self._set_claim(frame, claim)
+                # 7. 创作者声明（光合必填，未选时默认"内容无需标注"）
+                await self._set_claim(frame, claim)
 
                 # 8. 定时发布（可选）
-                if publish_date and isinstance(publish_date, type(__import__("datetime").datetime)):
+                import datetime as _dt_mod
+                if publish_date and isinstance(publish_date, _dt_mod.datetime):
                     await self._set_schedule_time(frame, publish_date)
 
                 # 提交前截图（用 page 截全页含 iframe）
@@ -509,8 +522,8 @@ class TaobaoGuanghePlatform(BasePlatform):
                 except Exception:
                     pass
 
-                # 9. 点击发布按钮
-                submitted = await self._click_publish(frame)
+                # 9. 点击发布按钮（按钮在 iframe 内，但发布成功后主 page 跳转）
+                submitted = await self._click_publish(frame, page)
                 if submitted:
                     logger.info("[上传视频] ✓ 发布成功")
                     try:
@@ -918,25 +931,35 @@ class TaobaoGuanghePlatform(BasePlatform):
                 raise RuntimeError("封面本地上传按钮未出现")
             await asyncio.sleep(2)
 
-            # 3. 二级弹窗：点「选择新封面」按钮 → 触发 file input
-            select_new_btn = page.locator('button:has-text("选择新封面")').first
-            try:
-                await select_new_btn.wait_for(state="visible", timeout=10000)
-                await select_new_btn.click()
-                logger.info("[设置封面] ✓ 已点击选择新封面")
-            except Exception as e:
-                logger.info(f"[设置封面] 「选择新封面」按钮未找到，尝试直接定位 input: {e}")
-            await asyncio.sleep(1)
-
-            # 4. 定位图片 file input 并上传
+            # 3. 直接对图片选择弹窗内的隐藏 input[type=file] 用 set_input_files 上传。
+            #    不点「选择新封面」按钮 —— 那个按钮会触发 input.click() 弹出系统资源浏览器，
+            #    与 Playwright 的 set_input_files 冲突。直接 set_input_files 注入文件即可。
+            #    （文档第 33 行：.media-operation 内有 <input type="file" hidden accept="image/*">）
             img_input = page.locator('input[type="file"][accept*="image"]').first
             try:
                 await img_input.wait_for(state="attached", timeout=10000)
             except Exception:
-                img_input = page.locator('input[type="file"]').first
-            await img_input.set_input_files(thumbnail_path)
-            logger.info("[设置封面] ✓ 封面文件已上传，等待选择确认")
-            await asyncio.sleep(3)
+                # 兜底：input 可能还没挂载，需点按钮触发懒加载后再注入
+                logger.info("[设置封面] 图片 input 未直接挂载，点「选择新封面」触发挂载")
+                try:
+                    select_new_btn = page.locator('button:has-text("选择新封面")').first
+                    # 用 expect_file_chooser 拦截原生对话框，防止资源浏览器弹出
+                    async with page.expect_file_chooser(timeout=10000) as fc_info:
+                        await select_new_btn.click()
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(thumbnail_path)
+                    logger.info("[设置封面] ✓ 已通过 file chooser 上传封面")
+                    await asyncio.sleep(3)
+                    # 跳过后续普通 set_input_files 流程
+                    img_input = None
+                except Exception as e2:
+                    logger.info(f"[设置封面] file chooser 方式失败: {e2}")
+                    img_input = page.locator('input[type="file"]').first
+
+            if img_input is not None:
+                await img_input.set_input_files(thumbnail_path)
+                logger.info("[设置封面] ✓ 封面文件已上传（直接注入 input），等待选择确认")
+                await asyncio.sleep(3)
 
             # 5. 图片可能直接出现在列表，需选中第一张（刚上传的），然后点「确定」
             #    先尝试在图片列表选第一张（checkbox）
@@ -955,17 +978,18 @@ class TaobaoGuanghePlatform(BasePlatform):
             except Exception as e:
                 logger.info(f"[设置封面] 选择图片异常（可能已自动选中）: {e}")
 
-            # 6. 点「确定」按钮（图片选择弹窗的 footer）
+            # 6. 点「确定」按钮（图片选择弹窗的 footer）—— 快速尝试（3s），
+            #    封面上传后可能自动选中并关闭选择弹窗，此按钮不一定出现
             try:
                 confirm_btn = page.locator(
                     '.space-footer button:has-text("确定"), .next-dialog button:has-text("确定")'
                 ).first
-                await confirm_btn.wait_for(state="visible", timeout=10000)
+                await confirm_btn.wait_for(state="visible", timeout=3000)
                 await confirm_btn.click()
                 logger.info("[设置封面] ✓ 图片选择弹窗已确认")
-                await asyncio.sleep(2)
-            except Exception as e:
-                logger.info(f"[设置封面] 图片选择确定按钮异常: {e}")
+                await asyncio.sleep(1)
+            except Exception:
+                logger.info("[设置封面] 图片选择弹窗无需确认（可能已自动关闭）")
 
             # 7. 回到封面编辑弹窗，点「下一步」
             try:
@@ -975,7 +999,7 @@ class TaobaoGuanghePlatform(BasePlatform):
                 await next_btn.wait_for(state="visible", timeout=10000)
                 await next_btn.click()
                 logger.info("[设置封面] ✓ 已点击下一步")
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
             except Exception as e:
                 logger.info(f"[设置封面] 下一步按钮异常: {e}")
 
@@ -1026,49 +1050,74 @@ class TaobaoGuanghePlatform(BasePlatform):
     async def _fill_desc_and_tags(page, desc: str, tags: list):
         """描述 + 标签（cangjie 富文本编辑器，≤1000 字符）。
 
-        光合描述区是 cangjie 富文本（[data-cangjie-content="true"]），
-        标签以 #xxx 形式拼接到描述末尾。用 press_sequentially 逐字输入
-        以正确触发 React/cangjie onChange。
+        光合描述区是 cangjie 富文本（[data-cangjie-content="true"]）。
+        - 描述用 press_sequentially 逐字输入以正确触发 onChange
+        - 标签以 #xxx 形式逐个输入，每个标签后等 1s 再按空格激活联想
+          （参考 CLAUDE.md「激活#话题标签的标准流程」）
         """
         import re as _re
 
-        # 拼接描述 + 标签
-        parts = []
-        if desc:
-            parts.append(desc.strip())
+        # 解析标签
+        parsed_tags = []
         for t in tags or []:
             if isinstance(t, str):
-                # 拆分复合标签
                 for s in _re.split(r"[,，#]", t):
                     s = s.strip().lstrip("#").strip()
                     if s:
-                        parts.append(f"#{s}")
-        full_text = " ".join(parts)
-        full_text = full_text[:_GUANGHE_MAX_DESC_LEN]
-        if not full_text:
+                        parsed_tags.append(s)
+
+        desc_text = (desc or "").strip()
+        # 长度预算：描述 + 各标签("#xxx ") 占用
+        tag_texts = [f"#{t}" for t in parsed_tags]
+        budget = _GUANGHE_MAX_DESC_LEN
+        # 先截断描述，给标签留空间
+        tag_total_len = sum(len(t) + 1 for t in tag_texts)  # +1 给空格
+        if desc_text:
+            desc_text = desc_text[: max(0, budget - tag_total_len - 1)]
+        if not desc_text and not tag_texts:
             return
 
-        logger.info(f"[填写描述] 内容({len(full_text)}字)")
         try:
             editor = page.locator('[data-cangjie-content="true"]').first
             await editor.wait_for(state="visible", timeout=15000)
             await editor.click()
             await asyncio.sleep(0.5)
-            # 逐字输入，确保 cangjie 编辑器正确捕获 onChange
-            await editor.press_sequentially(full_text, delay=50)
-            await asyncio.sleep(1)
-            logger.info("[填写描述] ✓ 描述已填入")
+
+            # 1. 先输入描述
+            if desc_text:
+                await editor.press_sequentially(desc_text, delay=50)
+                await asyncio.sleep(0.5)
+                logger.info(f"[填写描述] ✓ 描述已填入({len(desc_text)}字)")
+
+            # 2. 逐个输入标签，每个 #xxx 后等 1s 再按空格激活联想
+            # frame 没有 keyboard 属性，需通过 frame.page 获取所属 Page 的 keyboard
+            keyboard = page.page.keyboard
+            for tag in tag_texts:
+                # 输入标签前先加一个空格分隔
+                await keyboard.press(" ")
+                await asyncio.sleep(0.3)
+                # 逐字输入 #xxx
+                await editor.press_sequentially(tag, delay=150)
+                # 等 1s 让 React 监听完成、激活话题联想
+                await asyncio.sleep(1)
+                # 按空格激活话题标签
+                await keyboard.press(" ")
+                await asyncio.sleep(0.5)
+                logger.info(f"[填写描述] ✓ 标签已输入并激活: {tag}")
+
+            logger.info(f"[填写描述] 完成，共 {len(tag_texts)} 个标签")
         except Exception as e:
             logger.info(f"[填写描述] 失败: {e}")
 
     @staticmethod
     async def _set_claim(page, claim_value: str):
-        """创作者声明（radiogroup 内的 .next-radio-label）。
+        """创作者声明（光合必填，radiogroup 内的 .next-radio-label）。
 
-        可选值见 _CLAIM_OPTIONS。用文本匹配定位 radio label。
+        可选值见 _CLAIM_OPTIONS。未传值时默认选「内容无需标注」。
+        用文本匹配定位 radio label。
         """
-        if not claim_value:
-            return
+        if not claim_value or claim_value not in _CLAIM_OPTIONS:
+            claim_value = "内容无需标注"
         logger.info(f"[创作者声明] 选择: {claim_value}")
         try:
             radio_label = page.locator(
@@ -1095,17 +1144,85 @@ class TaobaoGuanghePlatform(BasePlatform):
 
         logger.info(f"[定时发布] 设置时间: {publish_date}")
         try:
-            # 1. 点「定时发布」radio
-            schedule_radio = page.locator('.next-radio-label:has-text("定时发布")').first
-            await schedule_radio.wait_for(state="visible", timeout=10000)
-            await schedule_radio.click()
-            logger.info("[定时发布] ✓ 已选择定时发布")
+            # 1. 启用「定时发布」radio
+            # 光合 DOM 结构：<label class="next-radio-wrapper">radio</label><span>定时发布</span>
+            # radio 和文字是兄弟节点。文字 span 不带 click 事件，必须点 label.radio-wrapper。
+            # 用 JS 精确定位：找文本为"定时发布"的 span，点它的前一个兄弟 label。
+            schedule_radio_clicked = False
+            try:
+                schedule_radio_clicked = await page.evaluate(
+                    """() => {
+                        // 找所有含"定时发布"文本的 span
+                        const spans = document.querySelectorAll('span');
+                        for (const sp of spans) {
+                            if ((sp.textContent || '').trim() === '定时发布') {
+                                // 前一个兄弟是 label.next-radio-wrapper
+                                let prev = sp.previousElementSibling;
+                                if (prev && prev.classList.contains('next-radio-wrapper')) {
+                                    prev.click();
+                                    return true;
+                                }
+                                // 兜底：父容器内的 radio-wrapper
+                                const parent = sp.parentElement;
+                                if (parent) {
+                                    const radio = parent.querySelector('.next-radio-wrapper');
+                                    if (radio) { radio.click(); return true; }
+                                }
+                            }
+                        }
+                        return false;
+                    }"""
+                )
+                if schedule_radio_clicked:
+                    logger.info("[定时发布] ✓ 已通过 JS 点击 radio（定时发布）")
+            except Exception as e:
+                logger.info(f"[定时发布] JS 点击 radio 失败: {e}")
+
+            if not schedule_radio_clicked:
+                # 兜底：直接对 radio input 派发 click
+                try:
+                    await page.evaluate(
+                        """() => {
+                            const inputs = document.querySelectorAll('#date-picker');
+                            // date-picker 前面的 radio input
+                            const radios = document.querySelectorAll('input[type="radio"]');
+                            for (const r of radios) {
+                                const wrap = r.closest('.next-radio-wrapper');
+                                const parent = wrap ? wrap.parentElement : null;
+                                if (parent && parent.textContent.includes('定时发布')) {
+                                    wrap.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }"""
+                    )
+                    schedule_radio_clicked = True
+                    logger.info("[定时发布] ✓ 兜底 radio 点击已执行")
+                except Exception as e:
+                    logger.info(f"[定时发布] 兜底 radio 点击失败: {e}")
+
+            if not schedule_radio_clicked:
+                logger.info("[定时发布] ✗ 无法启用定时发布 radio")
+                return
+
             await asyncio.sleep(1)
 
-            # 2. 点日期选择输入框
+            # 确认日期选择器已启用（disabled 属性消失）
+            try:
+                await page.wait_for_function(
+                    "() => { const el = document.querySelector('#date-picker input'); "
+                    "return el && !el.disabled; }",
+                    timeout=8000,
+                )
+                logger.info("[定时发布] ✓ 日期选择器已启用")
+            except Exception as e:
+                logger.info(f"[定时发布] 日期选择器仍 disabled: {e}")
+
+            # 2. 点日期选择输入框（force=True 绕过 disabled 检查以防万一）
             date_input = page.locator('#date-picker input').first
             await date_input.wait_for(state="visible", timeout=10000)
-            await date_input.click()
+            await date_input.click(force=True)
             await asyncio.sleep(1)
 
             # 3. 选年月日（点击对应 calendar cell）
@@ -1174,16 +1291,23 @@ class TaobaoGuanghePlatform(BasePlatform):
             logger.info(f"[定时发布] 设置失败（非致命）: {exc}")
 
     @staticmethod
-    async def _click_publish(page) -> bool:
+    async def _click_publish(frame, main_page=None) -> bool:
         """点击发布按钮并判定成功。
 
-        光合主按钮是 .next-btn-primary，文案「立即发布」或「定时发布」。
-        发布成功判据：URL 跳转到 /page/workspace/tb。
+        光合主按钮是 .next-btn-primary，文案「立即发布」或「定时发布」（在 iframe 内）。
+        发布成功判据：主 page 的 URL 跳转到 /page/workspace/tb
+        （按钮在 iframe 里，但发布成功后跳转发生在主 frame，非 iframe）。
+
+        Args:
+            frame: 发布页 iframe，用于定位发布按钮
+            main_page: 主 page，用于检测发布成功后的 URL 跳转。
+                       为 None 时回退用 frame.url（不推荐，会漏判）。
         """
+        url_check_target = main_page if main_page is not None else frame
         logger.info("[发布] 点击发布按钮")
-        current_url = page.url or ""
+        current_url = url_check_target.url or ""
         try:
-            publish_btn = page.locator(
+            publish_btn = frame.locator(
                 '.next-btn-primary:has-text("立即发布"), '
                 '.next-btn-primary:has-text("定时发布")'
             ).first
@@ -1211,14 +1335,14 @@ class TaobaoGuanghePlatform(BasePlatform):
             if not clicked:
                 return False
 
-            # 等待页面跳转（URL 含 /page/workspace/tb = 成功），最多 90s
-            for _ in range(45):
+            # 等待主 page 跳转（URL 含 /page/workspace/tb = 成功），最多 60s
+            for _ in range(30):
                 await asyncio.sleep(2)
-                new_url = page.url or ""
+                new_url = url_check_target.url or ""
                 if _PUBLISH_SUCCESS_URL_MARK in new_url and new_url != current_url:
                     logger.info(f"[发布] ✓ 页面已跳转: {new_url}")
                     return True
-            logger.info("[发布] 90s 内页面未跳转到成功页，按成功处理")
+            logger.info("[发布] 60s 内页面未跳转到成功页，按成功处理")
             return True
         except Exception as exc:
             logger.info(f"[发布] 点击发布失败: {exc}")

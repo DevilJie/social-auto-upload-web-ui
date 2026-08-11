@@ -2066,6 +2066,7 @@ async function publishAll() {
     tiktok: 'aiContent',
     weibo: 'contentStatement',
     alipay: 'authorStatement',
+    taobao_guanghe: 'guangheClaim',
     // channels 不必填
   }
 

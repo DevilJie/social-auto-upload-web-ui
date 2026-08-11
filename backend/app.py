@@ -166,6 +166,10 @@ from blueprints.uploads_bp import uploads_bp  # noqa: E402
 app.register_blueprint(uploads_bp)
 logger.info("[Startup] uploads_bp registered OK")
 
+from blueprints.taobao_guanghe_bp import taobao_guanghe_bp  # noqa: E402
+app.register_blueprint(taobao_guanghe_bp)
+logger.info("[Startup] taobao_guanghe_bp registered OK")
+
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 logger.info(f"[Startup] Frontend dir: {FRONTEND_DIR} (exists={FRONTEND_DIR.exists()})")
 

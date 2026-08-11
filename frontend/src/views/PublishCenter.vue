@@ -181,6 +181,80 @@
               </div>
           </div>
 
+          <!-- 淘宝光合:关联商品/店铺(独占一整行,放在标签下面) -->
+          <div
+            v-if="selectedPlatform === 'taobao_guanghe'"
+            class="setting-card"
+            :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
+          >
+            <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联商品/店铺</div>
+            <div class="guanghe-link-field">
+              <div class="radio-row">
+                <label class="radio-item cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="(selectedAccountId || selectedPlatform) + '-guangheLinkType'"
+                    value="product"
+                    v-model="form.guangheLinkType"
+                    class="cursor-pointer"
+                  />
+                  <span
+                    :class="['radio-text', { on: form.guangheLinkType === 'product' }]"
+                    :style="form.guangheLinkType === 'product' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                  >商品</span>
+                </label>
+                <label class="radio-item cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="(selectedAccountId || selectedPlatform) + '-guangheLinkType'"
+                    value="shop"
+                    v-model="form.guangheLinkType"
+                    class="cursor-pointer"
+                  />
+                  <span
+                    :class="['radio-text', { on: form.guangheLinkType === 'shop' }]"
+                    :style="form.guangheLinkType === 'shop' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                  >店铺</span>
+                </label>
+              </div>
+
+              <div class="guanghe-items-field">
+                <div class="guanghe-selected-list">
+                  <div
+                    v-for="(item, i) in currentGuangheItems"
+                    :key="i + '_' + (item.title || item)"
+                    class="guanghe-selected-card"
+                  >
+                    <div class="img-wrap">
+                      <img
+                        v-if="item.image"
+                        :src="item.image"
+                        referrerpolicy="no-referrer"
+                      />
+                      <div v-else class="placeholder">
+                        {{ (item.title || item || '?').toString().slice(0, 1) }}
+                      </div>
+                    </div>
+                    <div class="info">
+                      <div class="title" :title="item.title || item">{{ item.title || item }}</div>
+                    </div>
+                    <div class="guanghe-selected-remove" @click="removeGuangheItem(currentGuangheFieldKey, i)">
+                      <el-icon><Close /></el-icon>
+                    </div>
+                  </div>
+                  <div
+                    v-if="currentGuangheItems.length < 6"
+                    class="guanghe-add-card"
+                    @click="openGuanghePicker()"
+                  >
+                    <el-icon><Plus /></el-icon>
+                    <span>添加{{ form.guangheLinkType === 'shop' ? '店铺' : '商品' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 平台特有配置（抖音专属卡片 + settingsFields 合并到同一网格） -->
           <div class="settings-grid">
             <!-- 抖音专属卡片 -->
@@ -349,7 +423,7 @@
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
                   v-if="!field.visibleWhen || form[field.visibleWhen.key] === field.visibleWhen.value"
-                  class="setting-card"
+                  :class="['setting-card', { 'setting-card--full-row': field.fullRow }]"
                   :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
                 >
                   <div class="setting-label" :style="{ color: currentPlatformConfig.color }">
@@ -428,9 +502,9 @@
                     v-model="form[field.key]"
                     type="datetime"
                     :placeholder="field.placeholder"
-                    :disabled-date="field.disabledDate"
-                    :disabled-hours="field.disabledHours"
-                    :disabled-minutes="field.disabledMinutes"
+                    :disabled-date="field.disabledDate || (field.key === 'scheduleTime' ? scheduleDisabledDate : undefined)"
+                    :disabled-hours="field.disabledHours || (field.key === 'scheduleTime' ? () => scheduleDisabledHours(field.key) : undefined)"
+                    :disabled-minutes="field.disabledMinutes || (field.key === 'scheduleTime' ? (h) => scheduleDisabledMinutes(field.key, h) : undefined)"
                     value-format="YYYY-MM-DD HH:mm:ss"
                     size="small"
                     class="cursor-pointer"
@@ -608,12 +682,21 @@
       :platforms="batchSetPlatforms"
       @apply="onBatchSetApply"
     />
+
+    <!-- 淘宝光合:关联商品/店铺选择弹窗 -->
+    <GuangheItemPicker
+      v-model="guanghePickerVisible"
+      :account-id="guanghePickerAccountId"
+      :mode="guanghePickerMode"
+      :init-selected="(form[guanghePickerFieldKey] || [])"
+      @confirm="onGuanghePickerConfirm"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
-import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled } from '@element-plus/icons-vue'
+import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -640,6 +723,7 @@ import XhsPoiSelect from '@/components/xiaohongshu/PoiSelect.vue'
 import VivoPositionSelect from '@/components/vivo/PositionSelect.vue'
 import RemoteSearchSelect from '@/components/common/RemoteSearchSelect.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
+import GuangheItemPicker from '@/components/GuangheItemPicker.vue'
 import { xhsApi } from '@/api/xiaohongshu'
 import { biliApi } from '@/api/bilibili'
 import { douyinImageApi } from '@/api/douyinImage'
@@ -931,6 +1015,10 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     gzhClaimSource: accountOv?.gzhClaimSource ?? platformOv?.gzhClaimSource ?? platformDefault?.gzhClaimSource ?? '',
     // 淘宝光合创作者声明(平台级)
     guangheClaim: accountOv?.guangheClaim ?? platformOv?.guangheClaim ?? platformDefault?.guangheClaim ?? '',
+    // 淘宝光合关联商品/店铺(平台级, radio 互斥, 名称列表最多 6 个)
+    guangheLinkType: accountOv?.guangheLinkType ?? platformOv?.guangheLinkType ?? platformDefault?.guangheLinkType ?? '',
+    guangheProducts: accountOv?.guangheProducts ?? platformOv?.guangheProducts ?? platformDefault?.guangheProducts ?? [],
+    guangheShops: accountOv?.guangheShops ?? platformOv?.guangheShops ?? platformDefault?.guangheShops ?? [],
   }
 }
 
@@ -1001,7 +1089,7 @@ const platformConfigs = reactive({
     vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
-  taobao_guanghe: { title: '', description: '', guangheClaim: '', scheduleTime: '', tags: [] },
+  taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1039,6 +1127,119 @@ const MEDIA_KEYS = new Set([
   'coverLandscape', 'coverPortrait',
   'coverLandscape169', 'coverPortrait916',
 ])
+
+// ========== Schedule Time Picker Constraints ==========
+// 定时发布:必须晚于当前时间,最多往后 14 天
+// 仅对 scheduleTime 字段生效,其它 datetime 字段不受影响
+const SCHEDULE_MAX_DAYS = 14
+
+function scheduleDisabledDate(date) {
+  if (!date) return false
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const maxDate = new Date(startOfToday)
+  maxDate.setDate(maxDate.getDate() + SCHEDULE_MAX_DAYS)
+  return date < startOfToday || date > maxDate
+}
+
+function _sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate()
+}
+
+// disabled-hours: 选中日期为今天时禁用已过去的小时
+function scheduleDisabledHours(fieldKey) {
+  if (fieldKey !== 'scheduleTime') return []
+  const raw = form[fieldKey]
+  if (!raw) return []
+  const selected = new Date(raw)
+  if (isNaN(selected.getTime())) return []
+  const now = new Date()
+  if (!_sameDay(selected, now)) return []
+  return Array.from({ length: now.getHours() }, (_, i) => i)
+}
+
+// disabled-minutes: 选中日期为今天且小时为当前小时时禁用已过去的分钟
+function scheduleDisabledMinutes(fieldKey, hour) {
+  if (fieldKey !== 'scheduleTime') return []
+  const raw = form[fieldKey]
+  if (!raw) return []
+  const selected = new Date(raw)
+  if (isNaN(selected.getTime())) return []
+  const now = new Date()
+  if (!_sameDay(selected, now) || hour !== now.getHours()) return []
+  return Array.from({ length: now.getMinutes() }, (_, i) => i)
+}
+
+// ========== 淘宝光合: 关联商品/店铺 picker ==========
+// picker 组件可见性 + 配置
+const guanghePickerVisible = ref(false)
+const guanghePickerMode = ref('product') // 'product' | 'shop'
+const guanghePickerFieldKey = ref('') // 当前编辑的字段 key
+const guanghePickerAccountId = ref('') // 用于打开浏览器的账号 id(从已勾选账号里挑一个)
+
+// 复合字段当前要操作的数据 key(guangheProducts / guangheShops) + 数据列表
+const currentGuangheFieldKey = computed(() =>
+  form.guangheLinkType === 'shop' ? 'guangheShops' : 'guangheProducts'
+)
+const currentGuangheItems = computed(() =>
+  Array.isArray(form[currentGuangheFieldKey.value]) ? form[currentGuangheFieldKey.value] : []
+)
+
+// 从已勾选的账号中任选一个淘宝光合账号(配置 picker 时不需要先选具体账号)
+function findAnyGuangheAccountId() {
+  for (const id of publishAccountIds) {
+    const acc = accountStore.accounts.find(a => String(a.id) === String(id))
+    if (acc && acc.platform === '淘宝光合') {
+      return String(acc.id)
+    }
+  }
+  // 兜底:未勾选时,从 accountStore 找任一淘宝光合账号
+  const anyAcc = accountStore.accounts.find(a => a.platform === '淘宝光合')
+  return anyAcc ? String(anyAcc.id) : ''
+}
+
+function openGuanghePicker() {
+  // mode / field key 由当前 radio 决定
+  const mode = form.guangheLinkType === 'shop' ? 'shop' : 'product'
+  if (mode !== 'product' && mode !== 'shop') {
+    ElMessage.warning('请先选择「商品」或「店铺」')
+    return
+  }
+  const accountId = findAnyGuangheAccountId()
+  if (!accountId) {
+    ElMessage.warning('请先添加至少一个淘宝光合账号')
+    return
+  }
+  guanghePickerAccountId.value = accountId
+  guanghePickerMode.value = mode
+  guanghePickerFieldKey.value = mode === 'shop' ? 'guangheShops' : 'guangheProducts'
+  guanghePickerVisible.value = true
+}
+
+function onGuanghePickerConfirm(names) {
+  const key = guanghePickerFieldKey.value
+  if (!key) return
+  // 用最新选择替换当前字段值(picker 内部已支持回显已选项,确认时返回完整列表)
+  form[key] = names
+  guanghePickerVisible.value = false
+}
+
+function removeGuangheItem(fieldKey, idx) {
+  if (!Array.isArray(form[fieldKey])) return
+  form[fieldKey] = form[fieldKey].filter((_, i) => i !== idx)
+}
+
+// radio 切换时清空对方列表(平台规则: 商品/店铺互斥)
+watch(() => form.guangheLinkType, (newType, oldType) => {
+  if (newType === oldType) return
+  if (newType === 'product') {
+    form.guangheShops = []
+  } else if (newType === 'shop') {
+    form.guangheProducts = []
+  }
+})
 
 function getMergedSettings() {
   const platformKey = selectedPlatform.value
@@ -1913,6 +2114,21 @@ async function restoreDraft(draftId) {
       if (dy.mixData === undefined) dy.mixData = null
     }
 
+    // 兼容旧草稿:淘宝光合新增关联商品/店铺字段
+    if (dd.platformConfigs?.taobao_guanghe) {
+      const tg = platformConfigs.taobao_guanghe
+      if (tg.guangheLinkType === undefined) tg.guangheLinkType = ''
+      if (!Array.isArray(tg.guangheProducts)) tg.guangheProducts = []
+      if (!Array.isArray(tg.guangheShops)) tg.guangheShops = []
+      // 旧草稿可能是字符串数组 → 转为统一的对象数组格式 [{title, image}]
+      const normalize = arr => arr.map(it =>
+        typeof it === 'string' ? { title: it, image: '' }
+          : { title: it?.title || '', image: it?.image || '' }
+      ).filter(it => it.title)
+      tg.guangheProducts = normalize(tg.guangheProducts)
+      tg.guangheShops = normalize(tg.guangheShops)
+    }
+
     if (dd.accountOverrides) {
       Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
       Object.assign(accountOverrides, dd.accountOverrides)
@@ -2515,6 +2731,15 @@ async function publishAll() {
         gzhCollectionName: merged.gzhCollectionName || '',
         // 淘宝光合创作者声明
         guangheClaim: merged.guangheClaim || '',
+        // 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
+        // 数据格式: [{title, image}, ...] → 发布只传 title 列表,兼容旧字符串数组
+        guanghe_link_type: merged.guangheLinkType || '',
+        guanghe_product_names: (merged.guangheProducts || [])
+          .map(p => (typeof p === 'string' ? p : p?.title).trim())
+          .filter(Boolean),
+        guanghe_shop_names: (merged.guangheShops || [])
+          .map(s => (typeof s === 'string' ? s : s?.title).trim())
+          .filter(Boolean),
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',
@@ -3248,6 +3473,11 @@ function formatSize(bytes) {
   margin-bottom: 12px;
 }
 
+// 单独占满整行的卡片(如淘宝光合「关联商品/店铺」radio 卡片)
+.setting-card--full-row {
+  grid-column: 1 / -1;
+}
+
 .setting-card {
   padding: 14px 16px;
   border: 1px solid;
@@ -3418,5 +3648,129 @@ function formatSize(bytes) {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+// ========== 淘宝光合:关联商品/店铺 ==========
+.guanghe-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+.guanghe-items-field {
+  width: 100%;
+}
+.guanghe-selected-list {
+  // 跟弹窗里 .grid 完全一致
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.guanghe-selected-card {
+  position: relative;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+  transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+
+  &:hover {
+    border-color: #ff5000;
+    box-shadow: 0 2px 8px rgba(255, 80, 0, 0.12);
+    .guanghe-selected-remove { opacity: 1; }
+  }
+
+  // 完全复刻弹窗 .card 的 .img-wrap 结构
+  .img-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    background: #f5f5f5;
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      font-size: 28px;
+      font-weight: 600;
+    }
+  }
+
+  // 完全复刻弹窗 .card 的 .info 结构(关键:flex:1 让标题区有完整空间,line-clamp 才会正确生效)
+  .info {
+    padding: 8px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .title {
+      font-size: 12px;
+      color: #333;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      min-height: 34px;
+    }
+  }
+
+  .guanghe-selected-remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    font-size: 12px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    &:hover { background: #ff5000; }
+  }
+}
+.guanghe-add-card {
+  // 跟 selected-card 同尺寸(grid cell)
+  border: 2px dashed #d9d9d9;
+  border-radius: 6px;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #999;
+  font-size: 12px;
+  // 高度对齐 selected-card 整卡(grid cell 宽 ≥180, 图 180 + 标题 34 + padding)
+  min-height: 224px;
+  transition: all 0.15s;
+
+  .el-icon {
+    font-size: 32px;
+  }
+
+  &:hover {
+    border-color: #ff5000;
+    color: #ff5000;
+    background: #fff5f0;
+  }
 }
 </style>

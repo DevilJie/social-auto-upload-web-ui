@@ -688,9 +688,9 @@ export const PLATFORMS = {
     cssClass: 'taobao_guanghe',
     creatorUrl: 'https://creator.guanghe.taobao.com/',
     settingsFields: [
-      // 创作者声明(平台级下拉,可选)
-      { key: 'guangheClaim', label: '创作者声明', type: 'select',
-        placeholder: '请选择创作者声明（可选）',
+      // 创作者声明(平台必填,后端未传时默认「内容无需标注」)
+      { key: 'guangheClaim', label: '创作者声明', type: 'select', required: true,
+        placeholder: '请选择创作者声明',
         options: [
           { label: '内容无需标注', value: '内容无需标注' },
           { label: '含AI生成内容', value: '含AI生成内容' },
@@ -701,7 +701,7 @@ export const PLATFORMS = {
         ] },
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
     ],
-    defaultSettings: { title: '', description: '', guangheClaim: '', scheduleTime: '' },
+    defaultSettings: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '' },
   },
   JINGMAI: {
     id: 19,

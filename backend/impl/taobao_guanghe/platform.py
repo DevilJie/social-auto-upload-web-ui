@@ -367,6 +367,15 @@ class TaobaoGuanghePlatform(BasePlatform):
             schedule_time_str = kwargs.get("schedule_time_str", "") or ""
             # 视频方向：'landscape'(横版) / 'portrait'(竖版)，由 app.py 根据素材表 orientation 推导
             video_format = kwargs.get("video_format", "") or ""
+            # 关联商品/店铺('product'/'shop',空字符串=不关联)
+            link_type = (kwargs.get("guanghe_link_type", "") or "").strip()
+            # 名称列表(最多6个),发布时通过搜索匹配勾选
+            if link_type == "product":
+                link_names = list(kwargs.get("guanghe_product_names", []) or [])[:6]
+            elif link_type == "shop":
+                link_names = list(kwargs.get("guanghe_shop_names", []) or [])[:6]
+            else:
+                link_names = []
 
             logger.info("[发布参数] 标题: %s", title)
             logger.info("[发布参数] 文件数量: %d", len(files))
@@ -374,6 +383,7 @@ class TaobaoGuanghePlatform(BasePlatform):
             logger.info("[发布参数] 账号数量: %d", len(account_files))
             logger.info("[发布参数] 创作者声明: %s", claim or "无")
             logger.info("[发布参数] 视频方向: %s", video_format or "未知")
+            logger.info("[发布参数] 关联类型: %s, 待关联数: %d", link_type or "无", len(link_names))
 
             cookie_paths = [
                 str(Path(BASE_DIR / "cookiesFile") / f) for f in account_files
@@ -428,6 +438,8 @@ class TaobaoGuanghePlatform(BasePlatform):
                             desc=desc,
                             claim=claim,
                             thumbnail_path=picked_thumb,
+                            link_type=link_type,
+                            link_names=link_names,
                         )
 
             logger.info("=" * 60)
@@ -451,6 +463,8 @@ class TaobaoGuanghePlatform(BasePlatform):
         desc: str = "",
         claim: str = "",
         thumbnail_path: str | None = None,
+        link_type: str = "",
+        link_names: list = None,
     ) -> None:
         """上传单个视频到一个光合账号。
 
@@ -512,6 +526,10 @@ class TaobaoGuanghePlatform(BasePlatform):
                 import datetime as _dt_mod
                 if publish_date and isinstance(publish_date, _dt_mod.datetime):
                     await self._set_schedule_time(frame, publish_date)
+
+                # 8.5 关联商品/店铺（可选，最多 6 个，按名称在弹窗内搜索匹配勾选）
+                if link_type in ("product", "shop") and link_names:
+                    await self._link_products_or_shops(frame, link_type, link_names)
 
                 # 提交前截图（用 page 截全页含 iframe）
                 try:
@@ -640,40 +658,101 @@ class TaobaoGuanghePlatform(BasePlatform):
             Page: 实际承载发布页的 page 对象（新 tab 或原 page）
 
         全程用 data-autolog 埋点属性 + Next Menu 稳定结构定位。
+
+        可靠性要点（针对「点击发视频无反应」）：
+        - hover 后用 wait_for(menuitem, visible) 等菜单真打开，不用固定 sleep
+        - 点击 menuitem 前先 hover 它，避免点击瞬间菜单已开始关闭
+        - 多策略兜底：hover 不开 menu → click 切换 → JS dispatch 直发
         """
         context = page.context
 
-        logger.info("[进入发布页] 悬停「发布作品」按钮")
-        try:
-            pub_btn = page.locator('[data-autolog*="text=发布作品"]').first
-            await pub_btn.wait_for(state="visible", timeout=10000)
-            await pub_btn.hover()
-            await asyncio.sleep(1)
-        except Exception as e:
-            logger.info(f"[进入发布页] 悬停发布按钮失败: {e}")
+        pub_btn = page.locator('[data-autolog*="text=发布作品"]').first
+        await pub_btn.wait_for(state="visible", timeout=10000)
 
-        logger.info("[进入发布页] 点击「发视频」菜单项")
+        menu_item = page.locator('li[role="menuitem"]:has-text("发视频")').first
+        video_item = page.locator('[data-autolog*="text=发视频"]').first
+
         clicked = False
-        # 策略 1: 点包含「发视频」的 menuitem（Next Menu 事件绑定层）
-        try:
-            menu_item = page.locator('li[role="menuitem"]:has-text("发视频")').first
-            await menu_item.wait_for(state="visible", timeout=10000)
-            await menu_item.click()
-            clicked = True
-            logger.info("[进入发布页] ✓ 已点击 menuitem（发视频）")
-        except Exception as e:
-            logger.info(f"[进入发布页] menuitem 点击失败，转兜底: {e}")
 
-        # 策略 2: 兜底点 data-autolog 内部元素
+        # 策略 1: hover 触发菜单展开 → 等 menuitem 可见 → hover menuitem 防止菜单关闭 → click
+        for attempt in range(2):
+            try:
+                trigger = "hover" if attempt == 0 else "click"
+                if attempt == 0:
+                    await pub_btn.hover()
+                else:
+                    try:
+                        await pub_btn.click(timeout=3000)
+                    except Exception:
+                        await pub_btn.hover()
+                try:
+                    await menu_item.wait_for(state="visible", timeout=4000)
+                except Exception:
+                    logger.info(f"[进入发布页] {trigger} 后 menuitem 未出现，换策略")
+                    continue
+                # hover menuitem 稳一下，避免 click 瞬间菜单已收起
+                try:
+                    await menu_item.hover()
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    pass
+                await menu_item.click()
+                clicked = True
+                logger.info(f"[进入发布页] ✓ 已点击 menuitem（发视频，trigger={trigger}）")
+                break
+            except Exception as e:
+                logger.info(f"[进入发布页] 策略 1 attempt={attempt + 1} 失败: {e}")
+
+        # 策略 2: 点 data-autolog 内部元素（部分版本点击事件绑在内层）
         if not clicked:
             try:
-                video_item = page.locator('[data-autolog*="text=发视频"]').first
-                await video_item.wait_for(state="visible", timeout=5000)
+                await pub_btn.hover()
+                await video_item.wait_for(state="visible", timeout=4000)
+                try:
+                    await video_item.hover()
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    pass
                 await video_item.click()
                 clicked = True
                 logger.info("[进入发布页] ✓ 已点击 data-autolog 元素（发视频）")
             except Exception as e:
-                logger.info(f"[进入发布页] 兜底点击失败: {e}")
+                logger.info(f"[进入发布页] 策略 2 失败: {e}")
+
+        # 策略 3: JS dispatch — 直接在按钮上派发 mouseover/mouseenter 打开菜单，再 click menuitem
+        if not clicked:
+            try:
+                hovered = await page.evaluate(
+                    """() => {
+                        const btn = document.querySelector('[data-autolog*="text=发布作品"]');
+                        if (!btn) return false;
+                        ['mouseover', 'mouseenter', 'mousemove'].forEach(t => {
+                            btn.dispatchEvent(new MouseEvent(t, {bubbles: true, cancelable: true, view: window}));
+                        });
+                        return true;
+                    }"""
+                )
+                if hovered:
+                    await asyncio.sleep(0.5)
+                    js_clicked = await page.evaluate(
+                        """() => {
+                            const items = document.querySelectorAll('li[role="menuitem"]');
+                            for (const it of items) {
+                                if ((it.textContent || '').includes('发视频')) {
+                                    it.click();
+                                    return true;
+                                }
+                            }
+                            const fallback = document.querySelector('[data-autolog*="text=发视频"]');
+                            if (fallback) { fallback.click(); return true; }
+                            return false;
+                        }"""
+                    )
+                    if js_clicked:
+                        clicked = True
+                        logger.info("[进入发布页] ✓ JS dispatch 点击成功")
+            except Exception as e:
+                logger.info(f"[进入发布页] 策略 3 失败: {e}")
 
         if not clicked:
             raise RuntimeError("无法进入视频发布页，请检查账号是否有发布权限")
@@ -1289,6 +1368,164 @@ class TaobaoGuanghePlatform(BasePlatform):
                 logger.info(f"[定时发布] 确定按钮异常: {e}")
         except Exception as exc:
             logger.info(f"[定时发布] 设置失败（非致命）: {exc}")
+
+    @staticmethod
+    async def _link_products_or_shops(frame, link_type: str, names: list) -> None:
+        """发布时关联商品/店铺。
+
+        流程(在发布页 iframe 内):
+        1. 切换对应 radio(``.next-radio-label`` + 文本"商品"/"店铺")
+        2. 点击「添加商品/添加店铺」卡片(``get_by_text`` 文本精确匹配)
+        3. 商品模式切到「平台优选」tab(``.next-tabs-tab``)
+        4. 对每个名称:搜索框(``input[role="searchbox"]``)输入 → JS evaluate
+           从 ``span[title=name]`` 或店铺链接文本向上找含 checkbox/radio 的祖先,
+           点 ``label.next-checkbox-wrapper``/``label.next-radio-wrapper``
+        5. 点「确定」(``.next-btn-primary`` + 文本)
+
+        DOM 选择器策略:全部基于 Next UI 稳定 class、ARIA、``href``、``title``、文本,
+        不用 ``[class*="xxx"]`` CSS Modules 模糊匹配。
+
+        Args:
+            frame: 发布页 iframe
+            link_type: 'product' 或 'shop'
+            names: 名称列表(已截断到 ≤6 个)
+
+        容错策略:任一环节失败都跳过该名称或整个流程(非致命,不影响发布主体)。
+        """
+        if not names:
+            return
+
+        type_label = "商品" if link_type == "product" else "店铺"
+        trigger_text = "添加商品" if link_type == "product" else "添加店铺"
+        logger.info(f"[关联{type_label}] 共 {len(names)} 个待关联")
+
+        # 1. 切换 radio
+        try:
+            radio_label = frame.locator(
+                f'.next-radio-label:has-text("{type_label}")'
+            ).first
+            await radio_label.wait_for(state="visible", timeout=10000)
+            is_checked = await radio_label.evaluate(
+                "el => el.closest('label')?.classList.contains('checked')"
+            )
+            if not is_checked:
+                await radio_label.click()
+                logger.info(f"[关联{type_label}] ✓ 已切换 radio")
+                await asyncio.sleep(0.8)
+        except Exception as e:
+            logger.info(f"[关联{type_label}] radio 切换失败,跳过关联: {e}")
+            return
+
+        # 2. 点添加卡片打开选择面板(用文本精确匹配;切换 radio 后只有一个添加卡可见)
+        try:
+            trigger = frame.get_by_text(trigger_text, exact=True).first
+            await trigger.wait_for(state="visible", timeout=8000)
+            await trigger.click()
+            logger.info(f"[关联{type_label}] ✓ 已点击「{trigger_text}」")
+            await asyncio.sleep(2)
+        except Exception as e:
+            logger.info(f"[关联{type_label}] 添加卡片点击失败,跳过关联: {e}")
+            return
+
+        # 3. 商品模式:切到「平台优选」tab
+        if link_type == "product":
+            try:
+                preferred_tab = frame.locator(
+                    '.next-tabs-tab:has-text("平台优选")'
+                ).first
+                if await preferred_tab.count() > 0:
+                    is_active = await preferred_tab.evaluate(
+                        "el => el.classList.contains('active')"
+                    )
+                    if not is_active:
+                        await preferred_tab.click()
+                        await asyncio.sleep(1.5)
+            except Exception as e:
+                logger.info(f"[关联{type_label}] 切换平台优选 tab 异常: {e}")
+
+        # 4. 逐个搜索并勾选(JS evaluate 找匹配项的 checkbox/radio)
+        selected = 0
+        for idx, name in enumerate(names, 1):
+            if not name or not str(name).strip():
+                continue
+            name = str(name).strip()
+            try:
+                inp = frame.locator('input[role="searchbox"]').first
+                await inp.wait_for(state="visible", timeout=5000)
+                await inp.click()
+                await inp.fill("")
+                await inp.fill(name)
+                await asyncio.sleep(0.3)
+                await inp.press("Enter")
+                await asyncio.sleep(2)
+
+                # JS 内一次性完成:找匹配 → 判禁用 → 判已选 → 点击
+                # 商品锚点: span[title=name] 向上找含 label.next-checkbox-wrapper 的祖先
+                # 店铺锚点: 文本为 name 的 <a> 向上找含 label.next-radio-wrapper 的祖先
+                result = await frame.evaluate(
+                    """(args) => {
+                        const { name, type } = args;
+                        const checkboxSelector = type === 'product'
+                            ? 'label.next-checkbox-wrapper'
+                            : 'label.next-radio-wrapper';
+
+                        // 候选起点:商品用 span[title=name],店铺用文本匹配的 <a>
+                        let anchors = [];
+                        if (type === 'product') {
+                            anchors = Array.from(document.querySelectorAll('span[title]'))
+                                .filter(s => (s.getAttribute('title') || '').trim() === name);
+                        } else {
+                            anchors = Array.from(document.querySelectorAll('a'))
+                                .filter(a => (a.textContent || '').trim() === name);
+                        }
+
+                        for (const anchor of anchors) {
+                            // 向上找含 checkbox/radio 的最近祖先
+                            let node = anchor;
+                            for (let i = 0; i < 10 && node; i++) {
+                                const label = node.querySelector && node.querySelector(checkboxSelector);
+                                if (label) {
+                                    const input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+                                    if (input && input.disabled) return 'disabled';
+                                    const isChecked = label.classList.contains('checked')
+                                        || (input && input.checked);
+                                    if (!isChecked) {
+                                        label.click();
+                                        return 'clicked';
+                                    }
+                                    return 'already';
+                                }
+                                node = node.parentElement;
+                            }
+                        }
+                        return 'not_found';
+                    }""",
+                    {"name": name, "type": link_type},
+                )
+
+                if result == 'clicked' or result == 'already':
+                    selected += 1
+                    logger.info(f"[关联{type_label}] ({idx}/{len(names)}) ✓ {name} ({result})")
+                else:
+                    logger.info(f"[关联{type_label}] ({idx}/{len(names)}) 未找到匹配: {name} ({result})")
+            except Exception as e:
+                logger.info(f"[关联{type_label}] ({idx}/{len(names)}) 关联异常({name}): {e}")
+
+        logger.info(f"[关联{type_label}] 勾选完成,共 {selected}/{len(names)}")
+
+        # 5. 点「确定」关闭面板(按钮可能不存在,平台有时自动关闭)
+        try:
+            confirm_btn = frame.locator(
+                '.next-btn-primary:has-text("确定"), '
+                '.next-btn-primary:has-text("完成"), '
+                '.next-btn-primary:has-text("确认")'
+            ).first
+            if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+                await confirm_btn.click()
+                logger.info(f"[关联{type_label}] ✓ 已确认")
+                await asyncio.sleep(1.5)
+        except Exception as e:
+            logger.info(f"[关联{type_label}] 确定按钮异常: {e}")
 
     @staticmethod
     async def _click_publish(frame, main_page=None) -> bool:

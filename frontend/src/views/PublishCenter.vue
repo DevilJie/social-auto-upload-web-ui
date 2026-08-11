@@ -929,6 +929,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     gzhCollectionData: accountOv?.gzhCollectionData ?? platformOv?.gzhCollectionData ?? platformDefault?.gzhCollectionData ?? null,
     // 微信公众号创作来源(平台级)
     gzhClaimSource: accountOv?.gzhClaimSource ?? platformOv?.gzhClaimSource ?? platformDefault?.gzhClaimSource ?? '',
+    // 淘宝光合创作者声明(平台级)
+    guangheClaim: accountOv?.guangheClaim ?? platformOv?.guangheClaim ?? platformDefault?.guangheClaim ?? '',
   }
 }
 
@@ -999,6 +1001,7 @@ const platformConfigs = reactive({
     vivoDistribution: false, vivoDeclaration: '', vivoPrivacy: '公开',
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
+  taobao_guanghe: { title: '', description: '', guangheClaim: '', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -2509,6 +2512,8 @@ async function publishAll() {
         isOriginal: merged.isOriginal ?? false,
         gzhClaimSource: merged.gzhClaimSource || '',
         gzhCollectionName: merged.gzhCollectionName || '',
+        // 淘宝光合创作者声明
+        guangheClaim: merged.guangheClaim || '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

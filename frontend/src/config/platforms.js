@@ -22,6 +22,8 @@ import logoZhihu from '@/assets/logos/zhihu.png'
 import logoCsdn from '@/assets/logos/csdn.png'
 import logoVivo from '@/assets/logos/vivo.svg'
 import logoWeixinGzh from '@/assets/logos/weixin_gzh.png'
+import logoTaobaoGuanghe from '@/assets/logos/taobao_guanghe.png'
+import logoJingmai from '@/assets/logos/jingmai.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
@@ -673,6 +675,47 @@ export const PLATFORMS = {
       { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间（最近7天，需大于当前1小时）' },
     ],
     defaultSettings: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', videoFormat: '' },
+  },
+  TAOBAO_GUANGHE: {
+    id: 18,
+    key: 'taobao_guanghe',
+    name: '淘宝光合',
+    shortName: '光合',
+    letter: '淘',
+    logo: logoTaobaoGuanghe,
+    color: '#FF5000',
+    bgColor: 'rgba(255, 80, 0, 0.15)',
+    cssClass: 'taobao_guanghe',
+    creatorUrl: 'https://creator.guanghe.taobao.com/',
+    settingsFields: [
+      // 创作者声明(平台级下拉,可选)
+      { key: 'guangheClaim', label: '创作者声明', type: 'select',
+        placeholder: '请选择创作者声明（可选）',
+        options: [
+          { label: '内容无需标注', value: '内容无需标注' },
+          { label: '含AI生成内容', value: '含AI生成内容' },
+          { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+          { label: '内容为转载', value: '内容为转载' },
+          { label: '个人观点，仅供参考', value: '个人观点，仅供参考' },
+          { label: '内容含营销信息', value: '内容含营销信息' },
+        ] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+    ],
+    defaultSettings: { title: '', description: '', guangheClaim: '', scheduleTime: '' },
+  },
+  JINGMAI: {
+    id: 19,
+    key: 'jingmai',
+    name: '京东京麦',
+    shortName: '京麦',
+    letter: '京',
+    logo: logoJingmai,
+    color: '#E1251B',
+    bgColor: 'rgba(225, 37, 27, 0.15)',
+    cssClass: 'jingmai',
+    creatorUrl: 'https://dr.jd.com/jm/',
+    settingsFields: [],
+    defaultSettings: { title: '', description: '' },
   },
 }
 

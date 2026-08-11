@@ -1047,6 +1047,123 @@ async def scrape_weixin_gzh_profile(page):
     return name, avatar
 
 
+async def scrape_taobao_guanghe_profile(page):
+    """淘宝光合平台专用 scraper。
+
+    当前页应为 ``https://creator.guanghe.taobao.com/`` 创作中心首页，已登录。
+
+    DOM 说明：淘宝光合使用 CSS Modules，class 带随机哈希后缀
+    (如 ``user--J5npn8g_``、``count-num--MjNr4IXK``)，**极不稳定**。
+    这里一律改用稳定的埋点属性 ``data-autolog-container`` 定位：
+
+    - 头像：``img[data-autolog-container="user_content_account"]`` 的 ``src``
+    - 昵称：账号管理 info 块内第一个文本节点
+      (该块 ``data-autolog`` 含 ``text=用户模块-账号管理``)
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await asyncio.sleep(2)
+
+        result = await page.evaluate(
+            '''() => {
+                const out = {name: '', avatar: ''};
+                // 头像：账号管理埋点容器内的 img
+                const avatarImg = document.querySelector('img[data-autolog-container="user_content_account"]');
+                if (avatarImg) out.avatar = avatarImg.getAttribute('src') || '';
+
+                // 昵称：data-autolog 含 "text=用户模块-账号管理" 的 info 块
+                const infoEls = document.querySelectorAll('[data-autolog*="text=用户模块-账号管理"]');
+                for (const el of infoEls) {
+                    // info 块内第一个非空文本即为昵称
+                    const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
+                    let node = walker.nextNode();
+                    while (node) {
+                        // 跳过含二维码/标签的子元素，取第一个有纯文本内容的块级元素
+                        const directText = Array.from(node.childNodes)
+                            .filter(n => n.nodeType === Node.TEXT_NODE)
+                            .map(n => n.textContent.trim())
+                            .join('').trim();
+                        if (directText && directText.length >= 1 && directText.length <= 30
+                            && !directText.includes('账号正常') && !directText.includes('逛逛号')) {
+                            out.name = directText;
+                            break;
+                        }
+                        node = walker.nextNode();
+                    }
+                    if (out.name) break;
+                }
+                return out;
+            }'''
+        )
+        name = (result or {}).get('name', '')
+        avatar = (result or {}).get('avatar', '')
+
+        logger.info(
+            f"[taobao_guanghe] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[taobao_guanghe] profile scrape error: {e}")
+
+    return name, avatar
+
+
+async def scrape_jingmai_profile(page):
+    """京东京麦专用 scraper。
+
+    当前页应为 ``https://dr.jd.com/jm/`` 创作中心，已登录。
+
+    DOM 说明：京麦顶栏用无哈希的 BEM class（``shop-menu-accountV1__xxx``），
+    稳定可用；Vue scoped 属性 ``data-v-xxxx`` 带哈希，**不用**。
+
+    - 头像：``.shop-menu-account__right-avatar`` 的 ``src``
+    - 昵称：``.shop-menu-accountV1__right-account-top-name`` 的 ``title`` 属性
+      (兜底 text_content)
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await asyncio.sleep(2)
+
+        # 头像
+        try:
+            avatar_el = page.locator(".shop-menu-account__right-avatar").first
+            if await avatar_el.count() > 0:
+                avatar = (await avatar_el.get_attribute("src") or "").strip()
+                if avatar.startswith("//"):
+                    avatar = "https:" + avatar
+        except Exception as e:
+            logger.info(f"[jingmai] 头像抓取失败: {e}")
+
+        # 昵称
+        try:
+            name_el = page.locator(
+                ".shop-menu-accountV1__right-account-top-name"
+            ).first
+            if await name_el.count() > 0:
+                name = (await name_el.get_attribute("title") or "").strip()
+                if not name:
+                    name = (await name_el.text_content() or "").strip()
+        except Exception as e:
+            logger.info(f"[jingmai] 昵称抓取失败: {e}")
+
+        logger.info(
+            f"[jingmai] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[jingmai] profile scrape error: {e}")
+
+    return name, avatar
+
+
 # ---------------------------------------------------------------------------
 # Schedule time parser
 # Source: original postVideo.py schedule parser
@@ -1269,6 +1386,8 @@ PLATFORM_SYNC_URLS = {
     15: "https://mp.csdn.net/",
     16: "https://www.kaixinkan.com.cn/#/home",
     17: "https://mp.weixin.qq.com/",
+    18: "https://creator.guanghe.taobao.com/",
+    19: "https://dr.jd.com/jm/",
 }
 
 
@@ -1292,6 +1411,8 @@ PLATFORM_SCRAPE_FNS = {
     15: scrape_csdn_profile,        # CSDN
     16: scrape_vivo_profile,        # VIVO
     17: scrape_weixin_gzh_profile,  # 微信公众号
+    18: scrape_taobao_guanghe_profile,  # 淘宝光合
+    19: scrape_jingmai_profile,     # 京东京麦
 }
 
 

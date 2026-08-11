@@ -25,6 +25,10 @@ VIDEO_LIMITS: dict[str, dict] = {
     "vivo":          {"min_duration": 0, "max_duration": 5400,             "max_size": 2 * 1024**3,  "max_title_length": math.inf},
     # 微信公众号: 视频时长<1h, 标题≤64字, 描述(含#标签)≤300字
     "weixin_gzh":    {"min_duration": 0, "max_duration": 3600,             "max_size": math.inf,     "max_title_length": 64, "max_desc_length": 300},
+    # 淘宝光合: 时长≤30min(1800s), 文件≤1.5G, 标题≤30字, 描述(含#标签)≤1000字
+    "taobao_guanghe": {"min_duration": 0, "max_duration": 1800,            "max_size": int(1.5 * 1024**3), "max_title_length": 30, "max_desc_length": 1000},
+    # 京东京麦: 暂不支持视频发布，占位宽松规则
+    "jingmai":        {"min_duration": 0, "max_duration": math.inf,        "max_size": math.inf,     "max_title_length": math.inf},
 }
 
 
@@ -45,6 +49,8 @@ _PLATFORM_NAMES = {
     "csdn": "CSDN",
     "vivo": "VIVO",
     "weixin_gzh": "微信公众号",
+    "taobao_guanghe": "淘宝光合",
+    "jingmai": "京东京麦",
 }
 
 

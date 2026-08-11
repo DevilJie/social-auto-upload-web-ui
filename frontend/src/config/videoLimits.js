@@ -28,6 +28,10 @@ export const VIDEO_LIMITS = {
   vivo:          { minDuration: 0,    maxDuration: 5400,         maxSize: 2 * GB, maxTitleLength: Infinity },
   // 微信公众号: 视频时长<1h, 标题≤64字, 描述(含#标签)≤300字
   weixin_gzh:    { minDuration: 0,    maxDuration: 3600,         maxSize: Infinity, maxTitleLength: 64, maxDescLength: 300 },
+  // 淘宝光合: 时长≤30min, 文件≤1.5G, 标题≤30字, 描述(含#标签)≤1000字
+  taobao_guanghe: { minDuration: 0,   maxDuration: 1800,         maxSize: 1.5 * GB, maxTitleLength: 30, maxDescLength: 1000 },
+  // 京东京麦: 暂不支持视频发布，占位宽松规则
+  jingmai:        { minDuration: 0,   maxDuration: Infinity,     maxSize: Infinity, maxTitleLength: Infinity },
 }
 
 const PLATFORM_NAMES = {
@@ -47,6 +51,8 @@ const PLATFORM_NAMES = {
   csdn: 'CSDN',
   vivo: 'VIVO',
   weixin_gzh: '微信公众号',
+  taobao_guanghe: '淘宝光合',
+  jingmai: '京东京麦',
 }
 
 export function formatSize(sizeBytes) {

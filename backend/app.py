@@ -209,12 +209,12 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO", 17: "微信公众号"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO", 17: "微信公众号", 18: "淘宝光合", 19: "京东京麦"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
     11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo',
-    17: 'weixin_gzh',
+    17: 'weixin_gzh', 18: 'taobao_guanghe', 19: 'jingmai',
 }
 
 
@@ -1054,6 +1054,8 @@ def postVideo():
                 is_original=data.get('isOriginal', False),
                 gzh_collection_name=data.get('gzhCollectionName', ''),
                 gzh_claim_source=data.get('gzhClaimSource', ''),
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
             ))
         else:
             result = publish_fn(
@@ -1143,6 +1145,8 @@ def postVideo():
                 is_original=data.get('isOriginal', False),
                 gzh_collection_name=data.get('gzhCollectionName', ''),
                 gzh_claim_source=data.get('gzhClaimSource', ''),
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -1229,6 +1233,8 @@ def postVideoBatch():
                     is_original=data.get('isOriginal', False),
                     gzh_collection_name=data.get('gzhCollectionName', ''),
                     gzh_claim_source=data.get('gzhClaimSource', ''),
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
                 ))
             else:
                 result = publish_fn(
@@ -1262,6 +1268,8 @@ def postVideoBatch():
                     is_original=data.get('isOriginal', False),
                     gzh_collection_name=data.get('gzhCollectionName', ''),
                     gzh_claim_source=data.get('gzhClaimSource', ''),
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
                 )
             if not result:
                 failures.append({"index": idx, "reason": "发布失败：页面未跳转"})

@@ -368,12 +368,12 @@ class TaobaoGuanghePlatform(BasePlatform):
             # 视频方向：'landscape'(横版) / 'portrait'(竖版)，由 app.py 根据素材表 orientation 推导
             video_format = kwargs.get("video_format", "") or ""
             # 关联商品/店铺('product'/'shop',空字符串=不关联)
-            link_type = (kwargs.get("guanghe_link_type", "") or "").strip()
+            link_type = (kwargs.get("guangheLinkType", "") or "").strip()
             # 名称列表(最多6个),发布时通过搜索匹配勾选
             if link_type == "product":
-                link_names = list(kwargs.get("guanghe_product_names", []) or [])[:6]
+                link_names = list(kwargs.get("guangheProductNames", []) or [])[:6]
             elif link_type == "shop":
-                link_names = list(kwargs.get("guanghe_shop_names", []) or [])[:6]
+                link_names = list(kwargs.get("guangheShopNames", []) or [])[:6]
             else:
                 link_names = []
 

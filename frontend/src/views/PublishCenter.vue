@@ -2733,11 +2733,11 @@ async function publishAll() {
         guangheClaim: merged.guangheClaim || '',
         // 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
         // 数据格式: [{title, image}, ...] → 发布只传 title 列表,兼容旧字符串数组
-        guanghe_link_type: merged.guangheLinkType || '',
-        guanghe_product_names: (merged.guangheProducts || [])
+        guangheLinkType: merged.guangheLinkType || '',
+        guangheProductNames: (merged.guangheProducts || [])
           .map(p => (typeof p === 'string' ? p : p?.title).trim())
           .filter(Boolean),
-        guanghe_shop_names: (merged.guangheShops || [])
+        guangheShopNames: (merged.guangheShops || [])
           .map(s => (typeof s === 'string' ? s : s?.title).trim())
           .filter(Boolean),
         hotspot: merged.hotspotId || '',

@@ -15,7 +15,6 @@ DOM 锚点参考(2026-08 京东发布页):
 - 分页:        .jd-pagination-item / .jd-pagination-prev / .jd-pagination-next
 """
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 

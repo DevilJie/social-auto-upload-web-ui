@@ -130,9 +130,9 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
             if trace.get("category"):
                 await _link_ops.click_filter(frame, "品类筛选", trace["category"])
 
-        # 3. 搜索
-        if trace.get("keyword"):
-            await _link_ops.search(frame, trace["keyword"])
+        # 3. 搜索(无条件调用:空字符串会清空搜索框,回到默认列表)
+        # 否则上一组遗留的搜索词会留在搜索框,导致当前组找不到目标
+        await _link_ops.search(frame, trace.get("keyword") or "")
 
         # 4. 循环定位 + 加载更多
         pending = set(target_ids)
@@ -719,9 +719,10 @@ class TaobaoGuanghePlatform(BasePlatform):
             try:
                 page = await context.new_page()
 
-                # 0. 进入创作中心首页
-                logger.info("[上传视频] 打开光合创作中心首页")
-                await page.goto(_GUANGHE_HOME_URL, wait_until="domcontentloaded", timeout=30000)
+                # 0. 直接 goto 发布页 URL(带 cookie),跳过首页 hover 菜单导航
+                # 与 picker.py 一致,更稳定
+                logger.info("[上传视频] 直接打开发布页: %s", _link_ops.GUANGHE_PUBLISH_URL[:80])
+                await page.goto(_link_ops.GUANGHE_PUBLISH_URL, wait_until="domcontentloaded", timeout=30000)
                 await asyncio.sleep(3)
 
                 # cookie 失效会被重定向到登录页
@@ -729,16 +730,12 @@ class TaobaoGuanghePlatform(BasePlatform):
                 if any(m in current_url for m in _COOKIE_INVALID_MARKERS):
                     raise RuntimeError("淘宝光合 cookie 失效，请重新登录")
 
-                # 0.5 关闭新手引导弹窗（若存在），避免遮挡发布按钮
+                # 0.5 关闭新手引导弹窗(若存在),避免遮挡上传区
                 await self._dismiss_guide_modal(page)
 
-                # 1. 进入视频发布页（悬停发布按钮 → 点发视频）
-                # 光合点「发视频」后发布页可能在新 tab 打开，也可能在原 page 跳转。
-                page = await self._navigate_to_publish_page(page)
-
-                # 光合发布页内容由 iframe 嵌入（pub_url 指向跨域页面），
-                # 主 frame 只有外壳，所有表单元素都在 iframe 里。
-                # 找到含上传元素的 frame，后续所有表单操作都在该 frame 内进行。
+                # 光合发布页内容由 iframe 嵌入(pub_url 指向跨域页面),
+                # 主 frame 只有外壳,所有表单元素都在 iframe 里。
+                # 找到含上传元素的 frame,后续所有表单操作都在该 frame 内进行。
                 frame = await self._find_publish_frame(page)
 
                 # 2. 上传视频文件

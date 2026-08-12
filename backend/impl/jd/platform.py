@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+import threading
 from pathlib import Path
 from queue import Queue
 
@@ -149,16 +150,103 @@ class JdPlatform(BasePlatform):
     # ---------- 占位:后续 Task 实现 ----------
 
     async def check_cookie(self, cookie_file: str) -> bool:
-        """校验 cookie 是否有效(TODO: Task 11 实现)。"""
-        raise NotImplementedError("京东平台暂未实现 check_cookie")
+        """检测 cookie 是否有效。
 
-    async def open_creator_center(self, cookie_file: str) -> None:
-        """打开创作中心(TODO: Task 11 实现)。"""
-        raise NotImplementedError("京东平台暂未实现 open_creator_center")
+        策略:用 cookie 打开创作中心,如果被重定向到 passport.* → 无效。
+        """
+        cookie_path = Path(BASE_DIR / "cookiesFile" / cookie_file)
+        if not cookie_path.exists():
+            return False
+
+        browser = await self.create_browser(headless=True)
+        try:
+            ctx = await self.create_context(browser, storage_state=str(cookie_path))
+            page = await ctx.new_page()
+            try:
+                await page.goto(JD_CREATOR_CENTER_URL, wait_until="domcontentloaded")
+                await asyncio.sleep(2)
+                url = page.url or ""
+                for invalid_host in JD_COOKIE_INVALID_MARKERS:
+                    if invalid_host in url:
+                        logger.warning(f"京东 cookie 失效: 当前 URL {url}")
+                        return False
+                return True
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                try:
+                    await ctx.close()
+                except Exception:
+                    pass
+        finally:
+            await browser.close()
 
     async def sync_profile(self, cookie_file: str):
-        """同步资料(TODO: Task 11 实现)。"""
-        raise NotImplementedError("京东平台暂未实现 sync_profile")
+        """同步账号昵称/头像。
+
+        Returns:
+            {"name": str, "avatar": str} 或 None(失败时)
+        """
+        cookie_path = Path(BASE_DIR / "cookiesFile" / cookie_file)
+        if not cookie_path.exists():
+            return None
+
+        browser = await self.create_browser(headless=True)
+        try:
+            ctx = await self.create_context(browser, storage_state=str(cookie_path))
+            page = await ctx.new_page()
+            try:
+                await page.goto(JD_CREATOR_CENTER_URL, wait_until="domcontentloaded")
+                await asyncio.sleep(3)
+
+                # 复用 jd 专用 scraper(顶栏 BEM class,无哈希)
+                name, avatar = await _scrape_jd_profile(page)
+
+                if name:
+                    return {"name": name, "avatar": avatar}
+                return None
+            except Exception as e:
+                logger.warning(f"sync_profile 失败: {e}")
+                return None
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+                try:
+                    await ctx.close()
+                except Exception:
+                    pass
+        finally:
+            await browser.close()
+
+    async def open_creator_center(self, cookie_file: str) -> None:
+        """异步入口:打开创作中心(后台线程保持浏览器)。"""
+        cookie_path = Path(BASE_DIR / "cookiesFile" / cookie_file)
+        if not cookie_path.exists():
+            raise FileNotFoundError(f"cookie 文件不存在: {cookie_file}")
+
+        def _launch():
+            from .._browser import create_browser_sync, create_context_sync
+            browser = create_browser_sync(headless=False)
+            try:
+                ctx = create_context_sync(browser, storage_state=str(cookie_path))
+                page = ctx.new_page()
+                page.goto(JD_CREATOR_CENTER_URL, wait_until="domcontentloaded")
+                try:
+                    page.wait_for_event("close", timeout=0)
+                except Exception:
+                    pass
+            finally:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_launch, daemon=True)
+        thread.start()
 
     def publish_video(self, **kwargs) -> bool:
         """视频发布(TODO: Task 12-17 实现)。"""

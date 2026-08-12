@@ -293,7 +293,7 @@ async function refreshList(fn) {
   }
 }
 
-// 兼容 props.initSelected 旧字符串数组格式 → 统一为 [{title, image}]
+// 兼容 props.initSelected 旧字符串数组格式 → 统一为 [{title, image, id, trace}]
 function normalizeSelected(arr) {
   if (!Array.isArray(arr)) return []
   return arr
@@ -319,7 +319,9 @@ function isSelected(item) {
 function onCardClick(item) {
   if (item.disabled) return
   if (isSelected(item)) {
-    selectedItems.value = selectedItems.value.filter(s => s.id !== item.id && s.title !== item.title)
+    selectedItems.value = selectedItems.value.filter(s => !(
+      (s.id && s.id === item.id) || s.title === item.title
+    ))
   } else {
     if (selectedItems.value.length >= MAX_SELECTED) {
       ElMessage.warning(`最多选择 ${MAX_SELECTED} 个`)

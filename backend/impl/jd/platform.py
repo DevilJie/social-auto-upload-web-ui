@@ -248,9 +248,153 @@ class JdPlatform(BasePlatform):
         thread = threading.Thread(target=_launch, daemon=True)
         thread.start()
 
+    # ---------- 发布主流程 ----------
+
     def publish_video(self, **kwargs) -> bool:
-        """视频发布(TODO: Task 12-17 实现)。"""
-        raise NotImplementedError("京东平台暂未实现 publish_video")
+        """同步入口:被 app.py 调用。
+
+        kwargs:
+            account_id: 账号 ID
+            video_path: 视频文件路径
+            title: 标题(必填,≤27 字)
+            cover_path: 封面图路径(可选)
+            jd_related_type: 'product' / 'novel' / ''
+            jd_products: list[dict](含 id + trace)
+            jd_novel: dict 或 ''
+            jd_declaration: str
+            schedule_time: str(ISO 格式)
+        """
+        try:
+            return asyncio.run(self._publish_async(**kwargs))
+        except Exception as e:
+            logger.exception("京东 publish_video 失败")
+            raise
+
+    async def _publish_async(self, **kwargs) -> bool:
+        """发布主流程(参考淘宝光合 platform.py L719-840)。"""
+        account_id = kwargs.get("account_id")
+        cookie_filename = _resolve_cookie_filename(account_id)
+        cookie_file = _resolve_cookie_path(cookie_filename)
+
+        if not cookie_file or not cookie_file.exists():
+            raise FileNotFoundError(f"cookie 不存在,请先登录: account_id={account_id}")
+
+        self.browser = await self.create_browser(headless=False)
+        ctx = await self.create_context(self.browser, storage_state=str(cookie_file))
+        self.page = await ctx.new_page()
+
+        try:
+            # 1. goto 发布页
+            await self._goto_publish_page()
+
+            # 2. 上传视频
+            video_path = kwargs.get("video_path")
+            if not video_path:
+                raise ValueError("video_path 必填")
+            await self._upload_video(Path(video_path))
+            await self._wait_upload_complete()
+
+            # 3. 设置封面(可选,京东有 * 必填但可接受默认封面)
+            cover_path = kwargs.get("cover_path")
+            if cover_path and Path(cover_path).exists():
+                await self._set_cover(Path(cover_path))
+
+            # 4. 填写标题
+            title = kwargs.get("title", "")
+            await self._fill_title(title)
+
+            # 5. 关联挂件
+            related_type = kwargs.get("jd_related_type", "")
+            if related_type == "product" and kwargs.get("jd_products"):
+                await self._link_products(kwargs["jd_products"])
+            elif related_type == "novel" and kwargs.get("jd_novel"):
+                await self._select_novel(kwargs["jd_novel"])
+
+            # 6. 创作声明
+            declaration = kwargs.get("jd_declaration", "")
+            if declaration:
+                await self._set_declaration(declaration)
+
+            # 7. 定时发布
+            schedule_time = kwargs.get("schedule_time", "")
+            if schedule_time:
+                await self._set_schedule_time(schedule_time)
+
+            # 8. dry-run:不点发布按钮
+            if JD_DRY_RUN:
+                logger.info("[JD_DRY_RUN] 跳过点击发布按钮")
+                return True
+
+            # 9. 点击发布按钮
+            await self._click_publish()
+            return await self._check_publish_success()
+        finally:
+            await self.close_browser(self.browser, is_close_by_code=True)
+            self.browser = None
+            self.page = None
+
+    async def _goto_publish_page(self):
+        """goto 发布页,等表单渲染完毕。"""
+        await self.page.goto(JD_PUBLISH_URL, wait_until="domcontentloaded")
+        await asyncio.sleep(2)
+        await self.page.wait_for_selector(
+            ".video-upload-wrapper",
+            timeout=15_000,
+            state="visible",
+        )
+        await asyncio.sleep(1)
+
+    # ---------- 视频上传 ----------
+
+    async def _upload_video(self, video_path: Path):
+        """上传视频(T13 实现)。"""
+        raise NotImplementedError("Task 13: _upload_video")
+
+    async def _wait_upload_complete(self, timeout: float = 600):
+        """等上传完成(T13 实现)。"""
+        raise NotImplementedError("Task 13: _wait_upload_complete")
+
+    # ---------- 封面 ----------
+
+    async def _set_cover(self, cover_path: Path):
+        """设置封面(T13 实现)。"""
+        raise NotImplementedError("Task 13: _set_cover")
+
+    # ---------- 标题 ----------
+
+    async def _fill_title(self, title: str):
+        """填写标题(T14 实现)。"""
+        raise NotImplementedError("Task 14: _fill_title")
+
+    # ---------- 关联挂件 ----------
+
+    async def _link_products(self, items: list):
+        """关联商品(T15 实现)。"""
+        raise NotImplementedError("Task 15: _link_products")
+
+    async def _select_novel(self, novel):
+        """关联小说(T16 实现)。"""
+        raise NotImplementedError("Task 16: _select_novel")
+
+    # ---------- 创作声明 / 定时发布 ----------
+
+    async def _set_declaration(self, declaration: str):
+        """创作声明(T16 实现)。"""
+        raise NotImplementedError("Task 16: _set_declaration")
+
+    async def _set_schedule_time(self, schedule_time: str):
+        """定时发布(T16 实现)。"""
+        raise NotImplementedError("Task 16: _set_schedule_time")
+
+    # ---------- 发布 ----------
+
+    async def _click_publish(self, timeout: float = 30):
+        """点击发布按钮(T17 实现)。"""
+        raise NotImplementedError("Task 17: _click_publish")
+
+    async def _check_publish_success(self, timeout: float = 60) -> bool:
+        """检测发布成功(T17 实现)。"""
+        raise NotImplementedError("Task 17: _check_publish_success")
 
 
 # ---------- profile scraper ----------

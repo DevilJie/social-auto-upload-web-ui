@@ -58,6 +58,7 @@ def _populate_registry() -> None:
         (17, ".weixin_gzh.platform", "WeixinGzhPlatform"),
         (18, ".taobao_guanghe.platform", "TaobaoGuanghePlatform"),
         (19, ".jingmai.platform", "JingmaiPlatform"),
+        (20, ".jd.platform", "JdPlatform"),
     ]
 
     import importlib

@@ -170,6 +170,10 @@ from blueprints.taobao_guanghe_bp import taobao_guanghe_bp  # noqa: E402
 app.register_blueprint(taobao_guanghe_bp)
 logger.info("[Startup] taobao_guanghe_bp registered OK")
 
+from blueprints.jd_bp import bp as jd_bp  # noqa: E402
+app.register_blueprint(jd_bp)
+logger.info("[Startup] jd_picker registered OK")
+
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 logger.info(f"[Startup] Frontend dir: {FRONTEND_DIR} (exists={FRONTEND_DIR.exists()})")
 
@@ -218,7 +222,7 @@ PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
     11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo',
-    17: 'weixin_gzh', 18: 'taobao_guanghe', 19: 'jingmai',
+    17: 'weixin_gzh', 18: 'taobao_guanghe', 19: 'jingmai', 20: 'jd',
 }
 
 
@@ -1064,6 +1068,12 @@ def postVideo():
                 guangheLinkType=data.get('guangheLinkType', ''),
                 guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
                 guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
             ))
         else:
             result = publish_fn(
@@ -1159,6 +1169,12 @@ def postVideo():
                 guangheLinkType=data.get('guangheLinkType', ''),
                 guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
                 guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -1251,6 +1267,12 @@ def postVideoBatch():
                 guangheLinkType=data.get('guangheLinkType', ''),
                 guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
                 guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
                 ))
             else:
                 result = publish_fn(
@@ -1290,6 +1312,12 @@ def postVideoBatch():
                 guangheLinkType=data.get('guangheLinkType', ''),
                 guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
                 guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
                 )
             if not result:
                 failures.append({"index": idx, "reason": "发布失败：页面未跳转"})

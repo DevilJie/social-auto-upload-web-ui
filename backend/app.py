@@ -1062,8 +1062,8 @@ def postVideo():
                 guanghe_claim=data.get('guangheClaim', ''),
                 # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
                 guangheLinkType=data.get('guangheLinkType', ''),
-                guangheProductNames=data.get('guangheProductNames', []),
-                guangheShopNames=data.get('guangheShopNames', []),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
             ))
         else:
             result = publish_fn(
@@ -1157,8 +1157,8 @@ def postVideo():
                 guanghe_claim=data.get('guangheClaim', ''),
                 # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
                 guangheLinkType=data.get('guangheLinkType', ''),
-                guangheProductNames=data.get('guangheProductNames', []),
-                guangheShopNames=data.get('guangheShopNames', []),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
             )
         if result:
             return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
@@ -1249,8 +1249,8 @@ def postVideoBatch():
                 guanghe_claim=data.get('guangheClaim', ''),
                 # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
                 guangheLinkType=data.get('guangheLinkType', ''),
-                guangheProductNames=data.get('guangheProductNames', []),
-                guangheShopNames=data.get('guangheShopNames', []),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
                 ))
             else:
                 result = publish_fn(
@@ -1288,8 +1288,8 @@ def postVideoBatch():
                 guanghe_claim=data.get('guangheClaim', ''),
                 # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
                 guangheLinkType=data.get('guangheLinkType', ''),
-                guangheProductNames=data.get('guangheProductNames', []),
-                guangheShopNames=data.get('guangheShopNames', []),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
                 )
             if not result:
                 failures.append({"index": idx, "reason": "发布失败：页面未跳转"})

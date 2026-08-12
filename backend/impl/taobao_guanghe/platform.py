@@ -64,10 +64,6 @@ _CLAIM_OPTIONS = [
 # 分组重现 + 中断策略(纯逻辑,可单测)
 # ----------------------------------------------------------------------
 
-# 旧数据兼容:无 trace 时退回按 title 模糊匹配
-_LEGACY_FALLBACK_THRESHOLD = 5  # 旧路径加载更多上限
-
-
 def _group_by_trace(items: list) -> list:
     """按 trace_signature 分组,返回 [(trace, [item, ...]), ...]。"""
     groups = {}
@@ -262,6 +258,8 @@ async def _legacy_link_by_title(frame, type_: str, items: list) -> None:
                 }""",
                 {"name": name, "type": type_},
             )
+            if result == "disabled":
+                raise RuntimeError(f"商品不可选(disabled): {name}")
             if result in ("clicked", "already"):
                 selected += 1
                 logger.info(f"[关联{type_label}] ({idx}/{len(names)}) ✓ {name} ({result})")

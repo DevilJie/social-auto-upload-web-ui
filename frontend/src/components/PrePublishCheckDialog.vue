@@ -219,6 +219,7 @@ function platformTypeToKey(type) {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou',
     5: 'bilibili', 6: 'baijiahao', 7: 'tiktok', 8: 'youtube',
     9: 'tencent_video', 10: 'iqiyi', 11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo', 17: 'weixin_gzh',
+    18: 'taobao_guanghe', 19: 'jingmai',
   }
   return map[type] || ''
 }

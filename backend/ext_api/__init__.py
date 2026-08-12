@@ -800,6 +800,8 @@ _PLATFORM_ID_MAP = {
     15: ('csdn', 'CSDN'),
     16: ('vivo', 'VIVO'),
     17: ('weixin_gzh', '微信公众号'),
+    18: ('taobao_guanghe', '淘宝光合'),
+    19: ('jingmai', '京东京麦'),
 }
 
 
@@ -1012,6 +1014,7 @@ def _extract_channels_summary(draft_data):
         'tencent_video': '腾讯视频',
         'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条', 'zhihu': '知乎',
         'csdn': 'CSDN', 'vivo': 'VIVO', 'weixin_gzh': '微信公众号',
+        'taobao_guanghe': '淘宝光合', 'jingmai': '京东京麦',
     }
 
     try:
@@ -1030,6 +1033,7 @@ def _extract_channels_summary(draft_data):
             'tencent_video': 9, 'iqiyi': 10,
             'weibo': 11, 'alipay': 12, 'toutiao': 13, 'zhihu': 14, 'csdn': 15,
             'vivo': 16, 'weixin_gzh': 17,
+            'taobao_guanghe': 18, 'jingmai': 19,
         }.items()}
 
         platform_counts = {}

@@ -26,6 +26,7 @@ from .._utils import (
     scrape_taobao_guanghe_profile,
 )
 from ..base_platform import BasePlatform
+from . import _link_ops
 
 logger = get_channel_logger("taobao_guanghe")
 
@@ -57,6 +58,232 @@ _CLAIM_OPTIONS = [
     "个人观点，仅供参考",
     "内容含营销信息",
 ]
+
+
+# ----------------------------------------------------------------------
+# 分组重现 + 中断策略(纯逻辑,可单测)
+# ----------------------------------------------------------------------
+
+# 旧数据兼容:无 trace 时退回按 title 模糊匹配
+_LEGACY_FALLBACK_THRESHOLD = 5  # 旧路径加载更多上限
+
+
+def _group_by_trace(items: list) -> list:
+    """按 trace_signature 分组,返回 [(trace, [item, ...]), ...]。"""
+    groups = {}
+    order = []
+    for it in items:
+        tr = it.get("trace") or {}
+        sig = _link_ops.trace_signature(tr)
+        if sig not in groups:
+            groups[sig] = {"trace": tr, "items": []}
+            order.append(sig)
+        groups[sig]["items"].append(it)
+    return [(groups[sig]["trace"], groups[sig]["items"]) for sig in order]
+
+
+async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5) -> None:
+    """按 trace 分组重现并精准定位勾选。
+
+    Args:
+        frame: 发布页 iframe
+        type_: 'product' / 'shop'
+        items: [{id, trace, title?, ...}, ...]
+        max_load_more: 每组最多点几次加载更多
+
+    Raises:
+        RuntimeError: 任一商品 disabled 或 max_load_more 后仍未找到
+    """
+    # 兼容旧数据:items 不含 trace 时走旧路径
+    if any(not it.get("trace") for it in items):
+        await _legacy_link_by_title(frame, type_, items)
+        return
+
+    type_label = "商品" if type_ == "product" else "店铺"
+    groups = _group_by_trace(items)
+    logger.info(f"[关联{type_label}] 共 {len(items)} 个,{len(groups)} 组轨迹")
+
+    for gi, (trace, group_items) in enumerate(groups, 1):
+        target_ids = {str(it["id"]) for it in group_items if it.get("id")}
+        logger.info(
+            f"[关联{type_label}] 组 {gi}/{len(groups)}: tab={trace.get('tab')} "
+            f"kw={trace.get('keyword')!r} rule={trace.get('rule')!r} "
+            f"category={trace.get('category')!r} → {len(target_ids)} 个目标"
+        )
+
+        # 1. 切 radio + 打开面板
+        await _link_ops.switch_radio(frame, type_)
+        await _link_ops.click_add_card(frame, type_)
+        await _link_ops.wait_panel_ready(frame, type_)
+
+        # 2. 切 tab(商品模式)
+        if type_ == "product" and trace.get("tab"):
+            await _link_ops.switch_tab(frame, trace["tab"])
+
+        # 3. 筛选(商品模式)
+        if type_ == "product":
+            if trace.get("rule"):
+                await _link_ops.click_filter(frame, "推荐规则", trace["rule"])
+            if trace.get("category"):
+                await _link_ops.click_filter(frame, "品类筛选", trace["category"])
+
+        # 4. 搜索
+        if trace.get("keyword"):
+            await _link_ops.search(frame, trace["keyword"])
+
+        # 5. 循环定位 + 加载更多
+        pending = set(target_ids)
+        for attempt in range(max_load_more + 1):  # 首次 + 5 次加载更多
+            res = await _link_ops.locate_and_check(frame, type_, pending)
+            if res["disabled"]:
+                raise RuntimeError(
+                    f"商品不可选(disabled): {res['disabled']}"
+                )
+            for tid in res["checked"] + res["already"]:
+                pending.discard(tid)
+            if not pending:
+                logger.info(
+                    f"[关联{type_label}] 组 {gi} ✓ 勾选完成 "
+                    f"(尝试 {attempt + 1} 次)"
+                )
+                break
+            if attempt < max_load_more:
+                clicked = await _link_ops.load_more(frame)
+                if not clicked:
+                    break  # 没有加载更多按钮
+            else:
+                break
+
+        if pending:
+            raise RuntimeError(
+                f"未找到的{type_label} id(超过 {max_load_more} 次加载更多): "
+                f"{sorted(pending)}"
+            )
+
+        # 6. 点确定关闭面板(为下一组准备)
+        try:
+            confirm_btn = frame.locator(
+                '.next-btn-primary:has-text("确定"), '
+                '.next-btn-primary:has-text("完成"), '
+                '.next-btn-primary:has-text("确认")'
+            ).first
+            if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+                await confirm_btn.click()
+                await asyncio.sleep(1.5)
+        except Exception as e:
+            logger.info(f"[关联{type_label}] 确定按钮异常: {e}")
+
+
+async def _legacy_link_by_title(frame, type_: str, items: list) -> None:
+    """旧路径:按 title 搜+span[title] 匹配(无 trace 数据时用)。"""
+    type_label = "商品" if type_ == "product" else "店铺"
+    logger.info(f"[关联{type_label}] 检测到旧格式数据,退回 title 匹配路径")
+    names = [(it.get("title") or "").strip() for it in items if it.get("title")]
+    if not names:
+        return
+
+    # 切 radio + 打开面板
+    try:
+        radio_label = frame.locator(f'.next-radio-label:has-text("{type_label}")').first
+        await radio_label.wait_for(state="visible", timeout=10000)
+        is_checked = await radio_label.evaluate(
+            "el => el.closest('label')?.classList.contains('checked')"
+        )
+        if not is_checked:
+            await radio_label.click()
+            await asyncio.sleep(0.8)
+    except Exception as e:
+        logger.info(f"[关联{type_label}] radio 切换失败: {e}")
+        return
+
+    trigger_text = "添加商品" if type_ == "product" else "添加店铺"
+    try:
+        trigger = frame.get_by_text(trigger_text, exact=True).first
+        await trigger.wait_for(state="visible", timeout=8000)
+        await trigger.click()
+        await asyncio.sleep(2)
+    except Exception as e:
+        logger.info(f"[关联{type_label}] 添加卡点击失败: {e}")
+        return
+
+    if type_ == "product":
+        try:
+            tab = frame.locator('.next-tabs-tab:has-text("平台优选")').first
+            if await tab.count() > 0:
+                is_active = await tab.evaluate("el => el.classList.contains('active')")
+                if not is_active:
+                    await tab.click()
+                    await asyncio.sleep(1.5)
+        except Exception:
+            pass
+
+    selected = 0
+    for idx, name in enumerate(names, 1):
+        try:
+            inp = frame.locator('input[role="searchbox"]').first
+            await inp.wait_for(state="visible", timeout=5000)
+            await inp.click()
+            await inp.fill("")
+            await inp.fill(name)
+            await asyncio.sleep(0.3)
+            await inp.press("Enter")
+            await asyncio.sleep(2)
+
+            result = await frame.evaluate(
+                """(args) => {
+                    const { name, type } = args;
+                    const checkboxSelector = type === 'product'
+                        ? 'label.next-checkbox-wrapper'
+                        : 'label.next-radio-wrapper';
+                    let anchors = [];
+                    if (type === 'product') {
+                        anchors = Array.from(document.querySelectorAll('span[title]'))
+                            .filter(s => (s.getAttribute('title') || '').trim() === name);
+                    } else {
+                        anchors = Array.from(document.querySelectorAll('a'))
+                            .filter(a => (a.textContent || '').trim() === name);
+                    }
+                    for (const anchor of anchors) {
+                        let node = anchor;
+                        for (let i = 0; i < 10 && node; i++) {
+                            const label = node.querySelector && node.querySelector(checkboxSelector);
+                            if (label) {
+                                const input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+                                if (input && input.disabled) return 'disabled';
+                                const isChecked = label.classList.contains('checked')
+                                    || (input && input.checked);
+                                if (!isChecked) { label.click(); return 'clicked'; }
+                                return 'already';
+                            }
+                            node = node.parentElement;
+                        }
+                    }
+                    return 'not_found';
+                }""",
+                {"name": name, "type": type_},
+            )
+            if result in ("clicked", "already"):
+                selected += 1
+                logger.info(f"[关联{type_label}] ({idx}/{len(names)}) ✓ {name} ({result})")
+            else:
+                raise RuntimeError(f"未找到匹配: {name} ({result})")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"关联异常({name}): {e}")
+
+    logger.info(f"[关联{type_label}] 旧路径勾选完成 {selected}/{len(names)}")
+    try:
+        confirm_btn = frame.locator(
+            '.next-btn-primary:has-text("确定"), '
+            '.next-btn-primary:has-text("完成"), '
+            '.next-btn-primary:has-text("确认")'
+        ).first
+        if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+            await confirm_btn.click()
+            await asyncio.sleep(1.5)
+    except Exception:
+        pass
 
 
 class TaobaoGuanghePlatform(BasePlatform):
@@ -369,13 +596,20 @@ class TaobaoGuanghePlatform(BasePlatform):
             video_format = kwargs.get("video_format", "") or ""
             # 关联商品/店铺('product'/'shop',空字符串=不关联)
             link_type = (kwargs.get("guangheLinkType", "") or "").strip()
-            # 名称列表(最多6个),发布时通过搜索匹配勾选
+            # 完整对象列表(每项含 title/id/trace);旧数据可能只有 title 或仅为字符串
             if link_type == "product":
-                link_names = list(kwargs.get("guangheProductNames", []) or [])[:6]
+                raw = kwargs.get("guangheProducts", []) or []
             elif link_type == "shop":
-                link_names = list(kwargs.get("guangheShopNames", []) or [])[:6]
+                raw = kwargs.get("guangheShops", []) or []
             else:
-                link_names = []
+                raw = []
+            # 规范化:字符串 → {title: s};dict 直接用
+            link_items = []
+            for it in raw[:6]:
+                if isinstance(it, str):
+                    link_items.append({"title": it})
+                elif isinstance(it, dict):
+                    link_items.append(it)
 
             logger.info("[发布参数] 标题: %s", title)
             logger.info("[发布参数] 文件数量: %d", len(files))
@@ -383,7 +617,7 @@ class TaobaoGuanghePlatform(BasePlatform):
             logger.info("[发布参数] 账号数量: %d", len(account_files))
             logger.info("[发布参数] 创作者声明: %s", claim or "无")
             logger.info("[发布参数] 视频方向: %s", video_format or "未知")
-            logger.info("[发布参数] 关联类型: %s, 待关联数: %d", link_type or "无", len(link_names))
+            logger.info("[发布参数] 关联类型: %s, 待关联数: %d", link_type or "无", len(link_items))
 
             cookie_paths = [
                 str(Path(BASE_DIR / "cookiesFile") / f) for f in account_files
@@ -439,7 +673,7 @@ class TaobaoGuanghePlatform(BasePlatform):
                             claim=claim,
                             thumbnail_path=picked_thumb,
                             link_type=link_type,
-                            link_names=link_names,
+                            link_items=link_items,
                         )
 
             logger.info("=" * 60)
@@ -464,7 +698,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         claim: str = "",
         thumbnail_path: str | None = None,
         link_type: str = "",
-        link_names: list = None,
+        link_items: list = None,
     ) -> None:
         """上传单个视频到一个光合账号。
 
@@ -527,9 +761,9 @@ class TaobaoGuanghePlatform(BasePlatform):
                 if publish_date and isinstance(publish_date, _dt_mod.datetime):
                     await self._set_schedule_time(frame, publish_date)
 
-                # 8.5 关联商品/店铺（可选，最多 6 个，按名称在弹窗内搜索匹配勾选）
-                if link_type in ("product", "shop") and link_names:
-                    await self._link_products_or_shops(frame, link_type, link_names)
+                # 8.5 关联商品/店铺(可选,最多 6 个)
+                if link_type in ("product", "shop") and link_items:
+                    await self._link_products_or_shops(frame, link_type, link_items)
 
                 # 提交前截图（用 page 截全页含 iframe）
                 try:
@@ -1370,162 +1604,17 @@ class TaobaoGuanghePlatform(BasePlatform):
             logger.info(f"[定时发布] 设置失败（非致命）: {exc}")
 
     @staticmethod
-    async def _link_products_or_shops(frame, link_type: str, names: list) -> None:
-        """发布时关联商品/店铺。
-
-        流程(在发布页 iframe 内):
-        1. 切换对应 radio(``.next-radio-label`` + 文本"商品"/"店铺")
-        2. 点击「添加商品/添加店铺」卡片(``get_by_text`` 文本精确匹配)
-        3. 商品模式切到「平台优选」tab(``.next-tabs-tab``)
-        4. 对每个名称:搜索框(``input[role="searchbox"]``)输入 → JS evaluate
-           从 ``span[title=name]`` 或店铺链接文本向上找含 checkbox/radio 的祖先,
-           点 ``label.next-checkbox-wrapper``/``label.next-radio-wrapper``
-        5. 点「确定」(``.next-btn-primary`` + 文本)
-
-        DOM 选择器策略:全部基于 Next UI 稳定 class、ARIA、``href``、``title``、文本,
-        不用 ``[class*="xxx"]`` CSS Modules 模糊匹配。
+    async def _link_products_or_shops(frame, link_type: str, items: list) -> None:
+        """发布时关联商品/店铺(按 trace 分组重现 + itemId 定位)。
 
         Args:
             frame: 发布页 iframe
-            link_type: 'product' 或 'shop'
-            names: 名称列表(已截断到 ≤6 个)
-
-        容错策略:任一环节失败都跳过该名称或整个流程(非致命,不影响发布主体)。
+            link_type: 'product' / 'shop'
+            items: [{title?, image?, id?, trace?}, ...] — 兼容旧格式
         """
-        if not names:
+        if not items:
             return
-
-        type_label = "商品" if link_type == "product" else "店铺"
-        trigger_text = "添加商品" if link_type == "product" else "添加店铺"
-        logger.info(f"[关联{type_label}] 共 {len(names)} 个待关联")
-
-        # 1. 切换 radio
-        try:
-            radio_label = frame.locator(
-                f'.next-radio-label:has-text("{type_label}")'
-            ).first
-            await radio_label.wait_for(state="visible", timeout=10000)
-            is_checked = await radio_label.evaluate(
-                "el => el.closest('label')?.classList.contains('checked')"
-            )
-            if not is_checked:
-                await radio_label.click()
-                logger.info(f"[关联{type_label}] ✓ 已切换 radio")
-                await asyncio.sleep(0.8)
-        except Exception as e:
-            logger.info(f"[关联{type_label}] radio 切换失败,跳过关联: {e}")
-            return
-
-        # 2. 点添加卡片打开选择面板(用文本精确匹配;切换 radio 后只有一个添加卡可见)
-        try:
-            trigger = frame.get_by_text(trigger_text, exact=True).first
-            await trigger.wait_for(state="visible", timeout=8000)
-            await trigger.click()
-            logger.info(f"[关联{type_label}] ✓ 已点击「{trigger_text}」")
-            await asyncio.sleep(2)
-        except Exception as e:
-            logger.info(f"[关联{type_label}] 添加卡片点击失败,跳过关联: {e}")
-            return
-
-        # 3. 商品模式:切到「平台优选」tab
-        if link_type == "product":
-            try:
-                preferred_tab = frame.locator(
-                    '.next-tabs-tab:has-text("平台优选")'
-                ).first
-                if await preferred_tab.count() > 0:
-                    is_active = await preferred_tab.evaluate(
-                        "el => el.classList.contains('active')"
-                    )
-                    if not is_active:
-                        await preferred_tab.click()
-                        await asyncio.sleep(1.5)
-            except Exception as e:
-                logger.info(f"[关联{type_label}] 切换平台优选 tab 异常: {e}")
-
-        # 4. 逐个搜索并勾选(JS evaluate 找匹配项的 checkbox/radio)
-        selected = 0
-        for idx, name in enumerate(names, 1):
-            if not name or not str(name).strip():
-                continue
-            name = str(name).strip()
-            try:
-                inp = frame.locator('input[role="searchbox"]').first
-                await inp.wait_for(state="visible", timeout=5000)
-                await inp.click()
-                await inp.fill("")
-                await inp.fill(name)
-                await asyncio.sleep(0.3)
-                await inp.press("Enter")
-                await asyncio.sleep(2)
-
-                # JS 内一次性完成:找匹配 → 判禁用 → 判已选 → 点击
-                # 商品锚点: span[title=name] 向上找含 label.next-checkbox-wrapper 的祖先
-                # 店铺锚点: 文本为 name 的 <a> 向上找含 label.next-radio-wrapper 的祖先
-                result = await frame.evaluate(
-                    """(args) => {
-                        const { name, type } = args;
-                        const checkboxSelector = type === 'product'
-                            ? 'label.next-checkbox-wrapper'
-                            : 'label.next-radio-wrapper';
-
-                        // 候选起点:商品用 span[title=name],店铺用文本匹配的 <a>
-                        let anchors = [];
-                        if (type === 'product') {
-                            anchors = Array.from(document.querySelectorAll('span[title]'))
-                                .filter(s => (s.getAttribute('title') || '').trim() === name);
-                        } else {
-                            anchors = Array.from(document.querySelectorAll('a'))
-                                .filter(a => (a.textContent || '').trim() === name);
-                        }
-
-                        for (const anchor of anchors) {
-                            // 向上找含 checkbox/radio 的最近祖先
-                            let node = anchor;
-                            for (let i = 0; i < 10 && node; i++) {
-                                const label = node.querySelector && node.querySelector(checkboxSelector);
-                                if (label) {
-                                    const input = label.querySelector('input[type="checkbox"], input[type="radio"]');
-                                    if (input && input.disabled) return 'disabled';
-                                    const isChecked = label.classList.contains('checked')
-                                        || (input && input.checked);
-                                    if (!isChecked) {
-                                        label.click();
-                                        return 'clicked';
-                                    }
-                                    return 'already';
-                                }
-                                node = node.parentElement;
-                            }
-                        }
-                        return 'not_found';
-                    }""",
-                    {"name": name, "type": link_type},
-                )
-
-                if result == 'clicked' or result == 'already':
-                    selected += 1
-                    logger.info(f"[关联{type_label}] ({idx}/{len(names)}) ✓ {name} ({result})")
-                else:
-                    logger.info(f"[关联{type_label}] ({idx}/{len(names)}) 未找到匹配: {name} ({result})")
-            except Exception as e:
-                logger.info(f"[关联{type_label}] ({idx}/{len(names)}) 关联异常({name}): {e}")
-
-        logger.info(f"[关联{type_label}] 勾选完成,共 {selected}/{len(names)}")
-
-        # 5. 点「确定」关闭面板(按钮可能不存在,平台有时自动关闭)
-        try:
-            confirm_btn = frame.locator(
-                '.next-btn-primary:has-text("确定"), '
-                '.next-btn-primary:has-text("完成"), '
-                '.next-btn-primary:has-text("确认")'
-            ).first
-            if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
-                await confirm_btn.click()
-                logger.info(f"[关联{type_label}] ✓ 已确认")
-                await asyncio.sleep(1.5)
-        except Exception as e:
-            logger.info(f"[关联{type_label}] 确定按钮异常: {e}")
+        await _replay_groups(frame, link_type, items, max_load_more=5)
 
     @staticmethod
     async def _click_publish(frame, main_page=None) -> bool:

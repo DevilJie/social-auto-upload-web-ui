@@ -292,3 +292,118 @@ async def wait_page_change(frame, timeout: float = 10):
         )
     except Exception:
         pass
+
+
+# ---------- 勾选 ----------
+
+async def locate_and_check(frame, target_ids: list[str]) -> LocateResult:
+    """按 id 精准勾选目标商品,返回 4 桶结果。
+
+    流程:
+    1. 抓当前页所有商品(含 id)
+    2. 对每个 target_id:
+       - 不在当前页 → missing
+       - 在但 checkbox disabled → disabled
+       - 在但已勾选 → already
+       - 在且未勾选 → click checkbox 勾选,加入 checked
+
+    返回 LocateResult {checked, already, disabled, missing}
+    """
+    result = LocateResult()
+    target_set = set(target_ids)
+
+    cards = await frame.query_selector_all("._sku-card-mygoods-con_jvzh5_77")
+    page_ids = []
+    for card in cards:
+        title_el = await card.query_selector("._sku-name_jvzh5_204")
+        img_el = await card.query_selector("._sku-card-img_jvzh5_154")
+        checkbox_el = await card.query_selector(".jd-checkbox-input")
+
+        title = (await title_el.inner_text()).strip() if title_el else ""
+        image = await img_el.get_attribute("src") if img_el else ""
+
+        # 提取商品 id(同 scrape_products)
+        sku_id = ""
+        if image:
+            parts = image.rstrip(".png").split("/")
+            if parts:
+                sku_id = parts[-1]
+        if not sku_id and checkbox_el:
+            sku_id = await checkbox_el.get_attribute("value") or ""
+
+        # 检查是否已勾选
+        is_checked = False
+        if checkbox_el:
+            checked_attr = await checkbox_el.get_attribute("checked")
+            is_checked = checked_attr is not None
+
+        # 检查是否 disabled
+        is_disabled = False
+        if checkbox_el:
+            disabled_attr = await checkbox_el.get_attribute("disabled")
+            is_disabled = disabled_attr is not None
+
+        page_ids.append((sku_id, card, checkbox_el, is_checked, is_disabled))
+
+    # 桶分类
+    found_ids = {pid for pid, *_ in page_ids}
+    for tid in target_ids:
+        if tid not in found_ids:
+            result.missing.append(tid)
+
+    for pid, card, checkbox_el, is_checked, is_disabled in page_ids:
+        if pid not in target_set:
+            continue
+        if is_disabled:
+            result.disabled.append(pid)
+            continue
+        if is_checked:
+            result.already.append(pid)
+            continue
+        # 勾选
+        try:
+            if checkbox_el:
+                await checkbox_el.click()
+                result.checked.append(pid)
+            else:
+                # 退而求其次:点整张卡片
+                await card.click()
+                result.checked.append(pid)
+        except Exception:
+            result.missing.append(pid)
+
+    return result
+
+
+# ---------- 关闭 ----------
+
+async def click_confirm(frame):
+    """点抽屉底部'确定'按钮,关闭抽屉并提交已选商品。
+
+    DOM 锚点:
+    ._custom-footer-btns_38ot8_105 内的 [data-spm-click='publishVideoNewGoodsSelectionAdd']
+    """
+    btn = await frame.wait_for_selector(
+        "[data-spm-click='publishVideoNewGoodsSelectionAdd']",
+        timeout=10_000,
+    )
+    await btn.click()
+    # 等抽屉关闭
+    await frame.wait_for_selector(
+        ".jd-drawer-wrapper-body",
+        timeout=5_000,
+        state="hidden",
+    )
+
+
+async def close_panel(frame):
+    """按 Esc 或点 .jd-drawer-close 关闭抽屉。"""
+    try:
+        close_btn = await frame.query_selector(".jd-drawer-close")
+        if close_btn:
+            await close_btn.click()
+        else:
+            await frame.keyboard.press("Escape")
+        await sleep(0.5)
+    except Exception:
+        pass

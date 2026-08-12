@@ -23,6 +23,7 @@ bp = Blueprint("jd_picker", __name__)
 
 _loop: Optional[asyncio.AbstractEventLoop] = None
 _loop_thread: Optional[threading.Thread] = None
+_loop_lock = threading.Lock()
 _loop_ready = threading.Event()
 
 
@@ -37,10 +38,13 @@ def _start_loop():
 def _ensure_loop():
     global _loop_thread
     if _loop_thread is None or not _loop_thread.is_alive():
-        _loop_ready.clear()
-        _loop_thread = threading.Thread(target=_start_loop, daemon=True)
-        _loop_thread.start()
-        _loop_ready.wait(timeout=5)
+        with _loop_lock:
+            # 双重检查:拿锁后再次判定,避免并发请求各起一个 event loop
+            if _loop_thread is None or not _loop_thread.is_alive():
+                _loop_ready.clear()
+                _loop_thread = threading.Thread(target=_start_loop, daemon=True)
+                _loop_thread.start()
+                _loop_ready.wait(timeout=5)
     return _loop
 
 

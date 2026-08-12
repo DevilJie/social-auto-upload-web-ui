@@ -347,18 +347,109 @@ class JdPlatform(BasePlatform):
     # ---------- 视频上传 ----------
 
     async def _upload_video(self, video_path: Path):
-        """上传视频(T13 实现)。"""
-        raise NotImplementedError("Task 13: _upload_video")
+        """上传视频到 input[type=file]。
+
+        京东发布页的 input[type=file] 在 .video-upload-wrapper 内,
+        通常设置 display: none,需要通过 set_input_files 触发。
+        """
+        if not video_path.exists():
+            raise FileNotFoundError(f"视频文件不存在: {video_path}")
+
+        file_input = await self.page.wait_for_selector(
+            ".video-upload-wrapper input[type='file']",
+            timeout=10_000,
+        )
+        await file_input.set_input_files(str(video_path.absolute()))
 
     async def _wait_upload_complete(self, timeout: float = 600):
-        """等上传完成(T13 实现)。"""
-        raise NotImplementedError("Task 13: _wait_upload_complete")
+        """等视频上传完成(进度条 DOM 隐藏)。
+
+        上传过程中 DOM: .uploading-con > .upload-text("已上传 N%")
+        上传完成:    .uploading-con 不再可见
+
+        实现:循环检测 .uploading-con 是否消失,或 .preview-box img 出现
+        """
+        # 1. 等 .uploading-con 出现
+        await self.page.wait_for_selector(
+            ".uploading-con",
+            timeout=30_000,
+            state="visible",
+        )
+        # 2. 等 .uploading-con 消失
+        await self.page.wait_for_selector(
+            ".uploading-con",
+            timeout=timeout * 1000,
+            state="hidden",
+        )
+        # 3. 额外等 .preview-box img(封面预览)出现
+        try:
+            await self.page.wait_for_selector(
+                ".preview-box img",
+                timeout=30_000,
+                state="visible",
+            )
+        except Exception:
+            logger.warning("封面预览未出现,继续")
+
+        await asyncio.sleep(1)
 
     # ---------- 封面 ----------
 
     async def _set_cover(self, cover_path: Path):
-        """设置封面(T13 实现)。"""
-        raise NotImplementedError("Task 13: _set_cover")
+        """设置封面:点击'修改封面'按钮 → 上传本地图片 → 确定。
+
+        1. 点 .preview-box .edit-cover-btn 打开弹窗
+        2. 在弹窗内点 ._local-upload-localupload-upload-input_1vrwk_331 (input[type=file])
+        3. 等缩略图加载
+        4. 点弹窗确定按钮 .jd-btn-primary[data-component-label='确定']
+        """
+        if not cover_path.exists():
+            raise FileNotFoundError(f"封面图片不存在: {cover_path}")
+
+        # 1. 点"修改封面"
+        edit_btn = await self.page.wait_for_selector(
+            ".edit-cover-btn",
+            timeout=10_000,
+        )
+        await edit_btn.click()
+        await asyncio.sleep(1)
+
+        # 2. 等弹窗出现
+        await self.page.wait_for_selector(
+            ".jd-modal-content",
+            timeout=10_000,
+            state="visible",
+        )
+        await self.page.wait_for_selector(
+            "._crop-image_1vrwk_165 img",
+            timeout=10_000,
+            state="visible",
+        )
+
+        # 3. 上传本地图片(京东封面上传 input 在 ._local-upload-localupload-upload-input_1vrwk_331)
+        file_input = await self.page.wait_for_selector(
+            "._local-upload-localupload-upload-input_1vrwk_331",
+            timeout=10_000,
+        )
+        await file_input.set_input_files(str(cover_path.absolute()))
+
+        # 4. 等图片加载
+        await asyncio.sleep(2)
+
+        # 5. 点弹窗确定按钮(在 .jd-modal-footer 内)
+        confirm_btn = await self.page.wait_for_selector(
+            ".jd-modal-footer .jd-btn-primary",
+            timeout=10_000,
+        )
+        await confirm_btn.click()
+
+        # 6. 等弹窗关闭
+        await self.page.wait_for_selector(
+            ".jd-modal-content",
+            timeout=10_000,
+            state="hidden",
+        )
+        await asyncio.sleep(1)
 
     # ---------- 标题 ----------
 

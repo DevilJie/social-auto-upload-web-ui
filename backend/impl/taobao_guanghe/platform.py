@@ -99,6 +99,13 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
     groups = _group_by_trace(items)
     logger.info(f"[关联{type_label}] 共 {len(items)} 个,{len(groups)} 组轨迹")
 
+    # 面板只开一次:切 radio + 点添加卡片 + 等就绪
+    # 各组在同一个面板内切 tab/筛选/搜索/勾选,光合会保留已选商品(最多 6 个)
+    # 最后统一点「确定」提交,避免每组重开重关导致第 2 组 reopen 失败
+    await _link_ops.switch_radio(frame, type_)
+    await _link_ops.click_add_card(frame, type_)
+    await _link_ops.wait_panel_ready(frame, type_)
+
     for gi, (trace, group_items) in enumerate(groups, 1):
         target_ids = {str(it["id"]) for it in group_items if it.get("id")}
         logger.info(
@@ -107,27 +114,22 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
             f"category={trace.get('category')!r} → {len(target_ids)} 个目标"
         )
 
-        # 1. 切 radio + 打开面板
-        await _link_ops.switch_radio(frame, type_)
-        await _link_ops.click_add_card(frame, type_)
-        await _link_ops.wait_panel_ready(frame, type_)
-
-        # 2. 切 tab(商品模式)
+        # 1. 切 tab(商品模式)
         if type_ == "product" and trace.get("tab"):
             await _link_ops.switch_tab(frame, trace["tab"])
 
-        # 3. 筛选(商品模式)
+        # 2. 筛选(商品模式)
         if type_ == "product":
             if trace.get("rule"):
                 await _link_ops.click_filter(frame, "推荐规则", trace["rule"])
             if trace.get("category"):
                 await _link_ops.click_filter(frame, "品类筛选", trace["category"])
 
-        # 4. 搜索
+        # 3. 搜索
         if trace.get("keyword"):
             await _link_ops.search(frame, trace["keyword"])
 
-        # 5. 循环定位 + 加载更多
+        # 4. 循环定位 + 加载更多
         pending = set(target_ids)
         for attempt in range(max_load_more + 1):  # 首次 + 5 次加载更多
             res = await _link_ops.locate_and_check(frame, type_, pending)
@@ -156,18 +158,18 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
                 f"{sorted(pending)}"
             )
 
-        # 6. 点确定关闭面板(为下一组准备)
-        try:
-            confirm_btn = frame.locator(
-                '.next-btn-primary:has-text("确定"), '
-                '.next-btn-primary:has-text("完成"), '
-                '.next-btn-primary:has-text("确认")'
-            ).first
-            if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
-                await confirm_btn.click()
-                await asyncio.sleep(1.5)
-        except Exception as e:
-            logger.info(f"[关联{type_label}] 确定按钮异常: {e}")
+    # 所有组都勾选完成,统一点「确定」关闭面板
+    try:
+        confirm_btn = frame.locator(
+            '.next-btn-primary:has-text("确定"), '
+            '.next-btn-primary:has-text("完成"), '
+            '.next-btn-primary:has-text("确认")'
+        ).first
+        if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+            await confirm_btn.click()
+            await asyncio.sleep(1.5)
+    except Exception as e:
+        logger.info(f"[关联{type_label}] 确定按钮异常: {e}")
 
 
 async def _legacy_link_by_title(frame, type_: str, items: list) -> None:

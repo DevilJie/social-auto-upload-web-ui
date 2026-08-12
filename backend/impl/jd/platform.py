@@ -676,12 +676,57 @@ class JdPlatform(BasePlatform):
     # ---------- 发布 ----------
 
     async def _click_publish(self, timeout: float = 30):
-        """点击发布按钮(T17 实现)。"""
-        raise NotImplementedError("Task 17: _click_publish")
+        """点发布按钮。
+
+        发布按钮可能因表单未完整而 disabled,需要等待其变为可点。
+        """
+        # 1. 等发布按钮 enabled
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            btn = await self.page.query_selector("._publishBtn_6bi9b_150")
+            if btn:
+                disabled = await btn.get_attribute("disabled")
+                if disabled is None:
+                    break
+            await asyncio.sleep(0.5)
+        else:
+            raise RuntimeError("京东发布按钮未变为可用")
+
+        # 2. 点击
+        await btn.click()
+
+        # 3. 等弹窗(可能有发布确认对话框)
+        await asyncio.sleep(2)
 
     async def _check_publish_success(self, timeout: float = 60) -> bool:
-        """检测发布成功(T17 实现)。"""
-        raise NotImplementedError("Task 17: _check_publish_success")
+        """检测发布成功:URL 跳转到其他页面。
+
+        发布成功后,京东通常跳转到 https://dr.jd.com/jm/#/n/...
+        中的视频管理页或提示页。
+
+        Returns:
+            True: 发布成功
+        """
+        deadline = asyncio.get_event_loop().time() + timeout
+        original_url = self.page.url
+        while asyncio.get_event_loop().time() < deadline:
+            url = self.page.url
+            # 简单判定:URL 跳出发布页 hash
+            if url != original_url and "publish-video.html" not in url:
+                logger.info(f"京东发布成功,跳转到: {url}")
+                return True
+            # 检测成功提示 toast(可选)
+            toast = await self.page.query_selector(
+                ".jd-message-success, .ant-message-success, [class*='success']"
+            )
+            if toast:
+                txt = (await toast.inner_text()).strip()
+                if "成功" in txt or "发布" in txt:
+                    logger.info(f"京东发布成功(toast): {txt}")
+                    return True
+            await asyncio.sleep(1)
+
+        raise RuntimeError("京东发布失败,未检测到 URL 跳转或成功提示")
 
 
 # ---------- profile scraper ----------

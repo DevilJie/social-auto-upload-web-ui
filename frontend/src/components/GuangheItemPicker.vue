@@ -475,9 +475,9 @@ async function handleClose() {
 
   .card {
     position: relative;
-    border: 1px solid #eee;
+    border: 1px solid var(--guanghe-card-border);
     border-radius: 6px;
-    background: #fff;
+    background: var(--guanghe-card-bg);
     overflow: hidden;
     cursor: pointer;
     transition: all 0.15s;
@@ -502,14 +502,14 @@ async function handleClose() {
     &.disabled {
       cursor: not-allowed;
       opacity: 0.5;
-      &:hover { border-color: #eee; box-shadow: none; }
+      &:hover { border-color: var(--guanghe-card-border); box-shadow: none; }
     }
 
     .img-wrap {
       position: relative;
       width: 100%;
       aspect-ratio: 1;
-      background: #f5f5f5;
+      background: var(--guanghe-card-img-placeholder);
       img {
         width: 100%;
         height: 100%;
@@ -536,7 +536,7 @@ async function handleClose() {
 
       .title {
         font-size: 12px;
-        color: #333;
+        color: var(--guanghe-card-title);
         line-height: 1.4;
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -553,11 +553,11 @@ async function handleClose() {
         display: flex;
         justify-content: space-between;
         font-size: 11px;
-        color: #999;
+        color: var(--guanghe-card-meta);
       }
       .buy-count {
         font-size: 11px;
-        color: #999;
+        color: var(--guanghe-card-meta);
       }
     }
 
@@ -629,11 +629,21 @@ async function handleClose() {
 
 <!-- 非 scoped:scoped 块无法选 html 父级,用独立块做主题感知 -->
 <style lang="scss">
-// loading 遮罩主题变量(亮/暗)
+// loading 遮罩 + 卡片主题变量(亮/暗)
 html:not(.dark) .guanghe-picker-dialog {
   --guanghe-loading-mask-bg: rgba(255, 247, 240, 0.92);  // 极淡橙色
+  --guanghe-card-bg: #ffffff;
+  --guanghe-card-border: #eeeeee;
+  --guanghe-card-title: #333333;
+  --guanghe-card-meta: #999999;
+  --guanghe-card-img-placeholder: #f5f5f5;
 }
 html.dark .guanghe-picker-dialog {
   --guanghe-loading-mask-bg: rgba(30, 25, 22, 0.88);  // 暗色暖调
+  --guanghe-card-bg: #2a2a2c;
+  --guanghe-card-border: #3a3a3c;
+  --guanghe-card-title: #e5e5e7;
+  --guanghe-card-meta: #8a8a8e;
+  --guanghe-card-img-placeholder: #1f1f21;
 }
 </style>

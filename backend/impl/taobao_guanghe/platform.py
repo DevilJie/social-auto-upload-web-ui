@@ -30,6 +30,11 @@ from . import _link_ops
 
 logger = get_channel_logger("taobao_guanghe")
 
+# 测试 dry-run 开关:GUANGHE_DRY_RUN=1 时,跳过点击发布按钮 + 不关闭浏览器,
+# 方便反复测试关联商品/店铺流程。设了之后发布流程会停在第 8.5 步之后、第 9 步之前。
+import os as _os
+_DRY_RUN_PUBLISH = bool(_os.environ.get("GUANGHE_DRY_RUN"))
+
 # 创作中心/登录页 URL
 _GUANGHE_HOME_URL = "https://creator.guanghe.taobao.com/"
 
@@ -775,25 +780,44 @@ class TaobaoGuanghePlatform(BasePlatform):
                     pass
 
                 # 9. 点击发布按钮（按钮在 iframe 内，但发布成功后主 page 跳转）
-                submitted = await self._click_publish(frame, page)
-                if submitted:
-                    logger.info("[上传视频] ✓ 发布成功")
+                if _DRY_RUN_PUBLISH:
+                    # 测试模式:跳过实际点击发布,保留浏览器供人工检查
+                    logger.info("[上传视频] 🐛 DRY_RUN=1 跳过点击发布,浏览器保持打开,供人工检查")
+                    logger.info("[上传视频] 🐛 当前状态: 标题/描述/标签/封面/声明/定时/关联 已填好")
                     try:
                         await page.screenshot(
-                            path=str(log_dir / "guanghe_after_submit.png"),
+                            path=str(log_dir / "guanghe_dry_run.png"),
                             full_page=True,
                         )
                     except Exception:
                         pass
+                    # 阻塞在这里,直到用户手动关闭浏览器,方便反复查看
+                    try:
+                        logger.info("[上传视频] 🐛 等待浏览器关闭(请手动关闭)...")
+                        await page.wait_for_event("close", timeout=0)
+                    except Exception:
+                        pass
+                    upload_success = True
                 else:
-                    logger.info("[上传视频] ✗ 发布失败")
-                    try:
-                        await page.screenshot(
-                            path=str(log_dir / "guanghe_submit_failed.png"),
-                            full_page=True,
-                        )
-                    except Exception:
-                        pass
+                    submitted = await self._click_publish(frame, page)
+                    if submitted:
+                        logger.info("[上传视频] ✓ 发布成功")
+                        try:
+                            await page.screenshot(
+                                path=str(log_dir / "guanghe_after_submit.png"),
+                                full_page=True,
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        logger.info("[上传视频] ✗ 发布失败")
+                        try:
+                            await page.screenshot(
+                                path=str(log_dir / "guanghe_submit_failed.png"),
+                                full_page=True,
+                            )
+                        except Exception:
+                            pass
 
                 upload_success = True
             finally:

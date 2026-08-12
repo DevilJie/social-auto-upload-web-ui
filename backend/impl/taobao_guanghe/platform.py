@@ -119,19 +119,23 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
             f"category={trace.get('category')!r} → {len(target_ids)} 个目标"
         )
 
-        # 1. 切 tab(商品模式)
-        if type_ == "product" and trace.get("tab"):
-            await _link_ops.switch_tab(frame, trace["tab"])
-
-        # 2. 筛选(商品模式)
+        # 1. 切 tab(仅商品模式;店铺模式固定 preferred-like 单 tab)
         if type_ == "product":
-            if trace.get("rule"):
-                await _link_ops.click_filter(frame, "推荐规则", trace["rule"])
-            if trace.get("category"):
-                await _link_ops.click_filter(frame, "品类筛选", trace["category"])
+            await _link_ops.switch_tab(frame, trace.get("tab") or "preferred")
+
+        # 2. 筛选(商品模式):无条件按 trace 复原
+        #    trace 已是面板状态快照,默认值就是"全部"等,直接点对应选项即可
+        #    不做 if trace.get("rule") 判断 —— 否则上一组残留的筛选状态会污染当前组
+        if type_ == "product":
+            rule = trace.get("rule") or ""
+            category = trace.get("category") or ""
+            if rule:
+                await _link_ops.click_filter(frame, "推荐规则", rule)
+            if category:
+                await _link_ops.click_filter(frame, "品类筛选", category)
 
         # 3. 搜索(无条件调用:空字符串会清空搜索框,回到默认列表)
-        # 否则上一组遗留的搜索词会留在搜索框,导致当前组找不到目标
+        #    否则上一组遗留的搜索词会留在搜索框,导致当前组找不到目标
         await _link_ops.search(frame, trace.get("keyword") or "")
 
         # 4. 循环定位 + 加载更多

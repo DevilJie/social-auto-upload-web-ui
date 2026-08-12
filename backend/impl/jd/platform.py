@@ -486,8 +486,81 @@ class JdPlatform(BasePlatform):
     # ---------- 关联挂件 ----------
 
     async def _link_products(self, items: list):
-        """关联商品(T15 实现)。"""
-        raise NotImplementedError("Task 15: _link_products")
+        """按 trace 分组重现(参考淘宝光合 _replay_groups 但简化)。
+
+        流程:
+        1. 切商品 radio + 点添加 + 等抽屉就绪(只开一次)
+        2. 按 (keyword, page) 分组
+        3. 每组重走:clear_search → search → 翻页 → locate_and_check
+        4. 点确定关闭抽屉
+        """
+        if not items:
+            return
+
+        # 0. import link_ops
+        from backend.impl.jd import _jd_link_ops as link_ops
+
+        # 1. 打开抽屉
+        await link_ops.switch_radio(self.page, "product")
+        await link_ops.click_add_card(self.page)
+        await link_ops.wait_panel_ready(self.page)
+
+        # 2. 分组
+        groups: dict = {}
+        for item in items:
+            trace = item.get("trace") or {}
+            sig = link_ops.trace_signature(trace)
+            groups.setdefault(sig, []).append(item)
+
+        # 3. 每组重走
+        for (keyword, page), group_items in groups.items():
+            await link_ops.clear_search(self.page)
+
+            if keyword:
+                await link_ops.search(self.page, keyword)
+                await link_ops.wait_search_results(self.page)
+
+            if page > 1:
+                # 翻到指定页
+                current = await link_ops.get_current_page(self.page)
+                if current < page:
+                    for _ in range(page - current):
+                        nxt = await self.page.query_selector(
+                            ".jd-pagination-next:not(.jd-pagination-disabled)"
+                        )
+                        if not nxt:
+                            raise RuntimeError(
+                                f"无法翻到第 {page} 页:next 按钮不可用"
+                            )
+                        await nxt.click()
+                        await link_ops.wait_page_change(self.page)
+                elif current > page:
+                    for _ in range(current - page):
+                        prv = await self.page.query_selector(
+                            ".jd-pagination-prev:not(.jd-pagination-disabled)"
+                        )
+                        if not prv:
+                            raise RuntimeError(
+                                f"无法翻到第 {page} 页:prev 按钮不可用"
+                            )
+                        await prv.click()
+                        await link_ops.wait_page_change(self.page)
+
+            # 4. 精准勾选
+            target_ids = [it.get("id", "") for it in group_items if it.get("id")]
+            if not target_ids:
+                raise RuntimeError(f"商品组 (keyword={keyword!r}, page={page}) 缺少 id")
+
+            result = await link_ops.locate_and_check(self.page, target_ids)
+            if result.missing:
+                raise RuntimeError(
+                    f"关联商品失败,未找到商品(sku_id): {result.missing}"
+                )
+            if result.disabled:
+                logger.warning(f"以下商品已下架,无法勾选: {result.disabled}")
+
+        # 5. 关闭抽屉
+        await link_ops.click_confirm(self.page)
 
     async def _select_novel(self, novel):
         """关联小说(T16 实现)。"""

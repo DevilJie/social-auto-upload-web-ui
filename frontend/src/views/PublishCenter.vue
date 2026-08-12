@@ -141,8 +141,8 @@
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标题</div>
               <el-input
                 v-model="form.title"
-                :placeholder="currentPlatformConfig.key === 'jd' ? '添加一个亮眼的标题吧，5~27个字' : '请输入标题...'"
-                :maxlength="currentPlatformConfig.key === 'jd' ? 27 : 100"
+                :placeholder="currentPlatformConfig.key === 'jingmai' ? '添加一个亮眼的标题吧，5~27个字' : '请输入标题...'"
+                :maxlength="currentPlatformConfig.key === 'jingmai' ? 27 : 100"
                 show-word-limit
               />
             </div>
@@ -263,9 +263,9 @@
             </div>
           </div>
 
-          <!-- 京东:关联挂件(商品/小说,独占一整行,放在标签下面) -->
+          <!-- 京东(京麦):关联挂件(商品/小说,独占一整行,放在标签下面) -->
           <div
-            v-if="selectedPlatform === 'jd'"
+            v-if="selectedPlatform === 'jingmai'"
             class="setting-card"
             :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
           >
@@ -361,8 +361,8 @@
             </div>
           </div>
 
-          <!-- 京东:创作声明 + 定时发布(硬编码,不依赖 settingsFields 通用渲染) -->
-          <template v-if="selectedPlatform === 'jd'">
+          <!-- 京东(京麦):创作声明 + 定时发布(硬编码,不依赖 settingsFields 通用渲染) -->
+          <template v-if="selectedPlatform === 'jingmai'">
             <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">创作声明</div>
               <el-select
@@ -1250,7 +1250,7 @@ const platformConfigs = reactive({
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
-  jd: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdDeclaration: '', jdPublishType: 'now', scheduleTime: '', tags: [] },
+  jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdDeclaration: '', jdPublishType: 'now', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1398,16 +1398,16 @@ function removeGuangheItem(fieldKey, idx) {
 }
 
 // ========== 京东: 关联商品 picker 方法 ==========
-// 从已勾选的账号中任选一个京东账号(配置 picker 时不需要先选具体账号)
+// 从已勾选的账号中任选一个京东京麦账号(platform_id=19)
 function findAnyJdAccountId() {
   for (const id of publishAccountIds) {
     const acc = accountStore.accounts.find(a => String(a.id) === String(id))
-    if (acc && acc.platform === '京东') {
+    if (acc && (acc.type === 19 || acc.platform === '京东京麦')) {
       return String(acc.id)
     }
   }
-  // 兜底:未勾选时,从 accountStore 找任一京东账号
-  const anyAcc = accountStore.accounts.find(a => a.platform === '京东')
+  // 兜底:未勾选时,从 accountStore 找任一京东京麦账号
+  const anyAcc = accountStore.accounts.find(a => a.type === 19 || a.platform === '京东京麦')
   return anyAcc ? String(anyAcc.id) : ''
 }
 

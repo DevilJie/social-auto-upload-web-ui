@@ -802,7 +802,7 @@ _PLATFORM_ID_MAP = {
     17: ('weixin_gzh', '微信公众号'),
     18: ('taobao_guanghe', '淘宝光合'),
     19: ('jingmai', '京东京麦'),
-    20: ('jd', '京东'),
+    # 注: jd (id=20) 与 jingmai 是同一产品,不单独映射
 }
 
 
@@ -1015,7 +1015,7 @@ def _extract_channels_summary(draft_data):
         'tencent_video': '腾讯视频',
         'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条', 'zhihu': '知乎',
         'csdn': 'CSDN', 'vivo': 'VIVO', 'weixin_gzh': '微信公众号',
-        'taobao_guanghe': '淘宝光合', 'jingmai': '京东京麦', 'jd': '京东',
+        'taobao_guanghe': '淘宝光合', 'jingmai': '京东京麦',
     }
 
     try:
@@ -1034,7 +1034,7 @@ def _extract_channels_summary(draft_data):
             'tencent_video': 9, 'iqiyi': 10,
             'weibo': 11, 'alipay': 12, 'toutiao': 13, 'zhihu': 14, 'csdn': 15,
             'vivo': 16, 'weixin_gzh': 17,
-            'taobao_guanghe': 18, 'jingmai': 19, 'jd': 20,
+            'taobao_guanghe': 18, 'jingmai': 19,
         }.items()}
 
         platform_counts = {}

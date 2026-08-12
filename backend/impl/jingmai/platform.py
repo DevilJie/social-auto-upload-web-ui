@@ -312,11 +312,19 @@ class JingmaiPlatform(BasePlatform):
         return stats
 
     # ------------------------------------------------------------------
-    # publish_video（暂不支持）
+    # publish_video（委托给 JdPlatform 实现，避免重复代码）
     # ------------------------------------------------------------------
 
     def publish_video(self, **kwargs) -> bool:
-        raise NotImplementedError("京东京麦暂不支持视频发布")
+        """京东京麦视频发布 — 复用 jd 平台实现。
+
+        jingmai 与 jd 是同一个产品(dr.jd.com/jm/),用户在 jingmai 账号下
+        登录后,直接使用 jd 平台的 publish_video 逻辑(上传/封面/标题/
+        关联挂件/创作声明/定时发布/发布)。
+        """
+        from backend.impl.jd.platform import JdPlatform
+        jd = JdPlatform()
+        return jd.publish_video(**kwargs)
 
     # ------------------------------------------------------------------
     # open_creator_center

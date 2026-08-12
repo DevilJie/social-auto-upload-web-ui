@@ -24,7 +24,6 @@ import logoVivo from '@/assets/logos/vivo.svg'
 import logoWeixinGzh from '@/assets/logos/weixin_gzh.png'
 import logoTaobaoGuanghe from '@/assets/logos/taobao_guanghe.png'
 import logoJingmai from '@/assets/logos/jingmai.png'
-import logoJd from '@/assets/logos/jd.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
@@ -715,22 +714,8 @@ export const PLATFORMS = {
     bgColor: 'rgba(225, 37, 27, 0.15)',
     cssClass: 'jingmai',
     creatorUrl: 'https://dr.jd.com/jm/',
-    settingsFields: [],
-    defaultSettings: { title: '', description: '' },
-  },
-  JD: {
-    id: 20,
-    key: 'jd',
-    name: '京东',
-    shortName: '京东',
-    letter: '京',
-    logo: logoJd,
-    color: '#E1251B',
-    bgColor: 'rgba(225, 37, 27, 0.15)',
-    cssClass: 'jd',
-    creatorUrl: 'https://dr.jd.com/jm/',
     hideFields: ['description', 'tags'],
-    settingsFields: [],  // 京东专属字段在 PublishCenter.vue 中硬编码(关联挂件/创作声明/定时发布)
+    settingsFields: [],  // 京东专属字段在 PublishCenter.vue 中硬编码
     defaultSettings: {
       title: '',
       description: '',
@@ -738,10 +723,11 @@ export const PLATFORMS = {
       jdProducts: [],
       jdNovel: '',
       jdDeclaration: '',
-      jdPublishType: 'now',  // 'now' | 'schedule'
+      jdPublishType: 'now',
       scheduleTime: '',
     },
   },
+  // 注: jd (id=20) 已合并到 jingmai (id=19) — 同一个产品 dr.jd.com/jm/
 }
 
 // 派生数据

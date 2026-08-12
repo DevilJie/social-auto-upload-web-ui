@@ -255,6 +255,104 @@
             </div>
           </div>
 
+          <!-- 京东:关联挂件(商品/小说,独占一整行,放在标签下面) -->
+          <div
+            v-if="selectedPlatform === 'jd'"
+            class="setting-card"
+            :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
+          >
+            <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联挂件</div>
+            <div class="guanghe-link-field">
+              <div class="radio-row">
+                <label class="radio-item cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="(selectedAccountId || selectedPlatform) + '-jdRelatedType'"
+                    value=""
+                    v-model="form.jdRelatedType"
+                    class="cursor-pointer"
+                  />
+                  <span
+                    :class="['radio-text', { on: form.jdRelatedType === '' }]"
+                    :style="form.jdRelatedType === '' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                  >不关联</span>
+                </label>
+                <label class="radio-item cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="(selectedAccountId || selectedPlatform) + '-jdRelatedType'"
+                    value="product"
+                    v-model="form.jdRelatedType"
+                    class="cursor-pointer"
+                  />
+                  <span
+                    :class="['radio-text', { on: form.jdRelatedType === 'product' }]"
+                    :style="form.jdRelatedType === 'product' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                  >商品</span>
+                </label>
+                <label class="radio-item cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="(selectedAccountId || selectedPlatform) + '-jdRelatedType'"
+                    value="novel"
+                    v-model="form.jdRelatedType"
+                    class="cursor-pointer"
+                  />
+                  <span
+                    :class="['radio-text', { on: form.jdRelatedType === 'novel' }]"
+                    :style="form.jdRelatedType === 'novel' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                  >小说</span>
+                </label>
+              </div>
+
+              <!-- 商品选择 -->
+              <div v-if="form.jdRelatedType === 'product'" class="guanghe-items-field">
+                <div class="guanghe-selected-list">
+                  <div
+                    v-for="(item, i) in (form.jdProducts || [])"
+                    :key="(item.id || item.title || '') + '_' + i"
+                    class="guanghe-selected-card"
+                  >
+                    <div class="img-wrap">
+                      <img
+                        v-if="item.image"
+                        :src="item.image"
+                        referrerpolicy="no-referrer"
+                      />
+                      <div v-else class="placeholder">
+                        {{ (item.title || '?').toString().slice(0, 1) }}
+                      </div>
+                    </div>
+                    <div class="info">
+                      <div class="title" :title="item.title">{{ item.title }}</div>
+                    </div>
+                    <div class="guanghe-selected-remove" @click="removeJdProduct(i)">
+                      <el-icon><Close /></el-icon>
+                    </div>
+                  </div>
+                  <div
+                    v-if="(form.jdProducts || []).length < 10"
+                    class="guanghe-add-card"
+                    @click="openJdPicker()"
+                  >
+                    <el-icon><Plus /></el-icon>
+                    <span>添加商品 ({{ (form.jdProducts || []).length }}/10)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 小说选择(下拉搜索) -->
+              <div v-else-if="form.jdRelatedType === 'novel'" class="jd-novel-select">
+                <el-input
+                  v-model="form.jdNovel"
+                  placeholder="输入小说名称搜索"
+                  clearable
+                />
+                <!-- TODO: 替换为 RemoteSearchSelect,需确认 jd novel 搜索接口是否就绪 -->
+              </div>
+            </div>
+          </div>
+
           <!-- 平台特有配置（抖音专属卡片 + settingsFields 合并到同一网格） -->
           <div class="settings-grid">
             <!-- 抖音专属卡片 -->
@@ -691,6 +789,14 @@
       :init-selected="(form[guanghePickerFieldKey] || [])"
       @confirm="onGuanghePickerConfirm"
     />
+
+    <!-- 京东:关联商品选择弹窗 -->
+    <JdItemPicker
+      v-model="jdPickerVisible"
+      :account-id="jdPickerAccountId"
+      :init-selected="form.jdProducts"
+      @confirm="onJdPickerConfirm"
+    />
   </div>
 </template>
 
@@ -724,6 +830,7 @@ import VivoPositionSelect from '@/components/vivo/PositionSelect.vue'
 import RemoteSearchSelect from '@/components/common/RemoteSearchSelect.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 import GuangheItemPicker from '@/components/GuangheItemPicker.vue'
+import JdItemPicker from '@/components/JdItemPicker.vue'
 import { xhsApi } from '@/api/xiaohongshu'
 import { biliApi } from '@/api/bilibili'
 import { douyinImageApi } from '@/api/douyinImage'
@@ -1019,6 +1126,11 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     guangheLinkType: accountOv?.guangheLinkType ?? platformOv?.guangheLinkType ?? platformDefault?.guangheLinkType ?? '',
     guangheProducts: accountOv?.guangheProducts ?? platformOv?.guangheProducts ?? platformDefault?.guangheProducts ?? [],
     guangheShops: accountOv?.guangheShops ?? platformOv?.guangheShops ?? platformDefault?.guangheShops ?? [],
+    // 京东关联挂件(平台级, radio 互斥)
+    jdRelatedType: accountOv?.jdRelatedType ?? platformOv?.jdRelatedType ?? platformDefault?.jdRelatedType ?? '',
+    jdProducts: accountOv?.jdProducts ?? platformOv?.jdProducts ?? platformDefault?.jdProducts ?? [],
+    jdNovel: accountOv?.jdNovel ?? platformOv?.jdNovel ?? platformDefault?.jdNovel ?? '',
+    jdDeclaration: accountOv?.jdDeclaration ?? platformOv?.jdDeclaration ?? platformDefault?.jdDeclaration ?? '',
   }
 }
 
@@ -1090,6 +1202,7 @@ const platformConfigs = reactive({
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
+  jd: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdDeclaration: '', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1179,6 +1292,11 @@ const guanghePickerMode = ref('product') // 'product' | 'shop'
 const guanghePickerFieldKey = ref('') // 当前编辑的字段 key
 const guanghePickerAccountId = ref('') // 用于打开浏览器的账号 id(从已勾选账号里挑一个)
 
+// ========== 京东: 关联商品 picker ==========
+// picker 组件可见性 + 当前账号 id
+const jdPickerVisible = ref(false)
+const jdPickerAccountId = ref('')
+
 // 复合字段当前要操作的数据 key(guangheProducts / guangheShops) + 数据列表
 const currentGuangheFieldKey = computed(() =>
   form.guangheLinkType === 'shop' ? 'guangheShops' : 'guangheProducts'
@@ -1229,6 +1347,40 @@ function onGuanghePickerConfirm(names) {
 function removeGuangheItem(fieldKey, idx) {
   if (!Array.isArray(form[fieldKey])) return
   form[fieldKey] = form[fieldKey].filter((_, i) => i !== idx)
+}
+
+// ========== 京东: 关联商品 picker 方法 ==========
+// 从已勾选的账号中任选一个京东账号(配置 picker 时不需要先选具体账号)
+function findAnyJdAccountId() {
+  for (const id of publishAccountIds) {
+    const acc = accountStore.accounts.find(a => String(a.id) === String(id))
+    if (acc && acc.platform === '京东') {
+      return String(acc.id)
+    }
+  }
+  // 兜底:未勾选时,从 accountStore 找任一京东账号
+  const anyAcc = accountStore.accounts.find(a => a.platform === '京东')
+  return anyAcc ? String(anyAcc.id) : ''
+}
+
+function openJdPicker() {
+  const accountId = findAnyJdAccountId()
+  if (!accountId) {
+    ElMessage.warning('请先添加至少一个京东账号')
+    return
+  }
+  jdPickerAccountId.value = accountId
+  jdPickerVisible.value = true
+}
+
+function onJdPickerConfirm(items) {
+  form.jdProducts = items
+  jdPickerVisible.value = false
+}
+
+function removeJdProduct(idx) {
+  if (!Array.isArray(form.jdProducts)) return
+  form.jdProducts = form.jdProducts.filter((_, i) => i !== idx)
 }
 
 // radio 切换时清空对方列表(平台规则: 商品/店铺互斥)
@@ -2129,6 +2281,15 @@ async function restoreDraft(draftId) {
       tg.guangheShops = normalize(tg.guangheShops)
     }
 
+    // 兼容旧草稿:京东关联挂件字段
+    if (dd.platformConfigs?.jd) {
+      const jd = platformConfigs.jd
+      if (jd.jdRelatedType === undefined) jd.jdRelatedType = ''
+      if (!Array.isArray(jd.jdProducts)) jd.jdProducts = []
+      if (jd.jdNovel === undefined) jd.jdNovel = ''
+      if (jd.jdDeclaration === undefined) jd.jdDeclaration = ''
+    }
+
     if (dd.accountOverrides) {
       Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
       Object.assign(accountOverrides, dd.accountOverrides)
@@ -2755,6 +2916,20 @@ async function publishAll() {
                 trace: s?.trace,
               })
           .filter(s => s.title || s.id),
+        // 京东关联挂件(平台级)
+        jdRelatedType: merged.jdRelatedType || '',
+        jdProducts: (merged.jdProducts || [])
+          .map(p => typeof p === 'string'
+            ? { title: p, image: '', id: p, trace: undefined }
+            : {
+                title: p?.title || '',
+                image: p?.image || '',
+                id: p?.id || p?.title || '',
+                trace: p?.trace,
+              })
+          .filter(p => p.title || p.id),
+        jdNovel: merged.jdNovel || '',
+        jdDeclaration: merged.jdDeclaration || '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

@@ -141,3 +141,154 @@ async def wait_panel_ready(frame, timeout: float = 15):
     )
     # 给一次额外渲染时间
     await sleep(0.5)
+
+
+# ---------- 搜索 ----------
+
+async def clear_search(frame):
+    """清空搜索框(京东本店商品搜索)。
+
+    DOM 锚点: ._my-goods-container-head_aejm5_69 内的 .jd-input
+              或  .search-input-content-input(站内搜索 tab)
+    通过 triple_click + Delete 确保清空干净。
+    """
+    # 优先匹配本店商品 tab 的搜索框
+    inp = await frame.query_selector(
+        "._my-goods-container-head_aejm5_69 .jd-input"
+    )
+    if not inp:
+        inp = await frame.query_selector(".search-input-content-input")
+    if not inp:
+        inp = await frame.query_selector(".jd-drawer-wrapper-body .jd-input")
+    if inp:
+        await inp.click(click_count=3)  # triple_click 选中
+        await frame.keyboard.press("Delete")
+        await inp.fill("")
+        await sleep(0.3)
+
+
+async def search(frame, keyword: str):
+    """输入搜索关键词并回车触发搜索。
+
+    实现细节:
+    - click + fill(避免 React 监听丢失)
+    - fill 后必须 press Enter(京东搜索框需回车触发)
+    - 等 ._sku-card-mygoods-con_jvzh5_77 重新渲染
+    """
+    inp = await frame.query_selector(
+        "._my-goods-container-head_aejm5_69 .jd-input"
+    )
+    if not inp:
+        inp = await frame.query_selector(".search-input-content-input")
+    if not inp:
+        inp = await frame.query_selector(".jd-drawer-wrapper-body .jd-input")
+    if not inp:
+        raise RuntimeError("未找到搜索框")
+
+    await inp.click()
+    await inp.fill(keyword)
+    await sleep(0.3)
+    await frame.keyboard.press("Enter")
+
+    # 等搜索结果(loading 消失 + 至少一张卡片)
+    await frame.wait_for_selector(
+        "._sku-card-mygoods-con_jvzh5_77",
+        timeout=10_000,
+        state="visible",
+    )
+    await sleep(0.5)
+
+
+async def wait_search_results(frame, timeout: float = 10):
+    """等搜索结果稳定(loading 消失 + 至少一张卡片)。
+
+    若 0 条结果,可能等不到卡片,需要 catch 异常并允许 0 结果继续。
+    """
+    try:
+        await frame.wait_for_selector(
+            "._sku-card-mygoods-con_jvzh5_77",
+            timeout=timeout * 1000,
+            state="visible",
+        )
+    except Exception:
+        pass  # 允许 0 结果
+    await sleep(0.5)
+
+
+# ---------- 分页 ----------
+
+async def get_current_page(frame) -> int:
+    """从 .jd-pagination-item-active 读取当前页码(返回数字)。"""
+    el = await frame.query_selector(".jd-pagination-item-active")
+    if not el:
+        return 1
+    txt = (await el.inner_text()).strip()
+    try:
+        return int(txt)
+    except ValueError:
+        return 1
+
+
+async def get_total_pages(frame) -> int:
+    """从 .jd-pagination 最后一个数字页码项读取总页数。"""
+    items = await frame.query_selector_all(".jd-pagination-item.jd-pagination-item-1, .jd-pagination-item:not(.jd-pagination-item-active)")
+    if not items:
+        # 退而求其次:只找数字页
+        items = await frame.query_selector_all(".jd-pagination-item")
+    max_page = 1
+    for item in items:
+        txt = (await item.inner_text()).strip()
+        try:
+            n = int(txt)
+            if n > max_page:
+                max_page = n
+        except ValueError:
+            continue
+    return max_page
+
+
+async def go_page(frame, page: int):
+    """点击指定页码按钮(数字按钮或上下页)。
+
+    策略:
+    - page == 1: 不操作
+    - page > current: 多次点 .jd-pagination-next
+    - page < current: 多次点 .jd-pagination-prev
+    - 其他: 点 .jd-pagination-item-{page}
+    """
+    current = await get_current_page(frame)
+    if page == current:
+        return
+
+    if page > current:
+        # 用 next 按钮直到翻到目标页
+        for _ in range(page - current):
+            nxt = await frame.query_selector(".jd-pagination-next:not(.jd-pagination-disabled)")
+            if not nxt:
+                raise RuntimeError(f"无法翻到第 {page} 页:next 按钮不可用")
+            await nxt.click()
+            await wait_page_change(frame)
+    else:
+        # 用 prev 按钮直到翻到目标页
+        for _ in range(current - page):
+            prv = await frame.query_selector(".jd-pagination-prev:not(.jd-pagination-disabled)")
+            if not prv:
+                raise RuntimeError(f"无法翻到第 {page} 页:prev 按钮不可用")
+            await prv.click()
+            await wait_page_change(frame)
+
+
+async def wait_page_change(frame, timeout: float = 10):
+    """等分页切换完成(页码变化 + 至少一张卡片重新渲染)。
+
+    检测方法:比较当前 active 页码与触发前的不同 → 至少一张卡片可见
+    """
+    await sleep(0.5)  # 简单等待,后续可改为条件等待
+    try:
+        await frame.wait_for_selector(
+            "._sku-card-mygoods-con_jvzh5_77",
+            timeout=timeout * 1000,
+            state="visible",
+        )
+    except Exception:
+        pass

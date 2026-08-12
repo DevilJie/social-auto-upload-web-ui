@@ -407,3 +407,82 @@ async def close_panel(frame):
         await sleep(0.5)
     except Exception:
         pass
+
+
+# ---------- 小说下拉 ----------
+
+async def wait_novel_dropdown(frame, timeout: float = 10):
+    """等小说下拉框出现(rc-virtual-list-holder-inner)。"""
+    await frame.wait_for_selector(
+        ".rc-virtual-list-holder-inner",
+        timeout=timeout * 1000,
+        state="visible",
+    )
+
+
+async def select_novel(frame, novel_title: str):
+    """在小说下拉中按 title 文本选择。
+
+    步骤:
+    1. 点击小说 .jd-select(jd-select-show-search)
+    2. 在搜索 input 内 type 关键词
+    3. 等下拉出现 .rc-virtual-list-holder-inner
+    4. 找含 novel_title 的 .jd-select-item-option
+    5. click 选中
+
+    DOM 锚点:
+    - 小说 select: 关联挂件 radio 切到 novel 后出现的 .jd-select(.jd-select-show-search)
+    - 下拉项:    .jd-select-item-option .related-book-item-right-name
+    """
+    # 1. 找到小说 select 并点击
+    select = await frame.wait_for_selector(
+        ".jd-select-show-search",
+        timeout=10_000,
+    )
+    await select.click()
+    await sleep(0.5)
+
+    # 2. 找到搜索 input 并 type
+    search_input = await frame.wait_for_selector(
+        ".jd-select-selection-search-input",
+        timeout=10_000,
+    )
+    await search_input.click()
+    # 用 press_sequentially 逐字输入(React 富文本友好,见 CLAUDE.md §6)
+    await search_input.press_sequentially(novel_title, delay=100)
+    await sleep(1.0)  # 等搜索完成
+
+    # 3. 等下拉出现
+    await wait_novel_dropdown(frame)
+    await sleep(0.5)
+
+    # 4. 找含目标 title 的下拉项
+    items = await frame.query_selector_all(".jd-select-item-option")
+    if not items:
+        raise RuntimeError(f"小说搜索无结果: {novel_title}")
+
+    target_item = None
+    for item in items:
+        name_el = await item.query_selector(".related-book-item-right-name")
+        if name_el:
+            name_txt = (await name_el.inner_text()).strip()
+            if name_txt == novel_title:
+                target_item = item
+                break
+
+    if not target_item:
+        # 模糊匹配:包含关键词
+        for item in items:
+            name_el = await item.query_selector(".related-book-item-right-name")
+            if name_el:
+                name_txt = (await name_el.inner_text()).strip()
+                if novel_title in name_txt:
+                    target_item = item
+                    break
+
+    if not target_item:
+        raise RuntimeError(f"小说未找到: {novel_title}")
+
+    # 5. click 选中
+    await target_item.click()
+    await sleep(0.5)

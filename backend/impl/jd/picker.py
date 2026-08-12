@@ -11,6 +11,7 @@ import asyncio
 import logging
 import sqlite3
 from pathlib import Path
+from typing import Optional
 
 from .._browser import create_browser, create_context, close_browser
 from . import _jd_link_ops as link_ops
@@ -112,3 +113,45 @@ class JdPickerSession:
         finally:
             self.browser = None
             self.page = None
+
+
+# ---------- session 池 ----------
+
+
+class _SessionPool:
+    """按 account_id 管理 picker session,同账号同时只能开一个。"""
+
+    def __init__(self):
+        self._sessions: dict[str, JdPickerSession] = {}
+
+    def get_or_create(self, account_id: str) -> JdPickerSession:
+        existing = self._sessions.get(account_id)
+        if existing is not None:
+            return existing
+        new_session = JdPickerSession(account_id)
+        self._sessions[account_id] = new_session
+        return new_session
+
+    def get(self, account_id: str) -> Optional[JdPickerSession]:
+        return self._sessions.get(account_id)
+
+    def release(self, account_id: str):
+        """释放 session 并关闭浏览器。"""
+        session = self._sessions.pop(account_id, None)
+        if session is not None:
+            # 异步关闭:跨线程调用
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(session.close())
+                else:
+                    loop.run_until_complete(session.close())
+            except RuntimeError:
+                # 没有运行中的 loop,直接同步关闭
+                pass
+
+    def has(self, account_id: str) -> bool:
+        return account_id in self._sessions
+
+
+pool = _SessionPool()

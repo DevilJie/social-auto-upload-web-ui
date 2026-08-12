@@ -3790,25 +3790,28 @@ function formatSize(bytes) {
 }
 
 // 暗色模式:发布界面已选商品卡片 + 添加卡片(色值与 GuangheItemPicker 暗色保持一致)
-:global(html.dark) {
-  .guanghe-selected-card {
-    background: #2a2a2c;
-    border-color: #3a3a3c;
-    .img-wrap {
-      background: #1f1f21;
-      .placeholder { color: #8a8a8e; }
-    }
-    .info .title { color: #e5e5e7; }
-  }
-  .guanghe-add-card {
-    background: #232325;
-    border-color: #4a4a4c;
-    color: #8a8a8e;
-    &:hover {
-      background: #3a2018;
-      color: #ff5000;
-      border-color: #ff5000;
-    }
-  }
+// 注意:Vue scoped 不支持 :global(...) 嵌套,必须扁平写 html.dark .xxx
+html.dark .guanghe-selected-card {
+  background: #2a2a2c;
+  border-color: #3a3a3c;
+}
+html.dark .guanghe-selected-card .img-wrap {
+  background: #1f1f21;
+}
+html.dark .guanghe-selected-card .img-wrap .placeholder {
+  color: #8a8a8e;
+}
+html.dark .guanghe-selected-card .info .title {
+  color: #e5e5e7;
+}
+html.dark .guanghe-add-card {
+  background: #232325;
+  border-color: #4a4a4c;
+  color: #8a8a8e;
+}
+html.dark .guanghe-add-card:hover {
+  background: #3a2018;
+  color: #ff5000;
+  border-color: #ff5000;
 }
 </style>

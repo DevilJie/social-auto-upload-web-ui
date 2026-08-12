@@ -2732,14 +2732,29 @@ async function publishAll() {
         // 淘宝光合创作者声明
         guangheClaim: merged.guangheClaim || '',
         // 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
-        // 数据格式: [{title, image}, ...] → 发布只传 title 列表,兼容旧字符串数组
+        // 完整透传含 id 和 trace 的对象数组,后端按 trace 分组重现
+        // 兼容旧字符串:统一规整为 {title, image, id, trace}
         guangheLinkType: merged.guangheLinkType || '',
-        guangheProductNames: (merged.guangheProducts || [])
-          .map(p => (typeof p === 'string' ? p : p?.title).trim())
-          .filter(Boolean),
-        guangheShopNames: (merged.guangheShops || [])
-          .map(s => (typeof s === 'string' ? s : s?.title).trim())
-          .filter(Boolean),
+        guangheProducts: (merged.guangheProducts || [])
+          .map(p => typeof p === 'string'
+            ? { title: p, image: '', id: p, trace: undefined }
+            : {
+                title: p?.title || '',
+                image: p?.image || '',
+                id: p?.id || p?.title || '',
+                trace: p?.trace,
+              })
+          .filter(p => p.title || p.id),
+        guangheShops: (merged.guangheShops || [])
+          .map(s => typeof s === 'string'
+            ? { title: s, image: '', id: s, trace: undefined }
+            : {
+                title: s?.title || '',
+                image: s?.image || '',
+                id: s?.id || s?.title || '',
+                trace: s?.trace,
+              })
+          .filter(s => s.title || s.id),
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',
         tag_value: merged.tagValue || '',

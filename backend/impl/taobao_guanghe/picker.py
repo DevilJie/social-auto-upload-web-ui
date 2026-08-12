@@ -29,8 +29,6 @@ from util._logger import get_channel_logger
 from .._browser import create_browser, create_context
 from . import _link_ops
 from ._link_ops import GUANGHE_PUBLISH_URL as _GUANGHE_PUBLISH_URL
-from ._link_ops import TYPE_PRODUCT as _TYPE_PRODUCT
-from ._link_ops import TYPE_SHOP as _TYPE_SHOP
 
 logger = get_channel_logger("taobao_guanghe")
 

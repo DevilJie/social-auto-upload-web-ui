@@ -373,7 +373,12 @@ async def search(frame, keyword: str) -> None:
 
 
 async def load_more(frame) -> bool:
-    """点「加载更多」,返回是否实际点击(无更多时返回 False)。"""
+    """点「加载更多」,返回是否实际点击(无按钮时尝试滚动触发懒加载,返回 False)。
+
+    行为:
+    - 有「加载更多」按钮 → 点击,返回 True
+    - 无按钮 → 滚动激活的 tabpanel + body 到底(触发无限滚动懒加载),返回 False
+    """
     more_btn = frame.get_by_text("加载更多", exact=True).first
     if await more_btn.count() > 0:
         try:
@@ -383,4 +388,16 @@ async def load_more(frame) -> bool:
         await more_btn.click()
         await asyncio.sleep(2)
         return True
+    # 兜底:滚动激活的 tabpanel + body 触发懒加载
+    try:
+        await frame.evaluate(
+            """() => {
+                const p = document.querySelector('[role="tabpanel"][aria-hidden="false"]');
+                if (p) { p.scrollTop = p.scrollHeight; }
+                window.scrollTo(0, document.body.scrollHeight);
+            }"""
+        )
+        await asyncio.sleep(2)
+    except Exception:
+        pass
     return False

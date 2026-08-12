@@ -729,6 +729,7 @@ export const PLATFORMS = {
     bgColor: 'rgba(225, 37, 27, 0.15)',
     cssClass: 'jd',
     creatorUrl: 'https://dr.jd.com/jm/',
+    hideFields: ['description', 'tags'],
     settingsFields: [
       {
         key: 'jdDeclaration',

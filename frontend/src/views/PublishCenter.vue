@@ -141,12 +141,16 @@
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标题</div>
               <el-input
                 v-model="form.title"
-                placeholder="请输入标题..."
-                maxlength="100"
+                :placeholder="currentPlatformConfig.key === 'jd' ? '添加一个亮眼的标题吧，5~27个字' : '请输入标题...'"
+                :maxlength="currentPlatformConfig.key === 'jd' ? 27 : 100"
                 show-word-limit
               />
             </div>
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+            <div
+              v-if="!currentPlatformConfig.hideFields || !currentPlatformConfig.hideFields.includes('description')"
+              class="setting-card"
+              :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
+            >
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">描述</div>
               <el-input
                 v-model="form.description"
@@ -160,7 +164,11 @@
           </div>
 
           <!-- 通用标签输入 -->
-          <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+          <div
+            v-if="!currentPlatformConfig.hideFields || !currentPlatformConfig.hideFields.includes('tags')"
+            class="setting-card"
+            :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
+          >
             <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
             <div class="setting-hint">{{ selectedPlatform === 'douyin' ? '官方活动 + 标签最多 5 个，按回车确认' : selectedPlatform === 'kuaishou' ? '输入标签内容，按回车确认（最多 4 个）' : '输入标签内容，按回车确认' }}</div>
               <el-input

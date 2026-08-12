@@ -401,3 +401,106 @@ async def load_more(frame) -> bool:
     except Exception:
         pass
     return False
+
+
+# ----------------------------------------------------------------------
+# 定位并勾选
+# ----------------------------------------------------------------------
+
+async def _click_item_by_id(frame, type_: str, item_id: str) -> str:
+    """在当前面板内找 id=item_id 的商品/店铺并勾选。
+
+    Returns:
+        'clicked'    — 本次新勾选
+        'already'    — 已勾选
+        'disabled'   — 找到但禁用
+        'not_found'  — 未找到
+    """
+    result = await frame.evaluate(
+        """(args) => {
+            const { id, type } = args;
+            const panel = document.querySelector('[role="tabpanel"][aria-hidden="false"]');
+            if (!panel) return 'not_found';
+
+            // 商品锚点:a[href*="item.taobao.com"][href*="id=<itemId>"]
+            // 店铺锚点:文本/链接含 id 的卡片
+            let anchors = [];
+            if (type === 'product') {
+                anchors = Array.from(panel.querySelectorAll('a[href*="item.taobao.com/item.htm"]'))
+                    .filter(a => (a.getAttribute('href') || '').includes('id=' + id));
+            } else {
+                // 店铺 id 可能是 title 或 url(见 _link_ops.scrape_shops)
+                anchors = Array.from(panel.querySelectorAll('a'))
+                    .filter(a => {
+                        const href = a.getAttribute('href') || '';
+                        const text = (a.textContent || '').trim();
+                        return href.includes(id) || text === id;
+                    });
+            }
+
+            const checkboxSelector = type === 'product'
+                ? 'label.next-checkbox-wrapper'
+                : 'label.next-radio-wrapper, label.next-checkbox-wrapper';
+
+            for (const anchor of anchors) {
+                let node = anchor;
+                for (let i = 0; i < 10 && node; i++) {
+                    const label = node.querySelector && node.querySelector(checkboxSelector);
+                    if (label) {
+                        const input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+                        if (input && input.disabled) return 'disabled';
+                        const isChecked = label.classList.contains('checked')
+                            || (input && input.checked);
+                        if (isChecked) return 'already';
+                        label.click();
+                        return 'clicked';
+                    }
+                    node = node.parentElement;
+                }
+            }
+            return 'not_found';
+        }""",
+        {"id": item_id, "type": type_},
+    )
+    return result
+
+
+async def locate_and_check(frame, type_: str, target_ids: set) -> dict:
+    """在当前列表里定位并勾选目标 id。
+
+    Args:
+        frame: 发布页 iframe
+        type_: 'product' / 'shop'
+        target_ids: 待勾选的 id 字符串集合
+
+    Returns:
+        {
+            "checked":  [id, ...],  # 本次新勾选
+            "already":  [id, ...],  # 已勾选(无需点击)
+            "disabled": [id, ...],  # 找到但禁用(中断信号)
+            "missing":  [id, ...],  # 未找到(可继续加载更多)
+        }
+    """
+    items, _ = await scrape(frame, type_)
+    found = {str(it.get("id", "")): it for it in items}
+
+    result = {"checked": [], "already": [], "disabled": [], "missing": []}
+    for tid in target_ids:
+        tid_str = str(tid)
+        item = found.get(tid_str)
+        if item is None:
+            result["missing"].append(tid_str)
+            continue
+        if item.get("disabled"):
+            result["disabled"].append(tid_str)
+            continue
+        click_res = await _click_item_by_id(frame, type_, tid_str)
+        if click_res == "clicked":
+            result["checked"].append(tid_str)
+        elif click_res == "already":
+            result["already"].append(tid_str)
+        elif click_res == "disabled":
+            result["disabled"].append(tid_str)
+        else:
+            result["missing"].append(tid_str)
+    return result

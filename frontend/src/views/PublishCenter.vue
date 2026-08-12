@@ -361,6 +361,46 @@
             </div>
           </div>
 
+          <!-- 京东:创作声明 + 定时发布(硬编码,不依赖 settingsFields 通用渲染) -->
+          <template v-if="selectedPlatform === 'jd'">
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">创作声明</div>
+              <el-select
+                v-model="form.jdDeclaration"
+                placeholder="请选择创作声明"
+                size="small"
+                clearable
+                class="jd-full-width"
+              >
+                <el-option label="含AI生成内容" value="含AI生成内容" />
+                <el-option label="含虚构演绎内容" value="含虚构演绎内容" />
+                <el-option label="内容为转载" value="内容为转载" />
+                <el-option label="个人观点,仅供参考" value="个人观点,仅供参考" />
+                <el-option label="内容含营销广告" value="内容含营销广告" />
+                <el-option label="内容无需标注" value="内容无需标注" />
+              </el-select>
+            </div>
+            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">定时发布</div>
+              <el-radio-group v-model="form.jdPublishType">
+                <el-radio value="now">立即发布</el-radio>
+                <el-radio value="schedule">定时发布</el-radio>
+              </el-radio-group>
+              <el-date-picker
+                v-if="form.jdPublishType === 'schedule'"
+                v-model="form.scheduleTime"
+                type="datetime"
+                placeholder="选择时间"
+                :disabled-date="scheduleDisabledDate"
+                :disabled-hours="() => scheduleDisabledHours('scheduleTime')"
+                :disabled-minutes="(h) => scheduleDisabledMinutes('scheduleTime', h)"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                size="small"
+                class="jd-full-width"
+              />
+            </div>
+          </template>
+
           <!-- 平台特有配置（抖音专属卡片 + settingsFields 合并到同一网格） -->
           <div class="settings-grid">
             <!-- 抖音专属卡片 -->
@@ -1210,7 +1250,7 @@ const platformConfigs = reactive({
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
-  jd: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdDeclaration: '', scheduleTime: '', tags: [] },
+  jd: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdDeclaration: '', jdPublishType: 'now', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})

@@ -563,18 +563,115 @@ class JdPlatform(BasePlatform):
         await link_ops.click_confirm(self.page)
 
     async def _select_novel(self, novel):
-        """关联小说(T16 实现)。"""
-        raise NotImplementedError("Task 16: _select_novel")
+        """选小说(下拉搜索)。
+
+        Args:
+            novel: {"title": str, "image": str, "id": str}
+        """
+        from backend.impl.jd import _jd_link_ops as link_ops
+
+        # 1. 切到小说 radio
+        await link_ops.switch_radio(self.page, "novel")
+        await asyncio.sleep(0.5)
+
+        # 2. 调 link_ops.select_novel(按 title 搜索)
+        await link_ops.select_novel(self.page, novel.get("title", ""))
 
     # ---------- 创作声明 / 定时发布 ----------
 
     async def _set_declaration(self, declaration: str):
-        """创作声明(T16 实现)。"""
-        raise NotImplementedError("Task 16: _set_declaration")
+        """选创作声明。
+
+        DOM 锚点:
+        - 触发:  .content-declaration-wrapper .jd-select
+        - 下拉:  .rc-virtual-list-holder-inner
+        - 项:    .jd-select-item-option[label='{declaration}']
+        """
+        # 1. 点 .content-declaration-wrapper .jd-select
+        select = await self.page.wait_for_selector(
+            ".content-declaration-wrapper .jd-select",
+            timeout=10_000,
+        )
+        await select.click()
+        await asyncio.sleep(0.5)
+
+        # 2. 等下拉出现
+        await self.page.wait_for_selector(
+            ".rc-virtual-list-holder-inner",
+            timeout=10_000,
+            state="visible",
+        )
+        await asyncio.sleep(0.3)
+
+        # 3. 点对应选项(用 label 属性精确匹配)
+        item_selector = f".jd-select-item-option[label='{declaration}']"
+        item = await self.page.query_selector(item_selector)
+        if not item:
+            # 退而求其次:按文本匹配
+            items = await self.page.query_selector_all(".jd-select-item-option")
+            for it in items:
+                lbl = await it.get_attribute("label")
+                if lbl and lbl.strip() == declaration:
+                    item = it
+                    break
+        if not item:
+            raise RuntimeError(f"创作声明选项未找到: {declaration}")
+
+        await item.click()
+        await asyncio.sleep(0.5)
 
     async def _set_schedule_time(self, schedule_time: str):
-        """定时发布(T16 实现)。"""
-        raise NotImplementedError("Task 16: _set_schedule_time")
+        """设定时发布时间。
+
+        京东定时发布:
+        1. 切到 .pro-radio-group 内 value='2' 的 radio('定时发布')
+        2. 点 input[title](DatePicker 输入框),清空,fill ISO 时间
+        3. 在弹出的 DatePicker 中点确定按钮
+        """
+        from datetime import datetime
+
+        # 京东 DatePicker 接受 'YYYY-MM-DD HH:mm' 格式
+        try:
+            dt = datetime.fromisoformat(schedule_time)
+            formatted = dt.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            formatted = schedule_time
+
+        # 1. 切到定时发布 radio
+        schedule_radio = await self.page.wait_for_selector(
+            ".jd-radio-wrapper input[value='2']",
+            timeout=10_000,
+        )
+        await schedule_radio.click()
+        await asyncio.sleep(0.5)
+
+        # 2. 等 DatePicker 输入框出现
+        date_input = await self.page.wait_for_selector(
+            ".pro-radio-extra input[placeholder='请选择日期'], .pro-radio-extra input",
+            timeout=10_000,
+        )
+        await date_input.click()
+        await asyncio.sleep(0.3)
+        await date_input.fill("")
+        await asyncio.sleep(0.3)
+        await date_input.fill(formatted)
+        await asyncio.sleep(0.5)
+
+        # 3. 等 DatePicker 弹层(包含"确定"按钮)
+        await self.page.wait_for_selector(
+            ".jd-picker-ok",
+            timeout=10_000,
+            state="visible",
+        )
+
+        # 4. 点确定按钮
+        ok_btn = await self.page.query_selector(".jd-picker-ok .jd-btn-primary")
+        if not ok_btn:
+            ok_btn = await self.page.query_selector(".jd-picker-ok button")
+        if not ok_btn:
+            raise RuntimeError("DatePicker 确定按钮未找到")
+        await ok_btn.click()
+        await asyncio.sleep(1)
 
     # ---------- 发布 ----------
 

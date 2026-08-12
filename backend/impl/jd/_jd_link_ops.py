@@ -93,3 +93,51 @@ async def scrape_products(frame) -> list[dict]:
             "shop_name": shop_name,
         })
     return items
+
+
+# ---------- 抽屉与 radio ----------
+
+async def switch_radio(frame, type_: str):
+    """切商品/小说 radio:type_='product' 或 'novel'。
+
+    DOM 锚点:
+    - 商品 radio: .jd-radio-wrapper input[value='1']
+    - 小说 radio: .jd-radio-wrapper input[value='3']
+    """
+    value = "1" if type_ == "product" else "3"
+    label_selector = f".jd-radio-wrapper:has(input.jd-radio-input[value='{value}'])"
+    label = await frame.wait_for_selector(label_selector, timeout=10_000)
+    await label.click()
+
+
+async def click_add_card(frame):
+    """点 '添加商品' 卡片,打开关联商品抽屉。
+
+    DOM 锚点: .addgoods-upload[data-spm-click='publishGoodsAddGood']
+    """
+    card = await frame.wait_for_selector(
+        ".addgoods-upload[data-spm-click='publishGoodsAddGood']",
+        timeout=10_000,
+    )
+    await card.click()
+
+
+async def wait_panel_ready(frame, timeout: float = 15):
+    """等抽屉 .jd-drawer-wrapper-body 出现且包含商品卡片。
+
+    等待策略:
+    1. 等 .jd-drawer-wrapper-body 可见
+    2. 等至少 1 个商品卡片 ._sku-card-mygoods-con_jvzh5_77 出现
+    """
+    await frame.wait_for_selector(
+        ".jd-drawer-wrapper-body",
+        timeout=timeout * 1000,
+        state="visible",
+    )
+    await frame.wait_for_selector(
+        "._sku-card-mygoods-con_jvzh5_77",
+        timeout=timeout * 1000,
+        state="visible",
+    )
+    # 给一次额外渲染时间
+    await sleep(0.5)

@@ -43,7 +43,7 @@ Create `backend/tests/test_guanghe_trace_signature.py`:
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "impl"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "impl"))
 
 from taobao_guanghe._link_ops import trace_signature
 
@@ -701,7 +701,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 sys.path.insert(0, str(BACKEND_DIR / "impl"))
 
-from taobao_guanghe import _link_ops
+from taobao_guanghe import _link_ops  # noqa: E402
 
 
 def _patch(func_name, fake_coro):

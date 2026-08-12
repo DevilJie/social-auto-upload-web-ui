@@ -100,20 +100,20 @@
     <template #footer>
       <div class="picker-footer">
         <div class="selected-summary">
-          <span>已选 <b>{{ selectedNames.length }}</b>/6</span>
+          <span>已选 <b>{{ selectedItems.length }}</b>/6</span>
           <div class="selected-chips">
             <el-tag
-              v-for="(item, i) in selectedNames"
-              :key="i + '_' + item.title"
+              v-for="(item, i) in selectedItems"
+              :key="i + '_' + (item.id || item.title)"
               size="small"
               closable
-              @close="removeSelected(item.title)"
+              @close="removeSelected(item)"
             >{{ item.title }}</el-tag>
           </div>
         </div>
         <div class="footer-actions">
           <el-button @click="handleClose">取消</el-button>
-          <el-button type="primary" :disabled="selectedNames.length === 0" @click="onConfirm">确认</el-button>
+          <el-button type="primary" :disabled="selectedItems.length === 0" @click="onConfirm">确认</el-button>
         </div>
       </div>
     </template>
@@ -146,10 +146,11 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const items = ref([])
 const hasMore = ref(false)
-const selectedNames = ref([])
+const selectedItems = ref([])
 
 const activeRule = ref('')
 const activeCategory = ref('')
+const activeTab = ref('preferred') // 商品模式默认 preferred,店铺模式固定 'shop'
 const searchKeyword = ref('')
 
 // 跟踪当前已发起的请求类型(避免乱序返回覆盖最新数据)
@@ -194,6 +195,7 @@ watch(() => props.mode, async (newMode, oldMode) => {
     }
     activeRule.value = ''
     activeCategory.value = ''
+    activeTab.value = newMode === 'shop' ? 'shop' : 'preferred'
     searchKeyword.value = ''
   } catch (e) {
     ElMessage.error('切换类型失败: ' + (e?.message || e))
@@ -209,12 +211,13 @@ async function openPanel() {
     return
   }
   // 初始已选(用于回显,不依赖后端跟踪)
-  selectedNames.value = normalizeSelected(props.initSelected)
+  selectedItems.value = normalizeSelected(props.initSelected)
   // 重置筛选项(等后端返回)
   rules.value = []
   categories.value = []
   activeRule.value = ''
   activeCategory.value = ''
+  activeTab.value = props.mode === 'shop' ? 'shop' : 'preferred'
   searchKeyword.value = ''
   loading.value = true
   try {
@@ -295,37 +298,58 @@ function normalizeSelected(arr) {
   if (!Array.isArray(arr)) return []
   return arr
     .map(item => {
-      if (typeof item === 'string') return { title: item, image: '' }
-      return { title: item.title || '', image: item.image || '' }
+      if (typeof item === 'string') return { title: item, image: '', id: item, trace: undefined }
+      return {
+        title: item.title || '',
+        image: item.image || '',
+        id: item.id || item.title || '',
+        trace: item.trace,
+      }
     })
-    .filter(it => it.title)
+    .filter(it => it.title || it.id)
     .slice(0, MAX_SELECTED)
 }
 
 function isSelected(item) {
-  return selectedNames.value.some(s => s.title === item.title)
+  return selectedItems.value.some(s =>
+    (s.id && s.id === item.id) || s.title === item.title
+  )
 }
 
 function onCardClick(item) {
   if (item.disabled) return
   if (isSelected(item)) {
-    selectedNames.value = selectedNames.value.filter(s => s.title !== item.title)
+    selectedItems.value = selectedItems.value.filter(s => s.id !== item.id && s.title !== item.title)
   } else {
-    if (selectedNames.value.length >= MAX_SELECTED) {
+    if (selectedItems.value.length >= MAX_SELECTED) {
       ElMessage.warning(`最多选择 ${MAX_SELECTED} 个`)
       return
     }
-    // 同时记下 title + image,父组件用于图文卡片展示
-    selectedNames.value = [...selectedNames.value, { title: item.title, image: item.image || '' }]
+    // 打包 trace 快照(选中那一刻的面板状态)
+    const trace = {
+      tab: props.mode === 'shop' ? 'shop' : activeTab.value,
+      keyword: searchKeyword.value || '',
+      rule: props.mode === 'shop' ? '' : (activeRule.value || ''),
+      category: props.mode === 'shop' ? '' : (activeCategory.value || ''),
+    }
+    selectedItems.value = [...selectedItems.value, {
+      title: item.title,
+      image: item.image || '',
+      id: item.id || item.title,
+      trace,
+    }]
   }
 }
 
-function removeSelected(title) {
-  selectedNames.value = selectedNames.value.filter(s => s.title !== title)
+function removeSelected(item) {
+  const key = typeof item === 'string' ? item : (item.id || item.title)
+  selectedItems.value = selectedItems.value.filter(s =>
+    (s.id !== key) && (s.title !== key)
+  )
 }
 
 function onConfirm() {
-  emit('confirm', [...selectedNames.value])
+  emit('confirm', [...selectedItems.value])
   emit('update:modelValue', false)
 }
 

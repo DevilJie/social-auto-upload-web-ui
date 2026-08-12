@@ -24,6 +24,7 @@ import logoVivo from '@/assets/logos/vivo.svg'
 import logoWeixinGzh from '@/assets/logos/weixin_gzh.png'
 import logoTaobaoGuanghe from '@/assets/logos/taobao_guanghe.png'
 import logoJingmai from '@/assets/logos/jingmai.png'
+import logoJd from '@/assets/logos/jd.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
@@ -716,6 +717,44 @@ export const PLATFORMS = {
     creatorUrl: 'https://dr.jd.com/jm/',
     settingsFields: [],
     defaultSettings: { title: '', description: '' },
+  },
+  JD: {
+    id: 20,
+    key: 'jd',
+    name: '京东',
+    shortName: '京东',
+    letter: '京',
+    logo: logoJd,
+    color: '#E1251B',
+    bgColor: 'rgba(225, 37, 27, 0.15)',
+    cssClass: 'jd',
+    creatorUrl: 'https://dr.jd.com/jm/',
+    settingsFields: [
+      {
+        key: 'jdDeclaration',
+        label: '创作声明',
+        type: 'select',
+        required: false,
+        options: [
+          { value: '含AI生成内容', label: '含AI生成内容' },
+          { value: '含虚构演绎内容', label: '含虚构演绎内容' },
+          { value: '内容为转载', label: '内容为转载' },
+          { value: '个人观点,仅供参考', label: '个人观点,仅供参考' },
+          { value: '内容含营销广告', label: '内容含营销广告' },
+          { value: '内容无需标注', label: '内容无需标注' },
+        ],
+      },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+    ],
+    defaultSettings: {
+      title: '',
+      description: '',
+      jdRelatedType: '',
+      jdProducts: [],
+      jdNovel: '',
+      jdDeclaration: '',
+      scheduleTime: '',
+    },
   },
 }
 

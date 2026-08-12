@@ -682,15 +682,18 @@ class JdPlatform(BasePlatform):
         """
         # 1. 等发布按钮 enabled
         deadline = asyncio.get_event_loop().time() + timeout
+        btn = None
         while asyncio.get_event_loop().time() < deadline:
             btn = await self.page.query_selector("._publishBtn_6bi9b_150")
             if btn:
                 disabled = await btn.get_attribute("disabled")
                 if disabled is None:
                     break
+            btn = None
             await asyncio.sleep(0.5)
-        else:
-            raise RuntimeError("京东发布按钮未变为可用")
+
+        if btn is None:
+            raise RuntimeError("京东发布按钮未变为可用(超时)")
 
         # 2. 点击
         await btn.click()
@@ -715,15 +718,18 @@ class JdPlatform(BasePlatform):
             if url != original_url and "publish-video.html" not in url:
                 logger.info(f"京东发布成功,跳转到: {url}")
                 return True
-            # 检测成功提示 toast(可选)
-            toast = await self.page.query_selector(
-                ".jd-message-success, .ant-message-success, [class*='success']"
-            )
-            if toast:
-                txt = (await toast.inner_text()).strip()
-                if "成功" in txt or "发布" in txt:
-                    logger.info(f"京东发布成功(toast): {txt}")
-                    return True
+            # 检测成功提示 toast(只匹配精确 toast 容器,避免与表单校验态 jd-form-item-has-success 冲突)
+            for sel in [
+                ".jd-message-success",
+                ".ant-message-success",
+                ".jd-notification-notice-success",
+            ]:
+                toast = await self.page.query_selector(sel)
+                if toast:
+                    txt = (await toast.inner_text()).strip()
+                    if "成功" in txt or "发布" in txt:
+                        logger.info(f"京东发布成功(toast {sel}): {txt}")
+                        return True
             await asyncio.sleep(1)
 
         raise RuntimeError("京东发布失败,未检测到 URL 跳转或成功提示")

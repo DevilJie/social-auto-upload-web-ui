@@ -3788,4 +3788,27 @@ function formatSize(bytes) {
     background: #fff5f0;
   }
 }
+
+// 暗色模式:发布界面已选商品卡片 + 添加卡片(色值与 GuangheItemPicker 暗色保持一致)
+:global(html.dark) {
+  .guanghe-selected-card {
+    background: #2a2a2c;
+    border-color: #3a3a3c;
+    .img-wrap {
+      background: #1f1f21;
+      .placeholder { color: #8a8a8e; }
+    }
+    .info .title { color: #e5e5e7; }
+  }
+  .guanghe-add-card {
+    background: #232325;
+    border-color: #4a4a4c;
+    color: #8a8a8e;
+    &:hover {
+      background: #3a2018;
+      color: #ff5000;
+      border-color: #ff5000;
+    }
+  }
+}
 </style>

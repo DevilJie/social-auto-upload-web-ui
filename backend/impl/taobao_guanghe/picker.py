@@ -90,7 +90,7 @@ class GuanghePickerSession:
             raise ValueError(f"unknown type: {type_}")
 
         logger.info(f"[Picker][{self.session_id}] open type={type_}")
-        self.browser = await create_browser(headless=False)
+        self.browser = await create_browser(headless=True)
         try:
             self.context = await create_context(self.browser, storage_state=self.cookie_path)
             self.page = await self.context.new_page()

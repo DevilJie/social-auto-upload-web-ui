@@ -4,7 +4,7 @@
 - 同账号同时只能开一个 picker(避免资源竞争)
 - picker 与 platform 共享 _jd_link_ops(同一份 DOM 操作)
 
-浏览器策略:headless=True(参考淘宝光合 picker ad3b8d8 改动)
+浏览器策略:headless=False(调试期,用户能看到浏览器自动化操作)
 """
 
 import asyncio
@@ -57,7 +57,7 @@ class JdPickerSession:
         storage_state = str(cookie_path) if cookie_path and cookie_path.exists() else None
 
         # 后台 headless(与淘宝光合 picker ad3b8d8 一致)
-        self.browser = await create_browser(headless=True)
+        self.browser = await create_browser(headless=False)
         if storage_state:
             ctx = await create_context(self.browser, storage_state=storage_state)
             self.page = await ctx.new_page()

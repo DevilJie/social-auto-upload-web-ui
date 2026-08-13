@@ -1,6 +1,10 @@
 """京东关联商品 picker — 帧级纯函数 DOM 操作库。
 
-所有函数以 frame 为参数(京东发布页无跨域 iframe,frame 即 page)。
+所有函数以 frame-like 对象(Page 或 Frame)为参数。
+京东 dr.jd.com 是微前端架构,发布表单实际在内嵌 iframe 里:
+- top frame: https://dr.jd.com/jm/#/n/publish-video.html (主壳,只有"猜你想问"FAQ)
+- iframe:    https://dr.jd.com/n/publish-video.html     (实际表单)
+调用方应传 iframe(picker.py 已对齐);旧调用方传 Page 也兼容(见 _page_of)。
 模块是 picker.py 与 platform.py 共享的 DOM 操作代码。
 
 DOM 锚点参考(2026-08 京东发布页):
@@ -23,6 +27,25 @@ from dataclasses import dataclass, field
 def trace_signature(trace: dict) -> tuple[str, int]:
     """trace 签名:(keyword, page)。"""
     return (trace.get("keyword", ""), trace.get("page", 1))
+
+
+def _page_of(frame):
+    """从 frame-like 对象取 Page —— 用于 keyboard 等 Page-only API。
+
+    Playwright Python 的 Page 和 Frame API 不对称:
+    - Page 有 keyboard 属性,Frame 没有
+    - Frame 有 page 属性(注意:是 property 不是方法,直接 frame.page 不加括号),
+      Page 没有 page 属性
+
+    本模块函数既能接受 Page(旧用法,top frame) 也能接受 Frame(新用法,iframe),
+    靠这个 helper 统一拿 Page。
+    """
+    if hasattr(frame, "keyboard"):
+        return frame  # 已经是 Page
+    # Frame.page 是 property(返回 Page 对象,不是 bound method)
+    # 用 callable 兜底:万一未来 Playwright 改回方法也能 work
+    page_attr = frame.page
+    return page_attr() if callable(page_attr) else page_attr
 
 
 # ---------- 数据类 ----------
@@ -48,7 +71,50 @@ async def sleep(seconds: float):
     await asyncio.sleep(seconds)
 
 
+async def wait_publish_frame(page, timeout: float = 20):
+    """等京东发布表单所在的 iframe 出现并返回。
+
+    京东 dr.jd.com 是微前端架构,发布表单在内嵌 iframe 里(已实证):
+    - top frame URL: https://dr.jd.com/jm/#/n/publish-video.html (主壳,只有"猜你想问"FAQ)
+    - iframe    URL: https://dr.jd.com/n/publish-video.html     (实际表单,radio/file_input/addgoods 都在这)
+
+    通过 URL path 含 '/n/publish-video.html' 且 URL 里没 '#' 来识别 iframe
+    (top frame 的 hash 路由是 '#/n/publish-video.html',会含 '#')。
+
+    picker.py 和 platform.py 共用此函数 —— 之前两处各自维护一份,
+    发现 bug 时容易只改一处遗漏另一处(参见 picker 最初的 iframe bug)。
+    """
+    import asyncio
+    attempts = max(1, int(timeout / 0.3))
+    for _ in range(attempts):
+        for f in page.frames:
+            if f == page.main_frame:
+                continue
+            url = f.url or ""
+            if "/n/publish-video.html" in url and "#" not in url:
+                return f
+        await asyncio.sleep(0.3)
+    raise RuntimeError(
+        f"未找到发布表单 iframe (timeout={timeout}s)。"
+        f" 当前 frames: {[f.url for f in page.frames]}"
+    )
+
+
 # ---------- 商品抓取 ----------
+
+async def scrape_total(frame) -> int:
+    """从 .jd-pagination-total-text 抓"共 N 条"解析出总条数。
+
+    DOM 形如: <li class="jd-pagination-total-text">共 1 条</li>
+    解析失败 / 元素不存在时返回 0(前端兜底按当前页条数估算)。
+    """
+    el = await frame.query_selector(".jd-pagination-total-text")
+    if not el:
+        return 0
+    txt = (await el.inner_text()).strip()
+    digits = "".join(c for c in txt if c.isdigit())
+    return int(digits) if digits else 0
+
 
 async def scrape_products(frame) -> list[dict]:
     """抓当前激活面板的商品列表 -> [{title, image, id, price, shop_name}, ...]。
@@ -113,12 +179,26 @@ async def click_add_card(frame):
     """点 '添加商品' 卡片,打开关联商品抽屉。
 
     DOM 锚点: .addgoods-upload[data-spm-click='publishGoodsAddGood']
+    用 JS click 绕过可能的浮层遮挡(Playwright .click() 要求可见+无遮挡)。
     """
-    card = await frame.wait_for_selector(
+    # 等元素存在(attached),不要求 visible
+    await frame.wait_for_selector(
         ".addgoods-upload[data-spm-click='publishGoodsAddGood']",
         timeout=10_000,
+        state="attached",
     )
-    await card.click()
+    # JS click 不受遮挡影响
+    clicked = await frame.evaluate(
+        """() => {
+            const el = document.querySelector(
+                ".addgoods-upload[data-spm-click='publishGoodsAddGood']"
+            );
+            if (el) { el.click(); return true; }
+            return false;
+        }"""
+    )
+    if not clicked:
+        raise RuntimeError("未找到 .addgoods-upload 元素")
 
 
 async def wait_panel_ready(frame, timeout: float = 15):
@@ -144,74 +224,70 @@ async def wait_panel_ready(frame, timeout: float = 15):
 
 # ---------- 搜索 ----------
 
-async def clear_search(frame):
-    """清空搜索框(京东本店商品搜索)。
+async def _find_search_input(frame):
+    """找搜索 input,本店商品 tab 优先,站内搜索/兜底也试。
 
-    DOM 锚点: ._my-goods-container-head_aejm5_69 内的 .jd-input
-              或  .search-input-content-input(站内搜索 tab)
-    通过 triple_click + Delete 确保清空干净。
+    DOM 锚点优先级:
+    1. ._my-goods-container-head_aejm5_69 .jd-input   (本店商品 tab)
+    2. .search-input-content-input                    (站内搜索 tab)
+    3. .jd-drawer-wrapper-body .jd-input              (兜底:抽屉里任何 input)
     """
-    # 优先匹配本店商品 tab 的搜索框
-    inp = await frame.query_selector(
-        "._my-goods-container-head_aejm5_69 .jd-input"
-    )
-    if not inp:
-        inp = await frame.query_selector(".search-input-content-input")
-    if not inp:
-        inp = await frame.query_selector(".jd-drawer-wrapper-body .jd-input")
-    if inp:
-        await inp.click(click_count=3)  # triple_click 选中
-        await frame.keyboard.press("Delete")
-        await inp.fill("")
-        await sleep(0.3)
+    for selector in (
+        "._my-goods-container-head_aejm5_69 .jd-input",
+        ".search-input-content-input",
+        ".jd-drawer-wrapper-body .jd-input",
+    ):
+        inp = await frame.query_selector(selector)
+        if inp:
+            return inp
+    return None
 
 
 async def search(frame, keyword: str):
-    """输入搜索关键词并回车触发搜索。
+    """清空 input + (可选)填入 keyword + 总是按回车 + 等结果。
 
-    实现细节:
-    - click + fill(避免 React 监听丢失)
-    - fill 后必须 press Enter(京东搜索框需回车触发)
-    - 等 ._sku-card-mygoods-con_jvzh5_77 重新渲染
+    关键设计:
+    - **总是按回车**(即使 keyword 为空):让京东从过滤状态恢复"全部商品",
+      否则前端清空关键词后页面不刷新,scrape 拿到的还是上次搜索结果。
+    - **清空用 triple_click + Delete** 而非 fill(''):对 React 受控 input 更可靠。
+    - **等卡片 OR 空状态**:0 结果时不再吃满 10s 超时(wait_search_results)。
     """
-    inp = await frame.query_selector(
-        "._my-goods-container-head_aejm5_69 .jd-input"
-    )
-    if not inp:
-        inp = await frame.query_selector(".search-input-content-input")
-    if not inp:
-        inp = await frame.query_selector(".jd-drawer-wrapper-body .jd-input")
+    inp = await _find_search_input(frame)
     if not inp:
         raise RuntimeError("未找到搜索框")
 
-    await inp.click()
-    await inp.fill(keyword)
-    await sleep(0.3)
-    await frame.keyboard.press("Enter")
+    # 1. 清空 input(triple_click 选中所有 + Delete,React onChange 友好)
+    await inp.click(click_count=3)
+    await _page_of(frame).keyboard.press("Delete")
+    await sleep(0.2)
 
-    # 等搜索结果(loading 消失 + 至少一张卡片)
-    await frame.wait_for_selector(
-        "._sku-card-mygoods-con_jvzh5_77",
-        timeout=10_000,
-        state="visible",
-    )
-    await sleep(0.5)
+    # 2. 填入 keyword(非空才填)
+    if keyword:
+        await inp.fill(keyword)
+        await sleep(0.3)
+
+    # 3. 总是按回车触发搜索(空 keyword = 京东恢复"全部商品")
+    await _page_of(frame).keyboard.press("Enter")
+
+    # 4. 等结果稳定
+    await wait_search_results(frame)
 
 
 async def wait_search_results(frame, timeout: float = 10):
-    """等搜索结果稳定(loading 消失 + 至少一张卡片)。
+    """等搜索结果稳定:**卡片 OR 空状态**任一出现就返回。
 
-    若 0 条结果,可能等不到卡片,需要 catch 异常并允许 0 结果继续。
+    之前只等 ._sku-card-mygoods-con_jvzh5_77,0 结果时永远等不到,吃满 10s 超时。
+    现在加上 ._empty-container_1xak8_69(空状态 DOM),空结果秒返回。
     """
     try:
         await frame.wait_for_selector(
-            "._sku-card-mygoods-con_jvzh5_77",
+            "._sku-card-mygoods-con_jvzh5_77, ._empty-container_1xak8_69",
             timeout=timeout * 1000,
             state="visible",
         )
     except Exception:
-        pass  # 允许 0 结果
-    await sleep(0.5)
+        pass  # 兜底:超时也继续(让 scrape 抓当前状态)
+    await sleep(0.3)
 
 
 # ---------- 分页 ----------
@@ -402,7 +478,7 @@ async def close_panel(frame):
         if close_btn:
             await close_btn.click()
         else:
-            await frame.keyboard.press("Escape")
+            await _page_of(frame).keyboard.press("Escape")
         await sleep(0.5)
     except Exception:
         pass

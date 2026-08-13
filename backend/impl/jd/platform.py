@@ -39,6 +39,11 @@ JD_COOKIE_INVALID_MARKERS = (
 JD_HOME_HOST = "dr.jd.com"
 
 JD_DRY_RUN = os.environ.get("JD_DRY_RUN", "").lower() in ("1", "true", "yes")
+# 反向开关:JD 端默认 dry-run(不真发布,只走完表单填写并截图)。
+# 设 JD_REAL_PUBLISH=1 才会真的点发布按钮 —— 防止测试表单时误发。
+# 显式 JD_DRY_RUN=0 也能关 dry-run(等价于 REAL_PUBLISH=1)。
+JD_REAL_PUBLISH = os.environ.get("JD_REAL_PUBLISH", "").lower() in ("1", "true", "yes")
+JD_DRY_RUN_DEFAULT = not JD_REAL_PUBLISH
 
 
 def _resolve_cookie_filename(account_id: str | None) -> str | None:
@@ -80,6 +85,10 @@ class JdPlatform(BasePlatform):
     def __init__(self):
         self.browser = None
         self.page = None
+        # 京东微前端架构:发布表单在 iframe(self.frame)里,top frame(self.page)
+        # 只有主壳。所有表单操作必须在 iframe 上做,否则永远找不到元素
+        # (picker.py 已踩过同样坑)。
+        self.frame = None
 
     # ---------- 抽象方法:登录 ----------
 
@@ -320,9 +329,14 @@ class JdPlatform(BasePlatform):
             if schedule_time:
                 await self._set_schedule_time(schedule_time)
 
-            # 8. dry-run:不点发布按钮
-            if JD_DRY_RUN:
-                logger.info("[JD_DRY_RUN] 跳过点击发布按钮")
+            # 8. dry-run:走完所有表单填写后,**不点发布按钮**,只打印表单预览 + 截图,
+            #    让用户能直接看到表单填得对不对。默认开启(JD_DRY_RUN_DEFAULT=True),
+            #    需真发布时设环境变量 JD_REAL_PUBLISH=1。
+            #    显式 JD_DRY_RUN=0 / JD_REAL_PUBLISH=1 关闭 dry-run。
+            dry_run = JD_DRY_RUN or JD_DRY_RUN_DEFAULT
+            if dry_run:
+                await self._dry_run_preview(kwargs)
+                logger.info("[JD dry-run] 跳过点击发布按钮(设 JD_REAL_PUBLISH=1 可真发布)")
                 return True
 
             # 9. 点击发布按钮
@@ -332,12 +346,30 @@ class JdPlatform(BasePlatform):
             await self.close_browser(self.browser, is_close_by_code=True)
             self.browser = None
             self.page = None
+            self.frame = None
 
     async def _goto_publish_page(self):
-        """goto 发布页,等表单渲染完毕。"""
+        """goto 发布页 + 进 iframe + 等表单渲染。
+
+        关键:京东是微前端架构,top frame 只是主壳,真正的发布表单在 iframe 里。
+        所有后续表单操作都用 self.frame,不能用 self.page(否则永远找不到元素)。
+        """
+        from backend.impl.jd import _jd_link_ops as link_ops
+
+        # 1. domcontentloaded 快速返回(不用 networkidle,见 picker.py 同样优化)
         await self.page.goto(JD_PUBLISH_URL, wait_until="domcontentloaded")
-        await asyncio.sleep(2)
-        await self.page.wait_for_selector(
+
+        # 2. cookie 失效检测
+        current_url = self.page.url or ""
+        if any(m in current_url for m in JD_COOKIE_INVALID_MARKERS):
+            raise RuntimeError("cookie 失效,请重新登录京东")
+
+        # 3. 等发布表单 iframe 出现
+        self.frame = await link_ops.wait_publish_frame(self.page, timeout=20)
+        logger.info(f"[JD][publish] ✓ iframe={self.frame.url}")
+
+        # 4. 在 iframe 里等表单关键元素
+        await self.frame.wait_for_selector(
             ".video-upload-wrapper",
             timeout=15_000,
             state="visible",
@@ -355,7 +387,7 @@ class JdPlatform(BasePlatform):
         if not video_path.exists():
             raise FileNotFoundError(f"视频文件不存在: {video_path}")
 
-        file_input = await self.page.wait_for_selector(
+        file_input = await self.frame.wait_for_selector(
             ".video-upload-wrapper input[type='file']",
             timeout=10_000,
         )
@@ -370,20 +402,20 @@ class JdPlatform(BasePlatform):
         实现:循环检测 .uploading-con 是否消失,或 .preview-box img 出现
         """
         # 1. 等 .uploading-con 出现
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             ".uploading-con",
             timeout=30_000,
             state="visible",
         )
         # 2. 等 .uploading-con 消失
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             ".uploading-con",
             timeout=timeout * 1000,
             state="hidden",
         )
         # 3. 额外等 .preview-box img(封面预览)出现
         try:
-            await self.page.wait_for_selector(
+            await self.frame.wait_for_selector(
                 ".preview-box img",
                 timeout=30_000,
                 state="visible",
@@ -407,7 +439,7 @@ class JdPlatform(BasePlatform):
             raise FileNotFoundError(f"封面图片不存在: {cover_path}")
 
         # 1. 点"修改封面"
-        edit_btn = await self.page.wait_for_selector(
+        edit_btn = await self.frame.wait_for_selector(
             ".edit-cover-btn",
             timeout=10_000,
         )
@@ -415,19 +447,19 @@ class JdPlatform(BasePlatform):
         await asyncio.sleep(1)
 
         # 2. 等弹窗出现
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             ".jd-modal-content",
             timeout=10_000,
             state="visible",
         )
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             "._crop-image_1vrwk_165 img",
             timeout=10_000,
             state="visible",
         )
 
         # 3. 上传本地图片(京东封面上传 input 在 ._local-upload-localupload-upload-input_1vrwk_331)
-        file_input = await self.page.wait_for_selector(
+        file_input = await self.frame.wait_for_selector(
             "._local-upload-localupload-upload-input_1vrwk_331",
             timeout=10_000,
         )
@@ -437,14 +469,14 @@ class JdPlatform(BasePlatform):
         await asyncio.sleep(2)
 
         # 5. 点弹窗确定按钮(在 .jd-modal-footer 内)
-        confirm_btn = await self.page.wait_for_selector(
+        confirm_btn = await self.frame.wait_for_selector(
             ".jd-modal-footer .jd-btn-primary",
             timeout=10_000,
         )
         await confirm_btn.click()
 
         # 6. 等弹窗关闭
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             ".jd-modal-content",
             timeout=10_000,
             state="hidden",
@@ -460,7 +492,7 @@ class JdPlatform(BasePlatform):
         """
         title = title.strip()[:27]  # 京东最多 27 字
 
-        title_input = await self.page.wait_for_selector(
+        title_input = await self.frame.wait_for_selector(
             "input#title",
             timeout=10_000,
         )
@@ -471,7 +503,7 @@ class JdPlatform(BasePlatform):
         await asyncio.sleep(0.5)
 
         # 验证:jd-form-item-has-success 类出现
-        has_success = await self.page.query_selector(
+        has_success = await self.frame.query_selector(
             "input#title"
         )
         if has_success:
@@ -491,7 +523,7 @@ class JdPlatform(BasePlatform):
         流程:
         1. 切商品 radio + 点添加 + 等抽屉就绪(只开一次)
         2. 按 (keyword, page) 分组
-        3. 每组重走:clear_search → search → 翻页 → locate_and_check
+        3. 每组重走:search(已合并 clear+Enter) → 翻页 → locate_and_check
         4. 点确定关闭抽屉
         """
         if not items:
@@ -501,9 +533,9 @@ class JdPlatform(BasePlatform):
         from backend.impl.jd import _jd_link_ops as link_ops
 
         # 1. 打开抽屉
-        await link_ops.switch_radio(self.page, "product")
-        await link_ops.click_add_card(self.page)
-        await link_ops.wait_panel_ready(self.page)
+        await link_ops.switch_radio(self.frame, "product")
+        await link_ops.click_add_card(self.frame)
+        await link_ops.wait_panel_ready(self.frame)
 
         # 2. 分组
         groups: dict = {}
@@ -514,18 +546,16 @@ class JdPlatform(BasePlatform):
 
         # 3. 每组重走
         for (keyword, page), group_items in groups.items():
-            await link_ops.clear_search(self.page)
-
-            if keyword:
-                await link_ops.search(self.page, keyword)
-                await link_ops.wait_search_results(self.page)
+            # link_ops.search 内部已合并 clear + (if keyword) fill + Enter + wait,
+            # 这里直接调,空 keyword 也会触发"全部商品"
+            await link_ops.search(self.frame, keyword)
 
             if page > 1:
                 # 翻到指定页
-                current = await link_ops.get_current_page(self.page)
+                current = await link_ops.get_current_page(self.frame)
                 if current < page:
                     for _ in range(page - current):
-                        nxt = await self.page.query_selector(
+                        nxt = await self.frame.query_selector(
                             ".jd-pagination-next:not(.jd-pagination-disabled)"
                         )
                         if not nxt:
@@ -533,10 +563,10 @@ class JdPlatform(BasePlatform):
                                 f"无法翻到第 {page} 页:next 按钮不可用"
                             )
                         await nxt.click()
-                        await link_ops.wait_page_change(self.page)
+                        await link_ops.wait_page_change(self.frame)
                 elif current > page:
                     for _ in range(current - page):
-                        prv = await self.page.query_selector(
+                        prv = await self.frame.query_selector(
                             ".jd-pagination-prev:not(.jd-pagination-disabled)"
                         )
                         if not prv:
@@ -544,14 +574,14 @@ class JdPlatform(BasePlatform):
                                 f"无法翻到第 {page} 页:prev 按钮不可用"
                             )
                         await prv.click()
-                        await link_ops.wait_page_change(self.page)
+                        await link_ops.wait_page_change(self.frame)
 
             # 4. 精准勾选
             target_ids = [it.get("id", "") for it in group_items if it.get("id")]
             if not target_ids:
                 raise RuntimeError(f"商品组 (keyword={keyword!r}, page={page}) 缺少 id")
 
-            result = await link_ops.locate_and_check(self.page, target_ids)
+            result = await link_ops.locate_and_check(self.frame, target_ids)
             if result.missing:
                 raise RuntimeError(
                     f"关联商品失败,未找到商品(sku_id): {result.missing}"
@@ -560,7 +590,7 @@ class JdPlatform(BasePlatform):
                 logger.warning(f"以下商品已下架,无法勾选: {result.disabled}")
 
         # 5. 关闭抽屉
-        await link_ops.click_confirm(self.page)
+        await link_ops.click_confirm(self.frame)
 
     async def _select_novel(self, novel):
         """选小说(下拉搜索)。
@@ -571,11 +601,11 @@ class JdPlatform(BasePlatform):
         from backend.impl.jd import _jd_link_ops as link_ops
 
         # 1. 切到小说 radio
-        await link_ops.switch_radio(self.page, "novel")
+        await link_ops.switch_radio(self.frame, "novel")
         await asyncio.sleep(0.5)
 
         # 2. 调 link_ops.select_novel(按 title 搜索)
-        await link_ops.select_novel(self.page, novel.get("title", ""))
+        await link_ops.select_novel(self.frame, novel.get("title", ""))
 
     # ---------- 创作声明 / 定时发布 ----------
 
@@ -588,7 +618,7 @@ class JdPlatform(BasePlatform):
         - 项:    .jd-select-item-option[label='{declaration}']
         """
         # 1. 点 .content-declaration-wrapper .jd-select
-        select = await self.page.wait_for_selector(
+        select = await self.frame.wait_for_selector(
             ".content-declaration-wrapper .jd-select",
             timeout=10_000,
         )
@@ -596,7 +626,7 @@ class JdPlatform(BasePlatform):
         await asyncio.sleep(0.5)
 
         # 2. 等下拉出现
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             ".rc-virtual-list-holder-inner",
             timeout=10_000,
             state="visible",
@@ -605,10 +635,10 @@ class JdPlatform(BasePlatform):
 
         # 3. 点对应选项(用 label 属性精确匹配)
         item_selector = f".jd-select-item-option[label='{declaration}']"
-        item = await self.page.query_selector(item_selector)
+        item = await self.frame.query_selector(item_selector)
         if not item:
             # 退而求其次:按文本匹配
-            items = await self.page.query_selector_all(".jd-select-item-option")
+            items = await self.frame.query_selector_all(".jd-select-item-option")
             for it in items:
                 lbl = await it.get_attribute("label")
                 if lbl and lbl.strip() == declaration:
@@ -638,7 +668,7 @@ class JdPlatform(BasePlatform):
             formatted = schedule_time
 
         # 1. 切到定时发布 radio
-        schedule_radio = await self.page.wait_for_selector(
+        schedule_radio = await self.frame.wait_for_selector(
             ".jd-radio-wrapper input[value='2']",
             timeout=10_000,
         )
@@ -646,7 +676,7 @@ class JdPlatform(BasePlatform):
         await asyncio.sleep(0.5)
 
         # 2. 等 DatePicker 输入框出现
-        date_input = await self.page.wait_for_selector(
+        date_input = await self.frame.wait_for_selector(
             ".pro-radio-extra input[placeholder='请选择日期'], .pro-radio-extra input",
             timeout=10_000,
         )
@@ -658,22 +688,108 @@ class JdPlatform(BasePlatform):
         await asyncio.sleep(0.5)
 
         # 3. 等 DatePicker 弹层(包含"确定"按钮)
-        await self.page.wait_for_selector(
+        await self.frame.wait_for_selector(
             ".jd-picker-ok",
             timeout=10_000,
             state="visible",
         )
 
         # 4. 点确定按钮
-        ok_btn = await self.page.query_selector(".jd-picker-ok .jd-btn-primary")
+        ok_btn = await self.frame.query_selector(".jd-picker-ok .jd-btn-primary")
         if not ok_btn:
-            ok_btn = await self.page.query_selector(".jd-picker-ok button")
+            ok_btn = await self.frame.query_selector(".jd-picker-ok button")
         if not ok_btn:
             raise RuntimeError("DatePicker 确定按钮未找到")
         await ok_btn.click()
         await asyncio.sleep(1)
 
     # ---------- 发布 ----------
+
+    async def _dry_run_preview(self, kwargs: dict):
+        """dry-run 模式下打印表单预览 + 保存截图。
+
+        从 iframe DOM 抓"实际填进去的值"(不是 kwargs 传入值),让用户能直接看到
+        React 是否正确接收了输入,以及关联挂件/声明是否真的选上了。
+        """
+        from datetime import datetime
+
+        logger.info("=" * 60)
+        logger.info("[JD dry-run] 表单预览(实际 DOM 抓取,非 kwargs)")
+        logger.info("=" * 60)
+
+        # 视频路径(kwargs 传入值,DOM 没法直接读出文件路径)
+        logger.info(f"  视频路径(kwargs): {kwargs.get('video_path')}")
+
+        # 标题(input#title 的实际 value)
+        try:
+            title_el = await self.frame.query_selector("input#title")
+            actual_title = await title_el.get_attribute("value") if title_el else ""
+            expected_title = (kwargs.get("title") or "")[:27]
+            mark = "✓" if actual_title == expected_title else "✗"
+            logger.info(f"  标题: {mark} actual={actual_title!r} expected={expected_title!r}")
+        except Exception as e:
+            logger.warning(f"  标题读取失败: {e}")
+
+        # 关联挂件类型(从 radio 选中态判断)
+        try:
+            radio_state = await self.frame.evaluate(
+                """() => {
+                    const checked = document.querySelector(
+                        '.jd-radio-wrapper.jd-radio-wrapper-checked input.jd-radio-input'
+                    );
+                    if (!checked) return {value: null, label: null};
+                    const label = checked.closest('.jd-radio-wrapper').textContent.trim();
+                    return {value: checked.getAttribute('value'), label};
+                }"""
+            )
+            logger.info(f"  关联挂件: value={radio_state.get('value')} label={radio_state.get('label')!r}")
+        except Exception as e:
+            logger.warning(f"  关联挂件 radio 读取失败: {e}")
+
+        # 已选商品数量(从 .addgoods-upload 的 N/10 文本)
+        try:
+            addgoods_text = await self.frame.evaluate(
+                """() => {
+                    const el = document.querySelector('.addgoods-upload');
+                    return el ? el.textContent.trim() : null;
+                }"""
+            )
+            logger.info(f"  添加商品卡片文本: {addgoods_text!r} (期望形如 'N/10')")
+        except Exception as e:
+            logger.warning(f"  商品计数读取失败: {e}")
+
+        # 创作声明(从 .content-declaration-wrapper .jd-select-title__selected 之类的文本)
+        try:
+            decl_text = await self.frame.evaluate(
+                """() => {
+                    const sel = document.querySelector('.content-declaration-wrapper .jd-select');
+                    if (!sel) return null;
+                    // jd-select 显示选中项的文本通常在 .jd-select-selection-item 或 select-selector 内
+                    return (sel.textContent || '').trim().slice(0, 60);
+                }"""
+            )
+            logger.info(f"  创作声明(select 文本): {decl_text!r} (期望={kwargs.get('jd_declaration')!r})")
+        except Exception as e:
+            logger.warning(f"  创作声明读取失败: {e}")
+
+        # 定时发布(kwargs 传入值)
+        if kwargs.get("schedule_time"):
+            logger.info(f"  定时发布(kwargs): {kwargs.get('schedule_time')}")
+
+        # 截图(保存到 data/logs/<date>/jd_dry_run_<timestamp>.png)
+        try:
+            from conf import BASE_DIR
+            today = datetime.now().strftime("%Y-%m-%d")
+            ts = datetime.now().strftime("%H%M%S")
+            log_dir = Path(BASE_DIR) / "logs" / today
+            log_dir.mkdir(parents=True, exist_ok=True)
+            shot_path = log_dir / f"jd_dry_run_{ts}.png"
+            await self.page.screenshot(path=str(shot_path), full_page=True)
+            logger.info(f"  截图: {shot_path}")
+        except Exception as e:
+            logger.warning(f"  截图失败: {e}")
+
+        logger.info("=" * 60)
 
     async def _click_publish(self, timeout: float = 30):
         """点发布按钮。
@@ -684,7 +800,7 @@ class JdPlatform(BasePlatform):
         deadline = asyncio.get_event_loop().time() + timeout
         btn = None
         while asyncio.get_event_loop().time() < deadline:
-            btn = await self.page.query_selector("._publishBtn_6bi9b_150")
+            btn = await self.frame.query_selector("._publishBtn_6bi9b_150")
             if btn:
                 disabled = await btn.get_attribute("disabled")
                 if disabled is None:

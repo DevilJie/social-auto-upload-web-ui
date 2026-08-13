@@ -16,8 +16,19 @@ from typing import Optional
 from .._browser import create_browser, create_context, close_browser
 from . import _jd_link_ops as link_ops
 from conf import BASE_DIR
+from util._logger import get_channel_logger
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("jingmai")
+
+
+# cookie 失效的 URL 特征:goto 后若被重定向到这些域名,说明登录态没了。
+# (参考淘宝光合 picker.py 的 _COOKIE_INVALID_MARKERS 模式)
+_COOKIE_INVALID_MARKERS = (
+    "login.jd.com",
+    "passport.jd.com",
+    "sso.jd.com",
+    "auth.jd.com",
+)
 
 
 def _get_cookie_path_by_account_id(account_id: str) -> str | None:
@@ -46,17 +57,31 @@ class JdPickerSession:
         self.account_id = account_id
         self.browser = None
         self.page = None
+        # 京东微前端架构:发布表单在 iframe 里(self.frame),不在 top frame(self.page)。
+        # 所有 link_ops 操作必须传 self.frame,否则永远找不到 .addgoods-upload 等元素。
+        self.frame = None
 
-    async def open(self) -> list[dict]:
-        """启动浏览器进入选择面板,返回首屏商品列表。"""
+    async def _wait_publish_frame(self, timeout: float = 20):
+        """等发布表单 iframe(委托给 link_ops.wait_publish_frame 公共函数)。"""
+        return await link_ops.wait_publish_frame(self.page, timeout=timeout)
+
+    async def open(self) -> dict:
+        """启动浏览器进入选择面板,返回首屏数据。
+
+        Returns:
+            {"products": [...], "total": int}
+            total 是分页器显示的总条数(从 .jd-pagination-total-text 抓),
+            用于前端分页器渲染;抓不到时为 0,前端兜底按当前页条数估算。
+        """
         if self.browser is not None:
             raise RuntimeError(f"picker session 已存在: {self.account_id}")
 
         cookie_filename = _get_cookie_path_by_account_id(self.account_id)
         cookie_path = _resolve_cookie_path(cookie_filename) if cookie_filename else None
         storage_state = str(cookie_path) if cookie_path and cookie_path.exists() else None
+        logger.info(f"[JdPicker][{self.account_id}] open() cookie={'有' if storage_state else '无'}")
 
-        # 后台 headless(与淘宝光合 picker ad3b8d8 一致)
+        # 调试期:有头模式
         self.browser = await create_browser(headless=False)
         if storage_state:
             ctx = await create_context(self.browser, storage_state=storage_state)
@@ -65,43 +90,204 @@ class JdPickerSession:
             ctx = await self.browser.new_context()
             self.page = await ctx.new_page()
 
-        # goto 发布页
+        # goto 发布页 —— 用 domcontentloaded 而不是 networkidle:
+        # networkidle 要等 500ms 内零网络活动,但京东 SPA 有持续 polling/上报,
+        # 实测会吃满 30s 超时再走降级,首屏"打开页面 → 点击添加商品"之间肉眼可见卡顿。
+        # domcontentloaded 只要 HTML 解析完就返回,后续靠 _wait_publish_frame
+        # polling(0.3s 周期)等 iframe 出现,比 networkidle 快几秒。
+        logger.info("[JdPicker] goto 京东发布页")
         await self.page.goto(
             "https://dr.jd.com/jm/#/n/publish-video.html?platform=jm-pop",
             wait_until="domcontentloaded",
+            timeout=30000,
         )
-        # 等 SPA 路由 + 发布表单渲染
-        await asyncio.sleep(2)
-        await self.page.wait_for_selector(
-            ".video-upload-wrapper",
-            timeout=15_000,
-            state="visible",
-        )
+
+        # cookie 失效检测:goto 后若被重定向到登录/SSO 页,直接抛错而不是傻等 iframe 超时
+        current_url = self.page.url or ""
+        if any(m in current_url for m in _COOKIE_INVALID_MARKERS):
+            raise RuntimeError("cookie 失效,请重新登录京东")
+
+        # 京东 dr.jd.com 是微前端架构:
+        # - top frame (self.page) 只渲染"猜你想问"等 FAQ 引导内容
+        # - 真正的发布表单在 iframe (self.frame) 里
+        # 所以所有表单操作都必须在 iframe 上做。top frame 看到的"猜你想问"不是浮层,
+        # 是主壳内容,不用也无法关掉。
+
+        # 1. 等发布表单 iframe 出现
+        # 2. 在 iframe 里等 .addgoods-upload 出现(attached 即可,不要求 visible,
+        #    因为可能有残留浮层遮挡,但 JS click 可以绕过)
+        logger.info("[JdPicker] 等发布表单 iframe 出现(最长 20s)")
+        try:
+            self.frame = await self._wait_publish_frame(timeout=20)
+            logger.info(f"[JdPicker] ✓ iframe={self.frame.url}")
+            logger.info("[JdPicker] 等 .addgoods-upload 在 iframe 里出现(最长 20s)")
+            await self.frame.wait_for_selector(
+                ".addgoods-upload",
+                timeout=20_000,
+                state="attached",
+            )
+        except Exception:
+            current_url = self.page.url or ""
+            # 失败时 dump 整页状态帮助定位
+            page_state = await self.page.evaluate(
+                """() => {
+                    const out = {url: location.href, title: document.title, texts: '', classes: [], radio_count: 0, drawer_count: 0};
+                    out.texts = (document.body && document.body.innerText || '').slice(0, 800);
+                    // 找带"商品"或"添加"或"发布"等关键字的元素 class
+                    const interesting = new Set();
+                    document.querySelectorAll('[class*="addgoods"], [class*="publish"], [class*="video-upload"], [class*="jd-radio"], [class*="jd-drawer"]').forEach(el => {
+                        interesting.add(el.className.toString().slice(0, 200));
+                    });
+                    out.classes = Array.from(interesting).slice(0, 30);
+                    out.radio_count = document.querySelectorAll('.jd-radio-wrapper, [class*="radio"]').length;
+                    out.drawer_count = document.querySelectorAll('.jd-drawer-wrapper-body, [class*="drawer"]').length;
+                    // 看下所有 input file (发布页通常有视频上传)
+                    out.file_inputs = document.querySelectorAll('input[type="file"]').length;
+                    return out;
+                }"""
+            )
+            logger.error(
+                f"[JdPicker] 页面状态 dump: url={page_state.get('url')} "
+                f"title={page_state.get('title')} "
+                f"radio_count={page_state.get('radio_count')} "
+                f"drawer_count={page_state.get('drawer_count')} "
+                f"file_inputs={page_state.get('file_inputs')}"
+            )
+            logger.error(
+                f"[JdPicker] 页面可见文本前800字:\n{page_state.get('texts', '')}"
+            )
+            logger.error(
+                f"[JdPicker] 关键 class:\n" + "\n".join(page_state.get('classes', []))
+            )
+
+            # iframe 等待失败时的诊断:遍历所有 frame,确认 iframe 是否存在、
+            # URL pattern 是否变了(JD 改路由会让 _wait_publish_frame 匹配不到)。
+            all_frames = self.page.frames
+            logger.error(
+                f"[JdPicker] === frame tree dump (共 {len(all_frames)} 个 frame) ==="
+            )
+            for i, f in enumerate(all_frames):
+                try:
+                    f_state = await f.evaluate(
+                        """() => ({
+                            url: location.href,
+                            radio_count: document.querySelectorAll('[class*="radio"], .jd-radio-wrapper').length,
+                            file_inputs: document.querySelectorAll('input[type="file"]').length,
+                            addgoods_count: document.querySelectorAll('[class*="addgoods"]').length,
+                            text_head: (document.body && document.body.innerText || '').slice(0, 200).replace(/\\s+/g, ' '),
+                        })"""
+                    )
+                    logger.error(
+                        f"[JdPicker] frame[{i}] url={f_state.get('url')} "
+                        f"radio={f_state.get('radio_count')} "
+                        f"file_inputs={f_state.get('file_inputs')} "
+                        f"addgoods={f_state.get('addgoods_count')} "
+                        f"text='{f_state.get('text_head')}'"
+                    )
+                except Exception as fe:
+                    logger.error(
+                        f"[JdPicker] frame[{i}] url={f.url} evaluate 失败: {fe}"
+                    )
+
+            raise RuntimeError(
+                f"未找到'添加商品'卡片,页面未渲染发布表单。"
+                f" URL={current_url}"
+            )
 
         # 切商品 radio(默认已是商品,但保险起见)
-        await link_ops.switch_radio(self.page, "product")
-        await link_ops.click_add_card(self.page)
-        await link_ops.wait_panel_ready(self.page)
+        logger.info("[JdPicker] 切商品 radio")
+        await link_ops.switch_radio(self.frame, "product")
+        logger.info("[JdPicker] ✓ 商品 radio 已选")
 
-        # 返回首屏商品
-        return await link_ops.scrape_products(self.page)
+        # 点'添加商品'卡片,打开抽屉
+        logger.info("[JdPicker] 点击 .addgoods-upload 卡片")
+        await link_ops.click_add_card(self.frame)
+        logger.info("[JdPicker] ✓ 已点击添加商品卡片")
 
-    async def search(self, keyword: str) -> list[dict]:
-        """搜索并返回商品列表。"""
-        if self.page is None:
+        # 等抽屉就绪
+        logger.info("[JdPicker] 等抽屉 .jd-drawer-wrapper-body 就绪")
+        await link_ops.wait_panel_ready(self.frame)
+        logger.info("[JdPicker] ✓ 抽屉已就绪")
+
+        # 返回首屏商品 + 总条数
+        products = await link_ops.scrape_products(self.frame)
+        total = await link_ops.scrape_total(self.frame)
+        logger.info(f"[JdPicker] ✓ 首屏抓到 {len(products)} 个商品,共 {total} 条")
+        return {"products": products, "total": total}
+
+    async def _dismiss_help_dialog(self) -> None:
+        """关闭京东发布页首屏的'猜你想问'帮助浮层。
+
+        浮层会挡住主表单,导致 Playwright visible 检查失败。
+        策略(按优先级尝试):
+        1. 找含'猜你想问'/'我知道了'/'关闭'文案的可点元素 → 点击
+        2. 找 .jd-modal-close / [aria-label='Close'] 关闭按钮 → 点击
+        3. 兜底:按 Esc 键
+        """
+        try:
+            dismissed = await self.page.evaluate(
+                """() => {
+                    // 1. 找含"我知道了"/"关闭"/"不再提示"等文案的按钮
+                    const candidates = Array.from(document.querySelectorAll(
+                        'button, .jd-btn, .jd-modal-close, [aria-label="Close"], .close'
+                    ));
+                    const targetTexts = ['我知道了', '关闭', '不再提示', '取消', '×'];
+                    for (const el of candidates) {
+                        const t = (el.textContent || '').trim();
+                        if (targetTexts.includes(t)) {
+                            el.click();
+                            return t;
+                        }
+                    }
+                    // 2. 找含"猜你想问"的容器,看里面有没有可点的关闭按钮
+                    const faq = Array.from(document.querySelectorAll('div, span'))
+                        .find(el => (el.textContent || '').trim().startsWith('猜你想问'));
+                    if (faq) {
+                        // 向上找父容器内的关闭按钮
+                        let parent = faq;
+                        for (let i = 0; i < 8 && parent; i++) {
+                            const closeBtn = parent.querySelector(
+                                '.jd-modal-close, [aria-label="Close"], .close, .jd-icon-close'
+                            );
+                            if (closeBtn) { closeBtn.click(); return 'close-icon'; }
+                            parent = parent.parentElement;
+                        }
+                    }
+                    return null;
+                }"""
+            )
+            if dismissed:
+                logger.info(f"[JdPicker] ✓ 关闭帮助浮层: {dismissed}")
+                await asyncio.sleep(0.8)
+                return
+            # 3. 兜底:按 Esc
+            await self.page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+            logger.info("[JdPicker] 按 Esc 尝试关闭浮层")
+        except Exception as e:
+            logger.info(f"[JdPicker] 关闭浮层异常(忽略): {e}")
+
+    async def search(self, keyword: str) -> dict:
+        """搜索并返回 {products, total}。
+
+        keyword 为空也会触发搜索(清空 input + Enter),让京东恢复"全部商品"。
+        """
+        if self.frame is None:
             raise RuntimeError("picker 未打开,请先调用 open()")
-        await link_ops.clear_search(self.page)
-        if keyword:
-            await link_ops.search(self.page, keyword)
-            await link_ops.wait_search_results(self.page)
-        return await link_ops.scrape_products(self.page)
+        # link_ops.search 内部已包含:清空 + 填 keyword(if 非空) + Enter + wait
+        await link_ops.search(self.frame, keyword)
+        products = await link_ops.scrape_products(self.frame)
+        total = await link_ops.scrape_total(self.frame)
+        return {"products": products, "total": total}
 
-    async def go_page(self, page: int) -> list[dict]:
-        """翻页并返回商品列表。"""
-        if self.page is None:
+    async def go_page(self, page: int) -> dict:
+        """翻页并返回 {products, total}。"""
+        if self.frame is None:
             raise RuntimeError("picker 未打开")
-        await link_ops.go_page(self.page, page)
-        return await link_ops.scrape_products(self.page)
+        await link_ops.go_page(self.frame, page)
+        products = await link_ops.scrape_products(self.frame)
+        total = await link_ops.scrape_total(self.frame)
+        return {"products": products, "total": total}
 
     async def close(self):
         """释放浏览器资源(必须在 finally 中调用)。"""
@@ -113,6 +299,7 @@ class JdPickerSession:
         finally:
             self.browser = None
             self.page = None
+            self.frame = None
 
 
 # ---------- session 池 ----------
@@ -132,23 +319,42 @@ class _SessionPool:
         self._sessions[account_id] = new_session
         return new_session
 
+    def create(self, account_id: str) -> JdPickerSession:
+        """强制为 account_id 创建新 session;若已存在旧 session,异步销毁。
+
+        对齐淘宝光合 pool.create 模式:打开弹窗总是从干净状态开始,
+        客户端 close 漏调也不会卡死 —— 旧 session 的浏览器通过
+        asyncio.ensure_future 在 picker loop 里异步关闭,不阻塞当前请求。
+
+        本方法从 jd_bp.py 的 Flask 请求线程调用,但 asyncio.ensure_future
+        会把协程提交到当前运行中的 picker loop(由 run_picker_async 启动),
+        所以旧 session.close() 能在正确的 loop 上跑。
+        """
+        existing = self._sessions.get(account_id)
+        if existing is not None:
+            logger.info(f"[Pool] 账号 {account_id} 已有 session,异步销毁后重建")
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(existing.close())
+            except RuntimeError:
+                pass  # 没运行中的 loop,跳过(GC 兜底)
+        new_session = JdPickerSession(account_id)
+        self._sessions[account_id] = new_session
+        return new_session
+
     def get(self, account_id: str) -> Optional[JdPickerSession]:
         return self._sessions.get(account_id)
 
     def release(self, account_id: str):
-        """释放 session 并关闭浏览器。"""
-        session = self._sessions.pop(account_id, None)
-        if session is not None:
-            # 异步关闭:跨线程调用
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(session.close())
-                else:
-                    loop.run_until_complete(session.close())
-            except RuntimeError:
-                # 没有运行中的 loop,直接同步关闭
-                pass
+        """从池中移除 session 并返回,不负责关闭浏览器。
+
+        返回的 session 由调用方用 `run_picker_async(session.close(), ...)`
+        提交到后台 picker loop 关闭 —— 之前在 release 内部用 asyncio.get_event_loop()
+        试图关闭,但 Flask 请求线程没运行中的 loop,会抛 RuntimeError 后 pass,
+        导致 session 出池但浏览器进程泄漏。
+        """
+        return self._sessions.pop(account_id, None)
 
     def has(self, account_id: str) -> bool:
         return account_id in self._sessions

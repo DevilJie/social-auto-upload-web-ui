@@ -4,6 +4,7 @@
 - 全局 picker event loop(后台 daemon 线程)
 - 4 个路由:open / search / go_page / close
 - session_id = account_id
+- 统一响应格式 {code:200, data:{...}} / {code:4xx|5xx, msg:'...'},对齐前端 axios 拦截器
 """
 
 import asyncio
@@ -14,8 +15,9 @@ from typing import Optional
 from flask import Blueprint, request, jsonify
 
 from impl.jd.picker import pool, JdPickerSession
+from util._logger import get_channel_logger
 
-logger = logging.getLogger(__name__)
+logger = get_channel_logger("jingmai")
 
 bp = Blueprint("jd_picker", __name__)
 
@@ -55,6 +57,26 @@ def run_picker_async(coro, timeout: float = 60):
     return future.result(timeout=timeout)
 
 
+# ---------- 统一响应格式 (对齐前端 utils/request.js 拦截器) ----------
+
+def _ok(data: dict):
+    return jsonify({"code": 200, "data": data})
+
+
+def _err(msg: str, code: int = 500, http: int = 500):
+    return jsonify({"code": code, "msg": msg}), http
+
+
+def _resolve_session_or_404(account_id: str):
+    """从池中取 session,不存在返回 (None, error_response)。"""
+    if not account_id:
+        return None, _err("accountId 不能为空", 400, 400)
+    session = pool.get(account_id)
+    if session is None:
+        return None, _err("picker 未打开或已关闭,请重新打开弹窗", 404, 404)
+    return session, None
+
+
 # ---------- 路由 ----------
 
 @bp.route("/api/jd/picker/open", methods=["POST"])
@@ -62,19 +84,29 @@ def picker_open():
     data = request.get_json() or {}
     account_id = data.get("accountId")
     if not account_id:
-        return jsonify({"ok": False, "error": "accountId required"}), 400
+        return _err("accountId 不能为空", 400, 400)
 
-    if pool.has(account_id):
-        return jsonify({"ok": False, "error": f"账号 {account_id} 已有 picker 在运行"}), 400
-
-    session = pool.get_or_create(account_id)
+    # pool.create:若同账号已有 session(前端 close 漏调、上次崩溃残留等),
+    # 自动异步销毁旧的再建新的。不再返回"已有 picker 在运行" 409 ——
+    # 客户端不需要为 session 生命周期负责。
+    session = pool.create(account_id)
     try:
-        products = run_picker_async(session.open(), timeout=60)
-        return jsonify({"ok": True, "products": products, "sessionId": account_id})
+        result = run_picker_async(session.open(), timeout=60)
+        return _ok({
+            "products": result["products"],
+            "total": result["total"],
+            "sessionId": account_id,
+        })
     except Exception as e:
-        pool.release(account_id)
+        # 失败时清理 session:从池中移除 + 真正关闭浏览器
         logger.exception("picker open failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        released = pool.release(account_id)
+        if released is not None:
+            try:
+                run_picker_async(released.close(), timeout=10)
+            except Exception:
+                pass  # 清理失败不阻塞错误返回
+        return _err(f"打开选择面板失败: {e}")
 
 
 @bp.route("/api/jd/picker/search", methods=["POST"])
@@ -82,19 +114,16 @@ def picker_search():
     data = request.get_json() or {}
     account_id = data.get("accountId")
     keyword = data.get("keyword", "")
-    if not account_id:
-        return jsonify({"ok": False, "error": "accountId required"}), 400
-
-    session = pool.get(account_id)
-    if session is None:
-        return jsonify({"ok": False, "error": "picker 未打开"}), 400
+    session, err = _resolve_session_or_404(account_id)
+    if err:
+        return err
 
     try:
-        products = run_picker_async(session.search(keyword), timeout=30)
-        return jsonify({"ok": True, "products": products})
+        result = run_picker_async(session.search(keyword), timeout=30)
+        return _ok({"products": result["products"], "total": result["total"]})
     except Exception as e:
         logger.exception("picker search failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return _err(str(e))
 
 
 @bp.route("/api/jd/picker/go_page", methods=["POST"])
@@ -102,19 +131,16 @@ def picker_go_page():
     data = request.get_json() or {}
     account_id = data.get("accountId")
     page = data.get("page", 1)
-    if not account_id:
-        return jsonify({"ok": False, "error": "accountId required"}), 400
-
-    session = pool.get(account_id)
-    if session is None:
-        return jsonify({"ok": False, "error": "picker 未打开"}), 400
+    session, err = _resolve_session_or_404(account_id)
+    if err:
+        return err
 
     try:
-        products = run_picker_async(session.go_page(page), timeout=30)
-        return jsonify({"ok": True, "products": products})
+        result = run_picker_async(session.go_page(page), timeout=30)
+        return _ok({"products": result["products"], "total": result["total"]})
     except Exception as e:
         logger.exception("picker go_page failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return _err(str(e))
 
 
 @bp.route("/api/jd/picker/close", methods=["POST"])
@@ -122,7 +148,16 @@ def picker_close():
     data = request.get_json() or {}
     account_id = data.get("accountId")
     if not account_id:
-        return jsonify({"ok": False, "error": "accountId required"}), 400
+        return _err("accountId 不能为空", 400, 400)
 
-    pool.release(account_id)
-    return jsonify({"ok": True})
+    # pool.release 只 pop,真正关浏览器由这里跑在 picker loop 上
+    session = pool.release(account_id)
+    if session is None:
+        # 幂等:再次关闭已不存在的 session 也算成功
+        return _ok({"closed": True})
+    try:
+        run_picker_async(session.close(), timeout=20)
+        return _ok({"closed": True})
+    except Exception as e:
+        logger.error(f"picker close 失败: {e}")
+        return _err(str(e))

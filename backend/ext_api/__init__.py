@@ -32,7 +32,7 @@ _PLATFORM_ID_TO_NAME = {
     1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站",
     6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频",
     10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎",
-    15: "CSDN", 16: "VIVO", 17: "微信公众号",
+    15: "CSDN", 16: "VIVO", 17: "微信公众号", 18: "淘宝光合", 19: "京东京麦",
 }
 
 # 平台 key(拼音) → 中文名称。修复 publish_details.platform 历史脏数据:
@@ -45,6 +45,7 @@ _PLATFORM_KEY_TO_NAME = {
     "tencent_video": "腾讯视频", "iqiyi": "爱奇艺",
     "weibo": "微博", "alipay": "支付宝", "toutiao": "今日头条", "zhihu": "知乎",
     "csdn": "CSDN", "vivo": "VIVO", "weixin_gzh": "微信公众号",
+    "taobao_guanghe": "淘宝光合", "jingmai": "京东京麦",
 }
 
 # SSE 订阅者
@@ -1227,7 +1228,7 @@ def batch_publish_drafts():
     if not isinstance(draft_ids, list) or not draft_ids or len(draft_ids) > 30:
         return jsonify({"code": 400, "msg": "draft_ids 数量必须 1-30"}), 400
 
-    from app import _get_db_path, PLATFORM_ID_TO_KEY
+    from app import _get_db_path, PLATFORM_ID_TO_KEY, PLATFORM_MAP
     db_path = _get_db_path()
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -1336,7 +1337,9 @@ def batch_publish_drafts():
                 task = PublishTask(
                     id=task_id,
                     batch_id=task_batch_id_by_draft[r['id']],
-                    platform=account_platform,
+                    # platform 列存中文名(与 /postVideo 链路一致)。拼音 key 会让
+                    # 发布历史 platformList 按名匹配失败 → 显示拼音且无 logo。
+                    platform=PLATFORM_MAP.get(acc_row['type'], account_platform),
                     platform_type=ptype,
                     account_name=acc_row['userName'] or '',
                     account_cookie_path=acc_row['filePath'] or '',

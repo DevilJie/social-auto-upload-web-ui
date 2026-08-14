@@ -15,7 +15,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 _PLATFORM_NAME_TO_TYPE = {
     'xiaohongshu': 1, 'channels': 2, 'douyin': 3, 'kuaishou': 4,
     'bilibili': 5, 'baijiahao': 6, 'tiktok': 7, 'youtube': 8,
-    'tencent_video': 9, 'iqiyi': 10,
+    'tencent_video': 9, 'iqiyi': 10, 'jingmai': 19,
 }
 
 
@@ -163,12 +163,59 @@ def test_batch_publish_happy_path(tmp_path, monkeypatch):
     assert added_tasks[0].source == 'draft'
     assert added_tasks[0].draft_id == 1
     assert added_tasks[0].account_id == 1
-    assert added_tasks[0].platform == 'xiaohongshu'
+    # platform 列存中文名（与 /postVideo 链路一致，发布历史按名匹配 logo）
+    assert added_tasks[0].platform == '小红书'
     assert added_tasks[0].platform_type == 1   # xiaohongshu = 1
     assert added_tasks[0].payload['title'] == 'T'
     assert added_tasks[0].payload['ai_content'] == '内容由AI生成'
     # 草稿批量发布:失败立即标记 FAILED,不重试(用户需求)
     assert added_tasks[0].max_retries == 0
+
+
+def test_batch_publish_platform_column_is_chinese_name_jingmai(tmp_path, monkeypatch):
+    """回归：jingmai(京东京麦) 草稿批量发布，task.platform 必须存中文名。
+
+    历史缺陷：写侧存拼音 key 'jingmai'，发布历史/TaskCenter 按中文名匹配
+    platformList 失败 → 显示「jingmai x 1」且无 logo/彩色标签。
+    """
+    db_path = tmp_path / "test.db"
+    _setup_db(db_path)
+    monkeypatch.setattr('services.draft_merge.DB_PATH', db_path)
+
+    draft_data = {
+        'commonConfig': {'videoPortrait': {'stored_path': '/abs/v.mp4'},
+                         'coverPortrait': {'stored_path': '/abs/c.jpg'}},
+        'platformConfigs': {
+            'jingmai': {'title': '京东好物分享', 'videoFormat': 'portrait'},
+        },
+        'platformOverrides': {},
+        'accountOverrides': {'1': {'title': '京东好物分享',
+                                    'videoFormat': 'portrait'}},
+        'publishAccountIds': [1],
+    }
+    with sqlite3.connect(str(db_path)) as conn:
+        _insert_user(conn, 1, 'jingmai', '/cookies/j1')
+        _insert_video_draft(conn, 1, draft_data)
+
+    added_tasks = []
+    def fake_add_task(task):
+        added_tasks.append(task)
+        return 'task-1'
+
+    from ext_api import task_queue as tq
+    monkeypatch.setattr(tq, 'get_task_queue', lambda: MagicMock(add_task=fake_add_task))
+    monkeypatch.setattr('app._get_db_path', lambda: db_path)
+    monkeypatch.setattr('app._ensure_db', lambda: None)
+
+    from app import app
+    client = app.test_client()
+    resp = client.post('/api/v2/drafts/batch-publish', json={'draft_ids': [1]})
+
+    assert resp.status_code == 200
+    assert resp.get_json()['failed'] == []
+    assert len(added_tasks) == 1
+    assert added_tasks[0].platform == '京东京麦'
+    assert added_tasks[0].platform_type == 19
 
 
 def test_batch_publish_multi_account_yields_multi_tasks(tmp_path, monkeypatch):
@@ -213,7 +260,7 @@ def test_batch_publish_multi_account_yields_multi_tasks(tmp_path, monkeypatch):
     data = resp.get_json()
     assert len(data['task_ids']) == 2
     assert len(added_tasks) == 2
-    assert {t.platform for t in added_tasks} == {'xiaohongshu', 'douyin'}
+    assert {t.platform for t in added_tasks} == {'小红书', '抖音'}
 
 
 def test_batch_publish_partial_failure(tmp_path, monkeypatch):

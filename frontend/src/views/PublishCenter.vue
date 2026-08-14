@@ -3011,14 +3011,27 @@ async function publishAll() {
       if (group.key === 'toutiao') {
         console.log('[PublishCenter.publish] 今日头条参数: extendLink=' + publishData.extendLink + ' extendLinkUrl=' + publishData.extendLinkUrl + ' enableGenerateImage=' + publishData.enableGenerateImage + ' collection=' + publishData.collection)
       }
-      // 视频上传+发布可能很久（大文件/慢网/人机校验），设 4 小时超时
-      // 避免浏览器层提前断开导致「前端判失败但后端仍在跑」
-      await http.post('/postVideo', publishData, { timeout: 4 * 60 * 60 * 1000 })
-      publishResults.value.push({
-        label: account.name,
-        status: 'success',
-        message: '发布成功',
-      })
+      // 异步发布：POST 只做校验+入队，立即返回 taskId；浏览器自动化由
+      // 后端串行队列执行，前端轮询任务状态直到终态。根治「大视频上传
+      // 期间 HTTP 长连接被传输层/代理层掐断 → 前端误判失败 → 继续发
+      // 下一账号 → 多个浏览器并发发布」的问题。
+      const resp = await http.post('/postVideo', publishData)
+      const taskId = resp?.data?.taskId
+      if (!taskId) throw new Error('后端未返回发布任务 ID')
+      const final = await pollPublishStatus(taskId)
+      if (final.status === 'success') {
+        publishResults.value.push({
+          label: account.name,
+          status: 'success',
+          message: final.msg || '发布成功',
+        })
+      } else {
+        publishResults.value.push({
+          label: account.name,
+          status: 'error',
+          message: final.msg || '发布失败',
+        })
+      }
     } catch (error) {
       publishResults.value.push({
         label: account.name,
@@ -3042,6 +3055,35 @@ async function publishAll() {
     setTimeout(() => {
       batchPublishDialogVisible.value = false
     }, 1500)
+  }
+}
+
+// 轮询异步发布任务状态，直到 success / failed。
+// 用原生 fetch（同源）而非 axios：轮询期间的临时网络错误不应触发全局
+// 错误 toast；连续 30 次（约 1 分钟）查询失败才判定任务状态丢失。
+async function pollPublishStatus(taskId) {
+  const POLL_INTERVAL_MS = 2000
+  const MAX_CONSECUTIVE_ERRORS = 30
+  let errors = 0
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+    try {
+      const res = await fetch(`/postVideo/status/${encodeURIComponent(taskId)}`)
+      if (res.status === 404) {
+        return { status: 'failed', msg: '发布任务状态丢失（后端可能已重启），请在发布历史中确认结果' }
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const body = await res.json()
+      const st = body?.data?.status
+      if (st === 'success' || st === 'failed') {
+        return { status: st, msg: body?.data?.msg || '' }
+      }
+      errors = 0
+    } catch {
+      if (++errors >= MAX_CONSECUTIVE_ERRORS) {
+        return { status: 'failed', msg: '持续无法查询发布状态（网络异常），任务仍在后端执行，请在发布历史中确认结果' }
+      }
+    }
   }
 }
 

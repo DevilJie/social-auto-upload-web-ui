@@ -3,9 +3,26 @@ import json
 import sqlite3
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+
+def _wait_publish_done(client, resp, timeout=10.0):
+    """异步发布：轮询 /postVideo/status/<taskId> 直到终态，返回 (status, msg)。"""
+    body = resp.get_json() or {}
+    task_id = (body.get('data') or {}).get('taskId')
+    assert task_id, f"postVideo 应返回 taskId: {body}"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = client.get(f"/postVideo/status/{task_id}")
+        assert st.status_code == 200, f"status 查询失败: {st.status_code}"
+        task = st.get_json()["data"]
+        if task["status"] in ("success", "failed"):
+            return task["status"], task.get("msg", "")
+        time.sleep(0.05)
+    raise AssertionError("发布任务超时未结束")
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
@@ -322,6 +339,8 @@ def test_postvideo_stores_account_configs_with_string_key_douyin():
             "accountList": ["/tmp/cookie.json"],
         })
         assert r.status_code == 200, r.get_data(as_text=True)
+        status, _msg = _wait_publish_done(client, r)
+        assert status == "success"
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute(
@@ -357,6 +376,8 @@ def test_postvideo_stores_account_configs_with_string_key_xiaohongshu():
             "accountList": ["/tmp/cookie.json"],
         })
         assert r.status_code == 200, r.get_data(as_text=True)
+        status, _msg = _wait_publish_done(client, r)
+        assert status == "success"
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute(

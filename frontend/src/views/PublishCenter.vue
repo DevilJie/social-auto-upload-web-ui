@@ -365,46 +365,6 @@
             </div>
           </div>
 
-          <!-- 京东(京麦):创作声明 + 定时发布(硬编码,不依赖 settingsFields 通用渲染) -->
-          <template v-if="selectedPlatform === 'jingmai'">
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">创作声明</div>
-              <el-select
-                v-model="form.jdDeclaration"
-                placeholder="请选择创作声明"
-                size="small"
-                clearable
-                class="jd-full-width"
-              >
-                <el-option label="含AI生成内容" value="含AI生成内容" />
-                <el-option label="含虚构演绎内容" value="含虚构演绎内容" />
-                <el-option label="内容为转载" value="内容为转载" />
-                <el-option label="个人观点,仅供参考" value="个人观点,仅供参考" />
-                <el-option label="内容含营销广告" value="内容含营销广告" />
-                <el-option label="内容无需标注" value="内容无需标注" />
-              </el-select>
-            </div>
-            <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-              <div class="setting-label" :style="{ color: currentPlatformConfig.color }">定时发布</div>
-              <el-radio-group v-model="form.jdPublishType">
-                <el-radio value="now">立即发布</el-radio>
-                <el-radio value="schedule">定时发布</el-radio>
-              </el-radio-group>
-              <el-date-picker
-                v-if="form.jdPublishType === 'schedule'"
-                v-model="form.scheduleTime"
-                type="datetime"
-                placeholder="选择时间"
-                :disabled-date="scheduleDisabledDate"
-                :disabled-hours="() => scheduleDisabledHours('scheduleTime')"
-                :disabled-minutes="(h) => scheduleDisabledMinutes('scheduleTime', h)"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                size="small"
-                class="jd-full-width"
-              />
-            </div>
-          </template>
-
           <!-- 平台特有配置（抖音专属卡片 + settingsFields 合并到同一网格） -->
           <div class="settings-grid">
             <!-- 抖音专属卡片 -->
@@ -1256,7 +1216,7 @@ const platformConfigs = reactive({
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
-  jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdNovelData: null, jdDeclaration: '', jdPublishType: 'now', scheduleTime: '', tags: [] },
+  jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdNovelData: null, jdDeclaration: '', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1404,23 +1364,11 @@ function removeGuangheItem(fieldKey, idx) {
 }
 
 // ========== 京东: 关联商品 picker 方法 ==========
-// 从已勾选的账号中任选一个京东京麦账号(platform_id=19)
-function findAnyJdAccountId() {
-  for (const id of publishAccountIds) {
-    const acc = accountStore.accounts.find(a => String(a.id) === String(id))
-    if (acc && (acc.type === 19 || acc.platform === '京东京麦')) {
-      return String(acc.id)
-    }
-  }
-  // 兜底:未勾选时,从 accountStore 找任一京东京麦账号
-  const anyAcc = accountStore.accounts.find(a => a.type === 19 || a.platform === '京东京麦')
-  return anyAcc ? String(anyAcc.id) : ''
-}
-
 function openJdPicker() {
-  const accountId = findAnyJdAccountId()
+  // 关联挂件数据按账号挂钩,必须选中账号(区域 v-if 已保证 selectedAccountId 非空,这里兜底)
+  const accountId = selectedAccountId.value
   if (!accountId) {
-    ElMessage.warning('请先添加至少一个京东账号')
+    ElMessage.warning('请先选择一个京东账号')
     return
   }
   jdPickerAccountId.value = accountId
@@ -1444,6 +1392,27 @@ watch(() => form.guangheLinkType, (newType, oldType) => {
     form.guangheShops = []
   } else if (newType === 'shop') {
     form.guangheProducts = []
+  }
+})
+
+watch(() => form.jdRelatedType, (newType, oldType) => {
+  if (newType === oldType) return
+  if (newType === 'product') {
+    form.jdNovel = ''
+    form.jdNovelData = null
+  } else if (newType === 'novel') {
+    form.jdProducts = []
+  }
+  // jdRelatedType 是平台级字段:主动写回 platformConfigs,并清掉账号级残留。
+  // 否则 watch(form) 的 diff 在值跟平台相同时跳过写回,accountOverrides 里残留
+  // 旧的 'novel'/'product',刷新时 resolveAccountConfig 读账号级旧值导致 radio 回跳。
+  if (platformConfigs.jingmai) {
+    platformConfigs.jingmai.jdRelatedType = newType
+  }
+  for (const aid of Object.keys(accountOverrides)) {
+    if (accountOverrides[aid] && 'jdRelatedType' in accountOverrides[aid]) {
+      delete accountOverrides[aid].jdRelatedType
+    }
   }
 })
 
@@ -2596,10 +2565,21 @@ async function publishAll() {
         continue
       }
 
-      // 标题长度校验（如小红书 ≤ 20 字）
-      const titleResult = validateTitleForPlatform(platformKey, merged.title)
-      if (!titleResult.ok) {
-        accountsVideoInvalid.push(`${account.name}(${group.name}): ${titleResult.error}`)
+      // 标题长度校验（如小红书 ≤ 20 字）。京东标题有专属校验块（类型「京东标题」），
+      // 这里排除 jingmai 避免重复归类到「视频校验」。
+      if (platformKey !== 'jingmai') {
+        const titleResult = validateTitleForPlatform(platformKey, merged.title)
+        if (!titleResult.ok) {
+          accountsVideoInvalid.push(`${account.name}(${group.name}): ${titleResult.error}`)
+        }
+      }
+
+      // 简介长度校验（B 站 ≤ 2000 字,emoji 按 3 算）
+      if (platformKey === 'bilibili') {
+        const descResult = validateDescForPlatform('bilibili', merged.description || '')
+        if (!descResult.ok) {
+          accountsVideoInvalid.push(`${account.name}(${group.name}): ${descResult.error}`)
+        }
       }
 
       const result = validateVideoForPlatform(platformKey, video.duration, video.size || 0)
@@ -2681,6 +2661,23 @@ async function publishAll() {
     errors.push({ type: '百家号描述/标签', accounts: baijiahaoAccountsNoTag })
   }
 
+  // ===== 京东专属校验:标题 5~27 字(emoji 按 3 算) =====
+  const jdAccountsTitleInvalid = []
+  for (const group of accountGroups.value) {
+    if (group.key !== 'jingmai') continue
+    for (const account of group.accounts) {
+      if (!publishAccountIds.has(account.id)) continue
+      const merged = resolveAccountConfig('jingmai', account.id)
+      const titleResult = validateTitleForPlatform('jingmai', merged.title || '')
+      if (!titleResult.ok) {
+        jdAccountsTitleInvalid.push(`${account.name}(京麦): ${titleResult.error}`)
+      }
+    }
+  }
+  if (jdAccountsTitleInvalid.length > 0) {
+    errors.push({ type: '京东标题', accounts: jdAccountsTitleInvalid })
+  }
+
   // ===== 抖音专属校验:话题总数 ≤ 5(描述 #xxx + 官方活动 + 标签) =====
   const douyinAccountsTooManyTopics = []
   for (const group of accountGroups.value) {
@@ -2760,58 +2757,6 @@ async function publishAll() {
       duration: 5000,
     })
     return
-  }
-
-  // 校验抖音平台话题总数(描述 #xxx + 官方活动 + 标签) ≤ 5
-  if (selectedPlatform.value === 'douyin') {
-    const dh = countDescriptionHashtags(form.description)
-    const ac = form.activityId?.length || 0
-    const tc = form.tags?.length || 0
-    const total = dh + ac + tc
-    if (total > 5) {
-      ElMessage.error(`抖音话题(${total}) 超过 5 个(描述#${dh} + 活动${ac} + 标签${tc})`)
-      return
-    }
-  }
-
-  // 校验小红书平台话题总数(描述 #xxx + 标签) ≤ 10
-  if (selectedPlatform.value === 'xiaohongshu') {
-    const dh = countDescriptionHashtags(form.description)
-    const tc = form.tags?.length || 0
-    const total = dh + tc
-    if (total > 10) {
-      ElMessage.error(`小红书话题(${total}) 超过 10 个(描述#${dh} + 标签${tc})`)
-      return
-    }
-    // 标题长度校验(≤ 20 字,emoji 按 3 算)
-    const titleResult = validateTitleForPlatform('xiaohongshu', form.title || '')
-    if (!titleResult.ok) {
-      ElMessage.error(titleResult.error)
-      return
-    }
-  }
-
-  // 校验快手平台标签 ≤ 4 个
-  if (selectedPlatform.value === 'kuaishou') {
-    const tc = form.tags?.length || 0
-    if (tc > 4) {
-      ElMessage.error(`快手标签最多 4 个,当前 ${tc} 个`)
-      return
-    }
-  }
-
-  // 校验 B 站标题≤80字 + 简介≤2000字(emoji 按 3 算)
-  if (selectedPlatform.value === 'bilibili') {
-    const titleResult = validateTitleForPlatform('bilibili', form.title || '')
-    if (!titleResult.ok) {
-      ElMessage.error(titleResult.error)
-      return
-    }
-    const descResult = validateDescForPlatform('bilibili', form.description || '')
-    if (!descResult.ok) {
-      ElMessage.error(descResult.error)
-      return
-    }
   }
 
   // ===== 表单校验全部通过后，进行 Cookie 预检 =====

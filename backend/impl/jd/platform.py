@@ -13,18 +13,21 @@
 import asyncio
 import logging
 import os
-import sqlite3
 import threading
 from pathlib import Path
 from queue import Queue
 
 from conf import BASE_DIR
-from util._logger import get_channel_logger
+from util._logger import bind_account_name, get_channel_logger
 
-from .._utils import save_login_result
+from .._utils import (
+    get_account_name_by_cookie_file,
+    parse_schedule_time,
+    save_login_result,
+)
 from ..base_platform import BasePlatform
 
-logger = get_channel_logger("jd")
+logger = get_channel_logger("jingmai")
 
 JD_PUBLISH_URL = "https://dr.jd.com/jm/#/n/publish-video.html?platform=jm-pop"
 JD_CREATOR_CENTER_URL = "https://dr.jd.com/jm/"
@@ -38,36 +41,9 @@ JD_COOKIE_INVALID_MARKERS = (
 # 视为已登录的域名
 JD_HOME_HOST = "dr.jd.com"
 
-JD_DRY_RUN = os.environ.get("JD_DRY_RUN", "").lower() in ("1", "true", "yes")
-# 反向开关:JD 端默认 dry-run(不真发布,只走完表单填写并截图)。
-# 设 JD_REAL_PUBLISH=1 才会真的点发布按钮 —— 防止测试表单时误发。
-# 显式 JD_DRY_RUN=0 也能关 dry-run(等价于 REAL_PUBLISH=1)。
-JD_REAL_PUBLISH = os.environ.get("JD_REAL_PUBLISH", "").lower() in ("1", "true", "yes")
-JD_DRY_RUN_DEFAULT = not JD_REAL_PUBLISH
-
-
-def _resolve_cookie_filename(account_id: str | None) -> str | None:
-    """根据 user_info.id 取 cookiesFile 路径(参考 jingmai/picker.py 的实现)。"""
-    if not account_id:
-        return None
-    db_path = Path(BASE_DIR / "db" / "database.db")
-    try:
-        with sqlite3.connect(str(db_path)) as conn:
-            row = conn.execute(
-                "SELECT filePath FROM user_info WHERE id = ?", (account_id,)
-            ).fetchone()
-        return row[0] if row else None
-    except Exception as e:
-        logger.warning("查询 cookie 文件名失败 (account_id=%s): %s", account_id, e)
-        return None
-
-
-def _resolve_cookie_path(cookie_filename: str | None) -> Path | None:
-    """把 cookiesFile 名字解析为绝对路径,文件不存在返回 None。"""
-    if not cookie_filename:
-        return None
-    p = Path(BASE_DIR / "cookiesFile") / cookie_filename
-    return p if p.exists() else None
+# 测试 dry-run 开关:JD_DRY_RUN=1 时跳过点击发布(只走完表单 + 截图 + 保持浏览器
+# 供人工检查)。默认关闭(真实发布)。与淘宝光合 GUANGHE_DRY_RUN 机制一致。
+_DRY_RUN_PUBLISH = bool(os.environ.get("JD_DRY_RUN"))
 
 
 class JdPlatform(BasePlatform):
@@ -260,121 +236,225 @@ class JdPlatform(BasePlatform):
     # ---------- 发布主流程 ----------
 
     def publish_video(self, **kwargs) -> bool:
-        """同步入口:被 app.py 调用。
+        """发布视频到京东(京麦)。接受 app.py 统一传入的标准 kwargs(与淘宝光合对齐)。
 
-        kwargs:
-            account_id: 账号 ID
-            video_path: 视频文件路径
-            title: 标题(必填,≤27 字)
-            cover_path: 封面图路径(可选)
-            jd_related_type: 'product' / 'novel' / ''
-            jd_products: list[dict](含 id + trace)
-            jd_novel: dict 或 ''
-            jd_declaration: str
-            schedule_time: str(ISO 格式)
+        接受的 kwargs:
+        - ``title`` (*str*) — 标题(≤27 字)
+        - ``files`` (*list[str]*) — 视频绝对路径列表
+        - ``account_file`` (*list[str]*) — cookie 文件名列表
+        - ``thumbnail_landscape_path`` / ``thumbnail_portrait_path`` — 封面
+        - ``enableTimer`` / ``schedule_time_str`` — 定时发布
+        - ``videos_per_day`` / ``daily_times`` / ``start_days`` — 自动排期
+        - ``video_format`` (*str*) — 'landscape'/'portrait'
+        - ``jd_related_type`` / ``jd_products`` / ``jd_novel`` / ``jd_declaration``
         """
-        try:
-            return asyncio.run(self._publish_async(**kwargs))
-        except Exception as e:
-            logger.exception("京东 publish_video 失败")
-            raise
+        async def _run():
+            logger.info("=" * 60)
+            logger.info("[发布视频] 开始京东视频发布流程")
+            logger.info("=" * 60)
 
-    async def _publish_async(self, **kwargs) -> bool:
-        """发布主流程(参考淘宝光合 platform.py L719-840)。"""
-        account_id = kwargs.get("account_id")
-        cookie_filename = _resolve_cookie_filename(account_id)
-        cookie_file = _resolve_cookie_path(cookie_filename)
+            for _k, _v in kwargs.items():
+                _vs = repr(_v)
+                if len(_vs) > 100:
+                    _vs = _vs[:100] + "..."
+                logger.info("[发布参数 RAW] %s = %s", _k, _vs)
 
-        if not cookie_file or not cookie_file.exists():
-            raise FileNotFoundError(f"cookie 不存在,请先登录: account_id={account_id}")
-
-        self.browser = await self.create_browser(headless=False)
-        ctx = await self.create_context(self.browser, storage_state=str(cookie_file))
-        self.page = await ctx.new_page()
-
-        try:
-            # 1. goto 发布页
-            await self._goto_publish_page()
-
-            # 2. 上传视频
-            video_path = kwargs.get("video_path")
-            if not video_path:
-                raise ValueError("video_path 必填")
-            await self._upload_video(Path(video_path))
-            await self._wait_upload_complete()
-
-            # 3. 设置封面(可选,京东有 * 必填但可接受默认封面)
-            cover_path = kwargs.get("cover_path")
-            if cover_path and Path(cover_path).exists():
-                await self._set_cover(Path(cover_path))
-
-            # 4. 填写标题
             title = kwargs.get("title", "")
-            await self._fill_title(title)
+            files = kwargs.get("files", [])
+            account_files = kwargs.get("account_file", [])
+            enable_timer = kwargs.get("enableTimer", False)
+            videos_per_day = kwargs.get("videos_per_day", 1)
+            daily_times = kwargs.get("daily_times")
+            start_days = kwargs.get("start_days", 0)
+            thumbnail_landscape = kwargs.get("thumbnail_landscape_path", "") or ""
+            thumbnail_portrait = kwargs.get("thumbnail_portrait_path", "") or ""
+            thumbnail_landscape_169 = kwargs.get("thumbnail_landscape_169_path", "") or ""
+            thumbnail_portrait_916 = kwargs.get("thumbnail_portrait_916_path", "") or ""
+            schedule_time_str = kwargs.get("schedule_time_str", "") or kwargs.get("schedule_time", "") or ""
+            video_format = kwargs.get("video_format", "") or ""
+            # 京东关联挂件
+            related_type = (kwargs.get("jd_related_type", "") or "").strip()
+            jd_products = kwargs.get("jd_products", []) or []
+            jd_novel = kwargs.get("jd_novel", "") or ""
+            jd_declaration = kwargs.get("jd_declaration", "") or ""
 
-            # 5. 关联挂件
-            related_type = kwargs.get("jd_related_type", "")
-            if related_type == "product" and kwargs.get("jd_products"):
-                await self._link_products(kwargs["jd_products"])
-            elif related_type == "novel" and kwargs.get("jd_novel"):
-                await self._select_novel(kwargs["jd_novel"])
+            # 规范化小说(字符串 → {title: s};dict 直接用)。前端现在传整个对象,
+            # 旧数据可能只有 title 字符串。
+            if isinstance(jd_novel, str):
+                jd_novel = {"title": jd_novel} if jd_novel else ""
 
-            # 6. 创作声明
-            declaration = kwargs.get("jd_declaration", "")
-            if declaration:
-                await self._set_declaration(declaration)
+            # 规范化关联商品(字符串 → {title: s};dict 直接用,最多 10 个)
+            link_items = []
+            for it in jd_products[:10]:
+                if isinstance(it, str):
+                    link_items.append({"title": it})
+                elif isinstance(it, dict):
+                    link_items.append(it)
 
-            # 7. 定时发布
-            schedule_time = kwargs.get("schedule_time", "")
-            if schedule_time:
-                await self._set_schedule_time(schedule_time)
+            cookie_paths = [str(Path(BASE_DIR / "cookiesFile") / f) for f in account_files]
+            file_paths = [str(f) for f in files]
 
-            # 8. dry-run:走完所有表单填写后,**不点发布按钮**,只打印表单预览 + 截图,
-            #    让用户能直接看到表单填得对不对。默认开启(JD_DRY_RUN_DEFAULT=True),
-            #    需真发布时设环境变量 JD_REAL_PUBLISH=1。
-            #    显式 JD_DRY_RUN=0 / JD_REAL_PUBLISH=1 关闭 dry-run。
-            dry_run = JD_DRY_RUN or JD_DRY_RUN_DEFAULT
-            if dry_run:
-                await self._dry_run_preview(kwargs)
-                logger.info("[JD dry-run] 跳过点击发布按钮(设 JD_REAL_PUBLISH=1 可真发布)")
-                return True
+            if not file_paths:
+                raise ValueError("files 不能为空")
+            if not cookie_paths:
+                raise ValueError("account_file 不能为空")
 
-            # 9. 点击发布按钮
-            await self._click_publish()
-            return await self._check_publish_success()
+            logger.info("[发布参数] 标题: %s", title)
+            logger.info("[发布参数] 文件数量: %d, 账号数量: %d", len(file_paths), len(cookie_paths))
+            logger.info("[发布参数] 关联类型: %s, 待关联商品数: %d", related_type or "无", len(link_items))
+            logger.info("[发布参数] 创作声明: %s", jd_declaration or "无")
+
+            publish_datetimes = parse_schedule_time(
+                schedule_time_str, len(file_paths), enable_timer,
+                videos_per_day, daily_times, start_days,
+            )
+
+            for index, file_path in enumerate(file_paths):
+                # 根据视频方向选对应格式封面(横版→16:9,竖版→9:16,兜底普通横竖)
+                if video_format == "landscape":
+                    picked_thumb = (thumbnail_landscape_169 or thumbnail_landscape
+                                    or thumbnail_portrait_916 or thumbnail_portrait)
+                else:
+                    picked_thumb = (thumbnail_portrait_916 or thumbnail_portrait
+                                    or thumbnail_landscape_169 or thumbnail_landscape)
+
+                publish_date = (
+                    publish_datetimes[index]
+                    if isinstance(publish_datetimes, list)
+                    else publish_datetimes
+                )
+
+                for cookie_path in cookie_paths:
+                    cookie_name = Path(cookie_path).name
+                    nick = get_account_name_by_cookie_file(cookie_name)
+                    with bind_account_name(nick or "-"):
+                        await self._upload_single_video(
+                            title=title,
+                            file_path=file_path,
+                            publish_date=publish_date,
+                            account_file=cookie_path,
+                            thumbnail_path=picked_thumb,
+                            related_type=related_type,
+                            link_items=link_items,
+                            jd_novel=jd_novel,
+                            jd_declaration=jd_declaration,
+                        )
+
+            logger.info("=" * 60)
+            logger.info("[发布视频] 京东视频发布流程完成!")
+            logger.info("=" * 60)
+
+        asyncio.run(_run())
+        return True
+
+    async def _upload_single_video(
+        self,
+        title: str,
+        file_path: str,
+        publish_date,
+        account_file: str,
+        thumbnail_path: str | None = None,
+        related_type: str = "",
+        link_items: list = None,
+        jd_novel: str = "",
+        jd_declaration: str = "",
+    ) -> None:
+        """上传单个视频到一个京东账号。失败时 raise(异常传到 publish_video → app.py)。"""
+        from . import _jd_link_ops as link_ops
+
+        log_dir = Path(BASE_DIR / "logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(browser, storage_state=account_file)
+            try:
+                page = await context.new_page()
+
+                # 0. goto 发布页(带 cookie,直接深链,跳过首页导航)
+                await page.goto(JD_PUBLISH_URL, wait_until="domcontentloaded", timeout=30000)
+
+                # cookie 失效会被重定向到登录页
+                current_url = page.url or ""
+                if any(m in current_url for m in JD_COOKIE_INVALID_MARKERS):
+                    raise RuntimeError("京东 cookie 失效,请重新登录")
+
+                # 京东微前端:表单在 iframe 里,不在 top frame。找 iframe 后全部操作都进 iframe。
+                frame = await link_ops.wait_publish_frame(page, timeout=20)
+                logger.info("[上传视频] ✓ iframe=%s", frame.url)
+                await frame.wait_for_selector(
+                    ".video-upload-wrapper", timeout=15_000, state="visible",
+                )
+                await asyncio.sleep(1)
+
+                # 设置实例属性,让辅助方法(_upload_video 等)复用 self.frame
+                self.browser = browser
+                self.page = page
+                self.frame = frame
+
+                # 1. 上传视频
+                await self._upload_video(Path(file_path))
+                await self._wait_upload_complete()
+
+                # 2. 封面(可选)
+                if thumbnail_path and Path(thumbnail_path).exists():
+                    await self._set_cover(Path(thumbnail_path))
+
+                # 3. 标题
+                await self._fill_title(title)
+
+                # 4. 关联挂件
+                if related_type == "product" and link_items:
+                    await self._link_products(link_items)
+                elif related_type == "novel" and jd_novel:
+                    await self._select_novel(jd_novel)
+
+                # 5. 创作声明
+                if jd_declaration:
+                    await self._set_declaration(jd_declaration)
+
+                # 6. 定时发布
+                if publish_date and hasattr(publish_date, "strftime"):
+                    await self._set_schedule_time(publish_date)
+
+                # 提交前截图(用 page 截全页含 iframe)
+                try:
+                    await page.screenshot(
+                        path=str(log_dir / "jd_before_submit.png"), full_page=True,
+                    )
+                except Exception:
+                    pass
+
+                # 7. dry-run 或 点击发布
+                if _DRY_RUN_PUBLISH:
+                    logger.info("[上传视频] 🐛 DRY_RUN 跳过点击发布,浏览器保持打开,供人工检查")
+                    logger.info("[上传视频] 🐛 当前状态: 标题/封面/关联挂件/声明/定时 已填好")
+                    try:
+                        await page.screenshot(path=str(log_dir / "jd_dry_run.png"), full_page=True)
+                    except Exception:
+                        pass
+                    try:
+                        logger.info("[上传视频] 🐛 等待浏览器关闭(请手动关闭)...")
+                        await page.wait_for_event("close", timeout=0)
+                    except Exception:
+                        pass
+                else:
+                    await self._click_publish()
+                    await self._check_publish_success()
+            finally:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
         finally:
-            await self.close_browser(self.browser, is_close_by_code=True)
+            try:
+                await self.close_browser(browser, is_close_by_code=True)
+            except Exception:
+                pass
             self.browser = None
             self.page = None
             self.frame = None
-
-    async def _goto_publish_page(self):
-        """goto 发布页 + 进 iframe + 等表单渲染。
-
-        关键:京东是微前端架构,top frame 只是主壳,真正的发布表单在 iframe 里。
-        所有后续表单操作都用 self.frame,不能用 self.page(否则永远找不到元素)。
-        """
-        from backend.impl.jd import _jd_link_ops as link_ops
-
-        # 1. domcontentloaded 快速返回(不用 networkidle,见 picker.py 同样优化)
-        await self.page.goto(JD_PUBLISH_URL, wait_until="domcontentloaded")
-
-        # 2. cookie 失效检测
-        current_url = self.page.url or ""
-        if any(m in current_url for m in JD_COOKIE_INVALID_MARKERS):
-            raise RuntimeError("cookie 失效,请重新登录京东")
-
-        # 3. 等发布表单 iframe 出现
-        self.frame = await link_ops.wait_publish_frame(self.page, timeout=20)
-        logger.info(f"[JD][publish] ✓ iframe={self.frame.url}")
-
-        # 4. 在 iframe 里等表单关键元素
-        await self.frame.wait_for_selector(
-            ".video-upload-wrapper",
-            timeout=15_000,
-            state="visible",
-        )
-        await asyncio.sleep(1)
+            logger.info("[上传视频] 浏览器已关闭")
 
     # ---------- 视频上传 ----------
 
@@ -390,6 +470,7 @@ class JdPlatform(BasePlatform):
         file_input = await self.frame.wait_for_selector(
             ".video-upload-wrapper input[type='file']",
             timeout=10_000,
+            state="attached",  # 京东 file input 是 display:none,不能等 visible
         )
         await file_input.set_input_files(str(video_path.absolute()))
 
@@ -462,6 +543,7 @@ class JdPlatform(BasePlatform):
         file_input = await self.frame.wait_for_selector(
             "._local-upload-localupload-upload-input_1vrwk_331",
             timeout=10_000,
+            state="attached",  # 隐藏 file input
         )
         await file_input.set_input_files(str(cover_path.absolute()))
 
@@ -530,7 +612,7 @@ class JdPlatform(BasePlatform):
             return
 
         # 0. import link_ops
-        from backend.impl.jd import _jd_link_ops as link_ops
+        from . import _jd_link_ops as link_ops
 
         # 1. 打开抽屉
         await link_ops.switch_radio(self.frame, "product")
@@ -543,6 +625,8 @@ class JdPlatform(BasePlatform):
             trace = item.get("trace") or {}
             sig = link_ops.trace_signature(trace)
             groups.setdefault(sig, []).append(item)
+
+        logger.info(f"[关联商品] 待关联 items: {items}")
 
         # 3. 每组重走
         for (keyword, page), group_items in groups.items():
@@ -578,10 +662,15 @@ class JdPlatform(BasePlatform):
 
             # 4. 精准勾选
             target_ids = [it.get("id", "") for it in group_items if it.get("id")]
+            logger.info(f"[关联商品] keyword={keyword!r} page={page} target_ids={target_ids}")
             if not target_ids:
                 raise RuntimeError(f"商品组 (keyword={keyword!r}, page={page}) 缺少 id")
 
             result = await link_ops.locate_and_check(self.frame, target_ids)
+            logger.info(
+                f"[关联商品] locate 结果: checked={result.checked} "
+                f"already={result.already} disabled={result.disabled} missing={result.missing}"
+            )
             if result.missing:
                 raise RuntimeError(
                     f"关联商品失败,未找到商品(sku_id): {result.missing}"
@@ -589,7 +678,8 @@ class JdPlatform(BasePlatform):
             if result.disabled:
                 logger.warning(f"以下商品已下架,无法勾选: {result.disabled}")
 
-        # 5. 关闭抽屉
+        # 5. 等所有勾选的 React 状态更新完成,再点「确定」(否则确定先于勾选生效)
+        await asyncio.sleep(1.0)
         await link_ops.click_confirm(self.frame)
 
     async def _select_novel(self, novel):
@@ -598,7 +688,7 @@ class JdPlatform(BasePlatform):
         Args:
             novel: {"title": str, "image": str, "id": str}
         """
-        from backend.impl.jd import _jd_link_ops as link_ops
+        from . import _jd_link_ops as link_ops
 
         # 1. 切到小说 radio
         await link_ops.switch_radio(self.frame, "novel")
@@ -614,58 +704,59 @@ class JdPlatform(BasePlatform):
 
         DOM 锚点:
         - 触发:  .content-declaration-wrapper .jd-select
-        - 下拉:  .rc-virtual-list-holder-inner
         - 项:    .jd-select-item-option[label='{declaration}']
+                 (京东创作声明选项带 label 属性,如 label="含AI生成内容")
+
+        注意:不能用 .rc-virtual-list-holder-inner 等下拉出现 —— 页面有 2 个
+        holder(创作声明 + 小说残留),wait_for_selector(state=visible) 只等第一个,
+        而第一个不可见会超时。改用 label 精确匹配 + 轮询等下拉渲染。
         """
-        # 1. 点 .content-declaration-wrapper .jd-select
+        # 1. 点创作声明 select
         select = await self.frame.wait_for_selector(
             ".content-declaration-wrapper .jd-select",
             timeout=10_000,
         )
         await select.click()
-        await asyncio.sleep(0.5)
 
-        # 2. 等下拉出现
-        await self.frame.wait_for_selector(
-            ".rc-virtual-list-holder-inner",
-            timeout=10_000,
-            state="visible",
-        )
-        await asyncio.sleep(0.3)
+        # 2. 轮询等目标选项(用 label 精确匹配)出现
+        target = None
+        deadline = asyncio.get_event_loop().time() + 10
+        while asyncio.get_event_loop().time() < deadline:
+            items = await self.frame.query_selector_all(
+                f".jd-select-item-option[label='{declaration}']"
+            )
+            if items:
+                target = items[0]
+                break
+            await asyncio.sleep(0.3)
 
-        # 3. 点对应选项(用 label 属性精确匹配)
-        item_selector = f".jd-select-item-option[label='{declaration}']"
-        item = await self.frame.query_selector(item_selector)
-        if not item:
-            # 退而求其次:按文本匹配
-            items = await self.frame.query_selector_all(".jd-select-item-option")
-            for it in items:
-                lbl = await it.get_attribute("label")
-                if lbl and lbl.strip() == declaration:
-                    item = it
-                    break
-        if not item:
+        if not target:
             raise RuntimeError(f"创作声明选项未找到: {declaration}")
 
-        await item.click()
+        # 3. 点击选中
+        await target.click()
         await asyncio.sleep(0.5)
 
-    async def _set_schedule_time(self, schedule_time: str):
+    async def _set_schedule_time(self, schedule_time):
         """设定时发布时间。
 
         京东定时发布:
         1. 切到 .pro-radio-group 内 value='2' 的 radio('定时发布')
-        2. 点 input[title](DatePicker 输入框),清空,fill ISO 时间
+        2. 点 input[title](DatePicker 输入框),清空,fill 时间
         3. 在弹出的 DatePicker 中点确定按钮
+
+        schedule_time 是 datetime 对象(parse_schedule_time 返回),也兼容 str。
         """
         from datetime import datetime
 
         # 京东 DatePicker 接受 'YYYY-MM-DD HH:mm' 格式
-        try:
-            dt = datetime.fromisoformat(schedule_time)
-            formatted = dt.strftime("%Y-%m-%d %H:%M")
-        except ValueError:
-            formatted = schedule_time
+        if isinstance(schedule_time, datetime):
+            formatted = schedule_time.strftime("%Y-%m-%d %H:%M")
+        else:
+            try:
+                formatted = datetime.fromisoformat(str(schedule_time)).strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                formatted = str(schedule_time)
 
         # 1. 切到定时发布 radio
         schedule_radio = await self.frame.wait_for_selector(
@@ -705,92 +796,6 @@ class JdPlatform(BasePlatform):
 
     # ---------- 发布 ----------
 
-    async def _dry_run_preview(self, kwargs: dict):
-        """dry-run 模式下打印表单预览 + 保存截图。
-
-        从 iframe DOM 抓"实际填进去的值"(不是 kwargs 传入值),让用户能直接看到
-        React 是否正确接收了输入,以及关联挂件/声明是否真的选上了。
-        """
-        from datetime import datetime
-
-        logger.info("=" * 60)
-        logger.info("[JD dry-run] 表单预览(实际 DOM 抓取,非 kwargs)")
-        logger.info("=" * 60)
-
-        # 视频路径(kwargs 传入值,DOM 没法直接读出文件路径)
-        logger.info(f"  视频路径(kwargs): {kwargs.get('video_path')}")
-
-        # 标题(input#title 的实际 value)
-        try:
-            title_el = await self.frame.query_selector("input#title")
-            actual_title = await title_el.get_attribute("value") if title_el else ""
-            expected_title = (kwargs.get("title") or "")[:27]
-            mark = "✓" if actual_title == expected_title else "✗"
-            logger.info(f"  标题: {mark} actual={actual_title!r} expected={expected_title!r}")
-        except Exception as e:
-            logger.warning(f"  标题读取失败: {e}")
-
-        # 关联挂件类型(从 radio 选中态判断)
-        try:
-            radio_state = await self.frame.evaluate(
-                """() => {
-                    const checked = document.querySelector(
-                        '.jd-radio-wrapper.jd-radio-wrapper-checked input.jd-radio-input'
-                    );
-                    if (!checked) return {value: null, label: null};
-                    const label = checked.closest('.jd-radio-wrapper').textContent.trim();
-                    return {value: checked.getAttribute('value'), label};
-                }"""
-            )
-            logger.info(f"  关联挂件: value={radio_state.get('value')} label={radio_state.get('label')!r}")
-        except Exception as e:
-            logger.warning(f"  关联挂件 radio 读取失败: {e}")
-
-        # 已选商品数量(从 .addgoods-upload 的 N/10 文本)
-        try:
-            addgoods_text = await self.frame.evaluate(
-                """() => {
-                    const el = document.querySelector('.addgoods-upload');
-                    return el ? el.textContent.trim() : null;
-                }"""
-            )
-            logger.info(f"  添加商品卡片文本: {addgoods_text!r} (期望形如 'N/10')")
-        except Exception as e:
-            logger.warning(f"  商品计数读取失败: {e}")
-
-        # 创作声明(从 .content-declaration-wrapper .jd-select-title__selected 之类的文本)
-        try:
-            decl_text = await self.frame.evaluate(
-                """() => {
-                    const sel = document.querySelector('.content-declaration-wrapper .jd-select');
-                    if (!sel) return null;
-                    // jd-select 显示选中项的文本通常在 .jd-select-selection-item 或 select-selector 内
-                    return (sel.textContent || '').trim().slice(0, 60);
-                }"""
-            )
-            logger.info(f"  创作声明(select 文本): {decl_text!r} (期望={kwargs.get('jd_declaration')!r})")
-        except Exception as e:
-            logger.warning(f"  创作声明读取失败: {e}")
-
-        # 定时发布(kwargs 传入值)
-        if kwargs.get("schedule_time"):
-            logger.info(f"  定时发布(kwargs): {kwargs.get('schedule_time')}")
-
-        # 截图(保存到 data/logs/<date>/jd_dry_run_<timestamp>.png)
-        try:
-            from conf import BASE_DIR
-            today = datetime.now().strftime("%Y-%m-%d")
-            ts = datetime.now().strftime("%H%M%S")
-            log_dir = Path(BASE_DIR) / "logs" / today
-            log_dir.mkdir(parents=True, exist_ok=True)
-            shot_path = log_dir / f"jd_dry_run_{ts}.png"
-            await self.page.screenshot(path=str(shot_path), full_page=True)
-            logger.info(f"  截图: {shot_path}")
-        except Exception as e:
-            logger.warning(f"  截图失败: {e}")
-
-        logger.info("=" * 60)
-
     async def _click_publish(self, timeout: float = 30):
         """点发布按钮。
 
@@ -827,11 +832,12 @@ class JdPlatform(BasePlatform):
             True: 发布成功
         """
         deadline = asyncio.get_event_loop().time() + timeout
-        original_url = self.page.url
         while asyncio.get_event_loop().time() < deadline:
             url = self.page.url
-            # 简单判定:URL 跳出发布页 hash
-            if url != original_url and "publish-video.html" not in url:
+            # 判定:URL 跳出发布页(跳转到 content-list 等列表页/管理页)即成功。
+            # 不依赖 original_url 对比 —— _click_publish 里 sleep(2) 后页面可能已跳转,
+            # 若此时取 original_url 拿到的就是跳转后 URL,对比永远相等导致漏判。
+            if "dr.jd.com" in url and "publish-video" not in url:
                 logger.info(f"京东发布成功,跳转到: {url}")
                 return True
             # 检测成功提示 toast(只匹配精确 toast 容器,避免与表单校验态 jd-form-item-has-success 冲突)

@@ -322,7 +322,7 @@ class JingmaiPlatform(BasePlatform):
         登录后,直接使用 jd 平台的 publish_video 逻辑(上传/封面/标题/
         关联挂件/创作声明/定时发布/发布)。
         """
-        from backend.impl.jd.platform import JdPlatform
+        from ..jd.platform import JdPlatform
         jd = JdPlatform()
         return jd.publish_video(**kwargs)
 

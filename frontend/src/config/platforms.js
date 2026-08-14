@@ -715,7 +715,20 @@ export const PLATFORMS = {
     cssClass: 'jingmai',
     creatorUrl: 'https://dr.jd.com/jm/',
     hideFields: ['description', 'tags'],
-    settingsFields: [],  // 京东专属字段在 PublishCenter.vue 中硬编码
+    // 创作声明 + 定时发布都走 settingsFields 通用渲染,与其他平台布局一致
+    settingsFields: [
+      { key: 'jdDeclaration', label: '创作声明', type: 'select',
+        placeholder: '请选择创作声明',
+        options: [
+          { label: '含AI生成内容', value: '含AI生成内容' },
+          { label: '含虚构演绎内容', value: '含虚构演绎内容' },
+          { label: '内容为转载', value: '内容为转载' },
+          { label: '个人观点,仅供参考', value: '个人观点,仅供参考' },
+          { label: '内容含营销广告', value: '内容含营销广告' },
+          { label: '内容无需标注', value: '内容无需标注' },
+        ] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间' },
+    ],
     defaultSettings: {
       title: '',
       description: '',
@@ -723,7 +736,6 @@ export const PLATFORMS = {
       jdProducts: [],
       jdNovel: '',
       jdDeclaration: '',
-      jdPublishType: 'now',
       scheduleTime: '',
     },
   },

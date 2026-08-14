@@ -4,7 +4,7 @@
 - 同账号同时只能开一个 picker(避免资源竞争)
 - picker 与 platform 共享 _jd_link_ops(同一份 DOM 操作)
 
-浏览器策略:headless=False(调试期,用户能看到浏览器自动化操作)
+浏览器策略:headless=True(无头模式,关联挂件自动化不打扰用户)
 """
 
 import asyncio
@@ -79,8 +79,8 @@ class JdPickerSession:
         storage_state = str(cookie_path) if cookie_path and cookie_path.exists() else None
         logger.info(f"[JdPicker][{self.account_id}] init cookie={'有' if storage_state else '无'}")
 
-        # 调试期:有头模式
-        self.browser = await create_browser(headless=False)
+        # 无头模式:关联挂件浏览器自动化不打扰用户
+        self.browser = await create_browser(headless=True)
         if storage_state:
             ctx = await create_context(self.browser, storage_state=storage_state)
             self.page = await ctx.new_page()

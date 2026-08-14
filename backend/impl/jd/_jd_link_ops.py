@@ -252,7 +252,13 @@ async def search(frame, keyword: str):
     - **清空用 triple_click + Delete** 而非 fill(''):对 React 受控 input 更可靠。
     - **等卡片 OR 空状态**:0 结果时不再吃满 10s 超时(wait_search_results)。
     """
-    inp = await _find_search_input(frame)
+    # 轮询等搜索框出现(抽屉刚打开时搜索框可能还没渲染完,立即查会"未找到搜索框")
+    inp = None
+    for _ in range(30):  # 30 * 0.3s ≈ 9s
+        inp = await _find_search_input(frame)
+        if inp:
+            break
+        await sleep(0.3)
     if not inp:
         raise RuntimeError("未找到搜索框")
 
@@ -393,6 +399,7 @@ async def locate_and_check(frame, target_ids: list[str]) -> LocateResult:
         title_el = await card.query_selector("._sku-name_jvzh5_204")
         img_el = await card.query_selector("._sku-card-img_jvzh5_154")
         checkbox_el = await card.query_selector(".jd-checkbox-input")
+        checkbox_label = await card.query_selector(".jd-checkbox-wrapper")
 
         title = (await title_el.inner_text()).strip() if title_el else ""
         image = await img_el.get_attribute("src") if img_el else ""
@@ -418,7 +425,7 @@ async def locate_and_check(frame, target_ids: list[str]) -> LocateResult:
             disabled_attr = await checkbox_el.get_attribute("disabled")
             is_disabled = disabled_attr is not None
 
-        page_ids.append((sku_id, card, checkbox_el, is_checked, is_disabled))
+        page_ids.append((sku_id, card, checkbox_label, is_checked, is_disabled))
 
     # 桶分类
     found_ids = {pid for pid, *_ in page_ids}
@@ -426,7 +433,7 @@ async def locate_and_check(frame, target_ids: list[str]) -> LocateResult:
         if tid not in found_ids:
             result.missing.append(tid)
 
-    for pid, card, checkbox_el, is_checked, is_disabled in page_ids:
+    for pid, card, checkbox_label, is_checked, is_disabled in page_ids:
         if pid not in target_set:
             continue
         if is_disabled:
@@ -435,15 +442,19 @@ async def locate_and_check(frame, target_ids: list[str]) -> LocateResult:
         if is_checked:
             result.already.append(pid)
             continue
-        # 勾选
+        # 勾选:点 label(.jd-checkbox-wrapper 包裹 input,触发 React 勾选)。
+        # 直接点 .jd-checkbox-input(input 是 display:none)不触发勾选。
+        # 点击后必须等 React setState 更新完成,否则「确定」会先于勾选生效。
         try:
-            if checkbox_el:
-                await checkbox_el.click()
+            if checkbox_label:
+                await checkbox_label.click()
                 result.checked.append(pid)
+                await sleep(0.5)
             else:
                 # 退而求其次:点整张卡片
                 await card.click()
                 result.checked.append(pid)
+                await sleep(0.5)
         except Exception:
             result.missing.append(pid)
 

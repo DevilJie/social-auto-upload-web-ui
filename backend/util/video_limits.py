@@ -27,8 +27,8 @@ VIDEO_LIMITS: dict[str, dict] = {
     "weixin_gzh":    {"min_duration": 0, "max_duration": 3600,             "max_size": math.inf,     "max_title_length": 64, "max_desc_length": 300},
     # 淘宝光合: 时长≤30min(1800s), 文件≤1.5G, 标题≤30字, 描述(含#标签)≤1000字
     "taobao_guanghe": {"min_duration": 0, "max_duration": 1800,            "max_size": int(1.5 * 1024**3), "max_title_length": 30, "max_desc_length": 1000},
-    # 京东京麦: 暂不支持视频发布，占位宽松规则
-    "jingmai":        {"min_duration": 0, "max_duration": math.inf,        "max_size": math.inf,     "max_title_length": math.inf},
+    # 京东京麦: 标题 5~27 字
+    "jingmai":        {"min_duration": 0, "max_duration": math.inf,        "max_size": math.inf,     "min_title_length": 5, "max_title_length": 27},
 }
 
 
@@ -141,16 +141,18 @@ def validate_title_for_platform(platform_key: str, title: str) -> tuple[bool, st
         return True, ""
 
     name = _PLATFORM_NAMES.get(platform_key, platform_key)
+    min_len = limits.get("min_title_length", 0)
     max_len = limits.get("max_title_length", math.inf)
-    if max_len == math.inf:
-        return True, ""
 
     # 按 emoji=3 规则计算字符数
     title_len = 0
     for ch in (title or ""):
         title_len += 3 if ord(ch) > 0xFFFF else 1
 
-    if title_len > max_len:
+    if min_len and title_len < min_len:
+        return False, f"{name}：标题至少 {min_len} 个字 (当前 {title_len} 字)"
+
+    if max_len != math.inf and title_len > max_len:
         return False, (
             f"{name}：标题 {title_len} 字超过限制 (最多 {max_len} 字,emoji 按 3 算)"
         )

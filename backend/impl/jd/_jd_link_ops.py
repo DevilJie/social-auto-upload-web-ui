@@ -495,6 +495,109 @@ async def wait_novel_dropdown(frame, timeout: float = 10):
     )
 
 
+async def scrape_novels(frame) -> list[dict]:
+    """从当前下拉 DOM 抓小说候选列表。
+
+    返回:[{title, image, category, read_count, id}, ...]
+    - title:       .related-book-item-right-name inner_text
+    - image:       .crefe-custom-image[src]
+    - category:    .related-book-item-right-info 拆分 "|" 取 [0]
+    - read_count:  .related-book-item-right-info 拆分 "|" 取 [1] 中数字
+    - id:          留空字符串(DOM 里没有 book id,发布时按 title 选中即可,
+                   见 platform._select_novel)
+
+    注意:DOM 锚点参考用户提供的 2026-08-14 京东发布页快照。
+    """
+    items: list[dict] = []
+    options = await frame.query_selector_all(
+        ".rc-virtual-list-holder-inner .jd-select-item-option"
+    )
+    for opt in options:
+        try:
+            name_el = await opt.query_selector(".related-book-item-right-name")
+            img_el = await opt.query_selector(".crefe-custom-image")
+            info_el = await opt.query_selector(".related-book-item-right-info")
+
+            title = (await name_el.inner_text()).strip() if name_el else ""
+            image = (await img_el.get_attribute("src") or "") if img_el else ""
+            info = (await info_el.inner_text()).strip() if info_el else ""
+
+            # info 形如 "音乐舞蹈 | 142人已读"
+            category = ""
+            read_count = ""
+            if info:
+                parts = [p.strip() for p in info.split("|")]
+                if parts:
+                    category = parts[0]
+                if len(parts) >= 2:
+                    digits = "".join(c for c in parts[1] if c.isdigit())
+                    read_count = digits
+
+            items.append({
+                "id": "",
+                "title": title,
+                "image": image,
+                "category": category,
+                "read_count": read_count,
+            })
+        except Exception:
+            continue
+    return items
+
+
+async def search_novels(frame, keyword: str) -> list[dict]:
+    """打开小说 select + 输入 keyword + 等下拉 + 抓候选(不选中)。
+
+    用于前端下拉搜索预览(选中的逻辑在 select_novel,发布时调用)。
+
+    DOM 锚点(参考用户提供的 2026-08-14 快照):
+    - 小说 select: .jd-select-show-search(切到 novel radio 后出现)
+    - 搜索 input:  .jd-select-selection-search-input
+    - 下拉项容器: .rc-virtual-list-holder-inner
+    """
+    # 1. 点开小说 select(若未展开)
+    select = await frame.wait_for_selector(".jd-select-show-search", timeout=10_000)
+    is_expanded = await select.evaluate(
+        """el => {
+            const input = el.querySelector('input');
+            return input ? input.getAttribute('aria-expanded') === 'true' : false;
+        }"""
+    )
+    if not is_expanded:
+        await select.click()
+        await sleep(0.3)
+
+    # 2. 清空搜索 input(triple_click + Delete,React 受控 input 友好)
+    #    注意:页面有 3 个 .jd-select-selection-search-input(小说/创作声明/定时发布),
+    #    小说那个是非 readonly 且在当前展开的 .jd-select-show-search 里。
+    #    press_sequentially 是 Locator 方法,所以用 frame.locator() 拿 Locator。
+    search_input = frame.locator(
+        ".jd-select-show-search .jd-select-selection-search-input:not([readonly])"
+    )
+    await search_input.click(click_count=3)
+    await _page_of(frame).keyboard.press("Delete")
+    await sleep(0.2)
+
+    # 3. 输入 keyword(非空才输)
+    if keyword:
+        # press_sequentially 逐字输入,React onChange 友好(参考 CLAUDE.md §6)
+        await search_input.press_sequentially(keyword, delay=100)
+
+    # 4. 等下拉出现(空 keyword 时下拉会显示历史/热门,也试着抓)
+    try:
+        await frame.wait_for_selector(
+            ".rc-virtual-list-holder-inner .jd-select-item-option",
+            timeout=5_000,
+            state="visible",
+        )
+    except Exception:
+        pass  # 兜底:超时也继续,让 scrape 抓当前
+    await sleep(0.3)
+
+    # 5. 抓候选
+    return await scrape_novels(frame)
+
+
 async def select_novel(frame, novel_title: str):
     """在小说下拉中按 title 文本选择。
 
@@ -518,9 +621,12 @@ async def select_novel(frame, novel_title: str):
     await sleep(0.5)
 
     # 2. 找到搜索 input 并 type
-    search_input = await frame.wait_for_selector(
-        ".jd-select-selection-search-input",
-        timeout=10_000,
+    #    小说搜索框是非 readonly 且在当前展开的 .jd-select-show-search 里,
+    #    页面另有两个 readonly 的同名 input(创作声明/定时发布),必须排除。
+    #    press_sequentially 是 Locator 方法,这里用 frame.locator() 而非
+    #    wait_for_selector(返回 ElementHandle,没有 press_sequentially)
+    search_input = frame.locator(
+        ".jd-select-show-search .jd-select-selection-search-input:not([readonly])"
     )
     await search_input.click()
     # 用 press_sequentially 逐字输入(React 富文本友好,见 CLAUDE.md §6)

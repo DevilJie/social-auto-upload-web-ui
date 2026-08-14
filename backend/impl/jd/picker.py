@@ -65,13 +65,11 @@ class JdPickerSession:
         """等发布表单 iframe(委托给 link_ops.wait_publish_frame 公共函数)。"""
         return await link_ops.wait_publish_frame(self.page, timeout=timeout)
 
-    async def open(self) -> dict:
-        """启动浏览器进入选择面板,返回首屏数据。
+    async def _init_browser_and_frame(self):
+        """启动浏览器 + goto 发布页 + 进 iframe。
 
-        Returns:
-            {"products": [...], "total": int}
-            total 是分页器显示的总条数(从 .jd-pagination-total-text 抓),
-            用于前端分页器渲染;抓不到时为 0,前端兜底按当前页条数估算。
+        只负责建立 self.browser / self.page / self.frame,不切 radio、不开抽屉。
+        具体 UI 操作由 open()(商品) / novel_search()(小说) 各自做。
         """
         if self.browser is not None:
             raise RuntimeError(f"picker session 已存在: {self.account_id}")
@@ -79,7 +77,7 @@ class JdPickerSession:
         cookie_filename = _get_cookie_path_by_account_id(self.account_id)
         cookie_path = _resolve_cookie_path(cookie_filename) if cookie_filename else None
         storage_state = str(cookie_path) if cookie_path and cookie_path.exists() else None
-        logger.info(f"[JdPicker][{self.account_id}] open() cookie={'有' if storage_state else '无'}")
+        logger.info(f"[JdPicker][{self.account_id}] init cookie={'有' if storage_state else '无'}")
 
         # 调试期:有头模式
         self.browser = await create_browser(headless=False)
@@ -92,9 +90,8 @@ class JdPickerSession:
 
         # goto 发布页 —— 用 domcontentloaded 而不是 networkidle:
         # networkidle 要等 500ms 内零网络活动,但京东 SPA 有持续 polling/上报,
-        # 实测会吃满 30s 超时再走降级,首屏"打开页面 → 点击添加商品"之间肉眼可见卡顿。
-        # domcontentloaded 只要 HTML 解析完就返回,后续靠 _wait_publish_frame
-        # polling(0.3s 周期)等 iframe 出现,比 networkidle 快几秒。
+        # 实测会吃满 30s 超时再走降级。domcontentloaded 只要 HTML 解析完就返回,
+        # 后续靠 _wait_publish_frame polling(0.3s 周期)等 iframe,快几秒。
         logger.info("[JdPicker] goto 京东发布页")
         await self.page.goto(
             "https://dr.jd.com/jm/#/n/publish-video.html?platform=jm-pop",
@@ -107,33 +104,18 @@ class JdPickerSession:
         if any(m in current_url for m in _COOKIE_INVALID_MARKERS):
             raise RuntimeError("cookie 失效,请重新登录京东")
 
-        # 京东 dr.jd.com 是微前端架构:
-        # - top frame (self.page) 只渲染"猜你想问"等 FAQ 引导内容
-        # - 真正的发布表单在 iframe (self.frame) 里
-        # 所以所有表单操作都必须在 iframe 上做。top frame 看到的"猜你想问"不是浮层,
-        # 是主壳内容,不用也无法关掉。
-
-        # 1. 等发布表单 iframe 出现
-        # 2. 在 iframe 里等 .addgoods-upload 出现(attached 即可,不要求 visible,
-        #    因为可能有残留浮层遮挡,但 JS click 可以绕过)
+        # 京东 dr.jd.com 是微前端架构:top frame (self.page) 只渲染"猜你想问"等 FAQ
+        # 引导内容,真正的发布表单在 iframe (self.frame) 里。所有表单操作都在 iframe 上做。
         logger.info("[JdPicker] 等发布表单 iframe 出现(最长 20s)")
         try:
             self.frame = await self._wait_publish_frame(timeout=20)
             logger.info(f"[JdPicker] ✓ iframe={self.frame.url}")
-            logger.info("[JdPicker] 等 .addgoods-upload 在 iframe 里出现(最长 20s)")
-            await self.frame.wait_for_selector(
-                ".addgoods-upload",
-                timeout=20_000,
-                state="attached",
-            )
         except Exception:
-            current_url = self.page.url or ""
             # 失败时 dump 整页状态帮助定位
             page_state = await self.page.evaluate(
                 """() => {
                     const out = {url: location.href, title: document.title, texts: '', classes: [], radio_count: 0, drawer_count: 0};
                     out.texts = (document.body && document.body.innerText || '').slice(0, 800);
-                    // 找带"商品"或"添加"或"发布"等关键字的元素 class
                     const interesting = new Set();
                     document.querySelectorAll('[class*="addgoods"], [class*="publish"], [class*="video-upload"], [class*="jd-radio"], [class*="jd-drawer"]').forEach(el => {
                         interesting.add(el.className.toString().slice(0, 200));
@@ -141,7 +123,6 @@ class JdPickerSession:
                     out.classes = Array.from(interesting).slice(0, 30);
                     out.radio_count = document.querySelectorAll('.jd-radio-wrapper, [class*="radio"]').length;
                     out.drawer_count = document.querySelectorAll('.jd-drawer-wrapper-body, [class*="drawer"]').length;
-                    // 看下所有 input file (发布页通常有视频上传)
                     out.file_inputs = document.querySelectorAll('input[type="file"]').length;
                     return out;
                 }"""
@@ -190,9 +171,21 @@ class JdPickerSession:
                     )
 
             raise RuntimeError(
-                f"未找到'添加商品'卡片,页面未渲染发布表单。"
-                f" URL={current_url}"
+                f"未找到发布表单 iframe。URL={self.page.url or ''}"
             )
+
+    async def open(self) -> dict:
+        """启动浏览器进入商品选择面板,返回首屏 {products, total}。"""
+        await self._init_browser_and_frame()
+
+        # 等 .addgoods-upload 在 iframe 里出现(attached 即可,不要求 visible,
+        # 因为可能有残留浮层遮挡,但 JS click 可以绕过)
+        logger.info("[JdPicker] 等 .addgoods-upload 在 iframe 里出现(最长 20s)")
+        await self.frame.wait_for_selector(
+            ".addgoods-upload",
+            timeout=20_000,
+            state="attached",
+        )
 
         # 切商品 radio(默认已是商品,但保险起见)
         logger.info("[JdPicker] 切商品 radio")
@@ -214,6 +207,23 @@ class JdPickerSession:
         total = await link_ops.scrape_total(self.frame)
         logger.info(f"[JdPicker] ✓ 首屏抓到 {len(products)} 个商品,共 {total} 条")
         return {"products": products, "total": total}
+
+    async def novel_search(self, keyword: str) -> dict:
+        """搜索小说关键词,返回 {novels: [...]}。
+
+        不依赖 open()(那是 product-specific 的)。第一次调用时自建浏览器 + iframe,
+        之后复用 session(切 radio 从 product 切回 novel 会自动关商品抽屉)。
+        """
+        if self.frame is None:
+            await self._init_browser_and_frame()
+
+        # 切到 novel radio(从 product 切过来会自动关抽屉)
+        await link_ops.switch_radio(self.frame, "novel")
+        await asyncio.sleep(0.5)
+
+        novels = await link_ops.search_novels(self.frame, keyword)
+        logger.info(f"[JdPicker] ✓ 小说搜到 {len(novels)} 个候选")
+        return {"novels": novels}
 
     async def _dismiss_help_dialog(self) -> None:
         """关闭京东发布页首屏的'猜你想问'帮助浮层。

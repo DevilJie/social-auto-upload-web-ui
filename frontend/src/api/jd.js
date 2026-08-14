@@ -14,4 +14,6 @@ export const jdApi = {
     http.post('/api/jd/picker/go_page', { accountId, page }),
   pickerClose: (accountId) =>
     http.post('/api/jd/picker/close', { accountId }),
+  novelSearch: (accountId, keyword) =>
+    http.post('/api/jd/novel/search', { accountId, keyword }),
 }

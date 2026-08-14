@@ -351,12 +351,16 @@
 
               <!-- 小说选择(下拉搜索) -->
               <div v-else-if="form.jdRelatedType === 'novel'" class="jd-novel-select">
-                <el-input
+                <RemoteSearchSelect
                   v-model="form.jdNovel"
+                  :data="form.jdNovelData"
+                  :fetcher="fetchJdNovels"
+                  :field-map="jdNovelFieldMap"
+                  search-mode="backend"
                   placeholder="输入小说名称搜索"
-                  clearable
+                  search-placeholder="输入关键词,按回车搜索小说"
+                  @change="handleJdNovelChange"
                 />
-                <!-- TODO: 替换为 RemoteSearchSelect,需确认 jd novel 搜索接口是否就绪 -->
               </div>
             </div>
           </div>
@@ -886,6 +890,7 @@ import { alipayApi } from '@/api/alipay'
 import { toutiaoApi } from '@/api/toutiao'
 import { weiboApi } from '@/api/weibo'
 import { weixinGzhApi } from '@/api/weixin_gzh'
+import { jdApi } from '@/api/jd'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
@@ -1178,6 +1183,7 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     jdRelatedType: accountOv?.jdRelatedType ?? platformOv?.jdRelatedType ?? platformDefault?.jdRelatedType ?? '',
     jdProducts: accountOv?.jdProducts ?? platformOv?.jdProducts ?? platformDefault?.jdProducts ?? [],
     jdNovel: accountOv?.jdNovel ?? platformOv?.jdNovel ?? platformDefault?.jdNovel ?? '',
+    jdNovelData: accountOv?.jdNovelData ?? platformOv?.jdNovelData ?? platformDefault?.jdNovelData ?? null,
     jdDeclaration: accountOv?.jdDeclaration ?? platformOv?.jdDeclaration ?? platformDefault?.jdDeclaration ?? '',
   }
 }
@@ -1250,7 +1256,7 @@ const platformConfigs = reactive({
     vivoDownloadPermission: '允许', scheduleTime: '', tags: [] },
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
-  jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdDeclaration: '', jdPublishType: 'now', scheduleTime: '', tags: [] },
+  jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdNovelData: null, jdDeclaration: '', jdPublishType: 'now', scheduleTime: '', tags: [] },
 })
 
 const accountOverrides = reactive({})
@@ -1679,6 +1685,28 @@ const douyinHotspotFieldMap = {
 function formatHotValue(value) {
   if (!value) return '0'
   return value >= 10000 ? (value / 10000).toFixed(1) + '万' : String(value)
+}
+
+// 京东小说 —— RemoteSearchSelect 数据源(后端搜索模式,必须传 keyword)
+async function fetchJdNovels(keyword) {
+  const resp = await jdApi.novelSearch(selectedAccountId.value || '', keyword || '')
+  return { list: resp.data?.novels || [] }
+}
+// 小说字段映射:title 书名(做 modelValue label),image 封面,desc 由分类+阅读人数拼出
+const jdNovelFieldMap = {
+  label: 'title',
+  key: 'title',
+  desc: (item) => [item.category, item.read_count ? `${item.read_count}人已读` : ''].filter(Boolean).join(' | '),
+  cover: 'image'
+}
+function handleJdNovelChange(novel) {
+  if (novel) {
+    form.jdNovel = novel.title
+    form.jdNovelData = novel
+  } else {
+    form.jdNovel = ''
+    form.jdNovelData = null
+  }
 }
 
 function handleDouyinTagSelect(tag) {
@@ -2335,6 +2363,7 @@ async function restoreDraft(draftId) {
       if (jd.jdRelatedType === undefined) jd.jdRelatedType = ''
       if (!Array.isArray(jd.jdProducts)) jd.jdProducts = []
       if (jd.jdNovel === undefined) jd.jdNovel = ''
+      if (jd.jdNovelData === undefined) jd.jdNovelData = null
       if (jd.jdDeclaration === undefined) jd.jdDeclaration = ''
     }
 
@@ -2976,7 +3005,7 @@ async function publishAll() {
                 trace: p?.trace,
               })
           .filter(p => p.title || p.id),
-        jdNovel: merged.jdNovel || '',
+        jdNovel: merged.jdNovelData || (merged.jdNovel ? { title: merged.jdNovel } : ''),
         jdDeclaration: merged.jdDeclaration || '',
         hotspot: merged.hotspotId || '',
         tag_type: merged.tagType || '',

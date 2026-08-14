@@ -126,6 +126,32 @@ def picker_search():
         return _err(str(e))
 
 
+@bp.route("/api/jd/novel/search", methods=["POST"])
+def novel_search():
+    """搜小说关键词,返回候选列表。
+
+    Body: {accountId, keyword}
+    返回: {code:200, data:{novels:[{title,image,category,read_count,id}, ...]}}
+
+    与商品 picker 不同:小说下拉搜索是 inline 触发的,不需要先 open。
+    session 不存在时自动 pool.create(内部 novel_search 第一次会自建浏览器+iframe)。
+    """
+    data = request.get_json() or {}
+    account_id = data.get("accountId")
+    keyword = data.get("keyword", "")
+    if not account_id:
+        return _err("accountId 不能为空", 400, 400)
+
+    # 小说搜索不要求 session 已存在;不存在则新建(pool.create 会销毁同账号旧 session)
+    session = pool.get(account_id) or pool.create(account_id)
+    try:
+        result = run_picker_async(session.novel_search(keyword), timeout=60)
+        return _ok({"novels": result["novels"]})
+    except Exception as e:
+        logger.exception("novel search failed")
+        return _err(f"搜索小说失败: {e}")
+
+
 @bp.route("/api/jd/picker/go_page", methods=["POST"])
 def picker_go_page():
     data = request.get_json() or {}

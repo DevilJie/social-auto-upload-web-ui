@@ -396,9 +396,20 @@ class JdPlatform(BasePlatform):
                 await self._upload_video(Path(file_path))
                 await self._wait_upload_complete()
 
-                # 2. 封面(可选)
+                # 2. 封面(可选)。京东要求封面上传文件必须 > 200KB,裁剪封面
+                #    通常只有几十 KB 会被拒。这里不改原文件,临时生成放大版
+                #    上传,用完后立即删除。
                 if thumbnail_path and Path(thumbnail_path).exists():
-                    await self._set_cover(Path(thumbnail_path))
+                    cover_path = Path(thumbnail_path)
+                    tmp_cover = _ensure_cover_min_size(cover_path)
+                    try:
+                        await self._set_cover(tmp_cover or cover_path)
+                    finally:
+                        if tmp_cover is not None:
+                            try:
+                                tmp_cover.unlink(missing_ok=True)
+                            except Exception:
+                                pass
 
                 # 3. 标题
                 await self._fill_title(title)
@@ -855,6 +866,72 @@ class JdPlatform(BasePlatform):
             await asyncio.sleep(1)
 
         raise RuntimeError("京东发布失败,未检测到 URL 跳转或成功提示")
+
+
+# ---------- 京东封面大小前置处理 ----------
+
+
+def _ensure_cover_min_size(cover_path: Path, min_size: int = 200 * 1024) -> Path | None:
+    """京东封面上传前置处理:确保文件大小达到 ``min_size``(默认 200KB)。
+
+    京东要求封面文件必须 > 200KB,而裁剪生成的封面通常只有几十 KB,直接
+    上传会被拒绝。这里**不改动原文件**,而是生成一个临时文件:
+      1. 原文件已达标 → 返回 ``None``(调用方直接用原文件);
+      2. 否则用 PIL 重新编码(quality=100、4:4:4 无色彩降采样),仍不达标则
+         等比放大尺寸重试,直到 >= min_size;
+      3. 返回临时文件路径,由调用方上传后删除。
+
+    处理失败(无 PIL / 文件损坏 / 放大后仍不达标)返回 ``None``,
+    退化为直接上传原文件(不影响原发布流程)。
+    """
+    try:
+        orig_size = cover_path.stat().st_size
+    except OSError:
+        return None
+    if orig_size >= min_size:
+        return None
+
+    try:
+        import tempfile
+
+        from PIL import Image
+
+        with Image.open(cover_path) as _im:
+            img = _im.convert("RGB")
+        width, height = img.size
+
+        # 等比放大上限:最长边不超过 4000px(防内存爆炸);不够再逐档 x1.5
+        max_scale = min(4000.0 / max(width, height, 1), 1.5 ** 8)
+        scale = 1.0
+        while scale <= max_scale:
+            if scale > 1.0:
+                out = img.resize(
+                    (max(1, int(width * scale)), max(1, int(height * scale))),
+                    Image.LANCZOS,
+                )
+            else:
+                out = img
+
+            fd, tmp_name = tempfile.mkstemp(suffix=".jpg", prefix="jd_cover_")
+            os.close(fd)
+            tmp_path = Path(tmp_name)
+            out.save(tmp_path, "JPEG", quality=100, subsampling=0)
+
+            size = tmp_path.stat().st_size
+            if size >= min_size:
+                logger.info(
+                    "[封面] 京东封面过小(%d bytes < %d bytes),已生成临时文件 %s (%d bytes, 放大 %.2fx)",
+                    orig_size, min_size, tmp_path.name, size, scale,
+                )
+                return tmp_path
+
+            tmp_path.unlink(missing_ok=True)
+            scale *= 1.5
+
+        return None
+    except Exception as e:
+        logger.warning("[封面] 京东封面放大处理失败,退化为上传原文件: %s", e)
+        return None
 
 
 # ---------- profile scraper ----------

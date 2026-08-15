@@ -23,11 +23,6 @@ data/data/logs/*
 data/*
 
 
-# Tauri
-src-tauri/target/
-src-tauri/src-tauri/
-*.pdb
-
 # Build outputs
 frontend-dist/
 
@@ -36,8 +31,6 @@ python/
 .gstack/
 docs/superpowers/.claude/
 .claude/
-src-tauri/bundle-resources/*
-src-tauri/*.exe
 data/frames/*
 data/image-publish/*
 data/materials/*

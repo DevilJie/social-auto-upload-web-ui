@@ -5,9 +5,9 @@
 **一站式多平台社交媒体自动发布工具** · 一个界面，把内容分发到全网
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.1-42b883.svg)](./changelog)
-[![Platforms](https://img.shields.io/badge/platforms-11-ff6b6b.svg)](#-支持平台)
-[![Tauri](https://img.shields.io/badge/Tauri-2-FFC131.svg)](https://tauri.app/)
+[![Version](https://img.shields.io/badge/version-1.2.5-42b883.svg)](./changelog)
+[![Platforms](https://img.shields.io/badge/platforms-19-ff6b6b.svg)](#-支持平台)
+[![GitHub stars](https://img.shields.io/github/stars/DevilJie/social-auto-upload-web-ui?style=social)](https://github.com/DevilJie/social-auto-upload-web-ui)
 
 🇨🇳 简体中文 ｜ 🇺🇸 [English](./docs/readme/en_us/README.md)
 
@@ -19,7 +19,7 @@
 
 **千帆云递（QianFan Sync）** 是一款现代化的多平台社交媒体自动发布工具，专注解决内容创作者「**一份素材、多端分发**」的痛点。
 
-无论你是个人博主、MCN 机构、企业新媒体运营，都需要在 10+ 个平台之间反复切换、重复粘贴上传——千帆云递把这一切收敛到**一个界面**：拖入视频/图集 → 勾选平台与账号 → 填写一次标题/标签/封面 → 一键发布，剩下的交给自动化。
+无论你是个人博主、MCN 机构、企业新媒体运营，都需要在十几个平台之间反复切换、重复粘贴上传——千帆云递把这一切收敛到**一个界面**：拖入视频/图集 → 勾选平台与账号 → 填写一次标题/标签/封面 → 一键发布，剩下的交给自动化。
 
 项目源自开源项目 [dreammis/social-auto-upload](https://github.com/dreammis/social-auto-upload)，在其 Playwright 自动化能力基础上**完全重写了前端交互**，提供可视化、可批量、可定时的发布体验。整体采用 **Vue 3 前端 + Python Flask 后端 + TypeScript MCP 服务** 的三层架构，以本地 Web 服务形式运行，数据全部留在本地。
 
@@ -27,7 +27,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| 🚀 **多平台一键发布** | 支持 11 个国内外主流平台，一次操作同步分发到多个账号 |
+| 🚀 **多平台一键发布** | 支持 19 个国内外主流平台，一次操作同步分发到多个账号 |
 | 🏷️ **账号标签体系** | 账号支持多标签管理，按标签/渠道多维度筛选目标账号 |
 | 📅 **定时发布** | 日历式排程，支持全量/增量两种批量定时应用模式 |
 | 🎬 **视频 + 图集双形态** | 既支持视频发布，也支持图文/图集发布（小红书、抖音等） |
@@ -43,23 +43,35 @@
 
 ## 🌐 支持平台
 
-目前接入 **11 个**主流平台：
+目前接入 **19 个**主流平台，覆盖图文、视频、电商种草、内容创作等场景：
 
 <table>
   <tr>
-    <td align="center"><img src="./frontend/src/assets/logos/xiaohongshu.png" width="40" /><br>小红书</td>
-    <td align="center"><img src="./frontend/src/assets/logos/shipinhao.png" width="40" /><br>视频号</td>
-    <td align="center"><img src="./frontend/src/assets/logos/douyin.png" width="40" /><br>抖音</td>
-    <td align="center"><img src="./frontend/src/assets/logos/kuaishou.png" width="40" /><br>快手</td>
-    <td align="center"><img src="./frontend/src/assets/logos/bilibili.png" width="40" /><br>哔哩哔哩</td>
-    <td align="center"><img src="./frontend/src/assets/logos/baijiahao.png" width="40" /><br>百家号</td>
+    <td align="center"><img src="./frontend/src/assets/logos/xiaohongshu.png" width="40" /><br><b>小红书</b><br><sub>id=1</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/shipinhao.png" width="40" /><br><b>视频号</b><br><sub>id=2</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/douyin.png" width="40" /><br><b>抖音</b><br><sub>id=3</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/kuaishou.png" width="40" /><br><b>快手</b><br><sub>id=4</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/bilibili.png" width="40" /><br><b>哔哩哔哩</b><br><sub>id=5</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="./frontend/src/assets/logos/tiktok.png" width="40" /><br>TikTok</td>
-    <td align="center"><img src="./frontend/src/assets/logos/youtube.png" width="40" /><br>YouTube</td>
-    <td align="center"><img src="./frontend/src/assets/logos/tengxunshipin.png" width="40" /><br>腾讯视频</td>
-    <td align="center"><img src="./frontend/src/assets/logos/aiqiyi.png" width="40" /><br>爱奇艺</td>
-    <td align="center"><img src="./frontend/src/assets/logos/weibo.png" width="40" /><br>微博</td>
+    <td align="center"><img src="./frontend/src/assets/logos/baijiahao.png" width="40" /><br><b>百家号</b><br><sub>id=6</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/tiktok.png" width="40" /><br><b>TikTok</b><br><sub>id=7</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/youtube.png" width="40" /><br><b>YouTube</b><br><sub>id=8</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/tengxunshipin.png" width="40" /><br><b>腾讯视频</b><br><sub>id=9</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/aiqiyi.png" width="40" /><br><b>爱奇艺</b><br><sub>id=10</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./frontend/src/assets/logos/weibo.png" width="40" /><br><b>微博</b><br><sub>id=11</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/alipay.png" width="40" /><br><b>支付宝</b><br><sub>id=12</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/toutiao.png" width="40" /><br><b>今日头条</b><br><sub>id=13</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/zhihu.png" width="40" /><br><b>知乎</b><br><sub>id=14</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/csdn.png" width="40" /><br><b>CSDN</b><br><sub>id=15</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./frontend/src/assets/logos/vivo.svg" width="40" /><br><b>VIVO</b><br><sub>id=16</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/weixin_gzh.png" width="40" /><br><b>微信公众号</b><br><sub>id=17</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/taobao_guanghe.png" width="40" /><br><b>淘宝光合</b><br><sub>id=18</sub></td>
+    <td align="center"><img src="./frontend/src/assets/logos/jingmai.png" width="40" /><br><b>京东京麦</b><br><sub>id=19</sub></td>
     <td align="center"></td>
   </tr>
 </table>
@@ -183,6 +195,7 @@ social-auto-upload-web-ui/
 ├── backend-mcp/           # TypeScript MCP 服务（对接 LLM / AI Agent）
 ├── changelog/             # 版本更新日志（HTML）
 ├── data/                  # 运行时数据（gitignored）：DB、cookies、日志、素材
+├── docs/                  # 设计文档与平台说明
 └── scripts/               # 构建与辅助脚本
 ```
 
@@ -198,6 +211,7 @@ social-auto-upload-web-ui/
 ├─────────────────────────────────────────────────────────┤
 │        平台自动化层 (Playwright + CloakBrowser)         │
 │   小红书 · 抖音 · B站 · 快手 · 视频号 · ...             │
+│   淘宝光合 · 京东京麦 · 知乎 · 微博 · 公众号 · ...     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -218,19 +232,19 @@ cd backend-mcp && npm test                        # MCP 服务测试（vitest）
 
 完整的版本更新日志见 [`changelog/`](./changelog) 目录。
 
-**v0.9.1**（2026.06.21）— 启动时自动补全存量视频时长：扫描数据库中时长为 0 的视频素材，后台逐条识别并写库（本地/S3 统一处理），全程打印进度日志，发布提交时再加一道同步兜底，彻底解决草稿/历史恢复绕过时长识别导致校验失效的问题。
+**v1.2.5**（2026.08.15）— 接入 **淘宝光合 + 京东京麦** 双平台 + 关联挂件 trace 快照改造 + `/postVideo` 异步化根治大视频超时。
 
-**v0.9.0**（2026.06.19）核心聚焦三大方向：
-
-- 🏷️ **账号标签体系** — 多标签管理、颜色随机、批量设置全链路打通
-- 🔍 **视频/图集标签过滤** — 双端接入标签筛选，三栏多选精确定位账号
-- ✨ **UI 界面焕新** — 登录弹窗重设计、必填字段标记、三栏布局改造
+**v1.2.4** — 草稿批量发布 platform 列存中文名 + 账号运营数据同步 + 视频号活动参与 + 全局下拉搜索组件重构。
 
 ---
 
 ## ⭐ Star History
 
 如果这个项目对你有帮助，欢迎点个 ⭐ Star 支持一下！
+
+<a href="https://github.com/DevilJie/social-auto-upload-web-ui">
+  <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/DevilJie/social-auto-upload-web-ui?style=for-the-badge&logo=github" />
+</a>
 
 <a href="https://star-history.com/#DevilJie/social-auto-upload-web-ui&Date">
   <picture>

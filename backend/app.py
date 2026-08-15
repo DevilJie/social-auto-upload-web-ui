@@ -71,6 +71,7 @@ logger.info(f"[Startup] Script: {__file__}")
 logger.info(f"[Startup] SAU_PORT={os.environ.get('SAU_PORT')}, SAU_DATA_DIR={os.environ.get('SAU_DATA_DIR')}")
 from impl.registry import get_platform
 from impl.settings import read_settings
+from services import publish_executor as _publish_exec
 
 app = Flask(__name__)
 CORS(app)
@@ -166,6 +167,14 @@ from blueprints.uploads_bp import uploads_bp  # noqa: E402
 app.register_blueprint(uploads_bp)
 logger.info("[Startup] uploads_bp registered OK")
 
+from blueprints.taobao_guanghe_bp import taobao_guanghe_bp  # noqa: E402
+app.register_blueprint(taobao_guanghe_bp)
+logger.info("[Startup] taobao_guanghe_bp registered OK")
+
+from blueprints.jd_bp import bp as jd_bp  # noqa: E402
+app.register_blueprint(jd_bp)
+logger.info("[Startup] jd_picker registered OK")
+
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 logger.info(f"[Startup] Frontend dir: {FRONTEND_DIR} (exists={FRONTEND_DIR.exists()})")
 
@@ -209,12 +218,12 @@ def _get_db_path():
 
 
 DB_PATH = _get_db_path()
-PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO", 17: "微信公众号"}
+PLATFORM_MAP = {1: "小红书", 2: "视频号", 3: "抖音", 4: "快手", 5: "B站", 6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频", 10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎", 15: "CSDN", 16: "VIVO", 17: "微信公众号", 18: "淘宝光合", 19: "京东京麦"}
 PLATFORM_ID_TO_KEY = {
     1: 'xiaohongshu', 2: 'channels', 3: 'douyin', 4: 'kuaishou', 5: 'bilibili',
     6: 'baijiahao', 7: 'tiktok', 8: 'youtube', 9: 'tencent_video', 10: 'iqiyi',
     11: 'weibo', 12: 'alipay', 13: 'toutiao', 14: 'zhihu', 15: 'csdn', 16: 'vivo',
-    17: 'weixin_gzh',
+    17: 'weixin_gzh', 18: 'taobao_guanghe', 19: 'jingmai', 20: 'jd',
 }
 
 
@@ -895,6 +904,60 @@ def _validate_publish_video(type_id, file_list):
     return validate_video_for_platform(platform_key, row["duration"], row["file_size"])
 
 
+def _enqueue_publish(platform, publish_kwargs, detail_id):
+    """把发布任务丢进后台串行执行器，立即返回 task_id。
+
+    发布（浏览器自动化）在 publish_executor 的单工作线程里执行：
+    - 任意时刻最多 1 个发布在跑，从根上杜绝并发开多个浏览器；
+    - HTTP 请求立即返回，前端轮询 /postVideo/status/<task_id> 拿结果，
+      大文件上传再久也不会出现「接口超时但后端还在发」。
+    发布结束后由 job 更新 publish_details / publish_batches。
+    """
+    publish_fn = platform.publish_video
+
+    def _job(task_id):
+        _publish_exec.mark_running(task_id)
+        try:
+            if asyncio.iscoroutinefunction(publish_fn):
+                result = asyncio.run(publish_fn(**publish_kwargs))
+            else:
+                result = publish_fn(**publish_kwargs)
+            now = datetime.now().isoformat()
+            if result:
+                # 先落库再更新任务状态：前端轮询到终态时，发布历史一定已写入
+                if detail_id:
+                    _update_publish_result(detail_id, 'success', now)
+                _publish_exec.mark_finished(task_id, 'success', '发布成功')
+            else:
+                _finish_publish_failed(
+                    task_id, detail_id, '发布失败：页面未跳转，表单校验未通过')
+        except asyncio.CancelledError:
+            # 用户手动关闭了浏览器 → _browser 的 watchdog cancel 了发布 task
+            logger.info("发布视频被取消：用户关闭了浏览器")
+            _finish_publish_failed(task_id, detail_id, '用户关闭了浏览器，发布已取消')
+        except Exception as e:
+            err_msg = str(e)
+            # 浏览器被用户关闭时, Playwright 操作会抛 "Target page, context or
+            # browser has been closed" / "Browser has been closed" 等。watchdog
+            # 0.5s 轮询可能慢于异常抛出, 此时异常先冒泡到这里, 转成友好提示。
+            if "has been closed" in err_msg or "Target page" in err_msg:
+                logger.info("发布视频被取消：用户关闭了浏览器")
+                msg = '用户关闭了浏览器，发布已取消'
+            else:
+                logger.info(f"发布视频时出错: {err_msg}")
+                msg = f'发布失败: {err_msg}'
+            _finish_publish_failed(task_id, detail_id, msg)
+
+    return _publish_exec.submit(_job)
+
+
+def _finish_publish_failed(task_id, detail_id, msg):
+    """发布 job 失败收尾：更新任务状态 + 发布历史明细（先落库再标记终态）。"""
+    if detail_id:
+        _update_publish_result(detail_id, 'failed', datetime.now().isoformat(), msg)
+    _publish_exec.mark_finished(task_id, 'failed', msg)
+
+
 @app.route('/postVideo', methods=['POST'])
 def postVideo():
     data = request.get_json()
@@ -953,11 +1016,8 @@ def postVideo():
             data['videoOrientation'] = 'horizontal' if db_video_format == 'landscape' else 'vertical'
             logger.info(f"[发布] 素材表 orientation 推导 video_format={db_video_format}")
 
-        # Some platforms have sync publish_video, others async.
-        # asyncio.run() only works with coroutines — calling it on a
-        # sync function that already uses asyncio.run() internally
-        # would pass a bool to asyncio.run() and throw.
-        # 提取新传入的参数
+        # 发布参数统一构建一份：协程/同步平台吃同一组 kwargs，
+        # 实际调用方式（asyncio.run / 直接调）由后台执行线程决定。
         activities = data.get('activities', [])
         hotspot = data.get('hotspot', '')
         tag_type = data.get('tag_type', '')
@@ -965,9 +1025,7 @@ def postVideo():
         mini_link = data.get('mini_link', '')
         mix_id = data.get('mix_id', '')
 
-        publish_fn = platform.publish_video
-        if asyncio.iscoroutinefunction(publish_fn):
-            result = asyncio.run(publish_fn(
+        publish_kwargs = dict(
                 title=data.get('title'),
                 files=file_list,
                 tags=data.get('tags'),
@@ -1054,114 +1112,46 @@ def postVideo():
                 is_original=data.get('isOriginal', False),
                 gzh_collection_name=data.get('gzhCollectionName', ''),
                 gzh_claim_source=data.get('gzhClaimSource', ''),
-            ))
-        else:
-            result = publish_fn(
-                title=data.get('title'),
-                files=file_list,
-                tags=data.get('tags'),
-                activities=activities,
-                account_file=data.get('accountList', []),
-                category=data.get('category'),
-                enableTimer=data.get('enableTimer'),
-                videos_per_day=data.get('videosPerDay'),
-                daily_times=data.get('dailyTimes'),
-                start_days=data.get('startDays'),
-                thumbnail_path=data.get('thumbnail', ''),
-                thumbnail_landscape_path=thumbnail_landscape,
-                thumbnail_portrait_path=thumbnail_portrait,
-                # 16:9 / 9:16 次尺寸封面(知乎横版视频用 16:9)
-                thumbnail_landscape_169_path=thumbnail_landscape_169,
-                thumbnail_portrait_916_path=thumbnail_portrait_916,
-                productLink=data.get('productLink', ''),
-                productTitle=data.get('productTitle', ''),
-                desc=data.get('description', ''),
-                schedule_time_str=data.get('scheduleTime', ''),
-                ai_content=data.get('aiContent', ''),
-                creation_declaration=data.get('creationDeclaration', ''),
-                # B 站转载来源(创作声明=转载 时必填)
-                bili_repost_source=data.get('biliRepostSource', ''),
-                risk_warning=data.get('riskWarning', ''),
-                enable_cash_activity=data.get('enableCashActivity', False),
-                supplementary_declaration=data.get('supplementaryDeclaration', ''),
-                is_draft=data.get('isDraft', False),
-                audience=data.get('audience', 'not_kids'),
-                altered_content=data.get('alteredContent', False),
-                hotspot=hotspot,
-                tag_type=tag_type,
-                tag_value=tag_value,
-                mini_link=mini_link,
-                mix_id=mix_id,
-                content_statement=data.get('contentStatement', ''),
-                content_statement2=data.get('contentStatement2', ''),
-                content_statement2_optional=data.get('contentStatement2Optional', ''),
-                weibo_collection=data.get('weiboCollection', ''),
-                author_statement=data.get('authorStatement', ''),
-                compilation=data.get('compilation', ''),
-                video_format=data.get('videoFormat', ''),
-                # 支付宝转载来源(作者声明=内容为转载 时必填)
-                reprint_url=data.get('reprintUrl', ''),
-                # 今日头条特有参数
-                enable_generate_image=data.get('enableGenerateImage', True),
-                collection_id=data.get('collection', ''),
-                extend_link=data.get('extendLink', False),
-                extend_link_url=data.get('extendLinkUrl', ''),
-                # 视频素材方向(horizontal/vertical/square),小红书据此选封面
-                video_orientation=data.get('videoOrientation', ''),
-                # 小红书合集(账号级配置,用 xhs_ 前缀避免与头条 collection_id 冲突)
-                xhs_collection_id=data.get('collectionId', ''),
-                xhs_collection_name=data.get('collectionName', ''),
-                # 小红书内容来源声明(平台级):自主拍摄/来源转载
-                xhs_source_type=data.get('xhsSourceType', ''),
-                xhs_shoot_location=data.get('xhsShootLocation', ''),
-                xhs_shoot_date=data.get('xhsShootDate', ''),
-                xhs_repost_source=data.get('xhsRepostSource', ''),
-                # B 站合集(账号级)
-                bili_collection_name=data.get('biliCollectionName', ''),
-                # 视频号合集(账号级)
-                channels_collection_name=data.get('channelsCollectionName', ''),
-                # 视频号位置(平台级,空=不显示位置)
-                channels_location_name=data.get('channelsLocationName', ''),
-                # 视频号活动(平台级,空=不参与活动)
-                channels_activity_name=data.get('channelsActivityName', ''),
-                # 视频号活动复合 id: name|creator_name,用于同名不同发起人的精确匹配
-                channels_activity_id=(data.get('channelsActivityData') or {}).get('activity_id', ''),
-                # 视频号视频标注(平台级):所有选项(含「无需标注」)都会去页面下拉真正选中
-                channels_mark_tag=data.get('channelsMarkTag', '无需标注'),
-                channels_shoot_date=data.get('channelsShootDate', ''),
-                channels_shoot_region=data.get('channelsShootRegion', []),
-                channels_repost_source=data.get('channelsRepostSource', ''),
-                # CSDN 是否推荐
-                recommend=data.get('recommend', False),
-                # VIVO 平台特有参数
-                vivo_location_name=data.get('vivoLocationName', ''),
-                vivo_distribution=data.get('vivoDistribution', False),
-                vivo_declaration=data.get('vivoDeclaration', ''),
-                vivo_privacy=data.get('vivoPrivacy', '公开'),
-                vivo_download_permission=data.get('vivoDownloadPermission', '允许'),
-                # 微信公众号特有参数
-                is_original=data.get('isOriginal', False),
-                gzh_collection_name=data.get('gzhCollectionName', ''),
-                gzh_claim_source=data.get('gzhClaimSource', ''),
-            )
-        if result:
-            return jsonify({"code": 200, "msg": "发布任务已提交", "data": None}), 200
-        else:
-            return jsonify({"code": 500, "msg": "发布失败：页面未跳转，表单校验未通过", "data": None}), 500
-    except asyncio.CancelledError:
-        # 用户手动关闭了浏览器 → watchdog/disconnected 监听 cancel 了 task
-        logger.info("发布视频被取消：用户关闭了浏览器")
-        return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
+                # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
+                guangheLinkType=data.get('guangheLinkType', ''),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
+        )
     except Exception as e:
-        err_msg = str(e)
-        # 浏览器被用户关闭时, Playwright 操作会抛 "Target page, context or
-        # browser has been closed" / "Browser has been closed" 等。watchdog
-        # 0.5s 轮询可能慢于异常抛出, 此时异常先冒泡到这里, 转成友好提示。
-        if "has been closed" in err_msg or "Target page" in err_msg:
-            logger.info("发布视频被取消：用户关闭了浏览器")
-            return jsonify({"code": 500, "msg": "用户关闭了浏览器，发布已取消"}), 500
-        logger.info(f"发布视频时出错: {err_msg}")
-        return jsonify({"code": 500, "msg": f"发布失败: {err_msg}", "data": None}), 500
+        logger.info(f"发布视频时出错: {str(e)}")
+        return jsonify({"code": 500, "msg": f"发布失败: {str(e)}", "data": None}), 500
+
+    # 异步发布：入队后台串行执行器，立即返回 taskId。根治「大视频上传
+    # 期间 HTTP 长连接被传输层掐断 → 前端判失败继续发下一账号 → 多个
+    # 浏览器并发发布」的问题（详见 services/publish_executor.py）。
+    detail_id = getattr(g, 'publish_detail_id', None)
+    task_id = _enqueue_publish(platform, publish_kwargs, detail_id)
+    return jsonify({"code": 200, "msg": "发布任务已提交", "data": {"taskId": task_id}}), 200
+
+
+@app.route('/postVideo/status/<task_id>', methods=['GET'])
+def postVideo_status(task_id):
+    """查询异步发布任务状态（前端在发布期间轮询本接口）。
+
+    data.status: queued | running | success | failed。
+    404 = 任务不存在（后端重启导致内存态丢失），结果以发布历史为准。
+    """
+    task = _publish_exec.get(task_id)
+    if task is None:
+        return jsonify({
+            "code": 404,
+            "msg": "任务不存在或已过期（后端可能已重启），请在发布历史中确认结果",
+            "data": None,
+        }), 404
+    return jsonify({"code": 200, "data": task}), 200
 
 
 @app.route('/postVideoBatch', methods=['POST'])
@@ -1229,6 +1219,18 @@ def postVideoBatch():
                     is_original=data.get('isOriginal', False),
                     gzh_collection_name=data.get('gzhCollectionName', ''),
                     gzh_claim_source=data.get('gzhClaimSource', ''),
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
+                # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
+                guangheLinkType=data.get('guangheLinkType', ''),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
                 ))
             else:
                 result = publish_fn(
@@ -1262,6 +1264,18 @@ def postVideoBatch():
                     is_original=data.get('isOriginal', False),
                     gzh_collection_name=data.get('gzhCollectionName', ''),
                     gzh_claim_source=data.get('gzhClaimSource', ''),
+                # 淘宝光合创作者声明
+                guanghe_claim=data.get('guangheClaim', ''),
+                # 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
+                guangheLinkType=data.get('guangheLinkType', ''),
+                guangheProducts=data.get('guangheProducts') or data.get('guangheProductNames') or [],
+                guangheShops=data.get('guangheShops') or data.get('guangheShopNames') or [],
+                # 京东平台特有参数
+                jd_related_type=data.get('jdRelatedType', ''),
+                jd_products=data.get('jdProducts') or data.get('jdProductNames') or [],
+                jd_novel=data.get('jdNovel', ''),
+                jd_declaration=data.get('jdDeclaration', ''),
+                schedule_time=data.get('scheduleTime', ''),
                 )
             if not result:
                 failures.append({"index": idx, "reason": "发布失败：页面未跳转"})
@@ -1452,12 +1466,14 @@ def _after_publish(response):
         if response.status_code == 200:
             try:
                 resp_data = json.loads(response.get_data(as_text=True))
-                if resp_data.get('code') == 200:
-                    _update_publish_result(g.publish_detail_id, 'success', now)
-                else:
-                    _update_publish_result(g.publish_detail_id, 'failed', now, resp_data.get('msg', ''))
             except (json.JSONDecodeError, ValueError):
-                _update_publish_result(g.publish_detail_id, 'success', now)
+                resp_data = {}
+            # 异步化改造后：带 taskId 的 200 只代表「已入队」，publish_details
+            # 的最终状态由后台执行线程在发布结束时更新，这里不碰。
+            # 其余 200（不应出现）按提交失败兜底。
+            if isinstance(resp_data.get('data'), dict) and resp_data['data'].get('taskId'):
+                return response
+            _update_publish_result(g.publish_detail_id, 'failed', now, resp_data.get('msg', '提交失败'))
         else:
             error_msg = ''
             try:

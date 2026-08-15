@@ -56,6 +56,10 @@ def _populate_registry() -> None:
         (15, ".csdn.platform", "CsdnPlatform"),
         (16, ".vivo.platform", "VivoPlatform"),
         (17, ".weixin_gzh.platform", "WeixinGzhPlatform"),
+        (18, ".taobao_guanghe.platform", "TaobaoGuanghePlatform"),
+        (19, ".jingmai.platform", "JingmaiPlatform"),
+        # jd (platform_id=20) 不单独注册 — jingmai 与 jd 是同一个产品(dr.jd.com/jm/),
+        # jingmai 平台的 publish_video 委托给 jd/platform.py 的 JdPlatform 实现。
     ]
 
     import importlib

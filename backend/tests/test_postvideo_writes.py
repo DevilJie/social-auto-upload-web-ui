@@ -4,9 +4,26 @@ import sys
 import json
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+
+def _wait_publish_done(client, resp, timeout=10.0):
+    """异步发布：轮询 /postVideo/status/<taskId> 直到终态，返回状态 dict。"""
+    body = resp.get_json() or {}
+    task_id = (body.get('data') or {}).get('taskId')
+    assert task_id, f"postVideo 应返回 taskId: {body}"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = client.get(f'/postVideo/status/{task_id}')
+        assert st.status_code == 200, f"status 查询失败: {st.status_code}"
+        task = st.get_json()['data']
+        if task['status'] in ('success', 'failed'):
+            return task
+        time.sleep(0.05)
+    raise AssertionError('发布任务超时未结束')
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -105,6 +122,10 @@ class TestPostVideoWrites(unittest.TestCase):
             'landscapeCoverMaterialId': 'mat-cover-l-1',
             'portraitCoverMaterialId': 'mat-cover-p-1',
         })
+        self.assertEqual(resp.status_code, 200)
+        # 异步发布：轮询任务状态到终态，再校验落库结果
+        task = _wait_publish_done(client, resp)
+        self.assertEqual(task['status'], 'success', f"发布任务失败: {task}")
         conn = sqlite3.connect(str(DB_PATH))
         conn.row_factory = sqlite3.Row
         batch = conn.execute("SELECT * FROM publish_batches WHERE id = 'batch-uuid-1'").fetchone()
@@ -117,6 +138,9 @@ class TestPostVideoWrites(unittest.TestCase):
         self.assertEqual(len(details), 1)
         d = details[0]
         self.assertEqual(d['batch_id'], 'batch-uuid-1')
+        # 异步执行完成后，detail 应被后台线程标成 success
+        self.assertEqual(d['status'], 'success')
+        self.assertIsNotNone(d['finished_at'])
         # 用 dict 比较避免依赖 JSON 字段顺序（Flask get_json 之后 key 顺序可能与发送时不同）
         self.assertEqual(json.loads(d['account_configs']), {
             'title': '测试视频', 'description': '描述', 'tags': ['标签1'],

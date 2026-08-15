@@ -28,6 +28,10 @@ export const VIDEO_LIMITS = {
   vivo:          { minDuration: 0,    maxDuration: 5400,         maxSize: 2 * GB, maxTitleLength: Infinity },
   // 微信公众号: 视频时长<1h, 标题≤64字, 描述(含#标签)≤300字
   weixin_gzh:    { minDuration: 0,    maxDuration: 3600,         maxSize: Infinity, maxTitleLength: 64, maxDescLength: 300 },
+  // 淘宝光合: 时长≤30min, 文件≤1.5G, 标题≤30字, 描述(含#标签)≤1000字
+  taobao_guanghe: { minDuration: 0,   maxDuration: 1800,         maxSize: 1.5 * GB, maxTitleLength: 30, maxDescLength: 1000 },
+  // 京东京麦: 标题 5~27 字
+  jingmai:        { minDuration: 0,   maxDuration: Infinity,     maxSize: Infinity, minTitleLength: 5, maxTitleLength: 27 },
 }
 
 const PLATFORM_NAMES = {
@@ -47,6 +51,8 @@ const PLATFORM_NAMES = {
   csdn: 'CSDN',
   vivo: 'VIVO',
   weixin_gzh: '微信公众号',
+  taobao_guanghe: '淘宝光合',
+  jingmai: '京东京麦',
 }
 
 export function formatSize(sizeBytes) {
@@ -132,8 +138,17 @@ export function validateTitleForPlatform(platformKey, title) {
   const limits = VIDEO_LIMITS[platformKey]
   if (!limits) return { ok: true, error: '', maxLength: Infinity, actualLength: 0 }
   const name = PLATFORM_NAMES[platformKey] || platformKey
+  const min = limits.minTitleLength || 0
   const max = limits.maxTitleLength
   const len = countCharsWithEmoji(title)
+  if (min && len < min) {
+    return {
+      ok: false,
+      maxLength: max,
+      actualLength: len,
+      error: `${name}：标题至少 ${min} 个字 (当前 ${len} 字)`,
+    }
+  }
   if (max === Infinity) return { ok: true, error: '', maxLength: Infinity, actualLength: len }
   if (len > max) {
     return {

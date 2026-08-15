@@ -544,7 +544,7 @@ const panelsProxy = reactive({
   get alipay() { return alipayPanelRef.value },
   get weixin_gzh() { return weixinGzhPanelRef.value },
 })
-const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy })
+const { applyImageBatchSet } = useImageBatchSetApply({ panels: panelsProxy, accountStore })
 // 渠道个性化可见平台列表：过滤掉被拉黑的平台
 const visibleImagePlatformsForCustomize = computed(() =>
   IMAGE_PLATFORMS.filter(p => !appStore.isPlatformDisabled(p.key))

@@ -4,6 +4,7 @@ import sys
 import json
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -195,6 +196,19 @@ class TestPostVideoPassthrough(unittest.TestCase):
             mock_get_platform.return_value = mock_platform
             r = client.post('/postVideo', json=payload)
             self.assertEqual(r.status_code, 200, f"postVideo 失败: {r.get_json()}")
+            # 异步发布：轮询任务状态直到终态（fake publish 秒完成）
+            body = r.get_json() or {}
+            task_id = (body.get('data') or {}).get('taskId')
+            self.assertTrue(task_id, f"postVideo 应返回 taskId: {body}")
+            deadline = time.time() + 10
+            task = None
+            while time.time() < deadline:
+                task = client.get(f'/postVideo/status/{task_id}').get_json()['data']
+                if task['status'] in ('success', 'failed'):
+                    break
+                time.sleep(0.05)
+            self.assertIsNotNone(task and task['status'] == 'success',
+                                 f"发布任务未成功: {task}")
 
         # 检查 DB
         with sqlite3.connect(str(DB_PATH)) as conn:

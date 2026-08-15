@@ -249,23 +249,50 @@ class JingmaiPlatform(BasePlatform):
             </div>
           </div>
 
-        京麦是 SPA，该卡片异步加载，必须先 wait_for_selector 等它出现，
+        京东首页内容已迁入微前端 iframe（<iframe class="micro-iframe"
+        src="/n/home.html?platform=jm-pop">），卡片不一定在主页面 DOM：
+        先探主页面，再枚举全部子 frame（micro-iframe 由 SPA 异步挂载，
+        每轮重新取 page.frames 快照），任一 scope 命中即在其中 evaluate。
+
+        京麦是 SPA，卡片异步加载，必须等 selector 出现再 evaluate，
         否则登录后/同步时立即 evaluate 会拿到空列表。
 
         返回 [{"name":"粉丝","num":"0"}, ...]，由 _build_stats 标准化。
         """
-        # 等运营卡片内的数据项渲染（最多 12s，SPA 异步加载兜底）
-        try:
-            await page.wait_for_selector(
-                '#homeAccountOperateCard .account-base-info-item',
-                timeout=12000,
+        selector = '#homeAccountOperateCard .account-base-info-item'
+
+        async def _find_scope(total_timeout: float):
+            """在主页面 + 全部子 frame 里找运营卡片，返回命中的 scope。"""
+            deadline = asyncio.get_event_loop().time() + total_timeout
+            while asyncio.get_event_loop().time() < deadline:
+                # 1) 主页面（历史布局：卡片直接挂在首页 DOM）
+                try:
+                    await page.wait_for_selector(selector, timeout=1000)
+                    return page
+                except Exception:
+                    pass
+                # 2) 子 frame（现布局：卡片在 iframe.micro-iframe 内）
+                for frame in list(page.frames):
+                    if frame is page.main_frame:
+                        continue
+                    try:
+                        await frame.wait_for_selector(selector, timeout=500)
+                        return frame
+                    except Exception:
+                        # frame 可能正被 SPA 重建（detached），跳过后下轮重枚举
+                        continue
+                await asyncio.sleep(0.5)
+            return None
+
+        scope = await _find_scope(12)
+        if scope is None:
+            logger.info(
+                f"[jingmai] 运营数据卡片未出现(主页面+子frame均未命中), url={page.url}"
             )
-        except Exception as e:
-            logger.info(f"[jingmai] 运营数据卡片未出现: {e}")
             return []
 
         try:
-            result = await page.evaluate(
+            result = await scope.evaluate(
                 '''() => {
                     const out = [];
                     // 精确 scope 到 #homeAccountOperateCard，避免误匹配页面其他位置

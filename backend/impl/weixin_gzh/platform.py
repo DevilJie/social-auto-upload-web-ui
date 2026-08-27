@@ -1176,7 +1176,7 @@ class WeixinGzhPlatform(BasePlatform):
         """填写描述(contenteditable ProseMirror),含 # 标签。
 
         DOM(文档): ``#guide_words_main .ProseMirror``(contenteditable)
-        desc 为空时回落 title;tags 拼成 ``#话题`` 追加。
+        desc 为空时保持为空(不回落 title);tags 拼成 ``#话题`` 追加。
         按 CLAUDE.md: contenteditable 用 press_sequentially 逐字符输入,
         比剪贴板粘贴/keyboard.type 更可靠地触发 React onChange。
         max_len 默认 300(视频),图集传 1000。
@@ -1184,8 +1184,8 @@ class WeixinGzhPlatform(BasePlatform):
         editor = page.locator("#guide_words_main .ProseMirror").first
         await editor.wait_for(state="visible", timeout=15000)
 
-        # 组装最终文本: desc(或回落 title) + # 话题
-        base = (desc or "").strip() or (title or "").strip()
+        # 组装最终文本: desc + # 话题（描述为空不回落标题）
+        base = (desc or "").strip()
         tag_parts = [f"#{t.strip()}" for t in (tags or []) if str(t).strip()]
         tag_text = " ".join(tag_parts)
         full = f"{base} {tag_text}".strip() if tag_text else base

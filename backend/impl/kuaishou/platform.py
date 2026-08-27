@@ -777,7 +777,8 @@ class KuaishouPlatform(BasePlatform):
             logger.info("[填写简介] 开始填写简介与标签...")
             await page.get_by_text("描述").locator("xpath=following-sibling::div").click()
             # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
-            await clear_and_type(page, desc or title)
+            # 描述为空时不再回落标题：描述就保持为空
+            await clear_and_type(page, desc)
             await page.keyboard.press("Enter")
             logger.info("[填写简介] 简介填写完成")
 

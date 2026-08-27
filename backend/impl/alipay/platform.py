@@ -1240,7 +1240,8 @@ class AlipayPlatform(BasePlatform):
         await textarea.wait_for(state="visible", timeout=10000)
 
         # 先填描述正文(不含 #话题,话题单独走联想)
-        text = (desc or title or "").strip()
+        # 描述为空时不再回落标题，保持为空
+        text = (desc or "").strip()
         if text:
             await textarea.click()
             await asyncio.sleep(0.2)

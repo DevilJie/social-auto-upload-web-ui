@@ -754,7 +754,8 @@ class BaijiahaoPlatform(BasePlatform):
         to trigger the topic search dropdown, then the first suggestion is
         selected.
         """
-        desc_text = (desc or title or "").strip()[:2000]
+        # 描述为空时不再回落标题，保持为空
+        desc_text = (desc or "").strip()[:2000]
 
         # Lexical contenteditable editor
         lexical_editor = page.locator('[data-lexical-editor="true"]')

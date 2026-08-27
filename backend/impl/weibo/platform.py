@@ -1783,7 +1783,7 @@ class WeiboPlatform(BasePlatform):
     async def _set_description(page, desc: str, title: str, tags: list):
         """填充微博正文 textarea。
 
-        若 desc 为空,回落到 title;tags 拼成 #话题 形式追加。
+        描述为空时不再回落标题，保持为空；tags 拼成 #话题 形式追加。
         """
         # textarea placeholder: 有什么新鲜事想分享给大家?
         textarea = page.locator(
@@ -1791,7 +1791,7 @@ class WeiboPlatform(BasePlatform):
         ).first
         await textarea.wait_for(state="visible", timeout=10000)
 
-        text = (desc or title or "").strip()
+        text = (desc or "").strip()
         if tags:
             tag_str = " ".join(f"#{t}" for t in tags)
             text = f"{text} {tag_str}".strip() if text else tag_str

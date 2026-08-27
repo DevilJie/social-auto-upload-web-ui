@@ -561,12 +561,13 @@ class DouyinPlatform(BasePlatform):
                 # Append activities as hashtags to description (与图文发布一致)
                 if activities:
                     activity_tags = " ".join([f"#{act}" for act in activities])
-                    desc = f"{desc or title} {activity_tags}".strip()
+                    desc = f"{desc} {activity_tags}".strip()
 
                 # Fill title, description, tags
+                # 描述为空时不再回落标题：描述就保持为空
                 logger.info("[填写标题] 开始填写标题与简介...")
                 await self._fill_title_and_description(
-                    page, title, desc or title, tags
+                    page, title, desc, tags
                 )
                 logger.info("[填写标题] 标题与简介填写完成")
                 logger.info("[填写标题] 标题: %s", title)

@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, current_app
 from pathlib import Path
 
 from conf import BASE_DIR
@@ -178,6 +178,95 @@ def get_frame_image():
         return jsonify({"code": 404, "msg": "Frame not found"}), 404
 
     return send_file(image_path, mimetype='image/jpeg')
+
+
+@frames_bp.post('/api/frames/save-cover')
+def save_frame_as_cover():
+    """把抽帧缓存图按 4 个比例中心裁剪，保存为封面文件（covers/ 目录，不入素材库）。
+
+    Body: {"material_id": "...", "seconds": 10}
+    裁剪规格与前端 CoverEditorDialog 手动裁剪一致（长边 1920，JPEG q=92）：
+      landscape_43  → 1920x1440 (coverLandscape)
+      landscape_169 → 1920x1080 (coverLandscape169)
+      portrait_34   → 1440x1920 (coverPortrait)
+      portrait_916  → 1080x1920 (coverPortrait916)
+    返回 {landscape_43, landscape_169, portrait_34, portrait_916} 4 个封面对象
+    （与 /covers/upload 同构）。批量发布添加视频时，前端自动用推荐帧裁出全比例封面。
+    """
+    data = request.get_json(force=True)
+    material_id = data.get('material_id', '')
+    if not material_id:
+        return jsonify({"code": 400, "msg": "material_id is required"}), 400
+    try:
+        seconds = int(data.get('seconds', 0))
+    except (TypeError, ValueError):
+        return jsonify({"code": 400, "msg": "seconds must be integer"}), 400
+
+    full_path = _resolve_material_video(material_id)
+    if not full_path:
+        return jsonify({"code": 404, "msg": "视频素材已失效"}), 404
+
+    image_path = get_frame_image_path(BASE_DIR, full_path, seconds, thumbnail=False)
+    if not image_path or not os.path.isfile(image_path):
+        return jsonify({"code": 404, "msg": "帧不存在，请先抽帧"}), 404
+
+    from io import BytesIO
+    from uuid import uuid4
+    from datetime import datetime
+    from PIL import Image
+    from storage import get_storage
+
+    # 目标比例：key → (宽, 高)，长边 1920（与前端手动裁剪一致）
+    RATIOS = {
+        'landscape_43': (1920, 1440),
+        'landscape_169': (1920, 1080),
+        'portrait_34': (1440, 1920),
+        'portrait_916': (1080, 1920),
+    }
+
+    storage = get_storage()
+    now = datetime.now()
+    date_dir = now.strftime('%Y/%m/%d')
+
+    try:
+        src = Image.open(image_path)
+        if src.mode not in ('RGB', 'L'):
+            src = src.convert('RGB')
+
+        result = {}
+        for key, (tw, th) in RATIOS.items():
+            # 中心裁剪（cover 语义）：按目标比例取源图最大居中区域，再缩放到目标尺寸
+            sw, sh = src.size
+            scale = max(tw / sw, th / sh)   # 覆盖缩放：保证裁出区域 ≥ 目标比例映射回源图
+            crop_w, crop_h = min(sw, tw / scale), min(sh, th / scale)
+            left = (sw - crop_w) / 2
+            top = (sh - crop_h) / 2
+            box = (round(left), round(top), round(left + crop_w), round(top + crop_h))
+            img = src.crop(box).resize((tw, th), Image.LANCZOS)
+
+            buf = BytesIO()
+            img.save(buf, format='JPEG', quality=92)
+            file_bytes = buf.getvalue()
+
+            file_id = str(uuid4())
+            relative_path = f"covers/{date_dir}/{file_id}.jpg"
+            storage.save_stream(iter([file_bytes]), relative_path)
+
+            result[key] = {
+                "id": file_id,
+                "original_filename": f"frame_{seconds}s_{key}.jpg",
+                "stored_path": relative_path,
+                "file_type": "image",
+                "mime_type": "image/jpeg",
+                "file_size": len(file_bytes),
+                "url": storage.get_url(relative_path),
+                "thumbnail_path": None,
+            }
+    except Exception as e:
+        current_app.logger.warning(f"[save-cover] 裁剪失败: {e}")
+        return jsonify({"code": 500, "msg": f"封面裁剪失败: {e}"}), 500
+
+    return jsonify({"code": 200, "data": result})
 
 
 @frames_bp.post('/api/clear-cache')

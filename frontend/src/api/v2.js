@@ -59,3 +59,11 @@ export const settingsApi = {
     return http.put('/api/v2/settings', data)
   },
 }
+
+// 批量视频发布（发布页视频队列）
+export const batchPublishApi = {
+  // videos: 发布页每个视频的完整 draft_data 快照数组
+  batchPublishVideos(videos) {
+    return http.post('/api/v2/videos/batch-publish', { videos })
+  },
+}

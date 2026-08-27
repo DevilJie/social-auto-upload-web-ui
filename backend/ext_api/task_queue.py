@@ -7,6 +7,7 @@ import asyncio
 import json
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,28 @@ from impl.registry import get_platform
 logger = get_channel_logger("task_queue")
 
 DB_PATH = BASE_DIR / "db" / "database.db"
+
+# 任务间隔设置缓存（settings.batchTaskInterval，分钟）。worker 每次取任务前读取，
+# 30s 缓存避免频繁开 DB；异常一律回退 0（= 连续发布，与旧行为一致）。
+_interval_cache = {"value": 0.0, "fetched_at": 0.0}
+
+
+def _get_interval_minutes() -> float:
+    now = time.time()
+    if now - _interval_cache["fetched_at"] < 30:
+        return _interval_cache["value"]
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = 'batchTaskInterval'"
+            ).fetchone()
+        val = float(row[0]) if row and row[0] not in (None, "") else 0.0
+    except Exception:
+        val = 0.0
+    val = max(0.0, val)
+    _interval_cache["value"] = val
+    _interval_cache["fetched_at"] = now
+    return val
 
 
 class TaskStatus(str, Enum):
@@ -171,6 +194,7 @@ class TaskQueue:
         self._thread: threading.Thread = None
         self._started = False
         self._status_callbacks = []  # 状态变更回调
+        self._interval_gate: asyncio.Lock | None = None  # 间隔模式的串行闸门
 
     def start(self):
         """在后台线程中启动事件循环"""
@@ -185,6 +209,7 @@ class TaskQueue:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self.queue = asyncio.Queue()
+        self._interval_gate = asyncio.Lock()
         for i in range(self.max_concurrent):
             self._loop.create_task(self._worker(f"worker-{i}"))
         self._loop.run_forever()
@@ -192,6 +217,11 @@ class TaskQueue:
     async def _worker(self, name: str):
         while True:
             task = await self.queue.get()
+            # 任务间隔（settings.batchTaskInterval，分钟）：>0 时串行 + 完成后等待
+            interval_min = _get_interval_minutes()
+            gated = interval_min > 0
+            if gated and self._interval_gate:
+                await self._interval_gate.acquire()
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.now().isoformat()
             self.running[task.id] = task
@@ -216,6 +246,11 @@ class TaskQueue:
                 self.completed.append(task)
                 self._update_db(task)
                 self._notify_status(task)
+                if gated and self._interval_gate:
+                    try:
+                        await asyncio.sleep(interval_min * 60)
+                    finally:
+                        self._interval_gate.release()
                 self.queue.task_done()
 
     async def _execute(self, task: PublishTask):
@@ -360,6 +395,12 @@ class TaskQueue:
         """插 1 行 publish_batches（如果不存在）+ 1 行 publish_details"""
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
+                # 素材 dict → id（cover 可能是抽帧封面，不在 materials 表，id 仅为溯源）
+                def _mat_id(m):
+                    return m.get('id', '') if isinstance(m, dict) else ''
+                video_mat_id = _mat_id(task.video_landscape) or _mat_id(task.video_portrait)
+                cover_l_id = _mat_id(task.cover_landscape)
+                cover_p_id = _mat_id(task.cover_portrait)
                 # batch 插一次，多次同 batch_id 跳过
                 # 草稿批量发布时填 source='draft' + draft_id 溯源到草稿
                 conn.execute(
@@ -368,11 +409,20 @@ class TaskQueue:
                         landscape_cover_material_id, portrait_cover_material_id,
                         account_count, status, created_at, updated_at,
                         source, draft_id)
-                       VALUES (?, 'video', ?, ?, '', '', '', 0, 'pending', ?, ?,
+                       VALUES (?, 'video', ?, ?, ?, ?, ?, 0, 'pending', ?, ?,
                                ?, ?)""",
                     (task.batch_id or task.id, task.title, task.description,
+                     video_mat_id, cover_l_id, cover_p_id,
                      task.created_at, task.created_at,
                      task.source or '', task.draft_id or 0)
+                )
+                # 同 batch 后续任务带上了素材 ID 而首任务没有时补写（INSERT OR IGNORE 跳过行）
+                conn.execute(
+                    """UPDATE publish_batches
+                       SET video_material_id=?, landscape_cover_material_id=?, portrait_cover_material_id=?
+                       WHERE id=? AND COALESCE(landscape_cover_material_id, '')=''
+                         AND COALESCE(portrait_cover_material_id, '')=''""",
+                    (video_mat_id, cover_l_id, cover_p_id, task.batch_id or task.id)
                 )
                 # account_configs：把 task 字段打包成 JSON
                 cfg = _build_account_configs(task)
@@ -429,7 +479,9 @@ class TaskQueue:
 
 
 # 全局单例
-task_queue = TaskQueue(max_concurrent=2)
+# 并发数=1：严格串行执行（一个任务（=一个视频×一个账号）发布完才轮到下一个），
+# 避免多浏览器并发发布触发平台风控；配合 settings.batchTaskInterval 还能在任务间加等待。
+task_queue = TaskQueue(max_concurrent=1)
 
 
 def get_task_queue() -> TaskQueue:

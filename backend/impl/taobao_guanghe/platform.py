@@ -106,6 +106,11 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
     groups = _group_by_trace(items)
     logger.info(f"[关联{type_label}] 共 {len(items)} 个,{len(groups)} 组轨迹")
 
+    # **发布路径必做**: 发布流程在调用本函数前已上传视频/封面/标题等,
+    # 关联商品/店铺区块可能在表单底部懒加载,尚未渲染。
+    # 提前滚动到底部并等该区域可见,避免后续 switch_radio/wait_panel_ready 直接超时。
+    await _link_ops.ensure_link_section_ready(frame, type_, timeout_s=15)
+
     # 面板只开一次:切 radio + 点添加卡片 + 等就绪
     # 各组在同一个面板内切 tab/筛选/搜索/勾选,光合会保留已选商品(最多 6 个)
     # 最后统一点「确定」提交,避免每组重开重关导致第 2 组 reopen 失败

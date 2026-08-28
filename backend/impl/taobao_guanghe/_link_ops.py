@@ -262,6 +262,48 @@ async def scrape_filters(frame) -> dict:
 # 面板操作
 # ----------------------------------------------------------------------
 
+async def ensure_link_section_ready(frame, type_: str, timeout_s: int = 15) -> None:
+    """确保发布页「关联商品/店铺」区域已渲染(发布路径专用)。
+
+    背景: picker 是一进发布页就开面板,所以关联商品区立即可见。
+    发布路径会先上传视频/封面/标题/描述/创作者声明,这些操作可能
+    让关联商品区延迟渲染,导致 switch_radio/click_add_card 直接
+    wait_for 超时 10s 然后 raise TimeoutError(实际用户体感:11 秒后
+    「浏览器已关闭」)。
+
+    修复: 显式滚动到页面底部 + 等待「关联商品/店铺」表单区出现,
+    再交给 switch_radio/click_add_card。
+
+    DOM 锚点: ``form-item:has-text("关联商品")`` / ``form-item:has-text("关联店铺")``
+    (光合发布页关联商品是一个独立的 form-item 区块)。
+    """
+    section_text = "关联商品" if type_ == TYPE_PRODUCT else "关联店铺"
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            # 1) 滚动 frame 内容到底部,触发懒加载区域
+            await frame.evaluate(
+                "() => { const c = document.querySelector('.post-side, .form-area, body');"
+                "  if (c) c.scrollTop = c.scrollHeight || 99999;"
+                "  window.scrollTo(0, document.body.scrollHeight); }"
+            )
+            # 2) 等关联商品 form-item 出现
+            section = frame.locator(f'.form-item:has-text("{section_text}")').first
+            if await section.count() > 0 and await section.is_visible():
+                # 滚到 section 视口内
+                try:
+                    await section.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.8)
+    # 超时不 raise —— 让后续 switch_radio/wait_panel_ready 仍有机会命中
+    # (避免遮蔽其它可能更准的错误信息)
+
+
 async def switch_radio(frame, type_: str) -> None:
     """切换商品/店铺 radio(.next-radio-label + 文本)。"""
     target_label = "商品" if type_ == TYPE_PRODUCT else "店铺"

@@ -803,6 +803,15 @@
       @confirm="confirmBatchPublish"
     />
 
+    <!-- Batch Publish Realtime Progress Dialog -->
+    <BatchTaskProgressDialog
+      :visible="batchProgressVisible"
+      :batch-ids="batchProgressBatchIds"
+      :failed-notes="batchProgressFailedNotes"
+      @update:visible="batchProgressVisible = $event"
+      @go-history="goPublishHistoryFromProgress"
+    />
+
     <!-- Pre-publish Cookie Check Dialog -->
     <PrePublishCheckDialog
       ref="prePublishCheckRef"
@@ -818,6 +827,7 @@
     <BatchSetDialog
       v-model="batchSetDialogOpen"
       :platforms="batchSetPlatforms"
+      :show-all-videos="true"
       @apply="onBatchSetApply"
     />
 
@@ -863,6 +873,7 @@ import MaterialUploader from '@/components/MaterialUploader.vue'
 import OneClickFillDialog from '@/components/OneClickFillDialog.vue'
 import VideoQueueBar from '@/components/VideoQueueBar.vue'
 import VideoBatchConfirmDialog from '@/components/VideoBatchConfirmDialog.vue'
+import BatchTaskProgressDialog from '@/components/BatchTaskProgressDialog.vue'
 import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
 import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import { channelsApi } from '@/api/channels'
@@ -1960,6 +1971,15 @@ const materialLibraryVideoTarget = ref('landscape')
 const batchConfirmVisible = ref(false)
 const batchConfirmRows = ref([])
 const batchSubmitting = ref(false)
+// 批量发布实时进度弹窗：提交成功后打开（保持原发布交互，不跳发布历史）
+const batchProgressVisible = ref(false)
+const batchProgressBatchIds = ref([])
+const batchProgressFailedNotes = ref([])
+
+function goPublishHistoryFromProgress() {
+  batchProgressVisible.value = false
+  router.push('/publish-history')
+}
 
 // ========== 发布前 Cookie 预检 ==========
 const prePublishCheckRef = ref(null)
@@ -1986,6 +2006,22 @@ const batchSetPlatforms = computed(() => {
   })
 })
 function onBatchSetApply(checkedKeys, payload) {
+  // 全视频应用：先固化当前视频到队列，再对队列中其余视频的快照逐个全量替换
+  // （当前视频走下方 applyBatchSet 的活状态路径，含 form 刷新）
+  const allVideos = payload.scope === 'all-videos'
+  if (allVideos) {
+    syncCurrentIntoQueue()
+    videoQueue.value.forEach((snap, i) => {
+      if (i === currentVideoIndex.value) return
+      if (!snap.platformConfigs) snap.platformConfigs = {}
+      if (!snap.accountOverrides) snap.accountOverrides = {}
+      applyBatchSet(checkedKeys, payload, {
+        platformConfigs: snap.platformConfigs,
+        accountOverrides: snap.accountOverrides,
+      })
+    })
+    hasChanges.value = true
+  }
   applyBatchSet(checkedKeys, payload)
   // 如果当前查看的渠道在批量设范围内,强制刷新 form (watch [selectedPlatform,...] 不会自动触发)
   if (selectedPlatform.value && checkedKeys.includes(selectedPlatform.value)) {
@@ -1999,7 +2035,9 @@ function onBatchSetApply(checkedKeys, payload) {
       }
     }
   }
-  ElMessage.success(`已批量设置到 ${checkedKeys.length} 个渠道`)
+  ElMessage.success(allVideos
+    ? `已全视频替换 ${videoQueue.value.length} 个视频 · ${checkedKeys.length} 个渠道`
+    : `已批量设置到 ${checkedKeys.length} 个渠道`)
 }
 
 // Selected accounts
@@ -2287,7 +2325,18 @@ async function onVideosAdded(responses) {
 }
 
 // —— 自动默认封面 ——
-// 公共：等待抽帧完成 → 取中间帧 → save-cover 生成 4 比例封面。失败返回 null。
+// 选帧策略：优先「前面 1~5 秒」窗口内最接近 3s 的帧（避开 0s 处常见黑帧/
+// 转场，也符合封面取片头画面的习惯）；视频过短没有该区间帧时退回第一帧。
+function pickAutoCoverFrame(frames) {
+  const inWindow = frames.filter(f => f.seconds >= 1 && f.seconds <= 5)
+  if (inWindow.length > 0) {
+    return inWindow.reduce((best, f) =>
+      Math.abs(f.seconds - 3) < Math.abs(best.seconds - 3) ? f : best)
+  }
+  return frames[0]
+}
+
+// 公共：等待抽帧完成 → 取「前面 1~5 秒」中最接近 3s 的帧 → save-cover 生成 4 比例封面。失败返回 null。
 async function fetchAutoCovers(materialId) {
   if (!materialId) return null
   try {
@@ -2303,7 +2352,7 @@ async function fetchAutoCovers(materialId) {
       await new Promise(r => setTimeout(r, 2500))
     }
     if (!frames.length) return null
-    const pick = frames[Math.floor((frames.length - 1) / 2)]
+    const pick = pickAutoCoverFrame(frames)
     if (!pick || pick.seconds === undefined || pick.seconds === null) return null
     const resp = await http.post('/api/frames/save-cover', {
       material_id: materialId,
@@ -2342,6 +2391,20 @@ async function autoCoverForVideo(index, materialData) {
       && !commonConfig.coverLandscape && !commonConfig.coverPortrait) {
     Object.assign(commonConfig, covers)
   }
+}
+
+// 换视频时清掉旧封面：旧封面属于旧视频，留着会把 autoCoverForLiveVideo 挡住
+// （它见已有封面就跳过），导致换视频后封面还是上一条的。用 assign 回调包住视频
+// 字段写入，前后对比「当前视频」是否变化，变了才清 4 个比例的封面字段。
+function replaceVideoWithCoverReset(target, assign) {
+  const oldVideo = target?.videoLandscape || target?.videoPortrait
+  assign()
+  const newVideo = target?.videoLandscape || target?.videoPortrait
+  if (oldVideo?.id === newVideo?.id) return
+  target.coverLandscape = null
+  target.coverLandscape169 = null
+  target.coverPortrait = null
+  target.coverPortrait916 = null
 }
 
 // 活状态版：发布页主区域上传/素材库选视频后，自动补默认封面到 currentEditTarget
@@ -2513,9 +2576,13 @@ async function onVideoUploaded(d) {
     duration: d.duration ?? 0,
   }
   if (videoUploadTarget.value === 'portrait') {
-    currentEditTarget.value.videoPortrait = videoData
+    replaceVideoWithCoverReset(currentEditTarget.value, () => {
+      currentEditTarget.value.videoPortrait = videoData
+    })
   } else {
-    currentEditTarget.value.videoLandscape = videoData
+    replaceVideoWithCoverReset(currentEditTarget.value, () => {
+      currentEditTarget.value.videoLandscape = videoData
+    })
   }
   videoUploadDialogVisible.value = false
   ElMessage.success('视频上传成功')
@@ -2565,9 +2632,13 @@ function onMaterialSelect(material) {
     ElMessage.success('封面已设置')
   } else {
     if (materialLibraryVideoTarget.value === 'portrait') {
-      currentEditTarget.value.videoPortrait = material
+      replaceVideoWithCoverReset(currentEditTarget.value, () => {
+        currentEditTarget.value.videoPortrait = material
+      })
     } else {
-      currentEditTarget.value.videoLandscape = material
+      replaceVideoWithCoverReset(currentEditTarget.value, () => {
+        currentEditTarget.value.videoLandscape = material
+      })
     }
     ElMessage.success('视频已设置')
     if (appStore.autoFillTitle) {
@@ -3094,23 +3165,10 @@ async function confirmBatchPublish(selectedIndexes) {
         return `「${name}」${f.reason || ''}`
       })
     if (taskIds.length > 0) {
-      const failedHtml = failLines.length
-        ? `<br/><br/><b style="color:#f59e0b">部分失败 ${failLines.length} 项（相关视频已保留在队列中）：</b><br/>` +
-          failLines.slice(0, 5).join('<br/>')
-        : ''
-      try {
-        await ElMessageBox.confirm(
-          `已提交 ${taskIds.length} 个发布任务，后端队列执行中（可关闭页面）。${failedHtml}`,
-          '批量发布已提交',
-          {
-            dangerouslyUseHTMLString: true,
-            confirmButtonText: '去发布历史',
-            cancelButtonText: '留在本页',
-            type: 'success',
-          }
-        )
-        router.push('/publish-history')
-      } catch { /* 留在本页 */ }
+      // 不再跳发布历史：保持原发布交互，弹窗实时展示后端队列执行进度
+      batchProgressBatchIds.value = data.batch_ids || []
+      batchProgressFailedNotes.value = failLines
+      batchProgressVisible.value = true
     } else if (failLines.length) {
       ElMessage.error(`提交失败：${failLines.join('；')}`)
     }

@@ -1650,6 +1650,7 @@ class ChannelsPlatform(BasePlatform):
                         # 有头模式发布(便于观察);不开 humanize(no_viewport=True 与
                         # 拟人化鼠标轨迹冲突,会抛 "Viewport size not available")
                         browser = await self.create_browser(headless=False)
+                        keep_browser_open = False  # DRY_RUN 模拟发布成功后保留浏览器窗口
                         try:
                             context = await self.create_context(
                                 browser, storage_state=cookie_path
@@ -1729,14 +1730,13 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("=" * 60)
 
                             if _PUBLISH_DRY_RUN:
-                                logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击发布,流程到此结束(不发布)")
-                                logger.info("[发布调试] DRY_RUN: 浏览器保持打开,等待你手动关闭窗口后再结束...")
-                                try:
-                                    while browser.is_connected():
-                                        await asyncio.sleep(1)
-                                    logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
-                                except Exception:
-                                    pass
+                                # 模拟发布成功: 不真实点击「发表」,打成功日志即算发布完成;
+                                # 浏览器停留在发布界面(不自动关窗),人工检查表单后手动关闭。
+                                # 立即 return 让任务记为成功,不阻塞等关窗(避免和 watchdog
+                                # 竞争把「手动关窗」误判为取消失败)。
+                                logger.info("[发布] ✅ DRY_RUN 模拟发布成功(未真实点击「发表」)")
+                                logger.info("[发布] DRY_RUN: 浏览器停留在发布界面,请人工检查表单后手动关闭窗口")
+                                keep_browser_open = True
                                 return
 
                             # Submit
@@ -1746,14 +1746,18 @@ class ChannelsPlatform(BasePlatform):
                             await context.storage_state(path=cookie_path)
                             logger.info("[发布] Cookie状态已更新")
                         finally:
-                            try:
-                                await context.close()
-                            except Exception:
-                                pass
-                            try:
-                                await self.close_browser(browser, is_close_by_code=True)
-                            except Exception:
-                                pass
+                            if keep_browser_open:
+                                # DRY_RUN: 保留浏览器窗口在发布页,跳过收尾
+                                logger.info("[发布] DRY_RUN: 跳过浏览器收尾,窗口停留在发布界面")
+                            else:
+                                try:
+                                    await context.close()
+                                except Exception:
+                                    pass
+                                try:
+                                    await self.close_browser(browser, is_close_by_code=True)
+                                except Exception:
+                                    pass
 
         asyncio.run(_do_upload())
 

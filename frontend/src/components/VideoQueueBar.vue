@@ -137,13 +137,23 @@ const totalAccounts = computed(() =>
     border-radius: 8px;
     padding: 4px;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    background: $bg-elevated;   // 与背景区分,默认白底/暗底
+    box-shadow: 0 1px 3px rgba($overlay-rgb, 0.05);  // 微弱阴影拉出层次
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+
+    // 非 active: 用 1px 实线浅边框把卡片从背景里勾出来
+    // active: 用品牌色 2px 实线高亮(比默认更厚的边框强调选中)
+    border-color: $border-light;
 
     &:hover {
       background: rgba($overlay-rgb, 0.04);
+      border-color: $border-active;
+      box-shadow: 0 2px 6px rgba($overlay-rgb, 0.1);
     }
     &.active {
       border-color: $brand-start;
+      border-width: 2px;
+      box-shadow: 0 0 0 2px rgba($brand-start, 0.15);
     }
 
     .vq-thumb {

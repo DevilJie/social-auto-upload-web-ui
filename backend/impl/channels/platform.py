@@ -1703,13 +1703,8 @@ class ChannelsPlatform(BasePlatform):
                                 channels_repost_source,
                             )
 
-                            # Wait for upload to finish (auto-retries on error)
-                            await _wait_for_upload_complete(page, file_path)
-
-                            # Set cover image
-                            await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
-
                             # 关联链接:剧集(drama/mini_drama) / 公众号文章 / 红包封面
+                            # (页面在上传中即可设置,提前到等上传完成之前处理,节省总耗时)
                             if channels_drama:
                                 await _link_drama(page, channels_drama)
                             elif channels_link_type == "article" and channels_link_article_url:
@@ -1721,6 +1716,12 @@ class ChannelsPlatform(BasePlatform):
                                     "[链接] linkType=%s 但链接 URL 为空,跳过设置",
                                     channels_link_type,
                                 )
+
+                            # Wait for upload to finish (auto-retries on error)
+                            await _wait_for_upload_complete(page, file_path)
+
+                            # Set cover image
+                            await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
 
                             # Set schedule if needed
                             if enable_timer and publish_date != 0:

@@ -196,6 +196,13 @@
           </div>
         </div>
 
+        <!-- 取消发布按钮：批次里有未完成任务时显示（非多选模式） -->
+        <button
+          v-if="!selectMode && batchHasActive(batch)"
+          class="card-cancel-btn"
+          @click.stop="cancelBatch(batch)"
+        >取消</button>
+
         <!-- 单条删除按钮（非多选模式下显示） -->
         <button
           v-if="!selectMode"
@@ -228,7 +235,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Picture, Refresh, Upload, CircleCheck, Calendar, Delete, Check, Select, Close } from '@element-plus/icons-vue'
-import { historyApi, statsApi } from '@/api/v2'
+import { historyApi, statsApi, taskApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import ChannelSummary from '@/components/ChannelSummary.vue'
 import PublishStats from '@/components/PublishStats.vue'
@@ -382,6 +389,31 @@ function onCardClick(id) {
     return
   }
   toggleSelection(id, !selection.value.has(id))
+}
+
+// ===== 取消发布（批次内有未完成任务时可取消） =====
+function batchHasActive(batch) {
+  return (batch.items || []).some(it =>
+    it.status === 'pending' || it.status === 'queued' || it.status === 'running')
+}
+
+async function cancelBatch(batch) {
+  const active = (batch.items || []).filter(it =>
+    it.status === 'pending' || it.status === 'queued' || it.status === 'running')
+  if (!active.length) return
+  try {
+    await ElMessageBox.confirm(
+      `「${batch.title || '无标题'}」有 ${active.length} 个任务未完成，确定全部取消？`,
+      '取消发布',
+      { confirmButtonText: '取消发布', cancelButtonText: '再想想', type: 'warning' },
+    )
+  } catch { return }
+  let ok = 0
+  for (const it of active) {
+    try { await taskApi.cancelTask(it.id); ok++ } catch { /* 单个失败继续 */ }
+  }
+  ElMessage.success(ok > 0 ? `已请求取消 ${ok}/${active.length} 个任务` : '取消失败')
+  fetchHistory()
 }
 
 // ===== 单条删除 =====
@@ -771,6 +803,37 @@ onMounted(() => { fetchHistory(); fetchStats() })
 
       // 多选模式下隐藏单条删除按钮,避免误触
       .card-delete-btn { display: none; }
+    }
+  }
+
+  // 取消发布按钮(右上角,紧挨删除按钮左侧；有未完成任务时显示)
+  .card-cancel-btn {
+    position: absolute;
+    top: 8px;
+    right: 42px;
+    z-index: 3;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    border: none;
+    color: #ffa940;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+
+    &:hover {
+      background: rgba($warning-color, 0.9);
+      color: #fff;
+    }
+
+    .batch-card:hover & {
+      opacity: 1;
     }
   }
 

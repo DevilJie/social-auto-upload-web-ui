@@ -196,21 +196,22 @@
           </div>
         </div>
 
-        <!-- 取消发布按钮：批次里有未完成任务时显示（非多选模式） -->
-        <button
-          v-if="!selectMode && batchHasActive(batch)"
-          class="card-cancel-btn"
-          @click.stop="cancelBatch(batch)"
-        >取消</button>
-
-        <!-- 单条删除按钮（非多选模式下显示） -->
-        <button
-          v-if="!selectMode"
-          class="card-delete-btn"
-          @click.stop="confirmDelete(batch)"
-        >
-          <el-icon><Delete /></el-icon>
-        </button>
+        <!-- 悬停遮罩 + 居中操作按钮（非多选模式） -->
+        <div v-if="!selectMode" class="card-hover-overlay">
+          <div class="card-hover-actions">
+            <el-button
+              v-if="batchHasActive(batch)"
+              type="warning"
+              :icon="Close"
+              @click.stop="cancelBatch(batch)"
+            >取消发布</el-button>
+            <el-button
+              type="danger"
+              :icon="Delete"
+              @click.stop="confirmDelete(batch)"
+            >删除</el-button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -801,70 +802,40 @@ onMounted(() => { fetchHistory(); fetchStats() })
         0 8px 32px rgba($brand-start, 0.35);
       transform: translateY(-2px);
 
-      // 多选模式下隐藏单条删除按钮,避免误触
-      .card-delete-btn { display: none; }
+      // 多选模式下隐藏悬停遮罩,避免误触
+      .card-hover-overlay { display: none; }
     }
   }
 
-  // 卡片右上角操作按钮：删除 + 取消（仅非终态）
-  // 两者均只在卡片 hover 时显现；非 hover 时 opacity=0 不挡卡片视觉。
-  // 删除按钮(最右): hover 时显示,任意状态都有
-  .card-delete-btn {
+  // ===== 卡片悬停遮罩 + 居中标准按钮 =====
+  // hover 时整卡铺一层灰色半透明遮罩,按钮组(取消发布/删除)居中显示。
+  // 非 hover 时遮罩 opacity=0,不挡卡片内容。
+  .card-hover-overlay {
     position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 3;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(8px);
-    border: none;
-    color: rgba($overlay-rgb, 0.85);
+    inset: 0;
+    z-index: 4;
+    border-radius: inherit;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
     opacity: 0;
-    transition: all 0.2s;
-    font-size: 14px;
-
-    &:hover {
-      background: rgba($danger-color, 0.9);
-      color: #fff;
-    }
+    transition: opacity 0.2s ease;
+    pointer-events: none;  // 遮罩自身不拦截点击,点击非按钮区域穿透到卡片进详情
   }
 
-  // 取消按钮(紧挨删除按钮左侧): 仅批次有未完成任务时显示
-  .card-cancel-btn {
-    position: absolute;
-    top: 8px;
-    right: 42px;
-    z-index: 3;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: 14px;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(8px);
-    border: none;
-    color: #ffa940;
-    font-size: 12px;
+  .card-hover-actions {
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    opacity: 0;
-    transition: all 0.2s;
-
-    &:hover {
-      background: rgba($warning-color, 0.9);
-      color: #fff;
-    }
+    gap: 12px;
+    pointer-events: auto;  // 按钮可点
   }
 
-  // hover 显形(用兄弟选择器兼容所有浏览器)
-  .batch-card:hover .card-delete-btn { opacity: 1; }
-  .batch-card:hover .card-cancel-btn { opacity: 1; }
+  .batch-card:hover .card-hover-overlay {
+    opacity: 1;
+  }
 
   // 多选模式下的选择圆圈
   .card-selector {

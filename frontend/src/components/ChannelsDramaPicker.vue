@@ -76,6 +76,13 @@
               >选择</el-button>
             </template>
           </el-table-column>
+          <!-- 空态只在这里渲染一次(替代 el-table 默认的「暂无数据」) -->
+          <template #empty>
+            <div class="empty-tip">
+              <el-icon class="empty-icon"><DocumentRemove /></el-icon>
+              <span>暂无剧集,请调整搜索词</span>
+            </div>
+          </template>
         </el-table>
       </div>
 
@@ -88,11 +95,6 @@
           :current-page="page"
           @current-change="onPageChange"
         />
-      </div>
-
-      <div v-if="!loading && items.length === 0" class="empty-tip">
-        <el-icon class="empty-icon"><DocumentRemove /></el-icon>
-        <span>暂无剧集,请调整搜索词</span>
       </div>
     </div>
 

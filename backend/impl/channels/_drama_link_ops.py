@@ -256,10 +256,24 @@ async def wait_panel_ready(page, timeout_s: int = 30) -> None:
             if wrap is not None:
                 if await wrap.locator(_ROW_SEL).count() > 0:
                     return
-                # 空态(账号没有可关联内容)也算就绪,让前端拿到 items=[]
-                empty = wrap.locator(".ant-table-placeholder, .empty-wrap").first
-                if await empty.count() > 0 and await empty.is_visible():
-                    return
+                # 空态(无内容/搜索无结果)也算就绪,让前端拿到 items=[]
+                empty = wrap.locator(
+                    ".ant-table-placeholder, .empty-wrap, .empty-tip, "
+                    ".empty-placeholder-wrap, .no-data, .no-result"
+                ).first
+                try:
+                    if await empty.count() > 0 and await empty.is_visible():
+                        return
+                except Exception:
+                    pass
+                # 文本兜底:「暂无xx」提示可见也视为就绪(空态 DOM 版本差异)
+                for tip_text in ("暂无内容", "暂无数据", "暂无相关"):
+                    try:
+                        tip = wrap.get_by_text(tip_text, exact=False).first
+                        if await tip.count() > 0 and await tip.is_visible():
+                            return
+                    except Exception:
+                        continue
         except Exception:
             pass
         await asyncio.sleep(0.4)

@@ -93,7 +93,7 @@ class ChannelsDramaPickerSession:
 
         # 点链接下拉 → 选剧集类型 → 点子区入口 → 打开剧集弹窗
         await link_ops.open_drama_panel(self.page, link_type)
-        await link_ops.wait_panel_ready(self.page)
+        await self._wait_ready_or_empty("open", timeout_s=15, require_dialog=True)
         items, page_info = await self._scrape()
         return {
             "items": items,
@@ -103,9 +103,27 @@ class ChannelsDramaPickerSession:
             "entry": link_type,
         }
 
+    async def _wait_ready_or_empty(self, what: str, timeout_s: int = 8, require_dialog: bool = False) -> None:
+        """等表格就绪;超时不抛错(可能搜索无结果),由调用方 scrape 出空列表。
+
+        require_dialog=True 时(open 场景)超时后确认弹窗是否真的打开了,
+        没打开才算失败抛错 —— 避免「弹窗没开」被误报成「无结果」。
+        """
+        try:
+            await link_ops.wait_panel_ready(self.page, timeout_s=timeout_s)
+            return
+        except Exception as exc:
+            logger.info(
+                "[ChannelsDramaPicker] %s 等待就绪超时(按空结果兜底): %s", what, exc
+            )
+        if require_dialog:
+            dialog = await link_ops._active_dialog(self.page)
+            if dialog is None:
+                raise RuntimeError(f"[ChannelsDramaPicker] {what}: 剧集弹窗未打开")
+
     async def search(self, keyword: str) -> dict:
         await link_ops.search(self.page, keyword)
-        await link_ops.wait_panel_ready(self.page)
+        await self._wait_ready_or_empty("search", timeout_s=8)
         items, page_info = await self._scrape()
         return {
             "items": items,
@@ -116,7 +134,7 @@ class ChannelsDramaPickerSession:
 
     async def go_page(self, page: int) -> dict:
         await link_ops.go_page(self.page, page)
-        await link_ops.wait_panel_ready(self.page)
+        await self._wait_ready_or_empty("go_page", timeout_s=8)
         items, page_info = await self._scrape()
         return {
             "items": items,

@@ -69,33 +69,123 @@ async def _row_to_drama_dict(row_locator) -> dict:
 
 DIALOG_TITLE = "选择需要关联的短剧"
 
+# 各链接类型的 DOM 文本(用于点选下拉项)
+LINK_OPTIONS = {
+    "article": "公众号文章",
+    "red_envelope": "红包封面",
+    "drama": "视频号剧集",
+    "mini_drama": "小程序短剧",
+}
 
-async def open_drama_panel(
-    page,
-    entry_placeholder: str = "选择需要添加的视频号剧集",
-) -> None:
-    """在视频号发布页里点「关联视频号剧集/小程序剧集」入口,弹出剧集选择弹窗。
+# 各类型对应的子区 placeholder 文案
+LINK_PLACEHOLDERS = {
+    "drama": "选择需要添加的视频号剧集",
+    "mini_drama": "选择需要添加的短剧",
+}
 
-    Args:
-        page: 视频号发布页(由 platform.py 或 picker.py 传过来)
-        entry_placeholder: 入口 placeholder 文本,精确匹配
-            - "选择需要添加的视频号剧集" → 视频号剧集
-            - "选择需要添加的短剧" → 小程序剧集(同弹窗不同入口)
-    """
-    entry = page.locator(
-        '.content-wrap:has-text("' + entry_placeholder + '")'
-    ).first
-    await entry.wait_for(state="visible", timeout=10_000)
-    await entry.click()
-    await asyncio.sleep(1.2)
-    # 等弹窗标题出现(可能与 entry 文本不同,所以按 DIALOG_TITLE 匹配)
-    dialog = page.locator(".weui-desktop-dialog").filter(
-        has_text=DIALOG_TITLE
-    ).first
-    await dialog.wait_for(state="visible", timeout=10_000)
-    logger.info(
-        "[ChannelsDrama] ✓ 已打开剧集弹窗(入口: %s)", entry_placeholder
+
+async def _wait_link_section_ready(page, timeout_s: int = 10) -> None:
+    """等 .post-link-wrap 容器出现(视频号发布页加载完成标志)。"""
+    wrap = page.locator(".post-link-wrap").first
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            if await wrap.count() > 0 and await wrap.is_visible():
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    raise RuntimeError(
+        "[DramaPicker] 视频号发布页未出现「.post-link-wrap」容器"
+        "(可能 cookie 失效或页面改版)"
     )
+
+
+async def _open_link_dropdown(page, timeout_s: int = 5) -> None:
+    """点 .link-display-wrap 打开 4 选项下拉。"""
+    display = page.locator(".post-link-wrap .link-display-wrap").first
+    try:
+        await display.wait_for(state="visible", timeout=timeout_s)
+    except Exception as exc:
+        raise RuntimeError(
+            f"[DramaPicker] 找不到 .link-display-wrap(打不开链接下拉): {exc}"
+        ) from exc
+    await display.click()
+    # 等下拉项可见
+    options = page.locator(".post-link-wrap .link-list-options .link-option-item")
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            if await options.count() > 0 and await options.first.is_visible():
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.3)
+    raise RuntimeError("[DramaPicker] 链接下拉打开后未出现 .link-option-item")
+
+
+async def _select_link_option(page, link_type: str) -> None:
+    """在 .link-list-options 里点指定 link_type 对应的那一项。"""
+    label = LINK_OPTIONS[link_type]
+    option = page.locator(
+        '.post-link-wrap .link-list-options .link-option-item:has-text("' + label + '")'
+    ).first
+    try:
+        await option.wait_for(state="visible", timeout=5000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"[DramaPicker] 找不到下拉项「{label}」({link_type}): {exc}"
+        ) from exc
+    await option.click()
+    await asyncio.sleep(0.4)
+
+
+async def _wait_drama_entry(page, link_type: str, timeout_s: int = 10) -> None:
+    """选了 link_type 之后等子区出现(含对应 placeholder 文本的 .content-wrap)。"""
+    placeholder_text = LINK_PLACEHOLDERS[link_type]
+    sel = '.content-wrap:has-text("' + placeholder_text + '")'
+    entry = page.locator(sel).first
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            if await entry.count() > 0 and await entry.is_visible():
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    raise RuntimeError(
+        "[DramaPicker] 选了「" + LINK_OPTIONS[link_type] + "」后未出现含「"
+        + placeholder_text + "」的子区入口(可能 cookie 失效、页面改版、或当前账号无权关联剧集)"
+    )
+
+
+async def _click_drama_entry(page, link_type: str) -> None:
+    """点子区入口(整个 .content-wrap 块可点)触发剧集弹窗。"""
+    placeholder_text = LINK_PLACEHOLDERS[link_type]
+    sel = '.content-wrap:has-text("' + placeholder_text + '")'
+    entry = page.locator(sel).first
+    try:
+        await entry.wait_for(state="visible", timeout=5000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"[DramaPicker] 等不到「{placeholder_text}」入口可点: {exc}"
+        ) from exc
+    await entry.click()
+    await asyncio.sleep(1.0)
+
+
+async def open_drama_panel(page, link_type: str = "drama") -> None:
+    """Open the video-drama picker popup via the real DOM flow."""
+    logger.info("[DramaPicker] 1) wait .post-link-wrap")
+    await _wait_link_section_ready(page)
+    logger.info("[DramaPicker] 2) open link dropdown")
+    await _open_link_dropdown(page)
+    logger.info("[DramaPicker] 3) select option %s", LINK_OPTIONS[link_type])
+    await _select_link_option(page, link_type)
+    logger.info("[DramaPicker] 4) wait drama entry")
+    await _wait_drama_entry(page, link_type)
+    logger.info("[DramaPicker] 5) click drama entry")
+    await _click_drama_entry(page, link_type)
 
 
 async def wait_panel_ready(page, timeout_s: int = 10) -> None:

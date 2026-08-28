@@ -123,8 +123,8 @@ const props = defineProps({
   accountId: { type: [String, Number], required: true },
   // 初始已选(用于回显),[{ key, title, cover, extinfo, sourceLeft, sourceRight, trace }]
   initSelected: { type: Array, default: () => [] },
-  // 入口 placeholder:'选择需要添加的视频号剧集'(默认) / '选择需要添加的短剧'(小程序)
-  entry: { type: String, default: '选择需要添加的视频号剧集' },
+  // 链接类型: 'drama'(视频号剧集) / 'mini_drama'(小程序短剧)
+  linkType: { type: String, default: 'drama' },
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
@@ -155,7 +155,7 @@ async function ensureSession() {
   if (sessionActive.value) return true
   loading.value = true
   try {
-    const res = await channelsDramaApi.open(props.accountId, props.entry)
+    const res = await channelsDramaApi.open(props.accountId, props.linkType)
     const d = res?.data || {}
     items.value = d.items || []
     page.value = d.page || 1

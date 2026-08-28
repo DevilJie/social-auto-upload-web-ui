@@ -76,13 +76,13 @@ class ChannelsDramaPickerSession:
         self.page = await self.context.new_page()
 
     async def open(
-        self, entry_placeholder: str = "选择需要添加的视频号剧集"
+        self, link_type: str = "drama"
     ) -> dict:
-        """启动浏览器 → 打开视频号发布页 → 打开剧集弹窗 → 返回首屏数据。
+        """启动浏览器 → 打开视频号发布页 → 走真实 DOM 流程打开剧集弹窗 → 返回首屏。
 
         Args:
-            entry_placeholder: 入口 placeholder,默认视频号剧集;
-                传 "选择需要添加的短剧" 切到小程序剧集。
+            link_type: 'drama'(视频号剧集) / 'mini_drama'(小程序短剧)。
+                决定点哪个 .link-option-item + 子区 placeholder 文本。
         """
         await self._init_browser_and_page()
         logger.info(
@@ -91,22 +91,8 @@ class ChannelsDramaPickerSession:
         await self.page.goto(_UPLOAD_URL, wait_until="domcontentloaded", timeout=30_000)
         await asyncio.sleep(2)
 
-        # 等「关联视频号剧集」入口出现(可能没视频素材时不显示,所以有超时)
-        entry = self.page.locator(
-            '.content-wrap:has-text("' + entry_placeholder + '")'
-        ).first
-        try:
-            await entry.wait_for(state="visible", timeout=15_000)
-        except Exception:
-            logger.warning(
-                "[ChannelsDramaPicker] 等不到入口(%s),可能当前账号无视频素材/无关联权限",
-                entry_placeholder,
-            )
-            # 仍尝试点(可能延迟渲染)
-            await asyncio.sleep(2)
-
-        # 点开剧集弹窗
-        await link_ops.open_drama_panel(self.page, entry_placeholder)
+        # 点链接下拉 → 选剧集类型 → 点子区入口 → 打开剧集弹窗
+        await link_ops.open_drama_panel(self.page, link_type)
         await link_ops.wait_panel_ready(self.page)
         items, page_info = await self._scrape()
         return {
@@ -114,7 +100,7 @@ class ChannelsDramaPickerSession:
             "page": page_info.get("page", 1),
             "total": page_info.get("total", 0),
             "total_pages": page_info.get("totalPages", 1),
-            "entry": entry_placeholder,
+            "entry": link_type,
         }
 
     async def search(self, keyword: str) -> dict:

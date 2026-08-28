@@ -904,7 +904,7 @@
     <ChannelsDramaPicker
       v-model="channelsDramaPickerVisible"
       :account-id="channelsDramaPickerAccountId"
-      :entry="channelsDramaPickerEntry"
+      :link-type="channelsDramaPickerLinkType"
       :init-selected="form.channelsDrama"
       @confirm="onChannelsDramaPickerConfirm"
     />
@@ -1492,7 +1492,7 @@ function removeGuangheItem(fieldKey, idx) {
 // trace (keyword, page) 存进 channelsDrama[*].trace,发布时 platform.py 按 trace 复现选中。
 const channelsDramaPickerVisible = ref(false)
 const channelsDramaPickerAccountId = ref('')
-const channelsDramaPickerEntry = ref('选择需要添加的视频号剧集')
+const channelsDramaPickerLinkType = ref('drama')
 
 function findAnyChannelsAccountId() {
   if (!publishAccountIds || publishAccountIds.size === 0) return ''
@@ -1510,10 +1510,8 @@ function openChannelsDramaPicker(linkType) {
     return
   }
   channelsDramaPickerAccountId.value = accountId
-  // linkType 决定入口 placeholder: 视频号剧集 vs 小程序短剧
-  channelsDramaPickerEntry.value = linkType === 'mini_drama'
-    ? '选择需要添加的短剧'
-    : '选择需要添加的视频号剧集'
+  // linkType: 'drama'(视频号剧集) / 'mini_drama'(小程序短剧)
+  channelsDramaPickerLinkType.value = linkType === 'mini_drama' ? 'mini_drama' : 'drama'
   channelsDramaPickerVisible.value = true
 }
 

@@ -1083,20 +1083,12 @@ async def _link_drama(page, channels_drama: list) -> None:
     trace = item.get("trace") or {}
     kw = (trace.get("keyword") or "").strip()
     page_num = int(trace.get("page") or 1)
-    entry_placeholder = "选择需要添加的视频号剧集"
+    # 从 trace/数据里推断 link_type;picker 存的 trace 无 linkType,默认 drama
+    link_type = (item.get("linkType") or trace.get("linkType") or "drama")
     try:
         from . import _drama_link_ops as drama_ops
-        # 确保入口可见(发布页可能还在加载)
-        entry = page.locator(
-            '.content-wrap:has-text("' + entry_placeholder + '")'
-        ).first
-        try:
-            await entry.wait_for(state="visible", timeout=15_000)
-        except Exception:
-            logger.warning("[关联剧集] 等不到入口,跳过")
-            return
-        # 打开剧集弹窗
-        await drama_ops.open_drama_panel(page, entry_placeholder)
+        # 走真实 DOM 流程: 点链接下拉 → 选剧集类型 → 点子区入口 → 打开剧集弹窗
+        await drama_ops.open_drama_panel(page, link_type)
         await drama_ops.wait_panel_ready(page)
         # 按 trace 复现(搜索 → 翻页)
         if kw:

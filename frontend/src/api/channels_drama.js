@@ -11,8 +11,9 @@
 import { http } from '@/utils/request'
 
 export const channelsDramaApi = {
-  open(accountId, entry = '选择需要添加的视频号剧集') {
-    return http.post('/api/channels/drama_picker/open', { accountId, entry })
+  // linkType: 'drama'(视频号剧集) / 'mini_drama'(小程序短剧)
+  open(accountId, linkType = 'drama') {
+    return http.post('/api/channels/drama_picker/open', { accountId, linkType })
   },
   search(accountId, keyword) {
     return http.post('/api/channels/drama_picker/search', { accountId, keyword })

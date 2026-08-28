@@ -474,8 +474,8 @@ async def _fetch_locations_via_browser(cookie_file: str, keyword: str) -> dict:
 import threading
 from typing import Optional as _Opt
 
-_drama_loop = Optional[asyncio.AbstractEventLoop]
-_drama_loop_thread = Optional[threading.Thread]
+_drama_loop: Optional[asyncio.AbstractEventLoop] = None
+_drama_loop_thread: Optional[threading.Thread] = None
 _drama_loop_lock = threading.Lock()
 _drama_loop_ready = threading.Event()
 
@@ -533,11 +533,11 @@ def drama_picker_open():
     data = request.get_json(silent=True) or {}
     raw_id = data.get("accountId")
     account_id = str(raw_id).strip() if raw_id is not None else ""
-    entry = (data.get("entry") or "选择需要添加的视频号剧集").strip()
+    link_type = (data.get("linkType") or data.get("entry") or "drama").strip()
     if not account_id:
         return _err("accountId 不能为空", 400, 400)
-    if entry not in ("选择需要添加的视频号剧集", "选择需要添加的短剧"):
-        return _err("entry 必须是「选择需要添加的视频号剧集」或「选择需要添加的短剧」", 400, 400)
+    if link_type not in ("article", "red_envelope", "drama", "mini_drama"):
+        return _err("linkType 必须是 article/red_envelope/drama/mini_drama", 400, 400)
     cookie_file = _get_account_cookie_file(account_id)
     if not cookie_file:
         return _err("账号不存在或未登录", 404, 404)
@@ -554,10 +554,10 @@ def drama_picker_open():
         _drama_pool[account_id] = session
 
     try:
-        result = run_drama_picker_async(session.open(entry), timeout=180)
+        result = run_drama_picker_async(session.open(link_type), timeout=180)
         logger.info(
-            "[Drama API] open ok account_id=%s entry=%s items=%d",
-            account_id, entry, len(result.get("items", [])),
+            "[Drama API] open ok account_id=%s link_type=%s items=%d",
+            account_id, link_type, len(result.get("items", [])),
         )
         return _ok(result)
     except Exception as e:
@@ -574,7 +574,8 @@ def drama_picker_open():
 @channels_bp.route("/drama_picker/search", methods=["POST"])
 def drama_picker_search():
     data = request.get_json(silent=True) or {}
-    account_id = (data.get("accountId") or "").strip()
+    raw_id = data.get("accountId")
+    account_id = str(raw_id).strip() if raw_id is not None else ""
     keyword = (data.get("keyword") or "").strip()
     s, err = _resolve_drama_session_or_404(account_id)
     if err:
@@ -590,7 +591,8 @@ def drama_picker_search():
 @channels_bp.route("/drama_picker/go_page", methods=["POST"])
 def drama_picker_go_page():
     data = request.get_json(silent=True) or {}
-    account_id = (data.get("accountId") or "").strip()
+    raw_id = data.get("accountId")
+    account_id = str(raw_id).strip() if raw_id is not None else ""
     page = int(data.get("page") or 1)
     s, err = _resolve_drama_session_or_404(account_id)
     if err:
@@ -606,7 +608,8 @@ def drama_picker_go_page():
 @channels_bp.route("/drama_picker/close", methods=["POST"])
 def drama_picker_close():
     data = request.get_json(silent=True) or {}
-    account_id = (data.get("accountId") or "").strip()
+    raw_id = data.get("accountId")
+    account_id = str(raw_id).strip() if raw_id is not None else ""
     if not account_id:
         return _ok({"closed": True})
     with _drama_pool_lock:

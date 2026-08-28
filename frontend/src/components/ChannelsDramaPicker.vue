@@ -79,13 +79,13 @@
         </el-table>
       </div>
 
+      <!-- 页码直接同步后端读到的视频号分页器(totalPages/当前页),不按条数换算 -->
       <div v-if="totalPages > 1" class="pagination-wrap">
         <el-pagination
           background
-          layout="prev, pager, next, jumper, total"
-          :total="total"
+          layout="prev, pager, next, jumper"
+          :page-count="totalPages"
           :current-page="page"
-          :page-size="pageSize"
           @current-change="onPageChange"
         />
       </div>
@@ -129,11 +129,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
-// 表格分页(后端拿的是 1-based page,el-pagination 是 currentPage)
-const pageSize = 10
+// 表格分页:页码完全以视频号弹窗分页器为准(page/totalPages 由后端同步)
 const items = ref([])
 const page = ref(1)
-const total = ref(0)
 const totalPages = ref(1)
 const loading = ref(false)
 const searchKeyword = ref('')
@@ -159,7 +157,6 @@ async function ensureSession() {
     const d = res?.data || {}
     items.value = d.items || []
     page.value = d.page || 1
-    total.value = d.total || 0
     totalPages.value = d.total_pages || 1
     sessionActive.value = true
     return true
@@ -178,7 +175,6 @@ async function onSearch() {
     const d = res?.data || {}
     items.value = d.items || []
     page.value = d.page || 1
-    total.value = d.total || 0
     totalPages.value = d.total_pages || 1
   } catch (e) {
     ElMessage.error('搜索失败: ' + (e?.message || e))
@@ -195,7 +191,6 @@ async function onPageChange(newPage) {
     const d = res?.data || {}
     items.value = d.items || []
     page.value = d.page || newPage
-    total.value = d.total || 0
     totalPages.value = d.total_pages || 1
   } catch (e) {
     ElMessage.error('翻页失败: ' + (e?.message || e))
@@ -215,10 +210,15 @@ function rowClassName({ row }) {
 
 function onConfirm() {
   if (!selectedDrama.value) return
-  const trace = { keyword: searchKeyword.value || '', page: page.value || 1 }
+  // trace: 发布时按 (linkType, keyword, page) 复现选中
+  const trace = {
+    linkType: props.linkType,
+    keyword: searchKeyword.value || '',
+    page: page.value || 1,
+  }
   emit(
     'confirm',
-    [{ ...selectedDrama.value, trace }],
+    [{ ...selectedDrama.value, linkType: props.linkType, trace }],
   )
   emit('update:modelValue', false)
 }

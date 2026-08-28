@@ -943,9 +943,9 @@ async def scrape_csdn_profile(page):
 
     抓取流程（详见对接文档）：
     1. 当前页应该是 ``https://mp.csdn.net/`` 创作者首页，已登录。
-    2. 等待 ``div.user-info-box``（用户信息卡）出现。
-    3. 昵称：``div.user-info-box p.name``（优先取 ``title`` 属性，兜底 text）。
-    4. 头像：``div.user-info-box .avatar-box img`` 的 ``src``。
+    2. 等待 ``div.home-exp-user-card``（侧边栏用户信息卡）出现。
+    3. 昵称：``.home-exp-user-card__head .name``（优先取 ``title`` 属性，兜底 text）。
+    4. 头像：``.home-exp-user-card__head .avatar-box img`` 的 ``src``。
 
     Returns:
         tuple[str, str]: (user_name, avatar_url)
@@ -958,7 +958,7 @@ async def scrape_csdn_profile(page):
         except Exception:
             pass
         try:
-            await page.locator("div.user-info-box").first.wait_for(
+            await page.locator("div.home-exp-user-card").first.wait_for(
                 state="visible", timeout=15000
             )
         except Exception as e:
@@ -967,7 +967,9 @@ async def scrape_csdn_profile(page):
 
         # 昵称：优先 title 属性（完整名），兜底 text_content
         try:
-            name_el = page.locator("div.user-info-box p.name").first
+            name_el = page.locator(
+                ".home-exp-user-card__head .name"
+            ).first
             if await name_el.count() > 0:
                 name = (await name_el.get_attribute("title") or "").strip()
                 if not name:
@@ -978,7 +980,7 @@ async def scrape_csdn_profile(page):
         # 头像
         try:
             avatar_el = page.locator(
-                "div.user-info-box .avatar-box img"
+                ".home-exp-user-card__head .avatar-box img"
             ).first
             if await avatar_el.count() > 0:
                 avatar = (await avatar_el.get_attribute("src") or "").strip()

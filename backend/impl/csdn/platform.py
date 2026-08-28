@@ -30,8 +30,8 @@ logger = get_channel_logger("csdn")
 
 CSDN_HOME_URL = "https://mp.csdn.net/"
 CSDN_VIDEO_UPLOAD_URL = "https://mp.csdn.net/mp_others/creation/videoUpload"
-# 登录成功信号：创作者首页右上角的用户信息卡出现
-CSDN_LOGIN_SUCCESS_SELECTOR = "div.user-info-box"
+# 登录成功信号：创作者首页侧边栏的用户信息卡出现
+CSDN_LOGIN_SUCCESS_SELECTOR = "div.home-exp-user-card"
 
 # CSDN 视频发布限制（详见对接文档 csdn.md）
 CSDN_MAX_TAGS = 3          # 标签不超过 3 个
@@ -102,7 +102,7 @@ class CsdnPlatform(BasePlatform):
         """打开 CSDN 创作者首页，等待用户完成登录后保存 cookie。
 
         CSDN 登录方式（密码/扫码/第三方）较多样，统一让用户在可见浏览器里
-        手动完成。检测到首页用户信息卡 (``div.user-info-box``) 出现即视为
+        手动完成。检测到首页用户信息卡 (``div.home-exp-user-card``) 出现即视为
         登录成功。
         """
         browser = await self.create_browser(login_mode=True)

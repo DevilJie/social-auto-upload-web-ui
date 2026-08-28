@@ -505,34 +505,53 @@
                   @change="handleChannelsLocationChange"
                 />
               </div>
-              <!-- 关联剧集(账号级,只能选 1 部)
-                   通过 ChannelsDramaPicker 弹窗(后端 channels drama_picker) 选完保存到 channelsDrama,
-                   发布时 platform.py 按 trace (keyword+page) 在弹窗里复现选中 -->
+              <!-- 链接(账号级,标准下拉 4 选 1)
+                   选哪个才显示对应子配置区。
+                   视频号发布页 DOM(实测):
+                     .post-link-wrap > .link-display-wrap > .link-placeholder(选择链接)
+                     点击展开 .link-list-options(4 个 .link-option-item) -->
               <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
-                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联剧集</div>
-                <div v-if="form.channelsDrama && form.channelsDrama.length > 0" class="channels-drama-selected">
-                  <div class="drama-pill">
-                    <img v-if="form.channelsDrama[0].cover" :src="form.channelsDrama[0].cover" class="drama-pill-cover" referrerpolicy="no-referrer" />
-                    <div class="drama-pill-text">
-                      <div class="drama-pill-title">{{ form.channelsDrama[0].title }}</div>
-                      <div v-if="form.channelsDrama[0].extinfo" class="drama-pill-ext">{{ form.channelsDrama[0].extinfo }}</div>
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">链接</div>
+                <el-select
+                  v-model="form.channelsLinkType"
+                  placeholder="选择链接"
+                  clearable
+                  style="width: 100%"
+                  @change="onChannelsLinkTypeChange"
+                >
+                  <el-option label="公众号文章" value="article" />
+                  <el-option label="红包封面" value="red_envelope" />
+                  <el-option label="视频号剧集" value="drama" />
+                  <el-option label="小程序短剧" value="mini_drama" />
+                </el-select>
+
+                <!-- 子配置:视频号剧集 / 小程序短剧 → 走 picker 弹窗 -->
+                <div v-if="form.channelsLinkType === 'drama' || form.channelsLinkType === 'mini_drama'" class="link-sub">
+                  <div v-if="form.channelsDrama && form.channelsDrama.length > 0" class="channels-drama-selected">
+                    <div class="drama-pill">
+                      <img v-if="form.channelsDrama[0].cover" :src="form.channelsDrama[0].cover" class="drama-pill-cover" referrerpolicy="no-referrer" />
+                      <div class="drama-pill-text">
+                        <div class="drama-pill-title">{{ form.channelsDrama[0].title }}</div>
+                        <div v-if="form.channelsDrama[0].extinfo" class="drama-pill-ext">{{ form.channelsDrama[0].extinfo }}</div>
+                      </div>
+                      <el-button size="small" text type="danger" @click="form.channelsDrama = []">移除</el-button>
                     </div>
-                    <el-button
-                      size="small"
-                      text
-                      type="danger"
-                      @click="form.channelsDrama = []"
-                    >移除</el-button>
+                    <el-button size="small" plain @click="openChannelsDramaPicker(form.channelsLinkType)">重新选择</el-button>
                   </div>
-                  <el-button size="small" plain @click="openChannelsDramaPicker">重新选择</el-button>
+                  <el-button v-else size="default" :icon="Plus" plain @click="openChannelsDramaPicker(form.channelsLinkType)">
+                    选择{{ form.channelsLinkType === 'mini_drama' ? '小程序短剧' : '视频号剧集' }}
+                  </el-button>
                 </div>
-                <el-button
-                  v-else
-                  size="default"
-                  :icon="Plus"
-                  plain
-                  @click="openChannelsDramaPicker"
-                >选择剧集</el-button>
+
+                <!-- 子配置:公众号文章(占位) -->
+                <div v-else-if="form.channelsLinkType === 'article'" class="link-sub">
+                  <el-input v-model="form.channelsLinkArticleUrl" placeholder="输入公众号文章链接" clearable />
+                </div>
+
+                <!-- 子配置:红包封面(占位,待接入) -->
+                <div v-else-if="form.channelsLinkType === 'red_envelope'" class="link-sub">
+                  <el-button size="default" :icon="Plus" plain disabled>选择红包封面(待接入)</el-button>
+                </div>
               </div>
             </template>
 
@@ -885,6 +904,7 @@
     <ChannelsDramaPicker
       v-model="channelsDramaPickerVisible"
       :account-id="channelsDramaPickerAccountId"
+      :entry="channelsDramaPickerEntry"
       :init-selected="form.channelsDrama"
       @confirm="onChannelsDramaPickerConfirm"
     />
@@ -1211,6 +1231,14 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     channelsRepostSource: accountOv?.channelsRepostSource ?? platformOv?.channelsRepostSource ?? platformDefault?.channelsRepostSource ?? '',
     // 视频号剧集(账号级,每条视频关联 1 部剧集,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
     channelsDrama: accountOv?.channelsDrama ?? platformOv?.channelsDrama ?? platformDefault?.channelsDrama ?? [],
+    // 视频号「链接」下拉选择(账号级): '' | 'article' | 'red_envelope' | 'drama' | 'mini_drama'
+    channelsLinkType: accountOv?.channelsLinkType ?? platformOv?.channelsLinkType ?? platformDefault?.channelsLinkType ?? '',
+    // 公众号文章链接(账号级,channelsLinkType='article' 时使用)
+    channelsLinkArticleUrl: accountOv?.channelsLinkArticleUrl ?? platformOv?.channelsLinkArticleUrl ?? platformDefault?.channelsLinkArticleUrl ?? '',
+    // 视频号「链接」下拉选择(账号级): '' | 'article' | 'red_envelope' | 'drama' | 'mini_drama'
+    channelsLinkType: accountOv?.channelsLinkType ?? platformOv?.channelsLinkType ?? platformDefault?.channelsLinkType ?? '',
+    // 公众号文章链接(账号级,channelsLinkType='article' 时使用)
+    channelsLinkArticleUrl: accountOv?.channelsLinkArticleUrl ?? platformOv?.channelsLinkArticleUrl ?? platformDefault?.channelsLinkArticleUrl ?? '',
     // CSDN 是否推荐(平台级开关)
     recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
     // VIVO 平台特有字段(平台级)
@@ -1294,7 +1322,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [] },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
@@ -1464,6 +1492,7 @@ function removeGuangheItem(fieldKey, idx) {
 // trace (keyword, page) 存进 channelsDrama[*].trace,发布时 platform.py 按 trace 复现选中。
 const channelsDramaPickerVisible = ref(false)
 const channelsDramaPickerAccountId = ref('')
+const channelsDramaPickerEntry = ref('选择需要添加的视频号剧集')
 
 function findAnyChannelsAccountId() {
   if (!publishAccountIds || publishAccountIds.size === 0) return ''
@@ -1474,14 +1503,25 @@ function findAnyChannelsAccountId() {
   return ''
 }
 
-function openChannelsDramaPicker() {
+function openChannelsDramaPicker(linkType) {
   const accountId = findAnyChannelsAccountId()
   if (!accountId) {
     ElMessage.warning('请先选择至少一个视频号账号')
     return
   }
   channelsDramaPickerAccountId.value = accountId
+  // linkType 决定入口 placeholder: 视频号剧集 vs 小程序短剧
+  channelsDramaPickerEntry.value = linkType === 'mini_drama'
+    ? '选择需要添加的短剧'
+    : '选择需要添加的视频号剧集'
   channelsDramaPickerVisible.value = true
+}
+
+function onChannelsLinkTypeChange(val) {
+  // 切换链接类型时清空旧的剧集选择(类型不匹配)
+  if (val !== 'drama' && val !== 'mini_drama') {
+    form.channelsDrama = []
+  }
 }
 
 function onChannelsDramaPickerConfirm(items) {
@@ -4119,6 +4159,14 @@ function formatSize(bytes) {
 }
 .guanghe-items-field {
   width: 100%;
+}
+
+.link-sub {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .channels-drama-selected {

@@ -531,7 +531,8 @@ def _resolve_drama_session_or_404(account_id: str):
 @channels_bp.route("/drama_picker/open", methods=["POST"])
 def drama_picker_open():
     data = request.get_json(silent=True) or {}
-    account_id = (data.get("accountId") or "").strip()
+    raw_id = data.get("accountId")
+    account_id = str(raw_id).strip() if raw_id is not None else ""
     entry = (data.get("entry") or "选择需要添加的视频号剧集").strip()
     if not account_id:
         return _err("accountId 不能为空", 400, 400)

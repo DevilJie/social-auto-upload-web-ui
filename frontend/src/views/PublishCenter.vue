@@ -892,7 +892,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -1466,8 +1466,8 @@ const channelsDramaPickerVisible = ref(false)
 const channelsDramaPickerAccountId = ref('')
 
 function findAnyChannelsAccountId() {
-  if (!selectedAccountIds || !selectedAccountIds.value || !selectedAccountIds.value.size) return ''
-  for (const id of selectedAccountIds.value) {
+  if (!publishAccountIds || publishAccountIds.size === 0) return ''
+  for (const id of publishAccountIds) {
     const a = accountStore.accounts.find((x) => x.id === id)
     if (a && a.platform === '视频号') return id
   }

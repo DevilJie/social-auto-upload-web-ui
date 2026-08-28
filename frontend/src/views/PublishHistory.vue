@@ -806,38 +806,9 @@ onMounted(() => { fetchHistory(); fetchStats() })
     }
   }
 
-  // 取消发布按钮(右上角,紧挨删除按钮左侧；有未完成任务时显示)
-  .card-cancel-btn {
-    position: absolute;
-    top: 8px;
-    right: 42px;
-    z-index: 3;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: 14px;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(8px);
-    border: none;
-    color: #ffa940;
-    font-size: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0;
-    transition: all 0.2s;
-
-    &:hover {
-      background: rgba($warning-color, 0.9);
-      color: #fff;
-    }
-
-    .batch-card:hover & {
-      opacity: 1;
-    }
-  }
-
-  // 单条删除按钮(右上角,hover 显示)
+  // 卡片右上角操作按钮：删除 + 取消（仅非终态）
+  // 两者均只在卡片 hover 时显现；非 hover 时 opacity=0 不挡卡片视觉。
+  // 删除按钮(最右): hover 时显示,任意状态都有
   .card-delete-btn {
     position: absolute;
     top: 8px;
@@ -862,11 +833,38 @@ onMounted(() => { fetchHistory(); fetchStats() })
       background: rgba($danger-color, 0.9);
       color: #fff;
     }
+  }
 
-    .batch-card:hover & {
-      opacity: 1;
+  // 取消按钮(紧挨删除按钮左侧): 仅批次有未完成任务时显示
+  .card-cancel-btn {
+    position: absolute;
+    top: 8px;
+    right: 42px;
+    z-index: 3;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    border: none;
+    color: #ffa940;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+
+    &:hover {
+      background: rgba($warning-color, 0.9);
+      color: #fff;
     }
   }
+
+  // hover 显形(用兄弟选择器兼容所有浏览器)
+  .batch-card:hover .card-delete-btn { opacity: 1; }
+  .batch-card:hover .card-cancel-btn { opacity: 1; }
 
   // 多选模式下的选择圆圈
   .card-selector {

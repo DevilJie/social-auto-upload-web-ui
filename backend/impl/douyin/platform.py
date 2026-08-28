@@ -29,6 +29,25 @@ from ..base_platform import BasePlatform
 
 logger = get_channel_logger("douyin")
 
+
+def _parse_count_text(num_str: str) -> int:
+    """解析平台数字文本: '120' -> 120, '1.2万' -> 12000, '3亿' -> 300000000。
+
+    大号数据平台会缩写为"万/亿"后缀，直接 int() 会失败归零。
+    """
+    s = str(num_str or '').replace(',', '').replace(' ', '').strip()
+    if not s:
+        return 0
+    mult = 1
+    if s.endswith('亿'):
+        mult, s = 100000000, s[:-1]
+    elif s.endswith('万'):
+        mult, s = 10000, s[:-1]
+    try:
+        return int(float(s) * mult)
+    except (ValueError, TypeError):
+        return 0
+
 DOUYIN_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
 DOUYIN_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
 
@@ -224,11 +243,12 @@ class DouyinPlatform(BasePlatform):
                     '''() => {
                         const out = [];
                         document.querySelectorAll('[class*="statics-item-"]').forEach(item => {
-                            // textContent 包含 "关注"/"粉丝"/"获赞" + 数字 (在 <span> 里)
-                            const spans = item.querySelectorAll('span');
-                            if (!spans.length) return;
-                            // 取最后一个 span(数字)
-                            const numEl = spans[spans.length - 1];
+                            // 数字 span 文本为纯数字(可含千分位/万/亿),箭头图标 span 文本为空会被跳过
+                            const numEl = Array.from(item.querySelectorAll('span')).find(s => {
+                                const t = (s.textContent || '').trim();
+                                return t && /^[\\d,.\\s]+[万亿]?$/.test(t);
+                            });
+                            if (!numEl) return;
                             const num = (numEl.textContent || '').trim();
                             // textContent 是 label + 数字拼接,识别 label
                             const full = (item.textContent || '').trim();
@@ -255,10 +275,7 @@ class DouyinPlatform(BasePlatform):
                     num_str = str(item.get('num', '0'))
                     if lbl in label_map:
                         icon, sort_no, std_name = label_map[lbl]
-                        try:
-                            count = int(num_str.replace(',', '').replace(' ', '') or '0')
-                        except (ValueError, TypeError):
-                            count = 0
+                        count = _parse_count_text(num_str)
                         stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
 
                 if not name and not avatar and not stats:
@@ -287,9 +304,12 @@ class DouyinPlatform(BasePlatform):
             '''() => {
                 const out = [];
                 document.querySelectorAll('[class*="statics-item-"]').forEach(item => {
-                    const spans = item.querySelectorAll('span');
-                    if (!spans.length) return;
-                    const numEl = spans[spans.length - 1];
+                    // 数字 span 文本为纯数字(可含千分位/万/亿),箭头图标 span 文本为空会被跳过
+                    const numEl = Array.from(item.querySelectorAll('span')).find(s => {
+                        const t = (s.textContent || '').trim();
+                        return t && /^[\\d,.\\s]+[万亿]?$/.test(t);
+                    });
+                    if (!numEl) return;
                     const num = (numEl.textContent || '').trim();
                     const full = (item.textContent || '').trim();
                     let label = '';
@@ -313,10 +333,7 @@ class DouyinPlatform(BasePlatform):
             num_str = str(item.get('num', '0'))
             if lbl in label_map:
                 icon, sort_no, std_name = label_map[lbl]
-                try:
-                    count = int(num_str.replace(',', '').replace(' ', '') or '0')
-                except (ValueError, TypeError):
-                    count = 0
+                count = _parse_count_text(num_str)
                 stats.append({"ICON": icon, "COUNT": count, "NAME": std_name, "SORT": sort_no})
         return stats
 

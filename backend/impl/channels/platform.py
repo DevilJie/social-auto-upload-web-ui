@@ -1590,6 +1590,9 @@ class ChannelsPlatform(BasePlatform):
         channels_repost_source = kwargs.get("channels_repost_source", "")
         # 视频号剧集(账号级,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
         channels_drama = kwargs.get("channels_drama", []) or []
+        # 链接类型(''/article/red_envelope/drama/mini_drama)+ 公众号文章链接
+        channels_link_type = kwargs.get("channels_link_type", "") or ""
+        channels_link_article_url = kwargs.get("channels_link_article_url", "") or ""
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1725,6 +1728,7 @@ class ChannelsPlatform(BasePlatform):
                                 logger.info("[发布调试] 关联剧集(drama)    : %s (%s) key=%s", d.get("title", "(无)"), d.get("extinfo", ""), d.get("key", ""))
                             else:
                                 logger.info("[发布调试] 关联剧集(drama)    : (无)")
+                            logger.info("[发布调试] 链接(link)       : type=%s article=%s", channels_link_type or "(无)", channels_link_article_url or "(无)")
                             logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
                             logger.info("[发布调试] ========================================")
                             logger.info("=" * 60)

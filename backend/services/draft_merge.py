@@ -139,6 +139,7 @@ def merge_config(common, platform_default, platform_ov, account_ov):
         'channelsCollectionName', 'channelsLocationName',
         'channelsActivityName', 'channelsActivityData', 'channelsMarkTag',
         'channelsShootDate', 'channelsShootRegion', 'channelsRepostSource',
+        'channelsDrama', 'channelsLinkType', 'channelsLinkArticleUrl',
         'collectionId', 'collectionName', 'collectionData',
         'xhsSourceType', 'xhsShootLocation', 'xhsShootDate', 'xhsRepostSource',
     ]:
@@ -466,6 +467,10 @@ def build_platform_kwargs(merged, common, account):
         'channels_shoot_date': merged.get('channelsShootDate', '') or '',
         'channels_shoot_region': merged.get('channelsShootRegion') or [],
         'channels_repost_source': merged.get('channelsRepostSource', '') or '',
+        # 视频号关联剧集(picker 选择结果,含发布复现用 trace)+ 链接类型/公众号文章链接
+        'channels_drama': merged.get('channelsDrama') or [],
+        'channels_link_type': merged.get('channelsLinkType', '') or '',
+        'channels_link_article_url': merged.get('channelsLinkArticleUrl', '') or '',
         'schedule_time': schedule_time_str,
         # 小红书合集(账号级):用 xhs_ 前缀避免与头条 collection_id 冲突
         'xhs_collection_id': merged.get('collectionId', '') or '',

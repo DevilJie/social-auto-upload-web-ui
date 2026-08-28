@@ -1100,6 +1100,10 @@ def postVideo():
                 channels_shoot_date=data.get('channelsShootDate', ''),
                 channels_shoot_region=data.get('channelsShootRegion', []),
                 channels_repost_source=data.get('channelsRepostSource', ''),
+                # 视频号关联剧集(picker 选择结果,含发布复现用 trace)
+                channels_drama=data.get('channelsDrama') or [],
+                channels_link_type=data.get('channelsLinkType', ''),
+                channels_link_article_url=data.get('channelsLinkArticleUrl', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
                 # VIVO 平台特有参数

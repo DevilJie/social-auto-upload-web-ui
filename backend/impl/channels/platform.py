@@ -42,10 +42,10 @@ TENCENT_UPLOAD_URL = "https://channels.weixin.qq.com/platform/post/create"
 TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
 
 # 调试开关:True = 走到发布按钮时只输出参数日志、不实际点击发布(便于检查内容);
-# False = 正常点击发布。环境变量 CHANNELS_DRY_RUN_PUBLISH=1 默认开启,
-# 验证完发布内容无误后设 CHANNELS_DRY_RUN_PUBLISH=0 即可。
+# False = 正常点击发布。默认关闭(真实发布),需要模拟时设环境变量
+# CHANNELS_DRY_RUN_PUBLISH=1。
 import os as _os_ch_dry
-_PUBLISH_DRY_RUN = _os_ch_dry.environ.get("CHANNELS_DRY_RUN_PUBLISH", "1") == "1"
+_PUBLISH_DRY_RUN = _os_ch_dry.environ.get("CHANNELS_DRY_RUN_PUBLISH", "0") == "1"
 
 
 def _format_short_title(origin_title: str) -> str:

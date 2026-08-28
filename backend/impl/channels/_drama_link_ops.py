@@ -84,7 +84,7 @@ LINK_PLACEHOLDERS = {
 }
 
 
-async def _wait_link_section_ready(page, timeout_s: int = 10) -> None:
+async def _wait_link_section_ready(page, timeout_s: int = 30) -> None:
     """等 .post-link-wrap 容器出现(视频号发布页加载完成标志)。"""
     wrap = page.locator(".post-link-wrap").first
     deadline = asyncio.get_event_loop().time() + timeout_s
@@ -101,7 +101,7 @@ async def _wait_link_section_ready(page, timeout_s: int = 10) -> None:
     )
 
 
-async def _open_link_dropdown(page, timeout_s: int = 5) -> None:
+async def _open_link_dropdown(page, timeout_s: int = 30) -> None:
     """点 .link-display-wrap 打开 4 选项下拉。"""
     display = page.locator(".post-link-wrap .link-display-wrap").first
     try:
@@ -131,7 +131,7 @@ async def _select_link_option(page, link_type: str) -> None:
         '.post-link-wrap .link-list-options .link-option-item:has-text("' + label + '")'
     ).first
     try:
-        await option.wait_for(state="visible", timeout=5000)
+        await option.wait_for(state="visible", timeout=30_000)
     except Exception as exc:
         raise RuntimeError(
             f"[DramaPicker] 找不到下拉项「{label}」({link_type}): {exc}"
@@ -140,7 +140,7 @@ async def _select_link_option(page, link_type: str) -> None:
     await asyncio.sleep(0.4)
 
 
-async def _wait_drama_entry(page, link_type: str, timeout_s: int = 10) -> None:
+async def _wait_drama_entry(page, link_type: str, timeout_s: int = 30) -> None:
     """选了 link_type 之后等子区出现(含对应 placeholder 文本的 .content-wrap)。"""
     placeholder_text = LINK_PLACEHOLDERS[link_type]
     sel = '.content-wrap:has-text("' + placeholder_text + '")'
@@ -165,7 +165,7 @@ async def _click_drama_entry(page, link_type: str) -> None:
     sel = '.content-wrap:has-text("' + placeholder_text + '")'
     entry = page.locator(sel).first
     try:
-        await entry.wait_for(state="visible", timeout=5000)
+        await entry.wait_for(state="visible", timeout=30_000)
     except Exception as exc:
         raise RuntimeError(
             f"[DramaPicker] 等不到「{placeholder_text}」入口可点: {exc}"
@@ -188,7 +188,7 @@ async def open_drama_panel(page, link_type: str = "drama") -> None:
     await _click_drama_entry(page, link_type)
 
 
-async def wait_panel_ready(page, timeout_s: int = 10) -> None:
+async def wait_panel_ready(page, timeout_s: int = 30) -> None:
     """等弹窗内表格第一行出现(确认数据已渲染)。"""
     dialog = page.locator(".weui-desktop-dialog").filter(
         has_text=DIALOG_TITLE

@@ -923,34 +923,99 @@ class WeixinGzhPlatform(BasePlatform):
 
     @staticmethod
     async def _set_original(page):
-        """开启原创声明开关,并确认弹窗。
+        """开启原创声明。
 
-        DOM(文档):
-          开关: .ori-reward-info_wrp .weui-desktop-switch
-          原创须知弹窗: .weui-desktop-dialog_original-video 内「确定」按钮
+        流程(实测,2026 新版 DOM):
+        1. **判定当前账号是否有原创权益**: 检测 ``.declare-original-checkbox``
+           是否存在。存在 = 该账号支持原创声明;不存在 = 跳过整个流程
+           (没权益的账号点了也无效,反而弹窗流程会卡)。
+        2. 点 checkbox 开关 ``.declare-original-checkbox .ant-checkbox-wrapper``
+           → 触发 .declare-original-dialog 弹窗(默认 display:none → 显现)。
+        3. 弹窗里勾选协议 checkbox: ``.original-proto-wrapper .ant-checkbox-wrapper``
+           (勾上后「声明原创」按钮的 _disabled 类才会去掉)。
+        4. 等「声明原创」按钮去掉 ``weui-desktop-btn_disabled`` 后点击。
+        5. 兜底关弹窗。
+
+        DOM 参考:
+          开关区: ``.declare-original-checkbox > label.ant-checkbox-wrapper``
+          协议弹窗: ``.declare-original-dialog .weui-desktop-dialog``
+          协议勾选: ``.original-proto-wrapper .ant-checkbox-wrapper``
+          确认按钮: ``.declare-original-dialog button.weui-desktop-btn_primary``
+          取消按钮: ``.declare-original-dialog button.weui-desktop-btn_default``
         """
-        switch = page.locator(".ori-reward-info_wrp .weui-desktop-switch").first
-        await switch.wait_for(state="visible", timeout=10000)
-        await switch.click()
-        logger.info("[阶段①] 已点击原创声明开关,等待须知弹窗...")
+        # 1. 检测账号是否有原创权益(开关区存在性)
+        declare_checkbox = page.locator(".declare-original-checkbox").first
+        try:
+            await declare_checkbox.wait_for(state="visible", timeout=10000)
+        except Exception:
+            logger.warning(
+                "[阶段①] 当前账号没有原创权益(.declare-original-checkbox 不存在),跳过原创声明"
+            )
+            return
+
+        # 2. 点 checkbox 打开协议弹窗
+        wrap = declare_checkbox.locator("label.ant-checkbox-wrapper").first
+        try:
+            await wrap.wait_for(state="visible", timeout=5000)
+            await wrap.click()
+        except Exception as exc:
+            logger.warning("[阶段①] 找不到/点不到原创声明 checkbox: %s", exc)
+            return
+        logger.info("[阶段①] 已点击原创声明 checkbox,等待协议弹窗...")
         await asyncio.sleep(1.5)
-        # 点弹窗内「确定」
-        ok_clicked = await page.evaluate(
-            """() => {
-                const dialog = document.querySelector('.weui-desktop-dialog_original-video')
-                    || document.querySelector('.weui-desktop-dialog__wrp');
-                if (!dialog) return false;
-                const btns = dialog.querySelectorAll('button.weui-desktop-btn_primary');
-                for (const b of btns) {
-                    b.click();
-                    return true;
-                }
-                return false;
-            }"""
-        )
-        if not ok_clicked:
-            logger.warning("[阶段①] 未找到原创须知弹窗的「确定」按钮")
+
+        # 3. 等协议弹窗内的勾选出现
+        proto_wrap = page.locator(".declare-original-dialog .original-proto-wrapper label.ant-checkbox-wrapper").first
+        try:
+            await proto_wrap.wait_for(state="visible", timeout=10000)
+        except Exception as exc:
+            logger.warning("[阶段①] 未出现原创协议勾选框,可能该账号无权益: %s", exc)
+            return
+
+        # 4. 勾选协议
+        try:
+            await proto_wrap.click()
+        except Exception as exc:
+            logger.warning("[阶段①] 勾选原创协议失败: %s", exc)
+            return
+        logger.info("[阶段①] 已勾选原创协议,等待「声明原创」按钮可点击...")
+        await asyncio.sleep(0.5)
+
+        # 5. 等「声明原创」按钮 enabled 后点击
+        confirm_btn = page.locator(
+            ".declare-original-dialog button.weui-desktop-btn_primary"
+        ).first
+        deadline = asyncio.get_event_loop().time() + 15
+        clicked = False
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+                    disabled = await confirm_btn.evaluate(
+                        "el => el.classList.contains('weui-desktop-btn_disabled')"
+                    )
+                    if not disabled:
+                        await confirm_btn.click()
+                        clicked = True
+                        break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        if clicked:
+            logger.info("[阶段①] 已点击「声明原创」,原创声明流程完成")
+        else:
+            logger.warning("[阶段①] 「声明原创」按钮 15s 内未启用")
         await asyncio.sleep(1)
+
+        # 6. 兜底关弹窗(若还开着)
+        try:
+            close_btn = page.locator(
+                ".declare-original-dialog .weui-desktop-dialog__close-btn"
+            ).first
+            if await close_btn.count() > 0 and await close_btn.is_visible():
+                await close_btn.click()
+                logger.info("[阶段①] 已关闭原创协议弹窗")
+        except Exception:
+            pass
 
     @staticmethod
     async def _check_service_rule(page):

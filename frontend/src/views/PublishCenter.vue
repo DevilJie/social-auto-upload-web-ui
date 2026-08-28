@@ -3253,55 +3253,12 @@ async function confirmBatchPublish(selectedIndexes) {
     const taskIds = data.task_ids || []
     const failed = data.failed || []
 
-    // 后端 failed[].video 是「提交列表」内下标（第 k 个提交的视频），
-    // 换算回队列下标：videos[k] = videoQueue[sorted[k]]
-    const failedQueueIdx = new Set(
-      failed.map(f => sorted[f.video]).filter(i => i !== undefined)
-    )
-    // 完全成功（无失败项）的视频移出队列；有失败项的留在队列供修复重发。
-    // 修复：以前会在「当前视频被发掉」后 applyVideoSnapshot({}) 整个表单被清掉，
-    // 用户反馈「点了发布过后填的表单内容就没了」。现在改为：
-    // 先把活状态写回原队列位置保留内容，再移除已发视频，最后切到下一条未发。
-    const toRemove = sorted.filter(i => !failedQueueIdx.has(i))
-    const currentWasRemoved = toRemove.includes(currentVideoIndex.value)
+    // 发布后视频保留在队列,不再自动移出(用户要求):
+    // 发布是后端异步任务,任务卡住/失败时视频还在队列里可直接再次点发布重发;
+    // 不需要的视频由用户在队列栏手动移除。先把活状态写回对应位置保留内容。
+    syncCurrentIntoQueue()
 
-    if (currentWasRemoved) {
-      // 当前视频被发掉：先同步活状态到对应位置保留已发那条内容，
-      // 然后切到「下一个未发视频」（已发掉的从队列里移除）。
-      // newIndex = 当前索引 - 前面被移除的数量 = 在新队列里同一相对位置的项
-      const removedBefore = toRemove.filter(i => i < currentVideoIndex.value).length
-      const newIndex = currentVideoIndex.value - removedBefore
-      // 先把活状态同步回对应 snapshot（否则移除时活状态内容会丢）
-      syncCurrentIntoQueue()
-      // 从后往前 splice 保持索引稳定
-      for (const i of [...toRemove].sort((a, b) => b - a)) {
-        videoQueue.value.splice(i, 1)
-      }
-      if (videoQueue.value.length === 0) {
-        // 队列空了：保留当前活状态不变（活状态里仍是「刚发掉那条」的内容，
-        // 用户可继续编辑或添加新视频）。不再 applyVideoSnapshot({}) 抹掉。
-      } else {
-        const next = Math.min(newIndex, videoQueue.value.length - 1)
-        currentVideoIndex.value = next
-        applyVideoSnapshot(videoQueue.value[next])
-        tagInput.value = ''
-        landscapeFrames.value = []
-        portraitFrames.value = []
-        const draftVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
-        if (draftVideo) triggerFrameExtraction(draftVideo, 'landscape')
-      }
-    } else {
-      // 当前视频没被发掉：先同步活状态（用户可能最后改了内容），
-      // 然后移除已发视频并前移索引
-      syncCurrentIntoQueue()
-      for (const i of [...toRemove].sort((a, b) => b - a)) {
-        videoQueue.value.splice(i, 1)
-      }
-      const before = toRemove.filter(i => i < currentVideoIndex.value).length
-      currentVideoIndex.value -= before
-    }
-
-    // 发布不改动草稿（用户要求）：与当前草稿解绑，队列清理只影响本会话。
+    // 发布不改动草稿（用户要求）：与当前草稿解绑。
     // 已发布的草稿保持原样；后续再编辑/保存会另存为新草稿，不覆盖它。
     currentDraftId.value = null
     // applyVideoSnapshot 等清理会触发 deep watcher 把 hasChanges 置 true，

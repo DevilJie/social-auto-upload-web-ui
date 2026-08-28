@@ -403,8 +403,8 @@ async function cancelBatch(batch) {
   if (!active.length) return
   try {
     await ElMessageBox.confirm(
-      `「${batch.title || '无标题'}」有 ${active.length} 个任务未完成，确定全部取消？`,
-      '取消发布',
+      `「${batch.title || '无标题'}」有 ${active.length} 个剩余任务，确定全部取消？`,
+      '取消剩余任务',
       { confirmButtonText: '取消发布', cancelButtonText: '再想想', type: 'warning' },
     )
   } catch { return }

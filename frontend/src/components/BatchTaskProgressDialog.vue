@@ -98,7 +98,7 @@
             plain
             :disabled="!hasActive"
             @click="cancelAllActive"
-          >取消未完成</el-button>
+          >取消所有剩余</el-button>
           <el-button type="primary" @click="$emit('update:visible', false)">后台运行</el-button>
         </template>
       </div>
@@ -227,8 +227,8 @@ async function cancelAllActive() {
   if (!active.length) return
   try {
     await ElMessageBox.confirm(
-      `将取消 ${active.length} 个未完成任务（进行中的任务会立即终止），确定？`,
-      '取消未完成任务',
+      `将取消 ${active.length} 个剩余任务（进行中的任务会立即终止），确定？`,
+      '取消剩余任务',
       { type: 'warning', confirmButtonText: '取消发布', cancelButtonText: '再想想' },
     )
   } catch { return }

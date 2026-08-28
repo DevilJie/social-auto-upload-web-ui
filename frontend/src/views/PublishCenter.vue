@@ -94,6 +94,8 @@
                 v-model:active-ratio="coverPortraitActiveRatio"
                 :model-value="coverPortraitActiveCover"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
+                :cropping="isCoverCropping"
+                :crop-stage="coverCropStage"
                 @update:modelValue="onPortraitCoverChange"
                 @edit="openCoverEditor('portrait', coverPortraitActiveRatio)"
                 @open-library="selectFromLibrary('cover', 'portrait')"
@@ -104,6 +106,8 @@
                 v-model:active-ratio="coverLandscapeActiveRatio"
                 :model-value="coverLandscapeActiveCover"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
+                :cropping="isCoverCropping"
+                :crop-stage="coverCropStage"
                 @update:modelValue="onLandscapeCoverChange"
                 @edit="openCoverEditor('landscape', coverLandscapeActiveRatio)"
                 @open-library="selectFromLibrary('cover', 'landscape')"
@@ -955,6 +959,11 @@ const commonConfig = reactive({
 // 对应的 watch 注册在 currentEditTarget 声明之后
 const coverPortraitActiveRatio = ref('3:4')    // 竖版卡：默认 3:4
 const coverLandscapeActiveRatio = ref('4:3')    // 横版卡：默认 4:3
+
+// 自动裁剪封面的状态：上传/选视频后，后台抽帧 + 生成多比例封面（5~20s）
+// 用 cropping=true 让 CoverCard 显示「裁剪中…」反馈，避免用户以为没响应
+const isCoverCropping = ref(false)
+const coverCropStage = ref('')         // 'extracting' | 'saving'
 
 // 平台级覆写（spec §3.3）—— 公共区域的媒体字段覆写
 const platformOverrides = reactive({})         // { [platformKey]: { coverPortrait, coverLandscape, videoPortrait, videoLandscape } }
@@ -2337,9 +2346,12 @@ function pickAutoCoverFrame(frames) {
 }
 
 // 公共：等待抽帧完成 → 取「前面 1~5 秒」中最接近 3s 的帧 → save-cover 生成 4 比例封面。失败返回 null。
-async function fetchAutoCovers(materialId) {
+// onStage?: (stage: 'extracting' | 'saving') => void — 通知调用方当前阶段，
+// 用于 CoverCard「裁剪中…」文案展示。
+async function fetchAutoCovers(materialId, onStage) {
   if (!materialId) return null
   try {
+    onStage?.('extracting')
     let frames = []
     for (let attempt = 0; attempt < 15; attempt++) {
       try {
@@ -2354,6 +2366,7 @@ async function fetchAutoCovers(materialId) {
     if (!frames.length) return null
     const pick = pickAutoCoverFrame(frames)
     if (!pick || pick.seconds === undefined || pick.seconds === null) return null
+    onStage?.('saving')
     const resp = await http.post('/api/frames/save-cover', {
       material_id: materialId,
       seconds: pick.seconds,
@@ -2411,13 +2424,22 @@ function replaceVideoWithCoverReset(target, assign) {
 async function autoCoverForLiveVideo(videoData) {
   const target = currentEditTarget.value   // 捕获当前编辑目标（视频写到哪，封面写到哪）
   if (!target || !videoData?.id) return
-  const covers = await fetchAutoCovers(videoData.id)
-  if (!covers) return
-  // 期间用户已手动设置封面，或又换了别的视频 → 不写入
-  if (target.coverLandscape || target.coverPortrait) return
-  const curVideo = target.videoLandscape || target.videoPortrait
-  if (curVideo?.id !== videoData.id) return
-  Object.assign(target, covers)
+  // 翻起「裁剪中…」状态，让 CoverCard 显示旋转图标 + 进度文案
+  isCoverCropping.value = true
+  try {
+    const covers = await fetchAutoCovers(videoData.id, (stage) => {
+      coverCropStage.value = stage
+    })
+    if (!covers) return
+    // 期间用户已手动设置封面，或又换了别的视频 → 不写入
+    if (target.coverLandscape || target.coverPortrait) return
+    const curVideo = target.videoLandscape || target.videoPortrait
+    if (curVideo?.id !== videoData.id) return
+    Object.assign(target, covers)
+  } finally {
+    isCoverCropping.value = false
+    coverCropStage.value = ''
+  }
 }
 
 function removeVideoAt(index) {

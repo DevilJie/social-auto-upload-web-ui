@@ -66,7 +66,8 @@ class ChannelsDramaPickerSession:
             "有" if storage_state else "无",
         )
 
-        self.browser = await create_browser(headless=False)
+        # 无头模式:picker 只读数据不发布,不需要可见窗口(发布流程仍为有头)
+        self.browser = await create_browser(headless=True)
         if storage_state:
             self.context = await create_context(
                 self.browser, storage_state=storage_state

@@ -105,7 +105,7 @@ async def _open_link_dropdown(page, timeout_s: int = 5) -> None:
     """点 .link-display-wrap 打开 4 选项下拉。"""
     display = page.locator(".post-link-wrap .link-display-wrap").first
     try:
-        await display.wait_for(state="visible", timeout=timeout_s)
+        await display.wait_for(state="visible", timeout=timeout_s * 1000)
     except Exception as exc:
         raise RuntimeError(
             f"[DramaPicker] 找不到 .link-display-wrap(打不开链接下拉): {exc}"

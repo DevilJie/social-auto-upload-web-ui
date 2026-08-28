@@ -282,15 +282,40 @@ async def ensure_link_section_ready(frame, type_: str, timeout_s: int = 15) -> N
     (光合发布页关联商品是一个独立的 form-item 区块)。
     """
     section_text = "关联商品" if type_ == TYPE_PRODUCT else "关联店铺"
-    # 诊断：dump 当前 frame 里所有 .next-radio-label 的文本，
-    # 确认「商品/店铺」radio 到底叫什么(可能出现「关联商品」或带图标文案)
+    # 诊断 1: 当前 frame 的 URL(确认是不是 huodong 发布表单 frame)
+    try:
+        logger.info("[关联%s][诊断] 当前 frame.url=%s", section_text, frame.url or "(空)")
+    except Exception:
+        pass
+    # 诊断 2: 当前 frame 里所有 .next-radio-label 文本
     try:
         labels = await frame.locator(".next-radio-label").all_text_contents()
         logger.info(
-            "[关联%s][诊断] 当前 radio-labels: %s",
-            "商品" if type_ == TYPE_PRODUCT else "店铺",
+            "[关联%s][诊断] 当前 frame radio-labels: %s",
+            section_text,
             [t.strip()[:30] for t in (labels or [])],
         )
+    except Exception:
+        pass
+    # 诊断 3: 当前 frame body 里含「商品/店铺/关联/添加」的文本片段
+    #         (确认关联商品入口到底叫什么、长什么样)
+    try:
+        snippets = await frame.evaluate(
+            """() => {
+                const text = (document.body && document.body.innerText) || '';
+                const lines = text.split('\\n').map(s => s.trim()).filter(Boolean);
+                const kw = ['商品', '店铺', '关联', '添加', '带货', '选品'];
+                return lines.filter(l => kw.some(k => l.includes(k))).slice(0, 30);
+            }"""
+        )
+        logger.info("[关联%s][诊断] 含关键词文本片段: %s", section_text, snippets)
+    except Exception:
+        pass
+    # 诊断 4: 页面所有 frame 的 URL(看关联商品区是否在另一个 iframe)
+    try:
+        page = frame.page
+        urls = [f.url for f in (page.frames if page else [])]
+        logger.info("[关联%s][诊断] 全部 frames(%d): %s", section_text, len(urls), urls)
     except Exception:
         pass
     deadline = asyncio.get_event_loop().time() + timeout_s

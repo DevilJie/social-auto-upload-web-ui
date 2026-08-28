@@ -111,10 +111,21 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
     # 提前滚动到底部并等该区域可见,避免后续 switch_radio/wait_panel_ready 直接超时。
     await _link_ops.ensure_link_section_ready(frame, type_, timeout_s=15)
 
-    # 面板只开一次:切 radio + 点添加卡片 + 等就绪
+    # 面板只开一次:切 radio(容错) + 点添加卡片 + 等就绪。
     # 各组在同一个面板内切 tab/筛选/搜索/勾选,光合会保留已选商品(最多 6 个)
-    # 最后统一点「确定」提交,避免每组重开重关导致第 2 组 reopen 失败
-    await _link_ops.switch_radio(frame, type_)
+    # 最后统一点「确定」提交,避免每组重开重关导致第 2 组 reopen 失败。
+    #
+    # **容错 switch_radio**: 光合已改版,发布页里没有「商品/店铺」radio
+    # (只有创作者声明 6 个 radio),但 picker 路径同样 switch_radio 失败后
+    # 继续点「添加商品」仍能打开面板 —— 所以这里也忽略 radio 失败,
+    # 不能像以前一样裸调让它抛异常中断整个选品流程。
+    try:
+        await _link_ops.switch_radio(frame, type_)
+    except Exception as exc:
+        logger.info(
+            "[关联%s] switch_radio 失败(新版光合可能无此 radio),忽略继续: %s",
+            type_label, exc,
+        )
     await _link_ops.click_add_card(frame, type_)
     await _link_ops.wait_panel_ready(frame, type_)
 

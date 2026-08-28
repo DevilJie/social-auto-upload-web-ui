@@ -1104,6 +1104,7 @@ def postVideo():
                 channels_drama=data.get('channelsDrama') or [],
                 channels_link_type=data.get('channelsLinkType', ''),
                 channels_link_article_url=data.get('channelsLinkArticleUrl', ''),
+                channels_red_envelope_url=data.get('channelsRedEnvelopeUrl', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
                 # VIVO 平台特有参数

@@ -548,9 +548,9 @@
                   <el-input v-model="form.channelsLinkArticleUrl" placeholder="输入公众号文章链接" clearable />
                 </div>
 
-                <!-- 子配置:红包封面(占位,待接入) -->
+                <!-- 子配置:红包封面 → 粘贴红包封面链接 -->
                 <div v-else-if="form.channelsLinkType === 'red_envelope'" class="link-sub">
-                  <el-button size="default" :icon="Plus" plain disabled>选择红包封面(待接入)</el-button>
+                  <el-input v-model="form.channelsRedEnvelopeUrl" placeholder="粘贴红包封面链接" clearable />
                 </div>
               </div>
             </template>
@@ -1235,10 +1235,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     channelsLinkType: accountOv?.channelsLinkType ?? platformOv?.channelsLinkType ?? platformDefault?.channelsLinkType ?? '',
     // 公众号文章链接(账号级,channelsLinkType='article' 时使用)
     channelsLinkArticleUrl: accountOv?.channelsLinkArticleUrl ?? platformOv?.channelsLinkArticleUrl ?? platformDefault?.channelsLinkArticleUrl ?? '',
-    // 视频号「链接」下拉选择(账号级): '' | 'article' | 'red_envelope' | 'drama' | 'mini_drama'
-    channelsLinkType: accountOv?.channelsLinkType ?? platformOv?.channelsLinkType ?? platformDefault?.channelsLinkType ?? '',
-    // 公众号文章链接(账号级,channelsLinkType='article' 时使用)
-    channelsLinkArticleUrl: accountOv?.channelsLinkArticleUrl ?? platformOv?.channelsLinkArticleUrl ?? platformDefault?.channelsLinkArticleUrl ?? '',
+    // 红包封面链接(账号级,channelsLinkType='red_envelope' 时使用)
+    channelsRedEnvelopeUrl: accountOv?.channelsRedEnvelopeUrl ?? platformOv?.channelsRedEnvelopeUrl ?? platformDefault?.channelsRedEnvelopeUrl ?? '',
     // CSDN 是否推荐(平台级开关)
     recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
     // VIVO 平台特有字段(平台级)
@@ -1322,7 +1320,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '' },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '', channelsRedEnvelopeUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },

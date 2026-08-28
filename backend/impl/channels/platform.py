@@ -1124,14 +1124,18 @@ async def _link_drama(page, channels_drama: list) -> None:
         logger.warning("[关联剧集] 选剧集失败(不阻塞发布): %s", exc)
 
 
-async def _link_article(page, article_url: str) -> None:
-    """链接 → 公众号文章: 选下拉项 + 子区输入框粘贴文章链接(失败不阻塞发布)。"""
+async def _link_url(page, link_type: str, url: str) -> None:
+    """链接 → 公众号文章/红包封面: 选下拉项 + 子区「粘贴xx链接」输入框填 URL。
+
+    失败只打 warning,不阻塞发布。
+    """
+    label = "公众号文章" if link_type == "article" else "红包封面"
     try:
         from . import _drama_link_ops as drama_ops
-        await drama_ops.link_article(page, article_url)
-        logger.info("[文章链接] ✓ 已设置公众号文章链接: %s", (article_url or "")[:60])
+        await drama_ops.link_paste_url(page, link_type, url)
+        logger.info("[%s链接] ✓ 已设置%s链接: %s", label, label, (url or "")[:60])
     except Exception as exc:
-        logger.warning("[文章链接] 设置公众号文章链接失败(不阻塞发布): %s", exc)
+        logger.warning("[%s链接] 设置%s链接失败(不阻塞发布): %s", label, label, exc)
 
 
 async def _set_schedule_time(page, publish_date) -> None:
@@ -1599,9 +1603,10 @@ class ChannelsPlatform(BasePlatform):
         channels_repost_source = kwargs.get("channels_repost_source", "")
         # 视频号剧集(账号级,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
         channels_drama = kwargs.get("channels_drama", []) or []
-        # 链接类型(''/article/red_envelope/drama/mini_drama)+ 公众号文章链接
+        # 链接类型(''/article/red_envelope/drama/mini_drama)+ 公众号文章/红包封面链接
         channels_link_type = kwargs.get("channels_link_type", "") or ""
         channels_link_article_url = kwargs.get("channels_link_article_url", "") or ""
+        channels_red_envelope_url = kwargs.get("channels_red_envelope_url", "") or ""
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1704,11 +1709,18 @@ class ChannelsPlatform(BasePlatform):
                             # Set cover image
                             await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
 
-                            # 关联链接:剧集(drama/mini_drama)或公众号文章
+                            # 关联链接:剧集(drama/mini_drama) / 公众号文章 / 红包封面
                             if channels_drama:
                                 await _link_drama(page, channels_drama)
                             elif channels_link_type == "article" and channels_link_article_url:
-                                await _link_article(page, channels_link_article_url)
+                                await _link_url(page, "article", channels_link_article_url)
+                            elif channels_link_type == "red_envelope" and channels_red_envelope_url:
+                                await _link_url(page, "red_envelope", channels_red_envelope_url)
+                            elif channels_link_type in ("article", "red_envelope"):
+                                logger.warning(
+                                    "[链接] linkType=%s 但链接 URL 为空,跳过设置",
+                                    channels_link_type,
+                                )
 
                             # Set schedule if needed
                             if enable_timer and publish_date != 0:
@@ -1739,7 +1751,7 @@ class ChannelsPlatform(BasePlatform):
                                 logger.info("[发布调试] 关联剧集(drama)    : %s (%s) key=%s", d.get("title", "(无)"), d.get("extinfo", ""), d.get("key", ""))
                             else:
                                 logger.info("[发布调试] 关联剧集(drama)    : (无)")
-                            logger.info("[发布调试] 链接(link)       : type=%s article=%s", channels_link_type or "(无)", channels_link_article_url or "(无)")
+                            logger.info("[发布调试] 链接(link)       : type=%s article=%s red_envelope=%s", channels_link_type or "(无)", channels_link_article_url or "(无)", channels_red_envelope_url or "(无)")
                             logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
                             logger.info("[发布调试] ========================================")
                             logger.info("=" * 60)

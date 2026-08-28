@@ -208,27 +208,43 @@ async def open_drama_panel(page, link_type: str = "drama") -> None:
     await _click_drama_entry(page, link_type)
 
 
-async def link_article(page, article_url: str) -> None:
-    """链接 → 公众号文章: 选下拉项后,在子区输入框粘贴文章链接。
+# 粘贴链接类子区的输入框 placeholder 关键词(用户抓取的 DOM)
+_URL_LINK_PLACEHOLDERS = {
+    "article": "公众号文章链接",
+    "red_envelope": "红包封面链接",
+}
 
-    DOM(用户抓取): 选「公众号文章」后下方出现
+
+async def link_paste_url(page, link_type: str, url: str) -> None:
+    """链接 → 公众号文章/红包封面: 选下拉项后,在子区「粘贴xx链接」输入框填 URL。
+
+    DOM(用户抓取,两种类型同构): 选「公众号文章」/「红包封面」后下方出现
     ``<input type="text" placeholder="粘贴公众号文章链接" class="weui-desktop-form__input">``
+    ``<input type="text" placeholder="粘贴红包封面链接" class="weui-desktop-form__input">``
     输入对应链接即可,无确认按钮。
     """
-    url = (article_url or "").strip()
-    if not url:
+    keyword = _URL_LINK_PLACEHOLDERS.get(link_type)
+    if not keyword:
+        raise ValueError(f"不支持的粘贴链接类型: {link_type!r}")
+    clean = (url or "").strip()
+    if not clean:
         return
     await _wait_link_section_ready(page)
     await _open_link_dropdown(page)
-    await _select_link_option(page, "article")
+    await _select_link_option(page, link_type)
     await asyncio.sleep(0.5)
-    inp = page.locator('input[placeholder*="公众号文章链接"]').first
+    inp = page.locator(f'input[placeholder*="{keyword}"]').first
     await inp.wait_for(state="visible", timeout=5_000)
     await inp.click()
     await inp.fill("")
-    await inp.fill(url)
+    await inp.fill(clean)
     await asyncio.sleep(0.6)
-    logger.info("[ChannelsDrama][文章链接] 已填入公众号文章链接: %s", url[:80])
+    logger.info("[ChannelsDrama][链接] 已填入 %s 链接: %s", link_type, clean[:80])
+
+
+async def link_article(page, article_url: str) -> None:
+    """兼容入口: 链接 → 公众号文章。"""
+    await link_paste_url(page, "article", article_url)
 
 
 async def wait_panel_ready(page, timeout_s: int = 30) -> None:

@@ -281,21 +281,6 @@ onBeforeUnmount(() => {
   :deep(.el-dialog__body) {
     padding: 0 20px;
   }
-
-  // loading 遮罩:跟随主题底色半透明(默认灰色蒙层在亮色模式下太重),spinner 用品牌紫
-  :deep(.el-loading-mask) {
-    background-color: rgba(var(--bg-elevated-rgb), 0.72);
-    backdrop-filter: blur(2px);
-    border-radius: 6px;
-  }
-  :deep(.el-loading-spinner) {
-    .circular .path {
-      stroke: $brand-start;
-    }
-    .el-loading-text {
-      color: $brand-start;
-    }
-  }
 }
 
 .picker-header {
@@ -428,5 +413,27 @@ onBeforeUnmount(() => {
 
 .muted {
   color: $text-muted;
+}
+</style>
+
+<!-- 非 scoped:scoped 块选不到 teleport 出去的弹窗 DOM,用独立块做主题感知 -->
+<style lang="scss">
+// loading 遮罩主题化:覆盖 EP 的 --el-mask-color(v-loading 直接引用),亮色下默认灰蒙层太重
+html:not(.dark) .drama-picker-dialog {
+  --el-mask-color: rgba(255, 255, 255, 0.82) !important;
+}
+html.dark .drama-picker-dialog {
+  --el-mask-color: rgba(18, 18, 42, 0.82) !important;
+}
+
+// 兜底:!important 强制盖掉 EP 默认 rgba 遮罩,杜绝「灰色蒙层」(同 GuangheItemPicker 方案)
+.drama-picker-dialog .el-loading-mask {
+  background-color: rgba(var(--bg-elevated-rgb), 0.82) !important;
+  backdrop-filter: blur(2px);
+  border-radius: 6px;
+}
+.drama-picker-dialog .el-loading-spinner {
+  .circular .path { stroke: #8b5cf6; }
+  .el-loading-text { color: #8b5cf6; }
 }
 </style>

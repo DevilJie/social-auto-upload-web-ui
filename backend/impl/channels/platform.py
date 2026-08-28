@@ -42,8 +42,10 @@ TENCENT_UPLOAD_URL = "https://channels.weixin.qq.com/platform/post/create"
 TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
 
 # 调试开关:True = 走到发布按钮时只输出参数日志、不实际点击发布(便于检查内容);
-# False = 正常点击发布。验证完发布内容无误后改回 False 即可。
-_PUBLISH_DRY_RUN = False
+# False = 正常点击发布。环境变量 CHANNELS_DRY_RUN_PUBLISH=1 默认开启,
+# 验证完发布内容无误后设 CHANNELS_DRY_RUN_PUBLISH=0 即可。
+import os as _os_ch_dry
+_PUBLISH_DRY_RUN = _os_ch_dry.environ.get("CHANNELS_DRY_RUN_PUBLISH", "1") == "1"
 
 
 def _format_short_title(origin_title: str) -> str:
@@ -1065,6 +1067,72 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     logger.info("[设置封面] all cover images set complete")
 
 
+async def _link_drama(page, channels_drama: list) -> None:
+    """按用户保存的 trace 在发布页打开剧集弹窗,选中指定剧集。
+
+    channels_drama 形状(从前端 picker 传来,可能为空):
+      [{key, title, cover, extinfo, sourceLeft, sourceRight, trace:{keyword,page}}]
+    视频号 1 条视频只关联 1 部剧集,取第一项。
+    """
+    if not channels_drama:
+        return
+    item = channels_drama[0]
+    if not isinstance(item, dict) or not item.get("key"):
+        logger.info("[关联剧集] 缺少 drama.key,跳过(可能旧数据)")
+        return
+    trace = item.get("trace") or {}
+    kw = (trace.get("keyword") or "").strip()
+    page_num = int(trace.get("page") or 1)
+    entry_placeholder = "选择需要添加的视频号剧集"
+    try:
+        from . import _drama_link_ops as drama_ops
+        # 确保入口可见(发布页可能还在加载)
+        entry = page.locator(
+            '.content-wrap:has-text("' + entry_placeholder + '")'
+        ).first
+        try:
+            await entry.wait_for(state="visible", timeout=15_000)
+        except Exception:
+            logger.warning("[关联剧集] 等不到入口,跳过")
+            return
+        # 打开剧集弹窗
+        await drama_ops.open_drama_panel(page, entry_placeholder)
+        await drama_ops.wait_panel_ready(page)
+        # 按 trace 复现(搜索 → 翻页)
+        if kw:
+            await drama_ops.search(page, kw)
+            await drama_ops.wait_panel_ready(page)
+        if page_num > 1:
+            await drama_ops.go_page(page, page_num)
+            await drama_ops.wait_panel_ready(page)
+        # 选中目标 row(若在当前页),否则滚后续页找
+        target_key = str(item.get("key") or "")
+        info = None
+        for try_page in range(page_num, min(page_num + 10, 50)):
+            if try_page > page_num:
+                await drama_ops.go_page(page, try_page)
+                await drama_ops.wait_panel_ready(page)
+            rows = await drama_ops.scrape_rows(page)
+            hit = next((r for r in rows if str(r.get("key")) == target_key), None)
+            if hit:
+                info = await drama_ops.select_drama_by_id(page, target_key)
+                logger.info(
+                    "[关联剧集] ✓ 已选 drama=%s key=%s page=%d",
+                    info.get("title"), info.get("key"), try_page,
+                )
+                break
+        if not info:
+            logger.warning(
+                "[关联剧集] 找不到 drama key=%s(trace page=%d),跳过",
+                target_key, page_num,
+            )
+        # 关掉弹窗(选完会自动关闭,防御性关一次)
+        await drama_ops.close_panel(page)
+    except Exception as exc:
+        logger.warning("[关联剧集] 选剧集失败(不阻塞发布): %s", exc)
+
+
+
 async def _set_schedule_time(page, publish_date) -> None:
     """Set the scheduled publish time in the Channels date/time picker."""
     label_element = page.locator("label").filter(has_text="定时").nth(1)
@@ -1528,6 +1596,8 @@ class ChannelsPlatform(BasePlatform):
         channels_shoot_region = kwargs.get("channels_shoot_region", []) or []
         # 转载联动:转载来源(选填文本)
         channels_repost_source = kwargs.get("channels_repost_source", "")
+        # 视频号剧集(账号级,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
+        channels_drama = kwargs.get("channels_drama", []) or []
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1629,6 +1699,10 @@ class ChannelsPlatform(BasePlatform):
                             # Set cover image
                             await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
 
+                            # 关联剧集(按用户保存的 trace 在弹窗里复现选中)
+                            if channels_drama:
+                                await _link_drama(page, channels_drama)
+
                             # Set schedule if needed
                             if enable_timer and publish_date != 0:
                                 await _set_schedule_time(page, publish_date)
@@ -1653,6 +1727,11 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("[发布调试] 拍摄时间(shoot_dt): %s", channels_shoot_date or "(无)")
                             logger.info("[发布调试] 拍摄地点(shoot_rg): %s", " / ".join(channels_shoot_region) if channels_shoot_region else "(无)")
                             logger.info("[发布调试] 转载来源(repost)   : %s", channels_repost_source or "(无)")
+                            if channels_drama:
+                                d = channels_drama[0]
+                                logger.info("[发布调试] 关联剧集(drama)    : %s (%s) key=%s", d.get("title", "(无)"), d.get("extinfo", ""), d.get("key", ""))
+                            else:
+                                logger.info("[发布调试] 关联剧集(drama)    : (无)")
                             logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
                             logger.info("[发布调试] ========================================")
                             logger.info("=" * 60)

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
 from pathlib import Path
+from typing import Optional
 
 from flask import Blueprint, request, jsonify
 
@@ -464,3 +466,154 @@ async def _fetch_locations_via_browser(cookie_file: str, keyword: str) -> dict:
             await context.close()
     finally:
         await browser.close()
+
+
+# ===================================================================
+# 视频号剧集 picker(浏览器常驻,前端多次 search/go_page 调用)
+# ===================================================================
+import threading
+from typing import Optional as _Opt
+
+_drama_loop = Optional[asyncio.AbstractEventLoop]
+_drama_loop_thread = Optional[threading.Thread]
+_drama_loop_lock = threading.Lock()
+_drama_loop_ready = threading.Event()
+
+
+def _start_drama_loop():
+    global _drama_loop
+    _drama_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_drama_loop)
+    _drama_loop_ready.set()
+    _drama_loop.run_forever()
+
+
+def _ensure_drama_loop():
+    global _drama_loop_thread
+    if _drama_loop_thread is None or not _drama_loop_thread.is_alive():
+        with _drama_loop_lock:
+            if _drama_loop_thread is None or not _drama_loop_thread.is_alive():
+                _drama_loop_ready.clear()
+                _drama_loop_thread = threading.Thread(target=_start_drama_loop, daemon=True)
+                _drama_loop_thread.start()
+                _drama_loop_ready.wait(timeout=5)
+    return _drama_loop
+
+
+def run_drama_picker_async(coro, timeout: float = 60):
+    loop = _ensure_drama_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result(timeout=timeout)
+
+
+# 剧集 picker session 池(按 account_id 单例)
+_drama_pool: dict = {}
+_drama_pool_lock = threading.Lock()
+
+
+def _ok(data):
+    return jsonify({"code": 200, "data": data})
+
+
+def _err(msg, code: int = 500, http: int = 500):
+    return jsonify({"code": code, "msg": msg}), http
+
+
+def _resolve_drama_session_or_404(account_id: str):
+    if not account_id:
+        return None, _err("accountId 不能为空", 400, 400)
+    s = _drama_pool.get(account_id)
+    if s is None:
+        return None, _err("剧集 picker 未打开或已关闭,请重新打开弹窗", 404, 404)
+    return s, None
+
+
+@channels_bp.route("/drama_picker/open", methods=["POST"])
+def drama_picker_open():
+    data = request.get_json(silent=True) or {}
+    account_id = (data.get("accountId") or "").strip()
+    entry = (data.get("entry") or "选择需要添加的视频号剧集").strip()
+    if not account_id:
+        return _err("accountId 不能为空", 400, 400)
+    if entry not in ("选择需要添加的视频号剧集", "选择需要添加的短剧"):
+        return _err("entry 必须是「选择需要添加的视频号剧集」或「选择需要添加的短剧」", 400, 400)
+    cookie_file = _get_account_cookie_file(account_id)
+    if not cookie_file:
+        return _err("账号不存在或未登录", 404, 404)
+
+    from impl.channels.picker import ChannelsDramaPickerSession
+    with _drama_pool_lock:
+        old = _drama_pool.pop(account_id, None)
+        if old is not None:
+            try:
+                run_drama_picker_async(old.close(), timeout=10)
+            except Exception:
+                pass
+        session = ChannelsDramaPickerSession(account_id)
+        _drama_pool[account_id] = session
+
+    try:
+        result = run_drama_picker_async(session.open(entry), timeout=180)
+        logger.info(
+            "[Drama API] open ok account_id=%s entry=%s items=%d",
+            account_id, entry, len(result.get("items", [])),
+        )
+        return _ok(result)
+    except Exception as e:
+        logger.error("[Drama API] open 失败: %s", e, exc_info=True)
+        with _drama_pool_lock:
+            _drama_pool.pop(account_id, None)
+        try:
+            run_drama_picker_async(session.close(), timeout=10)
+        except Exception:
+            pass
+        return _err(f"打开剧集弹窗失败: {e}")
+
+
+@channels_bp.route("/drama_picker/search", methods=["POST"])
+def drama_picker_search():
+    data = request.get_json(silent=True) or {}
+    account_id = (data.get("accountId") or "").strip()
+    keyword = (data.get("keyword") or "").strip()
+    s, err = _resolve_drama_session_or_404(account_id)
+    if err:
+        return err
+    try:
+        result = run_drama_picker_async(s.search(keyword), timeout=30)
+        return _ok(result)
+    except Exception as e:
+        logger.error("[Drama API] search 失败: %s", e, exc_info=True)
+        return _err(f"搜索失败: {e}")
+
+
+@channels_bp.route("/drama_picker/go_page", methods=["POST"])
+def drama_picker_go_page():
+    data = request.get_json(silent=True) or {}
+    account_id = (data.get("accountId") or "").strip()
+    page = int(data.get("page") or 1)
+    s, err = _resolve_drama_session_or_404(account_id)
+    if err:
+        return err
+    try:
+        result = run_drama_picker_async(s.go_page(page), timeout=30)
+        return _ok(result)
+    except Exception as e:
+        logger.error("[Drama API] go_page 失败: %s", e, exc_info=True)
+        return _err(f"翻页失败: {e}")
+
+
+@channels_bp.route("/drama_picker/close", methods=["POST"])
+def drama_picker_close():
+    data = request.get_json(silent=True) or {}
+    account_id = (data.get("accountId") or "").strip()
+    if not account_id:
+        return _ok({"closed": True})
+    with _drama_pool_lock:
+        session = _drama_pool.pop(account_id, None)
+    if session is None:
+        return _ok({"closed": True})
+    try:
+        run_drama_picker_async(session.close(), timeout=10)
+    except Exception as e:
+        logger.warning("[Drama API] close 异常(忽略): %s", e)
+    return _ok({"closed": True})

@@ -505,6 +505,35 @@
                   @change="handleChannelsLocationChange"
                 />
               </div>
+              <!-- 关联剧集(账号级,只能选 1 部)
+                   通过 ChannelsDramaPicker 弹窗(后端 channels drama_picker) 选完保存到 channelsDrama,
+                   发布时 platform.py 按 trace (keyword+page) 在弹窗里复现选中 -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">关联剧集</div>
+                <div v-if="form.channelsDrama && form.channelsDrama.length > 0" class="channels-drama-selected">
+                  <div class="drama-pill">
+                    <img v-if="form.channelsDrama[0].cover" :src="form.channelsDrama[0].cover" class="drama-pill-cover" referrerpolicy="no-referrer" />
+                    <div class="drama-pill-text">
+                      <div class="drama-pill-title">{{ form.channelsDrama[0].title }}</div>
+                      <div v-if="form.channelsDrama[0].extinfo" class="drama-pill-ext">{{ form.channelsDrama[0].extinfo }}</div>
+                    </div>
+                    <el-button
+                      size="small"
+                      text
+                      type="danger"
+                      @click="form.channelsDrama = []"
+                    >移除</el-button>
+                  </div>
+                  <el-button size="small" plain @click="openChannelsDramaPicker">重新选择</el-button>
+                </div>
+                <el-button
+                  v-else
+                  size="default"
+                  :icon="Plus"
+                  plain
+                  @click="openChannelsDramaPicker"
+                >选择剧集</el-button>
+              </div>
             </template>
 
             <!-- 微博专属卡片(合集为账号级,选中账号后才显示) -->
@@ -851,6 +880,14 @@
       :init-selected="form.jdProducts"
       @confirm="onJdPickerConfirm"
     />
+
+    <!-- 视频号:关联剧集选择弹窗(后端 channels drama_picker) -->
+    <ChannelsDramaPicker
+      v-model="channelsDramaPickerVisible"
+      :account-id="channelsDramaPickerAccountId"
+      :init-selected="form.channelsDrama"
+      @confirm="onChannelsDramaPickerConfirm"
+    />
   </div>
 </template>
 
@@ -887,6 +924,8 @@ import RemoteSearchSelect from '@/components/common/RemoteSearchSelect.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 import GuangheItemPicker from '@/components/GuangheItemPicker.vue'
 import JdItemPicker from '@/components/JdItemPicker.vue'
+import ChannelsDramaPicker from '@/components/ChannelsDramaPicker.vue'
+import { channelsDramaApi } from '@/api/channels_drama'
 import { xhsApi } from '@/api/xiaohongshu'
 import { biliApi } from '@/api/bilibili'
 import { douyinImageApi } from '@/api/douyinImage'
@@ -1170,6 +1209,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     channelsShootDate: accountOv?.channelsShootDate ?? platformOv?.channelsShootDate ?? platformDefault?.channelsShootDate ?? '',
     channelsShootRegion: accountOv?.channelsShootRegion ?? platformOv?.channelsShootRegion ?? platformDefault?.channelsShootRegion ?? [],
     channelsRepostSource: accountOv?.channelsRepostSource ?? platformOv?.channelsRepostSource ?? platformDefault?.channelsRepostSource ?? '',
+    // 视频号剧集(账号级,每条视频关联 1 部剧集,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
+    channelsDrama: accountOv?.channelsDrama ?? platformOv?.channelsDrama ?? platformDefault?.channelsDrama ?? [],
     // CSDN 是否推荐(平台级开关)
     recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
     // VIVO 平台特有字段(平台级)
@@ -1253,7 +1294,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
   bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '' },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [] },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
@@ -1417,6 +1458,44 @@ function removeGuangheItem(fieldKey, idx) {
   if (!Array.isArray(form[fieldKey])) return
   form[fieldKey] = form[fieldKey].filter((_, i) => i !== idx)
 }
+
+// ========== 视频号: 关联剧集 picker 方法 ==========
+// 走 channels drama_picker 后端流程(后端启常驻 headless 浏览器 → 开弹窗 → 多次 search/go_page)。
+// trace (keyword, page) 存进 channelsDrama[*].trace,发布时 platform.py 按 trace 复现选中。
+const channelsDramaPickerVisible = ref(false)
+const channelsDramaPickerAccountId = ref('')
+
+function findAnyChannelsAccountId() {
+  if (!selectedAccountIds || !selectedAccountIds.value || !selectedAccountIds.value.size) return ''
+  for (const id of selectedAccountIds.value) {
+    const a = accountStore.accounts.find((x) => x.id === id)
+    if (a && a.platform === '视频号') return id
+  }
+  return ''
+}
+
+function openChannelsDramaPicker() {
+  const accountId = findAnyChannelsAccountId()
+  if (!accountId) {
+    ElMessage.warning('请先选择至少一个视频号账号')
+    return
+  }
+  channelsDramaPickerAccountId.value = accountId
+  channelsDramaPickerVisible.value = true
+}
+
+function onChannelsDramaPickerConfirm(items) {
+  if (!Array.isArray(items)) return
+  form.channelsDrama = items.slice(0, 1)
+  channelsDramaPickerVisible.value = false
+}
+
+onBeforeUnmount(() => {
+  const acc = channelsDramaPickerAccountId.value
+  if (acc && channelsDramaPickerVisible.value) {
+    channelsDramaApi.close(acc).catch(() => {})
+  }
+})
 
 // ========== 京东: 关联商品 picker 方法 ==========
 function openJdPicker() {
@@ -4040,6 +4119,52 @@ function formatSize(bytes) {
 }
 .guanghe-items-field {
   width: 100%;
+}
+
+.channels-drama-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  .drama-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    background: rgba(255, 80, 0, 0.06);
+    border: 1px solid rgba(255, 80, 0, 0.25);
+    border-radius: 6px;
+    max-width: 320px;
+    flex: 1 1 320px;
+    min-width: 0;
+
+    .drama-pill-cover {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: rgba(0, 0, 0, 0.05);
+    }
+    .drama-pill-text {
+      flex: 1;
+      min-width: 0;
+
+      .drama-pill-title {
+        font-size: 13px;
+        color: var(--el-text-color-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .drama-pill-ext {
+        font-size: 11px;
+        color: var(--el-text-color-secondary);
+        margin-top: 2px;
+      }
+    }
+  }
 }
 .guanghe-selected-list {
   // 跟弹窗里 .grid 完全一致

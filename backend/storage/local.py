@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import send_from_directory
 from pathlib import Path
 

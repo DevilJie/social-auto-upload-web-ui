@@ -6,6 +6,8 @@ All browser operations go through the BasePlatform browser entry points
 CloakBrowser via ``_browser.py``.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import re

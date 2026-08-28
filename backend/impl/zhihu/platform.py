@@ -7,6 +7,8 @@
 视频发布地址：https://www.zhihu.com/upload-video?entry=navPanel
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 import time

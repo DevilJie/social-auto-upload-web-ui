@@ -6,6 +6,8 @@ All browser operations go through ``BasePlatform.create_browser()`` /
 Chromium) with automatic Playwright fallback.
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 import threading

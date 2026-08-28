@@ -5,6 +5,8 @@ Uses ``BasePlatform`` browser entry points and shared utilities from
 ``backend/impl/_utils.py``.
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 import time

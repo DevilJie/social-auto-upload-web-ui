@@ -6,6 +6,8 @@ Channels (视频号) platform implementation.
 and shared utilities from ``backend/impl/_utils.py``.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import threading

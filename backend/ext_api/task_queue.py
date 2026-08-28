@@ -3,6 +3,8 @@
 支持并发控制、失败重试（指数退避）、进度追踪
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import sqlite3

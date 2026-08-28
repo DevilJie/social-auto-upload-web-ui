@@ -7,6 +7,8 @@
 视频发布地址：https://mp.csdn.net/mp_others/creation/videoUpload
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 import time

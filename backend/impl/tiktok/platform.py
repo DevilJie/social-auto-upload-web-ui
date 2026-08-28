@@ -4,6 +4,8 @@ TikTok platform implementation — CloakBrowser automation.
 All browser operations go through BasePlatform's CloakBrowser entry points.
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 import threading

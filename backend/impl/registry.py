@@ -1,5 +1,7 @@
 """Platform registry and factory."""
 
+from __future__ import annotations
+
 from util._logger import get_channel_logger
 
 from .base_platform import BasePlatform

@@ -6,6 +6,8 @@ and implement the abstract methods. Browser entry points delegate to
 ``_browser.py`` (CloakBrowser stealth layer).
 """
 
+from __future__ import annotations
+
 import json
 import sqlite3
 import uuid

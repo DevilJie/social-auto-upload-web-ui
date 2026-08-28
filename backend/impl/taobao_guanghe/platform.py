@@ -9,6 +9,8 @@
 保持在 creator.guanghe.taobao.com 则已登录。全程不依赖 DOM（最稳）。
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 from pathlib import Path
@@ -1660,10 +1662,31 @@ class TaobaoGuanghePlatform(BasePlatform):
             frame: 发布页 iframe
             link_type: 'product' / 'shop'
             items: [{title?, image?, id?, trace?}, ...] — 兼容旧格式
+
+        **失败兜底**: 若 trace 复现失败(如搜索词搜不到目标商品、上限卡等)，
+        不阻塞整体发布 —— 降级为「本次跳过关联商品」并 warning 提示。
+        否则用户配置了关联商品后，因为光合端 UI 变更导致选不上，
+        整次发布失败、用户手动关浏览器，体验极差。
         """
         if not items:
             return
-        await _replay_groups(frame, link_type, items, max_load_more=5)
+        try:
+            await _replay_groups(frame, link_type, items, max_load_more=5)
+        except Exception as exc:
+            logger.warning(
+                "[关联%s] 选品失败(光合 UI 变更/搜索词失效等)，降级跳过，不阻塞发布: %s",
+                "商品" if link_type == "product" else "店铺",
+                exc,
+            )
+            # 尝试关掉关联商品弹窗(若仍打开)，不影响后续发布步骤
+            try:
+                close_btn = frame.locator(
+                    "button.next-dialog-close, button.ant-modal-close",
+                ).first
+                if await close_btn.count() > 0:
+                    await close_btn.click(timeout=2000)
+            except Exception:
+                pass
 
     @staticmethod
     async def _click_publish(frame, main_page=None) -> bool:

@@ -1884,7 +1884,18 @@ class WeixinGzhPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_for_home(page, timeout_s: int = 120):
-        """等待页面跳转到公众号首页(发表成功信号)。"""
+        """等待发表成功的信号。
+
+        成功信号有两种：
+        1. URL 跳转到首页(/cgi-bin/home + token=) —— 正常路径，扫码后跳转;
+        2. 弹出「已发送操作申请」对话框(用户消息:等待管理员验证后发表，
+           30 分钟后过期) —— 部分公众号开了「管理员扫码验证」策略，
+           点完「继续发表」后会停在这种弹窗，不会跳转首页，
+           但申请已提交，应视为成功。点「我知道了」关闭即可。
+
+        DOM: ``.page_msg`` 内 ``h4`` 文案为「已发送操作申请」,
+        对话框 footer 有「我知道了」按钮 ``.btn.btn_default``。
+        """
         deadline = asyncio.get_event_loop().time() + timeout_s
         while asyncio.get_event_loop().time() < deadline:
             try:
@@ -1892,10 +1903,30 @@ class WeixinGzhPlatform(BasePlatform):
                 if _HOME_PATH in url and "token=" in url:
                     logger.info("[阶段②] 已跳转首页,发表成功")
                     return
+                # 「已发送操作申请」弹窗（管理员验证策略）
+                page_msg = page.locator(".page_msg")
+                if await page_msg.count() > 0:
+                    h4 = page_msg.locator("h4").first
+                    if await h4.count() > 0:
+                        h4_text = (await h4.text_content() or "").strip()
+                        if "已发送操作申请" in h4_text:
+                            # 点「我知道了」关掉对话框（申请已提交）
+                            know_btn = page.locator(
+                                ".dialog .btn.btn_default", has_text="我知道了"
+                            ).first
+                            try:
+                                if await know_btn.count() > 0:
+                                    await know_btn.click()
+                            except Exception:
+                                pass
+                            logger.info(
+                                "[阶段②] 检测到「已发送操作申请」弹窗(管理员验证策略)，申请已提交，视为发表成功"
+                            )
+                            return
             except Exception:
                 pass
             await asyncio.sleep(2)
-        logger.warning("[阶段②] %ds 内未跳转首页(发表可能仍在处理)", timeout_s)
+        logger.warning("[阶段②] %ds 内未检测到成功信号(发表可能仍在处理)", timeout_s)
 
     # ==================================================================
     # publish_image — 图集(贴图)发布

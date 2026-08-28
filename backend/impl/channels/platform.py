@@ -1124,6 +1124,15 @@ async def _link_drama(page, channels_drama: list) -> None:
         logger.warning("[关联剧集] 选剧集失败(不阻塞发布): %s", exc)
 
 
+async def _link_article(page, article_url: str) -> None:
+    """链接 → 公众号文章: 选下拉项 + 子区输入框粘贴文章链接(失败不阻塞发布)。"""
+    try:
+        from . import _drama_link_ops as drama_ops
+        await drama_ops.link_article(page, article_url)
+        logger.info("[文章链接] ✓ 已设置公众号文章链接: %s", (article_url or "")[:60])
+    except Exception as exc:
+        logger.warning("[文章链接] 设置公众号文章链接失败(不阻塞发布): %s", exc)
+
 
 async def _set_schedule_time(page, publish_date) -> None:
     """Set the scheduled publish time in the Channels date/time picker."""
@@ -1695,9 +1704,11 @@ class ChannelsPlatform(BasePlatform):
                             # Set cover image
                             await _set_thumbnail(page, thumbnail_path, thumbnail_landscape_path, thumbnail_portrait_path)
 
-                            # 关联剧集(按用户保存的 trace 在弹窗里复现选中)
+                            # 关联链接:剧集(drama/mini_drama)或公众号文章
                             if channels_drama:
                                 await _link_drama(page, channels_drama)
+                            elif channels_link_type == "article" and channels_link_article_url:
+                                await _link_article(page, channels_link_article_url)
 
                             # Set schedule if needed
                             if enable_timer and publish_date != 0:

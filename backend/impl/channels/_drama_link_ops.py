@@ -208,6 +208,29 @@ async def open_drama_panel(page, link_type: str = "drama") -> None:
     await _click_drama_entry(page, link_type)
 
 
+async def link_article(page, article_url: str) -> None:
+    """链接 → 公众号文章: 选下拉项后,在子区输入框粘贴文章链接。
+
+    DOM(用户抓取): 选「公众号文章」后下方出现
+    ``<input type="text" placeholder="粘贴公众号文章链接" class="weui-desktop-form__input">``
+    输入对应链接即可,无确认按钮。
+    """
+    url = (article_url or "").strip()
+    if not url:
+        return
+    await _wait_link_section_ready(page)
+    await _open_link_dropdown(page)
+    await _select_link_option(page, "article")
+    await asyncio.sleep(0.5)
+    inp = page.locator('input[placeholder*="公众号文章链接"]').first
+    await inp.wait_for(state="visible", timeout=5_000)
+    await inp.click()
+    await inp.fill("")
+    await inp.fill(url)
+    await asyncio.sleep(0.6)
+    logger.info("[ChannelsDrama][文章链接] 已填入公众号文章链接: %s", url[:80])
+
+
 async def wait_panel_ready(page, timeout_s: int = 30) -> None:
     """等弹窗内「可见」内容表就绪:有行,或明确渲染了空态(暂无内容)。"""
     deadline = asyncio.get_event_loop().time() + timeout_s

@@ -14,9 +14,10 @@ from .._browser import close_browser, create_browser_sync, create_context_sync
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
-    scrape_user_profile,
-    save_login_result,
     parse_schedule_time,
+    raise_if_page_closed,
+    save_login_result,
+    scrape_user_profile,
 )
 
 from util._logger import bind_account_name, get_channel_logger
@@ -137,6 +138,11 @@ class XiaohongshuPlatform(BasePlatform):
                 await url_changed_event.wait()
                 logger.info("[xhs] login page navigation detected")
 
+                # 扫码成功后小红书常在 登录页↔首页 间再跳一两次（会话同步），
+                # 等 URL 稳定落在创作中心（非登录页）再抓资料，避免在中间态操作
+                await self._wait_login_settled(page)
+                logger.info("[xhs] 登录后页面已稳定: %s", page.url)
+
                 # Login succeeded -- scrape profile, save cookie, write DB
                 await save_login_result(
                     context, page,
@@ -213,7 +219,8 @@ class XiaohongshuPlatform(BasePlatform):
             context = await self.create_context(browser, storage_state=cookie_path)
             page = await context.new_page()
             try:
-                await page.goto(url, wait_until="networkidle", timeout=30000)
+                # 同 _login_stats_fn：networkidle 在小红书几乎达不到，白等 30s 超时
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 name, avatar = await scrape_user_profile(page)
                 stats = await _scrape_xhs_stats(page)
                 return {"name": name, "avatar": avatar, "stats": stats}
@@ -225,6 +232,25 @@ class XiaohongshuPlatform(BasePlatform):
         finally:
             await browser.close()
 
+    async def _wait_login_settled(self, page, timeout_s: int = 30) -> None:
+        """等扫码后的重定向跳完：URL 离开登录页且连续两次采样一致才返回。
+
+        超时不抛异常，按当前状态继续（后续 scrape 有各自的判空兜底）。
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        last_url = ""
+        stable = 0
+        while asyncio.get_event_loop().time() < deadline:
+            url = page.url or ""
+            if _XHS_LOGIN_URL not in url and url == last_url:
+                stable += 1
+                if stable >= 2:
+                    return
+            else:
+                stable = 0
+            last_url = url
+            await asyncio.sleep(1)
+
     async def _login_stats_fn(self, page, account_id) -> list:
         """登录成功后的 stats 抓取入口(供 save_login_result 调用)。
 
@@ -232,10 +258,10 @@ class XiaohongshuPlatform(BasePlatform):
         保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
         """
         try:
-            try:
-                await page.goto(_XHS_CREATOR_URL, wait_until="networkidle", timeout=30000)
-            except Exception:
-                pass
+            # 此时页面已稳定在创作中心首页（login 里 _wait_login_settled 等过），
+            # 不要再 goto：强制跳 creator 根路径会触发「首页→登录页→首页」的
+            # 二次重定向，用户会看到登录成功后又闪一次登录页。直接在当前页抓，
+            # .numerical 渲染由 _scrape_xhs_stats 内部 wait_for_selector 兜底。
             return await _scrape_xhs_stats(page)
         except Exception as exc:
             logger.info(f"[xhs login] _login_stats_fn 抓取失败: {exc}")
@@ -821,6 +847,7 @@ async def _upload_video_content(
     await cdp.send("DOM.enable")
     try:
         while True:
+            raise_if_page_closed(page)
             try:
                 uploading_count = await page.locator(
                     'div.uploading:has-text("上传中")'

@@ -22,8 +22,8 @@ from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
-    scrape_taobao_guanghe_profile,
 )
 from ..base_platform import BasePlatform
 from . import _link_ops
@@ -339,7 +339,7 @@ class TaobaoGuanghePlatform(BasePlatform):
                     platform_id=self.platform_id,
                     platform_name=self.platform_name,
                     status_queue=status_queue,
-                    scrape_fn=scrape_taobao_guanghe_profile,
+                    scrape_fn=self._login_scrape_fn,
                     account_id=account_id,
                     stats_fn=self._login_stats_fn,
                 )
@@ -454,6 +454,27 @@ class TaobaoGuanghePlatform(BasePlatform):
                     pass
         finally:
             await browser.close()
+
+    async def _login_scrape_fn(self, page):
+        """登录成功后的昵称/头像抓取入口（供 save_login_result 调用）。
+
+        与同步按钮(sync_profile)共用 _scrape_profile_and_stats，两条链路
+        走同一份抓取逻辑，结果保持一致。刚登录时首页渲染比已登录状态慢，
+        先等 domcontentloaded + 账号埋点容器出现再抓（超时则尽力抓一次）。
+        """
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
+        try:
+            await page.wait_for_selector(
+                'img[data-autolog-container="user_content_account"]',
+                timeout=10000,
+            )
+        except Exception:
+            pass
+        name, avatar, _ = await self._scrape_profile_and_stats(page)
+        return name, avatar
 
     async def _login_stats_fn(self, page, account_id) -> list:
         """登录成功后的 stats 抓取入口（供 save_login_result 调用）。"""
@@ -1031,6 +1052,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         try:
             deadline = asyncio.get_event_loop().time() + 20
             while asyncio.get_event_loop().time() < deadline:
+                raise_if_page_closed(page)
                 # 检查新 tab
                 while new_pages:
                     np = new_pages.pop(0)
@@ -1075,6 +1097,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         # 等 iframe 出现并加载（最多 20s）
         deadline = asyncio.get_event_loop().time() + 20
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             for frame in page.frames:
                 if frame == page.main_frame:
                     continue
@@ -1175,6 +1198,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         retry = 0
         seen_progress = False  # 是否曾检测到上传中状态
         while True:
+            raise_if_page_closed(page)
             try:
                 # 上传失败检测
                 fail = page.locator('text=上传失败')

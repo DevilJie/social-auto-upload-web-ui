@@ -41,6 +41,7 @@ from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
+    raise_if_page_closed,
     save_login_result,
     scrape_alipay_profile,
 )
@@ -723,6 +724,7 @@ class AlipayPlatform(BasePlatform):
         ).first
         deadline = asyncio.get_event_loop().time() + timeout_s
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             try:
                 if await title_input.is_visible():
                     logger.info("[上传图集] 表单已可交互(标题输入框可见)")
@@ -967,24 +969,11 @@ class AlipayPlatform(BasePlatform):
                 # 4. 填描述 + 话题
                 await self._set_description_and_tags(page, desc, title, tags)
 
-                # 5. 上传封面(按视频格式选择对应封面)
-                #    竖版视频(portrait)→竖版封面;横版视频(landscape)→横版封面
-                #    未指定格式时横版优先兜底
-                if video_format == "portrait":
-                    cover_path = (
-                        thumbnail_portrait_path or thumbnail_landscape_path
-                    )
-                elif video_format == "landscape":
-                    cover_path = (
-                        thumbnail_landscape_path or thumbnail_portrait_path
-                    )
-                else:
-                    cover_path = (
-                        thumbnail_landscape_path or thumbnail_portrait_path
-                    )
+                # 5. 上传封面:固定用竖版封面(3:4 主尺寸,用户要求),
+                #    不再按视频格式区分;竖版缺失时横版兜底
+                cover_path = thumbnail_portrait_path or thumbnail_landscape_path
                 logger.info(
-                    "[上传视频] 封面选择: 格式=%s → %s",
-                    video_format or "未指定",
+                    "[上传视频] 封面选择: 固定竖版 → %s",
                     os.path.basename(cover_path) if cover_path else "无",
                 )
                 await self._set_cover(page, cover_path)
@@ -1123,6 +1112,7 @@ class AlipayPlatform(BasePlatform):
         )
         deadline = asyncio.get_event_loop().time() + 30
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             try:
                 count = await page.locator(marked_sel).count()
                 if count > 0:
@@ -1159,6 +1149,7 @@ class AlipayPlatform(BasePlatform):
         deadline = asyncio.get_event_loop().time() + timeout_s
 
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             try:
                 # 上传失败检测
                 if await page.get_by_text("上传失败", exact=True).count() > 0:
@@ -1908,6 +1899,7 @@ class AlipayPlatform(BasePlatform):
         modal_handled = False
 
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             # ---- 弹窗 1:「发布请注意」优化提示弹窗(antd5-modal) ----
             if not modal_handled:
                 try:

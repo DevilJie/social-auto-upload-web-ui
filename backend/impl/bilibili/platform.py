@@ -752,9 +752,11 @@ class BilibiliPlatform(BasePlatform):
                             await asyncio.sleep(3)
                             continue
 
-                        await asyncio.sleep(3)
-                        for _ in range(15):
-                            await asyncio.sleep(2)
+                        # 点击后 1s 即开始检测（原 3s+2s 粒度太粗，成功页已
+                        # 出来还要等好几秒才判定）；轮询 1s 一次，总时长不变
+                        await asyncio.sleep(1)
+                        for _ in range(30):
+                            await asyncio.sleep(1)
                             btn_exists = (
                                 await page.locator("span.submit-add").count()
                                 > 0
@@ -809,8 +811,10 @@ class BilibiliPlatform(BasePlatform):
                     )
 
                 if submitted:
-                    logger.info("[上传视频] waiting 10s for processing")
-                    await asyncio.sleep(10)
+                    # 已看到跳转/按钮消失 = 投稿受理成功，不再固定等 10s
+                    # （成功页都出来了还干等，用户体感「判定慢」），2s 稳定后截图
+                    logger.info("[上传视频] submitted, settling 2s")
+                    await asyncio.sleep(2)
                     try:
                         await page.screenshot(
                             path=str(

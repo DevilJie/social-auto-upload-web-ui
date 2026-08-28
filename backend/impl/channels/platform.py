@@ -24,6 +24,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_tencent_profile,
 )
@@ -758,6 +759,7 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
     re-uploaded automatically.
     """
     while True:
+        raise_if_page_closed(page)
         try:
             publish_button = page.get_by_role("button", name="发表")
             button_class = await publish_button.get_attribute("class")
@@ -827,6 +829,7 @@ async def _wait_for_cover_ready(page, *, action: str = "") -> None:
     logger.info(f"[设置封面] 封面阻塞提示出现({action}):「{blocking}」，开始无限等待...")
     waited = 0
     while True:
+        raise_if_page_closed(page)
         await asyncio.sleep(1)
         waited += 1
         still_blocking = None
@@ -907,6 +910,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
         cover_dialog = None
         attempt = 0
         while cover_dialog is None:
+            raise_if_page_closed(page)
             attempt += 1
             try:
                 try:
@@ -1121,6 +1125,7 @@ async def _dismiss_i_know_dialog(page) -> bool:
 async def _submit_publish(page, is_draft: bool = False) -> None:
     """Click the publish (or save-draft) button and wait for navigation."""
     while True:
+        raise_if_page_closed(page)
         try:
             if is_draft:
                 draft_button = page.locator(
@@ -1213,6 +1218,8 @@ class ChannelsPlatform(BasePlatform):
             # 轮询 URL 判断登录完成（无限等，浏览器由用户自己关）
             poll_interval = 3
             while True:
+                # 用户关闭浏览器 = 放弃扫码登录,立即失败而非无限轮询
+                raise_if_page_closed(page)
                 if await _is_login_completed(page):
                     logger.info(f"[发布] login successful, redirected to: {page.url}")
                     # 资料卡 (finder-card) 在创作中心首页 /platform 渲染。

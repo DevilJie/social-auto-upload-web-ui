@@ -48,6 +48,25 @@ def _get_interval_minutes() -> float:
     return val
 
 
+def _friendly_error(exc: Exception) -> str:
+    """把原始异常转成用户可读的错误信息。
+
+    用户手动关闭浏览器时，未被页面级守卫捕获的 await 会抛 Playwright 原文
+    （如 "Target page, context or browser has been closed"），展示给用户很困惑，
+    这里统一归一化为「浏览器/页面已被用户关闭」。
+    """
+    msg = str(exc)
+    low = msg.lower()
+    if (
+        "target page, context or browser has been closed" in low
+        or "browser has been closed" in low
+        or "target closed" in low
+        or "execution context was destroyed" in low
+    ):
+        return "浏览器/页面已被用户关闭，发布中止"
+    return msg
+
+
 class TaskStatus(str, Enum):
     PENDING = "pending"
     QUEUED = "queued"
@@ -195,6 +214,11 @@ class TaskQueue:
         self._started = False
         self._status_callbacks = []  # 状态变更回调
         self._interval_gate: asyncio.Lock | None = None  # 间隔模式的串行闸门
+        # 取消支持：running 的 asyncio task 句柄 / 队列中待取消的 id / 已取消集合
+        self._running_tasks: dict[str, asyncio.Task] = {}
+        self._queued_ids: set[str] = set()
+        self._cancelled_ids: set[str] = set()
+        self._cancel_lock = threading.Lock()
 
     def start(self):
         """在后台线程中启动事件循环"""
@@ -217,14 +241,34 @@ class TaskQueue:
     async def _worker(self, name: str):
         while True:
             task = await self.queue.get()
+            self._queued_ids.discard(task.id)
             # 任务间隔（settings.batchTaskInterval，分钟）：>0 时串行 + 完成后等待
             interval_min = _get_interval_minutes()
             gated = interval_min > 0
             if gated and self._interval_gate:
                 await self._interval_gate.acquire()
+
+            # 用户取消：出队前被标记取消 → 直接落 cancelled（不执行）
+            with self._cancel_lock:
+                was_cancelled = task.id in self._cancelled_ids
+                if was_cancelled:
+                    self._cancelled_ids.discard(task.id)
+            if was_cancelled:
+                task.status = TaskStatus.CANCELLED
+                task.error_message = "用户取消发布"
+                task.finished_at = datetime.now().isoformat()
+                self.completed.append(task)
+                self._update_db(task)
+                self._notify_status(task)
+                if gated and self._interval_gate:
+                    self._interval_gate.release()
+                self.queue.task_done()
+                continue
+
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.now().isoformat()
             self.running[task.id] = task
+            self._running_tasks[task.id] = asyncio.current_task()
             self._update_db(task)
             self._notify_status(task)
 
@@ -233,16 +277,18 @@ class TaskQueue:
                 task.status = TaskStatus.SUCCESS
             except asyncio.CancelledError:
                 task.status = TaskStatus.CANCELLED
+                task.error_message = "用户取消发布"
             except Exception as e:
                 # 重试逻辑已禁用 — 长耗时任务(如视频上传)失败立即标记 FAILED,
                 # 避免误触发「同一任务再次开浏览器重新上传」
                 task.status = TaskStatus.FAILED
-                task.error_message = str(e)
+                task.error_message = _friendly_error(e)
 
             finally:
                 task.finished_at = datetime.now().isoformat()
                 if task.id in self.running:
                     del self.running[task.id]
+                self._running_tasks.pop(task.id, None)
                 self.completed.append(task)
                 self._update_db(task)
                 self._notify_status(task)
@@ -334,20 +380,28 @@ class TaskQueue:
             self.start()
         task.status = TaskStatus.QUEUED
         self._insert_db(task)
+        self._queued_ids.add(task.id)
         asyncio.run_coroutine_threadsafe(self.queue.put(task), self._loop)
         logger.info(f"[TaskQueue] 任务已入队: {task.id} ({task.platform}/{task.account_name})")
 
     def cancel_task(self, task_id: str) -> bool:
-        """取消任务（仅对 pending/queued 状态有效）"""
-        for task in self.completed:
-            if task.id == task_id and task.status == TaskStatus.FAILED:
-                # 将失败任务移回队列重试
-                task.retry_count = 0
-                task.error_message = ""
-                task.status = TaskStatus.QUEUED
-                self.completed.remove(task)
-                asyncio.run_coroutine_threadsafe(self.queue.put(task), self._loop)
-                self._update_db(task)
+        """取消任务：支持 running / queued / cancelled 前的任务。
+
+        - queued（还在队列里）：标记取消，worker 出队时直接落 cancelled；
+        - running：cancel 对应 asyncio task → worker 捕获 CancelledError 落 cancelled；
+          注意同步平台(如微博)在 executor 线程里跑，无法强杀线程，但任务状态会
+          立即置 cancelled（线程残留工作结束后自然消亡）；
+        - 已完成的任务不可取消，返回 False。
+        """
+        with self._cancel_lock:
+            if task_id in self.running:
+                self._cancelled_ids.add(task_id)
+                at = self._running_tasks.get(task_id)
+                if at is not None and not at.done():
+                    self._loop.call_soon_threadsafe(at.cancel)
+                return True
+            if task_id in self._queued_ids or task_id in self._cancelled_ids:
+                self._cancelled_ids.add(task_id)
                 return True
         return False
 

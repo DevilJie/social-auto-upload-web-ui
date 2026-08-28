@@ -758,7 +758,12 @@ async def scrape_vivo_profile(page):
     follows = 0  # VIVO 无关注数概念,固定 0
     try:
         await page.wait_for_load_state("domcontentloaded", timeout=10000)
-        await asyncio.sleep(3)
+        # 资料卡渲染出来即抓（等元素，替代固定 sleep(3)）：已渲染时几乎零等待，
+        # 慢加载时最多等 10s，比固定 3s 既快又稳。超时也继续，下方 count() 判空兜底。
+        try:
+            await page.wait_for_selector(".user-info-area .user-name", timeout=10000)
+        except Exception:
+            pass
 
         # 昵称 / 头像
         name_el = page.locator(".user-info-area .user-name").first
@@ -1228,6 +1233,31 @@ def parse_schedule_time(schedule_time_str, total_files, enableTimer,
 # ---------------------------------------------------------------------------
 # Unified post-login flow
 # ---------------------------------------------------------------------------
+
+def raise_if_page_closed(page, action: str = "发布"):
+    """页面/浏览器已被用户关闭时抛 RuntimeError，供各平台等待循环每轮调用。
+
+    背景：发布等待循环里的 ``except Exception: pass`` 会把浏览器关闭后
+    Playwright 抛的异常全部吞掉空转，任务在队列里卡「发布中」直到超时
+    （_browser.py 的 watchdog 在 CloakBrowser 代理下未必可靠）。这里用
+    同步属性 ``page.is_closed()`` 做页面级兜底判定：用户关浏览器/关标签页
+    后下一轮轮询立即抛错 → 任务判 FAILED，前端马上显示发布失败。
+
+    兼容 Page 与 Frame：淘宝光合发布表单在 iframe（Frame）里，等待函数
+    经常拿到 Frame 对象；Frame 没有 ``is_closed()``，用 ``is_detached()`` 判定。
+    """
+    try:
+        if hasattr(page, "is_closed"):
+            closed = page.is_closed()
+        else:
+            closed = page.is_detached()
+    except Exception as exc:
+        raise RuntimeError(
+            f"[{action}] 页面状态不可用(浏览器可能已关闭): {exc}"
+        ) from exc
+    if closed:
+        raise RuntimeError(f"[{action}] 页面已被关闭(用户手动关闭浏览器)")
+
 
 async def save_login_result(
     context,

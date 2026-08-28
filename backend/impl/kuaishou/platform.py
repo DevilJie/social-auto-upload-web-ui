@@ -21,6 +21,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_user_profile,
 )
@@ -668,8 +669,8 @@ class KuaishouPlatform(BasePlatform):
         # author_declaration 仅作别名兼容旧调用
         author_declaration = kwargs.get("ai_content", "") or kwargs.get("author_declaration", "")
 
-        # 优先使用竖版封面，其次横版，最后通用封面
-        cover_path = thumbnail_portrait_path or thumbnail_landscape_path or thumbnail_path
+        # 固定使用 4:3 横版封面（用户要求），竖版/通用仅作缺失兜底
+        cover_path = thumbnail_landscape_path or thumbnail_portrait_path or thumbnail_path
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -794,6 +795,7 @@ class KuaishouPlatform(BasePlatform):
             # 当前 task, CancelledError 不被 except Exception 捕获, 循环自然终止。
             retry = 0
             while True:
+                raise_if_page_closed(page)
                 try:
                     if await page.locator("text=上传中").count() == 0:
                         logger.info("[上传视频] 视频上传成功!")
@@ -836,7 +838,9 @@ class KuaishouPlatform(BasePlatform):
             logger.info("[发布] 正在点击发布按钮...")
             while True:
                 # 注：浏览器被用户关闭时, watchdog 会 cancel 当前 task,
-                # CancelledError 不被 except Exception 捕获, 循环自然终止。
+                # CancelledError 不被 except Exception 捕获, 循环自然终止;
+                # 页面级守卫做兜底(watchdog 在 CloakBrowser 下未必可靠)。
+                raise_if_page_closed(page)
                 try:
                     publish_btn = page.get_by_text("发布", exact=True)
                     if await publish_btn.count() > 0:
@@ -1051,9 +1055,9 @@ class KuaishouPlatform(BasePlatform):
             # 5. Select crop ratio (裁剪比例)
             #    快手封面弹窗右侧有「裁剪比例」选项(原始比例/4:3/3:4/1:1/9:16),
             #    DOM: div[class*='_ratio-item'] 内 <span> 文案为比例值。
-            #    按视频方向点对应比例: 横版→4:3, 竖版→3:4。
+            #    固定选 4:3(用户要求,与上传的 4:3 封面文件一致),不按视频方向区分。
             #    失败仅 warning, 不阻塞上传。
-            target_ratio = "3:4" if video_format == "portrait" else "4:3"
+            target_ratio = "4:3"
             logger.info("[封面] 正在选择裁剪比例: %s", target_ratio)
             try:
                 # 精确定位: ratio-item 内 span 文本 == 目标比例, 取其父级 item 点击。

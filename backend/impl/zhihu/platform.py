@@ -21,6 +21,7 @@ from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_zhihu_profile,
 )
@@ -480,23 +481,23 @@ class ZhihuPlatform(BasePlatform):
                     index + 1, len(file_paths), file_path,
                 )
                 # 严格按素材表的视频方向选封面（spec: 视频格式由素材库 orientation 字段区分）
-                # 知乎封面比例为 16:9:横版视频优先用 16:9, 竖版优先用 9:16;
-                # 次尺寸缺失时用主尺寸(4:3/3:4)兜底。
+                # 用户要求:横版视频用 16:9 封面,竖版视频用 3:4 封面;
+                # 次选 9:16/4:3 及另一方向主尺寸兜底。
                 video_orientation = _get_video_orientation(file_path)
                 if video_orientation == "vertical":
-                    picked_thumb = thumbnail_portrait_916 or thumbnail_portrait or thumbnail_landscape
-                    picked_label = "竖版"
+                    picked_thumb = thumbnail_portrait or thumbnail_portrait_916 or thumbnail_landscape
+                    picked_label = "竖版(3:4)"
                 elif video_orientation == "horizontal":
                     picked_thumb = thumbnail_landscape_169 or thumbnail_landscape or thumbnail_portrait
-                    picked_label = "横版"
+                    picked_label = "横版(16:9)"
                 else:
                     # 素材表无方向记录，兜底用前端 videoFormat
                     if video_format == "portrait":
-                        picked_thumb = thumbnail_portrait_916 or thumbnail_portrait or thumbnail_landscape
-                        picked_label = "竖版(前端)"
+                        picked_thumb = thumbnail_portrait or thumbnail_portrait_916 or thumbnail_landscape
+                        picked_label = "竖版(3:4,前端)"
                     else:
                         picked_thumb = thumbnail_landscape_169 or thumbnail_landscape or thumbnail_portrait
-                        picked_label = "横版(前端)"
+                        picked_label = "横版(16:9,前端)"
                 logger.info(
                     "[发布参数] 视频方向=%s, 选用%s封面: %s",
                     video_orientation or "未知", picked_label, picked_thumb or "无",
@@ -788,6 +789,7 @@ class ZhihuPlatform(BasePlatform):
         """
         retry = 0
         while True:
+            raise_if_page_closed(page)
             try:
                 done = page.locator('text=上传成功')
                 if await done.count() > 0 and await done.first.is_visible():

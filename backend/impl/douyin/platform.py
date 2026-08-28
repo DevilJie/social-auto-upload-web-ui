@@ -22,6 +22,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_user_profile,
 )
@@ -557,6 +558,7 @@ class DouyinPlatform(BasePlatform):
 
                 # Wait for redirect to publish page (version 1 or version 2)
                 while True:
+                    raise_if_page_closed(page)
                     try:
                         await page.wait_for_url(
                             "https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page",
@@ -591,6 +593,7 @@ class DouyinPlatform(BasePlatform):
 
                 # Wait for upload to complete
                 while True:
+                    raise_if_page_closed(page)
                     try:
                         number = await page.locator(
                             '[class^="long-card"] div:has-text("重新上传")'
@@ -696,6 +699,7 @@ class DouyinPlatform(BasePlatform):
                 # Click publish and wait for redirect
                 logger.info("[发布] 正在点击发布按钮...")
                 while True:
+                    raise_if_page_closed(page)
                     try:
                         publish_button = page.get_by_role(
                             "button", name="发布", exact=True

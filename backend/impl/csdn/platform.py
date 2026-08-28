@@ -21,6 +21,7 @@ from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_csdn_profile,
 )
@@ -685,6 +686,7 @@ class CsdnPlatform(BasePlatform):
         """
         retry = 0
         while True:
+            raise_if_page_closed(page)
             try:
                 # .gement 区域内的「上传成功」文案
                 done = page.locator('.gement li.text:has-text("上传成功")')

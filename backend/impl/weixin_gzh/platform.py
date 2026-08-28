@@ -32,6 +32,7 @@ from .._utils import (
     clear_input,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_weixin_gzh_profile,
 )
@@ -675,6 +676,11 @@ class WeixinGzhPlatform(BasePlatform):
                 await page2.wait_for_load_state("domcontentloaded", timeout=30000)
                 await asyncio.sleep(2)
 
+                # 0. 关闭教育弹窗(「支持添加话题卡片」等引导,按钮=我知道了)
+                #    弹窗 DOM: div.weui-desktop-dialog > ... > button.weui-desktop-btn_primary
+                #    不点掉会遮挡后续填写/发表操作。短时轮询,点不到不阻塞流程。
+                await self._dismiss_education_dialog(page2)
+
                 # 1. 再次填标题(发布页标题独立于素材标题)
                 logger.info("[阶段②] 填写发布页标题: %s", title)
                 await self._fill_publish_title(page2, title)
@@ -783,6 +789,7 @@ class WeixinGzhPlatform(BasePlatform):
         deadline = asyncio.get_event_loop().time() + timeout_s
         last_progress = ""
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             # 成功信号: 文本「视频上传成功」且元素可见
             try:
                 success_visible = await page.evaluate(
@@ -1130,6 +1137,39 @@ class WeixinGzhPlatform(BasePlatform):
     # ------------------------------------------------------------------
     # Stage ② helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _dismiss_education_dialog(page, timeout_s: int = 10):
+        """关闭发布编辑页(阶段②)可能弹出的教育引导弹窗。
+
+        实测 DOM（宽度 960px 的 weui-desktop-dialog）:
+        ``div.weui-desktop-dialog > div.weui-desktop-dialog__ft >
+        button.weui-desktop-btn.weui-desktop-btn_primary``(文本=我知道了)
+        另有右上角关闭按钮 ``weui-desktop-dialog__close-btn`` 可兜底。
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                known_btn = page.locator(
+                    "div.weui-desktop-dialog button.weui-desktop-btn_primary"
+                ).filter(has_text="我知道了").first
+                if await known_btn.is_visible():
+                    await known_btn.click()
+                    logger.info("[阶段②] 已点击教育弹窗「我知道了」")
+                    await asyncio.sleep(0.5)
+                    return
+                close_btn = page.locator(
+                    "div.weui-desktop-dialog .weui-desktop-dialog__close-btn"
+                ).first
+                if await close_btn.is_visible():
+                    await close_btn.click()
+                    logger.info("[阶段②] 已点教育弹窗关闭按钮(X)")
+                    await asyncio.sleep(0.5)
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        logger.info("[阶段②] 未检测到教育弹窗,继续")
 
     @staticmethod
     async def _fill_publish_title(page, title: str, max_len: int = 64):

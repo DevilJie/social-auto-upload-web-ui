@@ -26,6 +26,7 @@ from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_vivo_profile,
 )
@@ -84,12 +85,13 @@ class VivoPlatform(BasePlatform):
                 # 轮询检测登录成功:用户资料卡 .user-info-area 出现
                 # (VIVO 用 hash 路由,登录后会渲染 home 页资料卡)
                 max_wait = 300  # 5 分钟
-                poll_interval = 3
+                poll_interval = 1  # 1s 轮询，资料卡出现即刻判定成功
                 start_time = asyncio.get_event_loop().time()
                 logged_in = False
                 while (asyncio.get_event_loop().time() - start_time) < max_wait:
                     try:
                         if await page.locator(".user-info-area").count() > 0:
+                            raise_if_page_closed(page)
                             logger.info("[登录] 检测到用户资料卡,登录成功! URL: %s", page.url)
                             logged_in = True
                             break
@@ -200,7 +202,6 @@ class VivoPlatform(BasePlatform):
                     )
                 except Exception:
                     pass
-                await asyncio.sleep(3)
                 name, avatar, fans, likes, follows = await scrape_vivo_profile(page)
                 logger.info(
                     "[同步资料] 昵称: %s, 头像: %s, 粉丝: %d, 获赞: %d, 关注: %d",
@@ -227,11 +228,8 @@ class VivoPlatform(BasePlatform):
         保证"登录后同步"和"同步按钮"看到的运营数据完全一致。
         """
         try:
-            try:
-                await page.goto(_VIVO_HOME_URL, wait_until="domcontentloaded", timeout=30000)
-            except Exception:
-                pass
-            await asyncio.sleep(3)
+            # 登录页已在 home 且资料卡已渲染（login 轮询刚检测到），
+            # 不再 goto + sleep 重复等待，直接用与 sync_profile 同一份 scrape_vivo_profile
             _name, _avatar, fans, likes, follows = await scrape_vivo_profile(page)
             return [
                 {"ICON": "user",   "COUNT": fans,    "NAME": "粉丝", "SORT": 1},
@@ -435,6 +433,7 @@ class VivoPlatform(BasePlatform):
                 upload_complete = False
                 last_progress = ""
                 while (asyncio.get_event_loop().time() - start_time) < max_wait:
+                    raise_if_page_closed(page)
                     try:
                         success_text = page.locator('.success-text:has-text("上传成功")')
                         if await success_text.count():

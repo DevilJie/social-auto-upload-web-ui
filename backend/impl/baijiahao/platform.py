@@ -23,6 +23,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_baijiahao_profile,
 )
@@ -554,6 +555,7 @@ class BaijiahaoPlatform(BasePlatform):
 
                 # Wait for the form page to appear
                 while True:
+                    raise_if_page_closed(page)
                     try:
                         await page.wait_for_selector(
                             "div#formMain:visible"

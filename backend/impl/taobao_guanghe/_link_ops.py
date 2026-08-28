@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import asyncio
 
+from util._logger import get_channel_logger
+
+logger = get_channel_logger("taobao_guanghe")
+
 # 类型常量
 TYPE_PRODUCT = "product"
 TYPE_SHOP = "shop"
@@ -278,6 +282,17 @@ async def ensure_link_section_ready(frame, type_: str, timeout_s: int = 15) -> N
     (光合发布页关联商品是一个独立的 form-item 区块)。
     """
     section_text = "关联商品" if type_ == TYPE_PRODUCT else "关联店铺"
+    # 诊断：dump 当前 frame 里所有 .next-radio-label 的文本，
+    # 确认「商品/店铺」radio 到底叫什么(可能出现「关联商品」或带图标文案)
+    try:
+        labels = await frame.locator(".next-radio-label").all_text_contents()
+        logger.info(
+            "[关联%s][诊断] 当前 radio-labels: %s",
+            "商品" if type_ == TYPE_PRODUCT else "店铺",
+            [t.strip()[:30] for t in (labels or [])],
+        )
+    except Exception:
+        pass
     deadline = asyncio.get_event_loop().time() + timeout_s
     while asyncio.get_event_loop().time() < deadline:
         try:
@@ -308,7 +323,12 @@ async def switch_radio(frame, type_: str) -> None:
     """切换商品/店铺 radio(.next-radio-label + 文本)。"""
     target_label = "商品" if type_ == TYPE_PRODUCT else "店铺"
     radio_label = frame.locator(f'.next-radio-label:has-text("{target_label}")').first
-    await radio_label.wait_for(state="visible", timeout=10000)
+    try:
+        await radio_label.wait_for(state="visible", timeout=10000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"switch_radio 找不到可见 radio(文本={target_label}): {exc}"
+        ) from exc
     is_checked = await radio_label.evaluate(
         "el => el.closest('label')?.classList.contains('checked')"
     )
@@ -321,7 +341,12 @@ async def click_add_card(frame, type_: str) -> None:
     """点击「添加商品/店铺」卡片打开选择面板。"""
     trigger_text = "添加商品" if type_ == TYPE_PRODUCT else "添加店铺"
     trigger = frame.get_by_text(trigger_text, exact=True).first
-    await trigger.wait_for(state="visible", timeout=8000)
+    try:
+        await trigger.wait_for(state="visible", timeout=8000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"click_add_card 找不到可见触发器(文本={trigger_text}): {exc}"
+        ) from exc
     await trigger.click()
     await asyncio.sleep(2)
 
@@ -329,13 +354,23 @@ async def click_add_card(frame, type_: str) -> None:
 async def wait_panel_ready(frame, type_: str) -> None:
     """等待选择面板就绪(商品:等 tab;店铺:等搜索框)。"""
     if type_ == TYPE_PRODUCT:
-        await frame.locator(
-            '.next-tabs-tab:has-text("已购商品"), .next-tabs-tab:has-text("平台优选")'
-        ).first.wait_for(state="visible", timeout=10000)
+        try:
+            await frame.locator(
+                '.next-tabs-tab:has-text("已购商品"), .next-tabs-tab:has-text("平台优选")'
+            ).first.wait_for(state="visible", timeout=10000)
+        except Exception as exc:
+            raise RuntimeError(
+                "wait_panel_ready(商品) 等不到「已购商品/平台优选」tab: %s" % exc
+            ) from exc
     else:
-        await frame.locator('input[placeholder*="店铺"]').first.wait_for(
-            state="visible", timeout=10000
-        )
+        try:
+            await frame.locator('input[placeholder*="店铺"]').first.wait_for(
+                state="visible", timeout=10000
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "wait_panel_ready(店铺) 等不到店铺搜索框: %s" % exc
+            ) from exc
 
 
 async def switch_tab(frame, tab: str) -> None:

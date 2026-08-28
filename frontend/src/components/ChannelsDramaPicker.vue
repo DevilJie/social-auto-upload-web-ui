@@ -281,6 +281,21 @@ onBeforeUnmount(() => {
   :deep(.el-dialog__body) {
     padding: 0 20px;
   }
+
+  // loading 遮罩:跟随主题底色半透明(默认灰色蒙层在亮色模式下太重),spinner 用品牌紫
+  :deep(.el-loading-mask) {
+    background-color: rgba(var(--bg-elevated-rgb), 0.72);
+    backdrop-filter: blur(2px);
+    border-radius: 6px;
+  }
+  :deep(.el-loading-spinner) {
+    .circular .path {
+      stroke: $brand-start;
+    }
+    .el-loading-text {
+      color: $brand-start;
+    }
+  }
 }
 
 .picker-header {

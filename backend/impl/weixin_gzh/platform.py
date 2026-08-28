@@ -45,6 +45,11 @@ _LOGIN_URL = "https://mp.weixin.qq.com/"
 _HOME_PATH = "/cgi-bin/home"
 _TOKEN_RE = re.compile(r"[?&]token=(\d+)")
 
+# Dry-run 开关:WEIXIN_GZH_DRY_RUN_PUBLISH=1 时,平台流程停在发表按钮之前不真实发布。
+# 用于 picker / 自动化数据填写准确性验证。
+import os as _os_wx_dry
+_DRY_RUN_PUBLISH = _os_wx_dry.environ.get("WEIXIN_GZH_DRY_RUN_PUBLISH", "1") == "1"
+
 # 素材上传页（token 由 _resolve_token 拼装）。
 # 对应文档：cgi-bin/appmsg?t=media/videomsg_edit&action=video_edit&type=15&isNew=1
 _MATERIAL_UPLOAD_PATH = (
@@ -703,18 +708,37 @@ class WeixinGzhPlatform(BasePlatform):
                 else:
                     logger.info("[阶段②] 未设置创作来源,跳过")
 
-                # 5. 发表(立即 / 定时)
-                if enable_timer and schedule_time_str:
-                    publish_dt = self._build_publish_datetime(schedule_time_str, files_count)
-                    if publish_dt and not (isinstance(publish_dt, int) and publish_dt == 0):
-                        logger.info("[阶段②] 定时发布: %s", publish_dt)
-                        await self._publish_scheduled(page2, publish_dt)
-                    else:
-                        logger.info("[阶段②] 定时时间解析失败,改为立即发表")
-                        await self._publish_immediate(page2)
+                # 5. 发表(立即 / 定时) — Dry-run 模式下停在按钮前不真实发布
+                if _DRY_RUN_PUBLISH:
+                    logger.info(
+"[阶段②] 🐛 DRY_RUN=1 跳过点击发布, 浏览器保持打开供人工核对数据填写",
+                    )
+                    logger.info("[阶段②] 🐛 当前状态: 标题/描述/标签/封面/创作者声明/合集/创作来源 已填好")
+                    try:
+                        await page2.screenshot(
+                            path=str(log_dir / "weixin_gzh_dry_run.png"),
+                            full_page=True,
+                        )
+                    except Exception:
+                        pass
+                    # 阻塞在这里,直到用户手动关闭浏览器,方便反复查看
+                    try:
+                        logger.info("[阶段②] 🐛 等待浏览器关闭(请手动关闭或确认后关闭)...")
+                        await page2.wait_for_event("close", timeout=0)
+                    except Exception:
+                        pass
                 else:
-                    logger.info("[阶段②] 立即发表...")
-                    await self._publish_immediate(page2)
+                    if enable_timer and schedule_time_str:
+                        publish_dt = self._build_publish_datetime(schedule_time_str, files_count)
+                        if publish_dt and not (isinstance(publish_dt, int) and publish_dt == 0):
+                            logger.info("[阶段②] 定时发布: %s", publish_dt)
+                            await self._publish_scheduled(page2, publish_dt)
+                        else:
+                            logger.info("[阶段②] 定时时间解析失败,改为立即发表")
+                            await self._publish_immediate(page2)
+                    else:
+                        logger.info("[阶段②] 立即发表...")
+                        await self._publish_immediate(page2)
 
                 logger.info("[发布] 视频发布成功!")
 
@@ -2161,18 +2185,32 @@ class WeixinGzhPlatform(BasePlatform):
                 else:
                     logger.info("[发布图集] 未设置创作来源,跳过")
 
-                # 8. 发表(立即/定时,与视频完全一致)
-                if enable_timer and schedule_time_str:
-                    publish_dt = self._build_publish_datetime(schedule_time_str, 1)
-                    if publish_dt and not (isinstance(publish_dt, int) and publish_dt == 0):
-                        logger.info("[发布图集] 定时发布: %s", publish_dt)
-                        await self._publish_scheduled(page2, publish_dt)
-                    else:
-                        logger.info("[发布图集] 定时时间解析失败,改为立即发表")
-                        await self._publish_immediate(page2)
+                # 8. 发表(立即/定时,与视频完全一致) — Dry-run 模式同视频
+                if _DRY_RUN_PUBLISH:
+                    logger.info("[发布图集] 🐛 DRY_RUN=1 跳过点击发布,浏览器保持打开供人工核对")
+                    try:
+                        await page2.screenshot(
+                            path=str(log_dir / "weixin_gzh_image_dry_run.png"),
+                            full_page=True,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        await page2.wait_for_event("close", timeout=0)
+                    except Exception:
+                        pass
                 else:
-                    logger.info("[发布图集] 立即发表...")
-                    await self._publish_immediate(page2)
+                    if enable_timer and schedule_time_str:
+                        publish_dt = self._build_publish_datetime(schedule_time_str, 1)
+                        if publish_dt and not (isinstance(publish_dt, int) and publish_dt == 0):
+                            logger.info("[发布图集] 定时发布: %s", publish_dt)
+                            await self._publish_scheduled(page2, publish_dt)
+                        else:
+                            logger.info("[发布图集] 定时时间解析失败,改为立即发表")
+                            await self._publish_immediate(page2)
+                    else:
+                        logger.info("[发布图集] 立即发表...")
+                        await self._publish_immediate(page2)
 
                 logger.info("[发布图集] 图集发布成功!")
 

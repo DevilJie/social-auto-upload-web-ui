@@ -245,18 +245,30 @@ const totalAccounts = computed(() =>
       display: flex;
       flex-direction: column;
       justify-content: center;
+      align-items: center;   // 横向居中,确保「+」和「素材库 / 本地上传」都在卡片正中
       border: 2px dashed rgba($overlay-rgb, 0.2);
       width: 128px;
       min-height: 88px;
+      padding: 4px 6px;
+      box-sizing: border-box;
 
       .vq-add-icon {
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
         gap: 4px;
         color: $text-secondary;
         font-size: 12px;
+        width: 100%;        // 撑满卡片宽度,文字才能在卡片内居中
+        text-align: center;
       }
+
+      .vq-name--add {
+        text-align: center;  // 「素材库 / 本地上传」水平居中(默认 left 会偏左)
+        width: 100%;
+      }
+
       &:hover {
         border-color: $brand-start;
         color: $brand-start;

@@ -21,10 +21,11 @@
         v-model="searchKeyword"
         placeholder="搜索剧集名称"
         clearable
+        :disabled="unavailable"
         @keyup.enter="onSearch"
       >
         <template #suffix>
-          <el-icon class="cursor-pointer" @click="onSearch"><Search /></el-icon>
+          <el-icon class="cursor-pointer" :class="{ 'is-disabled-icon': unavailable }" @click="!unavailable && onSearch()"><Search /></el-icon>
         </template>
       </el-input>
     </div>
@@ -80,7 +81,8 @@
           <template #empty>
             <div class="empty-tip">
               <el-icon class="empty-icon"><DocumentRemove /></el-icon>
-              <span>暂无剧集,请调整搜索词</span>
+              <span v-if="unavailable">当前账号的「链接」里没有剧集选项,无权限关联</span>
+              <span v-else>暂无剧集,请调整搜索词</span>
             </div>
           </template>
         </el-table>
@@ -138,7 +140,9 @@ const totalPages = ref(1)
 const loading = ref(false)
 const searchKeyword = ref('')
 const selectedDrama = ref(null)  // 当前选中的剧集(临时态,confirm 时才提交)
-const sessionActive = ref(false)  // 后端 picker session 是否在跑
+const sessionActive = ref(false)
+// 账号「链接」下拉无剧集选项(无权限):空数据 + 禁用搜索
+const unavailable = ref(false)  // 后端 picker session 是否在跑
 
 function normalizeSelected(arr) {
   if (!Array.isArray(arr)) return []
@@ -153,10 +157,12 @@ function normalizeSelected(arr) {
 
 async function ensureSession() {
   if (sessionActive.value) return true
+  unavailable.value = false
   loading.value = true
   try {
     const res = await channelsDramaApi.open(props.accountId, props.linkType)
     const d = res?.data || {}
+    unavailable.value = !!d.unavailable
     items.value = d.items || []
     page.value = d.page || 1
     totalPages.value = d.total_pages || 1
@@ -302,6 +308,11 @@ onBeforeUnmount(() => {
 .picker-toolbar {
   padding: 14px 0 12px;
   border-bottom: 1px solid $border-light;
+
+  .is-disabled-icon {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
 }
 
 .picker-content {

@@ -93,7 +93,20 @@ class ChannelsDramaPickerSession:
         await asyncio.sleep(2)
 
         # 点链接下拉 → 选剧集类型 → 点子区入口 → 打开剧集弹窗
-        await link_ops.open_drama_panel(self.page, link_type)
+        # 账号下拉里没有该选项(无权限)时:快速返回空数据,由前端禁用搜索并提示
+        try:
+            await link_ops.open_drama_panel(self.page, link_type)
+        except link_ops.LinkOptionUnavailable as exc:
+            logger.info(
+                "[ChannelsDramaPicker][%s] %s(返回空数据)", self.account_id, exc
+            )
+            return {
+                "items": [],
+                "page": 1,
+                "total": 0,
+                "total_pages": 1,
+                "unavailable": True,
+            }
         await self._wait_ready_or_empty("open", timeout_s=15, require_dialog=True)
         items, page_info = await self._scrape()
         return {

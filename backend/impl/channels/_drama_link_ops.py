@@ -97,6 +97,10 @@ LINK_OPTIONS = {
     "mini_drama": "小程序短剧",
 }
 
+
+class LinkOptionUnavailable(Exception):
+    """账号的「链接」下拉里没有该类型选项(如账号无剧集关联权限)。"""
+
 # 各类型对应的子区 placeholder 文案
 LINK_PLACEHOLDERS = {
     "drama": "选择需要添加的视频号剧集",
@@ -194,6 +198,29 @@ async def _click_drama_entry(page, link_type: str) -> None:
     await asyncio.sleep(1.0)
 
 
+async def has_link_option(page, link_type: str) -> bool:
+    """检查「链接」下拉里是否有该类型选项(需先 _open_link_dropdown)。"""
+    label = LINK_OPTIONS.get(link_type)
+    if not label:
+        return False
+    try:
+        option = page.locator(
+            '.post-link-wrap .link-list-options .link-option-item:has-text("' + label + '")'
+        ).first
+        return await option.count() > 0 and await option.is_visible()
+    except Exception:
+        return False
+
+
+async def _close_link_dropdown(page) -> None:
+    """尝试收起链接下拉(Escape,失败也不影响后续)。"""
+    try:
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+
 async def open_drama_panel(page, link_type: str = "drama") -> None:
     """Open the video-drama picker popup via the real DOM flow."""
     logger.info("[DramaPicker] 1) wait .post-link-wrap")
@@ -201,6 +228,12 @@ async def open_drama_panel(page, link_type: str = "drama") -> None:
     logger.info("[DramaPicker] 2) open link dropdown")
     await _open_link_dropdown(page)
     logger.info("[DramaPicker] 3) select option %s", LINK_OPTIONS[link_type])
+    # 预检:下拉里没有该选项(账号无权限)时快速失败,不傻等超时
+    if not await has_link_option(page, link_type):
+        await _close_link_dropdown(page)
+        raise LinkOptionUnavailable(
+            "当前账号的「链接」下拉中没有「%s」选项(账号无剧集关联权限)" % LINK_OPTIONS[link_type]
+        )
     await _select_link_option(page, link_type)
     logger.info("[DramaPicker] 4) wait drama entry")
     await _wait_drama_entry(page, link_type)

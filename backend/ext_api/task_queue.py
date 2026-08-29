@@ -3,11 +3,15 @@
 支持并发控制、失败重试（指数退避）、进度追踪
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import sqlite3
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
@@ -23,6 +27,110 @@ from impl.registry import get_platform
 logger = get_channel_logger("task_queue")
 
 DB_PATH = BASE_DIR / "db" / "database.db"
+
+# 同步平台(publish_video 内部自己 asyncio.run)的执行线程池。
+# 必须自持有 CF future:同步线程无法强杀,取消时要能等它自然收尾。
+_SYNC_EXEC = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sync-publish")
+
+
+def _refresh_batch_status(conn, batch_id: str):
+    """按 detail 行重算 batch 聚合状态(与 _update_db 内逻辑一致)。"""
+    counts = conn.execute(
+        """SELECT COUNT(*),
+                  SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN status IN ('running', 'queued') THEN 1 ELSE 0 END)
+           FROM publish_details WHERE batch_id=?""",
+        (batch_id,),
+    ).fetchone()
+    total, succ, fail, in_flight = counts[0], counts[1] or 0, counts[2] or 0, counts[3] or 0
+    bs = aggregate_batch_status(succ=succ, fail=fail, in_flight=in_flight, total=total)
+    now = datetime.now().isoformat()
+    conn.execute(
+        """UPDATE publish_batches
+           SET status=?, success_count=?, failed_count=?, account_count=?,
+               finished_at=COALESCE(finished_at, ?), updated_at=?
+           WHERE id=?""",
+        (bs, succ, fail, total, now, now, batch_id),
+    )
+
+
+def _cleanup_orphaned_tasks() -> int:
+    """启动时清理孤儿任务:上次进程退出时仍卡在 running/queued 的行。
+
+    这些任务随旧进程消亡:永远不会执行,内存里也不存在 → cancel_task
+    找不到只能回 400「无法取消」,而 DB/前端会永远显示「排队中」。
+    启动时统一落 cancelled + 中断说明,状态诚实可见。
+    """
+    now = datetime.now().isoformat()
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            rows = conn.execute(
+                "SELECT id, batch_id FROM publish_details"
+                " WHERE status IN ('running', 'queued')"
+            ).fetchall()
+            if not rows:
+                return 0
+            ids = [r[0] for r in rows]
+            batch_ids = sorted({r[1] for r in rows if r[1]})
+            ph = ",".join("?" * len(ids))
+            conn.execute(
+                f"UPDATE publish_details SET status='cancelled',"
+                f" error_message='服务重启,任务已中断', finished_at=?"
+                f" WHERE id IN ({ph})",
+                (now, *ids),
+            )
+            for bid in batch_ids:
+                _refresh_batch_status(conn, bid)
+            logger.info(
+                "[TaskQueue] 启动清理: %d 个孤儿任务(重启前残留 running/queued)已标记取消",
+                len(ids),
+            )
+            return len(ids)
+    except Exception as e:
+        logger.info("[TaskQueue] 启动清理孤儿任务失败: %s", e)
+        return 0
+
+# 任务间隔设置缓存（settings.batchTaskInterval，分钟）。worker 每次取任务前读取，
+# 30s 缓存避免频繁开 DB；异常一律回退 0（= 连续发布，与旧行为一致）。
+_interval_cache = {"value": 0.0, "fetched_at": 0.0}
+
+
+def _get_interval_minutes() -> float:
+    now = time.time()
+    if now - _interval_cache["fetched_at"] < 30:
+        return _interval_cache["value"]
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = 'batchTaskInterval'"
+            ).fetchone()
+        val = float(row[0]) if row and row[0] not in (None, "") else 0.0
+    except Exception:
+        val = 0.0
+    val = max(0.0, val)
+    _interval_cache["value"] = val
+    _interval_cache["fetched_at"] = now
+    return val
+
+
+def _friendly_error(exc: Exception) -> str:
+    """把原始异常转成用户可读的错误信息。
+
+    用户手动关闭浏览器时，未被页面级守卫捕获的 await 会抛 Playwright 原文
+    （如 "Target page, context or browser has been closed"），展示给用户很困惑，
+    这里统一归一化为「浏览器/页面已被用户关闭」。
+    """
+    msg = str(exc)
+    low = msg.lower()
+    if (
+        "target page, context or browser has been closed" in low
+        or "browser has been closed" in low
+        or "target closed" in low
+        or "execution context was destroyed" in low
+    ):
+        return "浏览器/页面已被用户关闭，发布中止"
+    return msg
 
 
 class TaskStatus(str, Enum):
@@ -171,11 +279,19 @@ class TaskQueue:
         self._thread: threading.Thread = None
         self._started = False
         self._status_callbacks = []  # 状态变更回调
+        self._interval_gate: asyncio.Lock | None = None  # 间隔模式的串行闸门
+        # 取消支持：running 的 asyncio task 句柄 / 队列中待取消的 id / 已取消集合
+        self._running_tasks: dict[str, asyncio.Task] = {}
+        self._queued_ids: set[str] = set()
+        self._cancelled_ids: set[str] = set()
+        self._cancel_lock = threading.Lock()
 
     def start(self):
         """在后台线程中启动事件循环"""
         if self._started:
             return
+        # 先清掉上次进程遗留的孤儿任务,避免前端永远显示「排队中」且无法取消
+        _cleanup_orphaned_tasks()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         self._started = True
@@ -185,6 +301,7 @@ class TaskQueue:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self.queue = asyncio.Queue()
+        self._interval_gate = asyncio.Lock()
         for i in range(self.max_concurrent):
             self._loop.create_task(self._worker(f"worker-{i}"))
         self._loop.run_forever()
@@ -192,9 +309,34 @@ class TaskQueue:
     async def _worker(self, name: str):
         while True:
             task = await self.queue.get()
+            self._queued_ids.discard(task.id)
+            # 任务间隔（settings.batchTaskInterval，分钟）：>0 时串行 + 完成后等待
+            interval_min = _get_interval_minutes()
+            gated = interval_min > 0
+            if gated and self._interval_gate:
+                await self._interval_gate.acquire()
+
+            # 用户取消：出队前被标记取消 → 直接落 cancelled（不执行）
+            with self._cancel_lock:
+                was_cancelled = task.id in self._cancelled_ids
+                if was_cancelled:
+                    self._cancelled_ids.discard(task.id)
+            if was_cancelled:
+                task.status = TaskStatus.CANCELLED
+                task.error_message = "用户取消发布"
+                task.finished_at = datetime.now().isoformat()
+                self.completed.append(task)
+                self._update_db(task)
+                self._notify_status(task)
+                if gated and self._interval_gate:
+                    self._interval_gate.release()
+                self.queue.task_done()
+                continue
+
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.now().isoformat()
             self.running[task.id] = task
+            self._running_tasks[task.id] = asyncio.current_task()
             self._update_db(task)
             self._notify_status(task)
 
@@ -202,20 +344,30 @@ class TaskQueue:
                 await self._execute(task)
                 task.status = TaskStatus.SUCCESS
             except asyncio.CancelledError:
+                logger.info(
+                    "[TaskQueue] 任务取消完成: %s (%s)", task.id, task.platform
+                )
                 task.status = TaskStatus.CANCELLED
+                task.error_message = "用户取消发布"
             except Exception as e:
                 # 重试逻辑已禁用 — 长耗时任务(如视频上传)失败立即标记 FAILED,
                 # 避免误触发「同一任务再次开浏览器重新上传」
                 task.status = TaskStatus.FAILED
-                task.error_message = str(e)
+                task.error_message = _friendly_error(e)
 
             finally:
                 task.finished_at = datetime.now().isoformat()
                 if task.id in self.running:
                     del self.running[task.id]
+                self._running_tasks.pop(task.id, None)
                 self.completed.append(task)
                 self._update_db(task)
                 self._notify_status(task)
+                if gated and self._interval_gate:
+                    try:
+                        await asyncio.sleep(interval_min * 60)
+                    finally:
+                        self._interval_gate.release()
                 self.queue.task_done()
 
     async def _execute(self, task: PublishTask):
@@ -233,9 +385,22 @@ class TaskQueue:
             if asyncio.iscoroutinefunction(publish_fn):
                 return await publish_fn(**task.payload)
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None, lambda: publish_fn(**task.payload)
-            )
+            cf = _SYNC_EXEC.submit(lambda: publish_fn(**task.payload))
+            try:
+                return await asyncio.wrap_future(cf)
+            except asyncio.CancelledError:
+                # 同步平台跑在独立线程里,无法强杀:取消只是不再等它。
+                # 必须等该线程自然收尾后再放行 worker —— 否则 worker 立刻
+                # 取下一个任务开浏览器,多次取消会变成「所有平台浏览器同时
+                # 发布」。收尾期间不再启动任何新任务。
+                logger.info(
+                    "[TaskQueue] 任务 %s (%s) 已取消,等待其发布线程收尾(收尾前不启动后续任务)...",
+                    task.id, task.platform,
+                )
+                while not cf.done():
+                    await asyncio.sleep(0.5)
+                logger.info("[TaskQueue] 任务 %s 发布线程已收尾", task.id)
+                raise
 
         # 旧逻辑：保留原代码不动
         from myUtils.postVideo import (
@@ -299,22 +464,62 @@ class TaskQueue:
             self.start()
         task.status = TaskStatus.QUEUED
         self._insert_db(task)
+        self._queued_ids.add(task.id)
         asyncio.run_coroutine_threadsafe(self.queue.put(task), self._loop)
         logger.info(f"[TaskQueue] 任务已入队: {task.id} ({task.platform}/{task.account_name})")
 
     def cancel_task(self, task_id: str) -> bool:
-        """取消任务（仅对 pending/queued 状态有效）"""
-        for task in self.completed:
-            if task.id == task_id and task.status == TaskStatus.FAILED:
-                # 将失败任务移回队列重试
-                task.retry_count = 0
-                task.error_message = ""
-                task.status = TaskStatus.QUEUED
-                self.completed.remove(task)
-                asyncio.run_coroutine_threadsafe(self.queue.put(task), self._loop)
-                self._update_db(task)
+        """取消任务：支持 running / queued / cancelled 前的任务。
+
+        - queued（还在队列里）：标记取消，worker 出队时直接落 cancelled；
+        - running：cancel 对应 asyncio task → worker 捕获 CancelledError 落 cancelled；
+          注意同步平台(如微博)在 executor 线程里跑，无法强杀线程，但任务状态会
+          立即置 cancelled（线程残留工作结束后自然消亡）；
+        - 已完成的任务不可取消，返回 False。
+        """
+        with self._cancel_lock:
+            if task_id in self.running:
+                if task_id in self._cancelled_ids:
+                    # 已在取消流程中(同步平台正在等线程收尾):不重复 cancel,
+                    # 否则会打断收尾等待,worker 提前放行 → 并发开浏览器
+                    return True
+                self._cancelled_ids.add(task_id)
+                at = self._running_tasks.get(task_id)
+                if at is not None and not at.done():
+                    self._loop.call_soon_threadsafe(at.cancel)
                 return True
-        return False
+            if task_id in self._queued_ids or task_id in self._cancelled_ids:
+                self._cancelled_ids.add(task_id)
+                return True
+        # 内存里找不到:可能是服务重启后 DB 残留的孤儿任务(永远不会执行),
+        # 直接在 DB 落 cancelled —— 否则前端永远「排队中」且取消报 400
+        return self._cancel_orphan_in_db(task_id)
+
+    def _cancel_orphan_in_db(self, task_id: str) -> bool:
+        """孤儿任务兜底取消:DB 里仍是 running/queued 但内存无此任务。"""
+        now = datetime.now().isoformat()
+        try:
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                row = conn.execute(
+                    "SELECT batch_id FROM publish_details"
+                    " WHERE id=? AND status IN ('running', 'queued')",
+                    (task_id,),
+                ).fetchone()
+                if not row:
+                    return False
+                conn.execute(
+                    "UPDATE publish_details SET status='cancelled',"
+                    " error_message='任务已失效(服务重启),现已取消', finished_at=?"
+                    " WHERE id=?",
+                    (now, task_id),
+                )
+                if row[0]:
+                    _refresh_batch_status(conn, row[0])
+            logger.info("[TaskQueue] 孤儿任务 %s 已在 DB 直接标记取消", task_id)
+            return True
+        except Exception as e:
+            logger.info("[TaskQueue] 取消孤儿任务 %s 失败: %s", task_id, e)
+            return False
 
     def retry_task(self, task_id: str) -> bool:
         """重试失败的任务"""
@@ -360,6 +565,12 @@ class TaskQueue:
         """插 1 行 publish_batches（如果不存在）+ 1 行 publish_details"""
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
+                # 素材 dict → id（cover 可能是抽帧封面，不在 materials 表，id 仅为溯源）
+                def _mat_id(m):
+                    return m.get('id', '') if isinstance(m, dict) else ''
+                video_mat_id = _mat_id(task.video_landscape) or _mat_id(task.video_portrait)
+                cover_l_id = _mat_id(task.cover_landscape)
+                cover_p_id = _mat_id(task.cover_portrait)
                 # batch 插一次，多次同 batch_id 跳过
                 # 草稿批量发布时填 source='draft' + draft_id 溯源到草稿
                 conn.execute(
@@ -368,11 +579,20 @@ class TaskQueue:
                         landscape_cover_material_id, portrait_cover_material_id,
                         account_count, status, created_at, updated_at,
                         source, draft_id)
-                       VALUES (?, 'video', ?, ?, '', '', '', 0, 'pending', ?, ?,
+                       VALUES (?, 'video', ?, ?, ?, ?, ?, 0, 'pending', ?, ?,
                                ?, ?)""",
                     (task.batch_id or task.id, task.title, task.description,
+                     video_mat_id, cover_l_id, cover_p_id,
                      task.created_at, task.created_at,
                      task.source or '', task.draft_id or 0)
+                )
+                # 同 batch 后续任务带上了素材 ID 而首任务没有时补写（INSERT OR IGNORE 跳过行）
+                conn.execute(
+                    """UPDATE publish_batches
+                       SET video_material_id=?, landscape_cover_material_id=?, portrait_cover_material_id=?
+                       WHERE id=? AND COALESCE(landscape_cover_material_id, '')=''
+                         AND COALESCE(portrait_cover_material_id, '')=''""",
+                    (video_mat_id, cover_l_id, cover_p_id, task.batch_id or task.id)
                 )
                 # account_configs：把 task 字段打包成 JSON
                 cfg = _build_account_configs(task)
@@ -429,7 +649,12 @@ class TaskQueue:
 
 
 # 全局单例
-task_queue = TaskQueue(max_concurrent=2)
+# 并发数=1：严格串行执行（一个任务（=一个视频×一个账号）发布完才轮到下一个），
+# 避免多浏览器并发发布触发平台风控；配合 settings.batchTaskInterval 还能在任务间加等待。
+task_queue = TaskQueue(max_concurrent=1)
+
+# 进程启动即清理孤儿任务(不等第一次 add_task,前端进度弹窗才能立刻看到真实状态)
+_cleanup_orphaned_tasks()
 
 
 def get_task_queue() -> TaskQueue:

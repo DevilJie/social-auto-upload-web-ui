@@ -6,6 +6,8 @@ All browser operations go through the BasePlatform browser entry points
 CloakBrowser via ``_browser.py``.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import re
@@ -514,6 +516,8 @@ class BilibiliPlatform(BasePlatform):
             logger.info("[发布参数] B 站转载来源: %r", bili_repost_source or "(空)")
             # B 站合集(账号级)
             bili_collection_name = kwargs.get("bili_collection_name", "")
+            # 是否保留 B 站系统生成的标签(False = 填自己标签前先清空标签栏)
+            bili_keep_system_tags = bool(kwargs.get("bili_keep_system_tags", True))
 
             # 打印发布参数摘要
             logger.info("[发布参数] 标题: %s", title)
@@ -574,6 +578,7 @@ class BilibiliPlatform(BasePlatform):
                             creation_declaration=creation_declaration,
                             bili_collection_name=bili_collection_name,
                             bili_repost_source=bili_repost_source,
+                            bili_keep_system_tags=bili_keep_system_tags,
                         )
 
             logger.info("=" * 60)
@@ -600,6 +605,7 @@ class BilibiliPlatform(BasePlatform):
         creation_declaration: str = "",
         bili_collection_name: str = "",
         bili_repost_source: str = "",
+        bili_keep_system_tags: bool = True,
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
         log_dir = Path(BASE_DIR / "logs")
@@ -660,8 +666,8 @@ class BilibiliPlatform(BasePlatform):
                 # 4. Set category
                 await self._set_category(page, category)
 
-                # 5. Fill tags
-                await self._fill_tags(page, tags)
+                # 5. Fill tags(按需先清空系统生成的标签)
+                await self._fill_tags(page, tags, clear_existing=not bili_keep_system_tags)
 
                 # 6. Fill description
                 await self._fill_desc(page, desc)
@@ -709,6 +715,7 @@ class BilibiliPlatform(BasePlatform):
                 logger.info("[发布调试] 视频文件(file_path): %s", file_path)
                 logger.info("[发布调试] 简介(desc)        : %s", desc[:100] if desc else "(无)")
                 logger.info("[发布调试] 标签(tags)        : %s (共 %d 个)", tags, len(tags))
+                logger.info("[发布调试] 保留系统标签(keep_system_tags): %s", bili_keep_system_tags)
                 logger.info("[发布调试] 分区(category)    : %s", category)
                 logger.info("[发布调试] 封面(thumbnail)   : %s", thumbnail_path or "(无)")
                 logger.info("[发布调试] 创作声明(creation): %s", creation_declaration or "(无)")
@@ -752,9 +759,11 @@ class BilibiliPlatform(BasePlatform):
                             await asyncio.sleep(3)
                             continue
 
-                        await asyncio.sleep(3)
-                        for _ in range(15):
-                            await asyncio.sleep(2)
+                        # 点击后 1s 即开始检测（原 3s+2s 粒度太粗，成功页已
+                        # 出来还要等好几秒才判定）；轮询 1s 一次，总时长不变
+                        await asyncio.sleep(1)
+                        for _ in range(30):
+                            await asyncio.sleep(1)
                             btn_exists = (
                                 await page.locator("span.submit-add").count()
                                 > 0
@@ -809,8 +818,10 @@ class BilibiliPlatform(BasePlatform):
                     )
 
                 if submitted:
-                    logger.info("[上传视频] waiting 10s for processing")
-                    await asyncio.sleep(10)
+                    # 已看到跳转/按钮消失 = 投稿受理成功，不再固定等 10s
+                    # （成功页都出来了还干等，用户体感「判定慢」），2s 稳定后截图
+                    logger.info("[上传视频] submitted, settling 2s")
+                    await asyncio.sleep(2)
                     try:
                         await page.screenshot(
                             path=str(
@@ -1007,9 +1018,13 @@ class BilibiliPlatform(BasePlatform):
             logger.info(f"[设置分区] category setting failed (non-fatal): {exc}")
 
     @staticmethod
-    async def _fill_tags(page, tags: list):
-        """Fill video tags (up to 10 tags)."""
-        if not tags:
+    async def _fill_tags(page, tags: list, clear_existing: bool = False):
+        """Fill video tags (up to 10 tags).
+
+        clear_existing=True 时先清空标签栏已有标签(B 站会自动生成
+        系统推荐标签,用户关闭「保留系统生成标签」时用)。
+        """
+        if not tags and not clear_existing:
             return
 
         # Parse tags: support "#tag1 #tag2" or "tag1,tag2" or mixed
@@ -1057,6 +1072,14 @@ class BilibiliPlatform(BasePlatform):
             )
             return
 
+        # 先清空标签栏已有的(系统生成)标签
+        if clear_existing:
+            await BilibiliPlatform._clear_existing_tags(page)
+
+        # 没有自己的标签要填(纯清空场景)时到此结束
+        if not tags:
+            return
+
         for i, tag in enumerate(tags[:10]):
             try:
                 # Re-locate input after each tag (DOM may change)
@@ -1096,6 +1119,43 @@ class BilibiliPlatform(BasePlatform):
                 )
             except Exception as exc:
                 logger.info(f"[填写标签] failed to add tag '{tag}': {exc}")
+
+    @staticmethod
+    async def _clear_existing_tags(page) -> int:
+        """清空标签栏已有标签(逐个点标签 chip 的关闭按钮)。
+
+        返回删除的标签数;找不到关闭按钮时返回 0(不报错,发布不中断)。
+        """
+        close_sels = [
+            '[class*="tag"] [class*="close"]',
+            '[class*="tag"] [class*="delete"]',
+            '[class*="tag"] [class*="remove"]',
+            '[class*="tag"] .icon-close',
+        ]
+        removed = 0
+        for _ in range(30):  # 上限 30 个,防死循环
+            btn = None
+            for sel in close_sels:
+                try:
+                    loc = page.locator(sel).first
+                    if await loc.count() > 0 and await loc.is_visible():
+                        btn = loc
+                        break
+                except Exception:
+                    continue
+            if btn is None:
+                break
+            try:
+                await btn.click()
+                removed += 1
+                await asyncio.sleep(0.25)
+            except Exception:
+                break
+        if removed:
+            logger.info("[填写标签] 已清空标签栏原有标签 %d 个", removed)
+        else:
+            logger.info("[填写标签] 标签栏没有可清空的标签(或未匹配到关闭按钮)")
+        return removed
 
     @staticmethod
     async def _fill_desc(page, desc: str):

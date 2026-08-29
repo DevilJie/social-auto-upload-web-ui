@@ -9,6 +9,8 @@
 保持在 creator.guanghe.taobao.com 则已登录。全程不依赖 DOM（最稳）。
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 from pathlib import Path
@@ -22,8 +24,8 @@ from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
-    scrape_taobao_guanghe_profile,
 )
 from ..base_platform import BasePlatform
 from . import _link_ops
@@ -104,10 +106,26 @@ async def _replay_groups(frame, type_: str, items: list, max_load_more: int = 5)
     groups = _group_by_trace(items)
     logger.info(f"[关联{type_label}] 共 {len(items)} 个,{len(groups)} 组轨迹")
 
-    # 面板只开一次:切 radio + 点添加卡片 + 等就绪
+    # **发布路径必做**: 发布流程在调用本函数前已上传视频/封面/标题等,
+    # 关联商品/店铺区块可能在表单底部懒加载,尚未渲染。
+    # 提前滚动到底部并等该区域可见,避免后续 switch_radio/wait_panel_ready 直接超时。
+    await _link_ops.ensure_link_section_ready(frame, type_, timeout_s=15)
+
+    # 面板只开一次:切 radio(容错) + 点添加卡片 + 等就绪。
     # 各组在同一个面板内切 tab/筛选/搜索/勾选,光合会保留已选商品(最多 6 个)
-    # 最后统一点「确定」提交,避免每组重开重关导致第 2 组 reopen 失败
-    await _link_ops.switch_radio(frame, type_)
+    # 最后统一点「确定」提交,避免每组重开重关导致第 2 组 reopen 失败。
+    #
+    # **容错 switch_radio**: 光合已改版,发布页里没有「商品/店铺」radio
+    # (只有创作者声明 6 个 radio),但 picker 路径同样 switch_radio 失败后
+    # 继续点「添加商品」仍能打开面板 —— 所以这里也忽略 radio 失败,
+    # 不能像以前一样裸调让它抛异常中断整个选品流程。
+    try:
+        await _link_ops.switch_radio(frame, type_)
+    except Exception as exc:
+        logger.info(
+            "[关联%s] switch_radio 失败(新版光合可能无此 radio),忽略继续: %s",
+            type_label, exc,
+        )
     await _link_ops.click_add_card(frame, type_)
     await _link_ops.wait_panel_ready(frame, type_)
 
@@ -339,7 +357,7 @@ class TaobaoGuanghePlatform(BasePlatform):
                     platform_id=self.platform_id,
                     platform_name=self.platform_name,
                     status_queue=status_queue,
-                    scrape_fn=scrape_taobao_guanghe_profile,
+                    scrape_fn=self._login_scrape_fn,
                     account_id=account_id,
                     stats_fn=self._login_stats_fn,
                 )
@@ -454,6 +472,27 @@ class TaobaoGuanghePlatform(BasePlatform):
                     pass
         finally:
             await browser.close()
+
+    async def _login_scrape_fn(self, page):
+        """登录成功后的昵称/头像抓取入口（供 save_login_result 调用）。
+
+        与同步按钮(sync_profile)共用 _scrape_profile_and_stats，两条链路
+        走同一份抓取逻辑，结果保持一致。刚登录时首页渲染比已登录状态慢，
+        先等 domcontentloaded + 账号埋点容器出现再抓（超时则尽力抓一次）。
+        """
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except Exception:
+            pass
+        try:
+            await page.wait_for_selector(
+                'img[data-autolog-container="user_content_account"]',
+                timeout=10000,
+            )
+        except Exception:
+            pass
+        name, avatar, _ = await self._scrape_profile_and_stats(page)
+        return name, avatar
 
     async def _login_stats_fn(self, page, account_id) -> list:
         """登录成功后的 stats 抓取入口（供 save_login_result 调用）。"""
@@ -1031,6 +1070,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         try:
             deadline = asyncio.get_event_loop().time() + 20
             while asyncio.get_event_loop().time() < deadline:
+                raise_if_page_closed(page)
                 # 检查新 tab
                 while new_pages:
                     np = new_pages.pop(0)
@@ -1075,6 +1115,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         # 等 iframe 出现并加载（最多 20s）
         deadline = asyncio.get_event_loop().time() + 20
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             for frame in page.frames:
                 if frame == page.main_frame:
                     continue
@@ -1175,6 +1216,7 @@ class TaobaoGuanghePlatform(BasePlatform):
         retry = 0
         seen_progress = False  # 是否曾检测到上传中状态
         while True:
+            raise_if_page_closed(page)
             try:
                 # 上传失败检测
                 fail = page.locator('text=上传失败')
@@ -1636,10 +1678,31 @@ class TaobaoGuanghePlatform(BasePlatform):
             frame: 发布页 iframe
             link_type: 'product' / 'shop'
             items: [{title?, image?, id?, trace?}, ...] — 兼容旧格式
+
+        **失败兜底**: 若 trace 复现失败(如搜索词搜不到目标商品、上限卡等)，
+        不阻塞整体发布 —— 降级为「本次跳过关联商品」并 warning 提示。
+        否则用户配置了关联商品后，因为光合端 UI 变更导致选不上，
+        整次发布失败、用户手动关浏览器，体验极差。
         """
         if not items:
             return
-        await _replay_groups(frame, link_type, items, max_load_more=5)
+        try:
+            await _replay_groups(frame, link_type, items, max_load_more=5)
+        except Exception as exc:
+            logger.warning(
+                "[关联%s] 选品失败(光合 UI 变更/搜索词失效等)，降级跳过，不阻塞发布: %s",
+                "商品" if link_type == "product" else "店铺",
+                exc,
+            )
+            # 尝试关掉关联商品弹窗(若仍打开)，不影响后续发布步骤
+            try:
+                close_btn = frame.locator(
+                    "button.next-dialog-close, button.ant-modal-close",
+                ).first
+                if await close_btn.count() > 0:
+                    await close_btn.click(timeout=2000)
+            except Exception:
+                pass
 
     @staticmethod
     async def _click_publish(frame, main_page=None) -> bool:

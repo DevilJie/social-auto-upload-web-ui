@@ -13,7 +13,14 @@ import { getPlatformByKey } from '@/config/platforms'
  * @returns {{ applyBatchSet: (checkedPlatformKeys: string[], payload: { title: string, description: string, tags: string[], scheduleTime: string }) => void }}
  */
 export function useBatchSetApply({ platformConfigs, accountOverrides, accountChecked, accountStore }) {
-  function applyBatchSet(checkedPlatformKeys, payload) {
+  /**
+   * targets 可选：不传 = 写入构造时绑定的活状态（当前视频）；
+   * 传入 { platformConfigs, accountOverrides } = 就地写入指定对象
+   * （「全视频应用」时对队列里每个快照的配置直接写入）。
+   */
+  function applyBatchSet(checkedPlatformKeys, payload, targets) {
+    const pcs = targets?.platformConfigs || platformConfigs
+    const aos = targets?.accountOverrides || accountOverrides
     const { title, description, tags, scheduleTime } = payload
     const mode = payload.mode || 'full'
     const tagsCopy = Array.isArray(tags) ? [...tags] : []
@@ -28,11 +35,11 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
 
     for (const pk of checkedPlatformKeys) {
       // 1. 渠道级（覆盖）
-      if (!platformConfigs[pk]) platformConfigs[pk] = {}
-      if (!isPartial || hasTitle) platformConfigs[pk].title = title
-      if (!isPartial || hasDescription) platformConfigs[pk].description = description
-      if (!isPartial || hasTags) platformConfigs[pk].tags = tagsCopy
-      if (!isPartial || hasScheduleTime) platformConfigs[pk].scheduleTime = scheduleTimeValue
+      if (!pcs[pk]) pcs[pk] = {}
+      if (!isPartial || hasTitle) pcs[pk].title = title
+      if (!isPartial || hasDescription) pcs[pk].description = description
+      if (!isPartial || hasTags) pcs[pk].tags = tagsCopy
+      if (!isPartial || hasScheduleTime) pcs[pk].scheduleTime = scheduleTimeValue
 
       // 2. 该渠道下所有账号（覆盖）—— 不再用 accountChecked 筛选：
       //    五角星(账号级表单个性化)走的是 accountOverrides，与媒体开关 accountChecked 无关，
@@ -41,11 +48,11 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
       if (!platformCfg) continue
       const accounts = (accountStore?.accounts || []).filter(a => a.platform === platformCfg.name)
       for (const acc of accounts) {
-        if (!accountOverrides[acc.id]) accountOverrides[acc.id] = {}
-        if (!isPartial || hasTitle) accountOverrides[acc.id].title = title
-        if (!isPartial || hasDescription) accountOverrides[acc.id].description = description
-        if (!isPartial || hasTags) accountOverrides[acc.id].tags = tagsCopy
-        if (!isPartial || hasScheduleTime) accountOverrides[acc.id].scheduleTime = scheduleTimeValue
+        if (!aos[acc.id]) aos[acc.id] = {}
+        if (!isPartial || hasTitle) aos[acc.id].title = title
+        if (!isPartial || hasDescription) aos[acc.id].description = description
+        if (!isPartial || hasTags) aos[acc.id].tags = tagsCopy
+        if (!isPartial || hasScheduleTime) aos[acc.id].scheduleTime = scheduleTimeValue
       }
     }
   }

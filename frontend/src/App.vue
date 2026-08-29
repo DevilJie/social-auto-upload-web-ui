@@ -3,7 +3,10 @@
     <!-- Sidebar -->
     <div class="sidebar" :class="{ expanded: !sidebarCollapsed }">
       <div class="sidebar-top">
-        <div class="logo">S</div>
+        <div class="logo">
+          <el-icon :size="18" class="logo-icon"><Promotion /></el-icon>
+          <span v-if="!sidebarCollapsed" class="logo-text">千帆云递</span>
+        </div>
         <button class="toggle-btn" @click="sidebarCollapsed = !sidebarCollapsed">
           <el-icon :size="16"><component :is="sidebarCollapsed ? Expand : Fold" /></el-icon>
         </button>
@@ -35,6 +38,20 @@
       <div class="sidebar-separator"></div>
 
       <div class="sidebar-bottom">
+        <!-- 主题切换：放在 sidebar 底部，明显位置;折叠态只显图标,展开态显「图标 + 当前模式」 -->
+        <button
+          class="theme-toggle"
+          :class="{ expanded: !sidebarCollapsed }"
+          @click="appStore.toggleTheme"
+        >
+          <el-icon :size="16">
+            <component :is="appStore.theme === 'dark' ? Sunny : Moon" />
+          </el-icon>
+          <span v-if="!sidebarCollapsed" class="theme-label">
+            {{ appStore.theme === 'dark' ? '暗色' : '亮色' }}
+          </span>
+          <span v-if="!sidebarCollapsed" class="theme-hint">点击切换</span>
+        </button>
         <template v-for="item in bottomItems" :key="item.path">
           <!-- 折叠态 -->
           <el-tooltip v-if="sidebarCollapsed" :content="item.title" effect="dark" placement="right">
@@ -84,15 +101,7 @@
       <!-- Header -->
       <header class="header">
         <div class="breadcrumb">{{ pageTitle }}</div>
-        <div class="header-right">
-          <el-tooltip effect="light" :content="appStore.theme === 'dark' ? '切换到亮色' : '切换到暗色'" placement="bottom">
-            <button class="theme-toggle" @click="appStore.toggleTheme">
-              <el-icon :size="18">
-                <component :is="appStore.theme === 'dark' ? Sunny : Moon" />
-              </el-icon>
-            </button>
-          </el-tooltip>
-        </div>
+        <!-- 主题切换已移至 sidebar 底部(更显眼) -->
       </header>
 
       <!-- Content -->
@@ -111,7 +120,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, User, Picture, Upload,
   Clock, Setting, Expand, Fold, UserFilled, Document, Notebook, ChatDotRound,
-  Sunny, Moon, Coffee
+  Sunny, Moon, Coffee, Promotion
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 
@@ -187,6 +196,21 @@ const pageTitle = computed(() => route.meta?.title || '')
     .sidebar-top {
       justify-content: space-between;
       padding-right: 0;
+
+      .logo {
+        // 展开态：胶囊形「图标 + 千帆云递」
+        width: auto;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: 10px;
+        gap: 8px;
+        justify-content: flex-start;
+        font-weight: 600;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+
+        .logo-text { display: inline; white-space: nowrap; }
+      }
     }
 
     .sidebar-nav {
@@ -222,17 +246,23 @@ const pageTitle = computed(() => route.meta?.title || '')
     gap: 4px;
 
     .logo {
+      // 折叠态：圆形 36x36 图标
       width: 36px;
       height: 36px;
       border-radius: 50%;
+      padding: 0;
       background: $gradient-brand;
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 0;
       color: #fff;
-      font-weight: 700;
-      font-size: 16px;
       flex-shrink: 0;
+      overflow: hidden;
+      transition: $transition-base;
+
+      .logo-icon { font-size: 18px; }
+      .logo-text { display: none; }
     }
   }
 
@@ -512,29 +542,83 @@ const pageTitle = computed(() => route.meta?.title || '')
   }
 
   .header-right {
+    // 主题切换已移至 sidebar-bottom（保留 flex 以备未来扩展）
     display: flex;
     align-items: center;
     gap: 8px;
   }
+}
 
-  .theme-toggle {
-    width: 32px;
-    height: 32px;
-    border: none;
-    border-radius: $radius-sm;
-    background: transparent;
-    color: $text-muted;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: $transition-base;
+// 主题切换按钮：sidebar 底部，胶囊形状，「图标 + 当前模式 + 提示」
+.sidebar .sidebar-bottom .theme-toggle {
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 8px;
+  border: 1px solid $border;
+  border-radius: 18px;
+  background: var(--sidebar-theme-toggle-bg, rgba($overlay-rgb, 0.05));
+  color: $text-secondary;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: $transition-base;
+  position: relative;
+  overflow: hidden;
 
-    &:hover {
-      background: $overlay-hover;
-      color: $text-primary;
+  &:hover {
+    background: var(--sidebar-theme-toggle-hover-bg, rgba($brand-start, 0.12));
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.3);
+    transform: translateY(-1px);
+  }
+
+  .theme-label,
+  .theme-hint { display: none; }
+
+  // 展开态：胶囊变宽,显模式名 + 「点击切换」提示
+  &.expanded {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 10px;
+
+    .theme-label {
+      display: inline;
+      flex: 1;
+      text-align: left;
+      letter-spacing: 0.02em;
+    }
+    .theme-hint {
+      display: inline;
+      font-size: 11px;
+      color: $text-muted;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba($overlay-rgb, 0.06);
+    }
+    &:hover .theme-hint {
+      background: rgba($brand-start, 0.15);
+      color: $brand-start;
     }
   }
+}
+// 暗色模式下的微调
+html.dark .sidebar .sidebar-bottom .theme-toggle {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+
+  &:hover {
+    background: rgba($brand-start, 0.18);
+    border-color: rgba($brand-start, 0.4);
+  }
+
+  .theme-hint { background: rgba(255, 255, 255, 0.06); }
 }
 
 .fade-slide-enter-active,

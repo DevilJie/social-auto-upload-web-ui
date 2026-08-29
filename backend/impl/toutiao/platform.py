@@ -24,6 +24,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_toutiao_profile,
 )
@@ -130,6 +131,7 @@ class ToutiaoPlatform(BasePlatform):
                 max_wait = 300  # 5 minutes
                 start_time = asyncio.get_event_loop().time()
                 while (asyncio.get_event_loop().time() - start_time) < max_wait:
+                    raise_if_page_closed(page)
                     try:
                         current_url = page.url
                         if "auth/page/login" not in current_url and "profile_v4" in current_url:
@@ -544,6 +546,7 @@ class ToutiaoPlatform(BasePlatform):
                 upload_complete = False
                 last_progress = ""
                 while (asyncio.get_event_loop().time() - start_time) < max_wait:
+                    raise_if_page_closed(page)
                     try:
                         success_text = page.locator('span.percent:has-text("上传成功")')
                         if await success_text.count():

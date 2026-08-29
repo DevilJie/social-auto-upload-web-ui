@@ -68,6 +68,14 @@
                 <span v-if="selectedItem.duration" class="meta-time">耗时 {{ formatDuration(selectedItem.duration) }}</span>
               </div>
             </div>
+            <el-button
+              v-if="isActiveStatus(selectedItem.status)"
+              type="danger"
+              plain
+              size="small"
+              class="cancel-btn"
+              @click="cancelCurrentTask"
+            >取消发布</el-button>
             <a
               v-if="selectedItem.status === 'success' && selectedItem.publish_url"
               :href="selectedItem.publish_url"
@@ -165,11 +173,11 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, WarningFilled, DocumentRemove, CircleCloseFilled, Picture } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { accountApi } from '@/api/account'
-import { historyApi } from '@/api/v2'
+import { historyApi, taskApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import PublishStats from '@/components/PublishStats.vue'
@@ -270,6 +278,29 @@ async function copyBatchId() {
 
 function goBack() {
   router.push('/publish-history')
+}
+
+function isActiveStatus(s) {
+  return s === 'pending' || s === 'queued' || s === 'running'
+}
+
+async function cancelCurrentTask() {
+  if (!selectedItem.value || !isActiveStatus(selectedItem.value.status)) return
+  const it = selectedItem.value
+  try {
+    await ElMessageBox.confirm(
+      `确定取消「${selectedAccount.value?.name || it.account_name}」的发布任务？`,
+      '取消发布',
+      { confirmButtonText: '取消发布', cancelButtonText: '再想想', type: 'warning' },
+    )
+  } catch { return }
+  try {
+    await taskApi.cancelTask(it.id)
+    ElMessage.success('已请求取消，任务将终止')
+    await fetchDetail()
+  } catch (e) {
+    ElMessage.error('取消失败: ' + (e?.message || e))
+  }
 }
 
 function toggleGroup(key) {

@@ -12,6 +12,8 @@
     POI 搜索: https://edith.xiaohongshu.com/web_api/sns/v1/local/poi/creator/search
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import sqlite3

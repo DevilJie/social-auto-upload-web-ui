@@ -150,16 +150,17 @@ def _resolve_cover_from_path(stored_path) -> str:
             return ''
     if not stored_path or not isinstance(stored_path, str):
         return ''
-    # 跨平台:统一反斜杠为正斜杠,再找 materials/ 起始位置
+    # 跨平台:统一反斜杠为正斜杠,再找 materials/ | covers/ | videos/ 起始位置。
+    # 用 find 而非 startswith:批量发布早期写入的 thumbnail_path 是绝对路径
+    # (D:\...\data\covers\...),前缀不匹配会退化成 basename → 封面 404。
     normalized = stored_path.replace('\\', '/')
-    idx = normalized.find('materials/')
-    if idx >= 0:
-        relative = normalized[idx:]
-    elif normalized.startswith('covers/') or normalized.startswith('videos/'):
-        # 历史数据 / 其它子目录的相对路径(不带 materials/ 前缀),
-        # 直接保留原路径, 由 /api/materials/file 路由拼接 base_dir
-        relative = normalized
-    else:
+    relative = ''
+    for prefix in ('materials/', 'covers/', 'videos/'):
+        idx = normalized.find(prefix)
+        if idx >= 0:
+            relative = normalized[idx:]
+            break
+    if not relative:
         # 兜底:取 basename(用于纯文件名输入,虽然没法定位文件)
         relative = normalized.rsplit('/', 1)[-1]
     return f"/api/materials/file/{urllib.parse.quote(relative, safe='')}"
@@ -282,6 +283,32 @@ def cancel_task(task_id):
     if tq.cancel_task(task_id):
         return jsonify({"code": 200, "msg": "任务已取消"})
     return jsonify({"code": 400, "msg": "无法取消该任务"}), 400
+
+
+@ext_api.route('/tasks/cancel-batch', methods=['POST'])
+def cancel_tasks_batch():
+    """批量取消任务(一次请求全取消)。
+
+    前端「取消所有剩余」以前逐个发 HTTP 请求,多任务时慢,还可能中途
+    被打断留下半取消状态;改为服务端一次循环取消完再返回。
+    """
+    data = request.get_json(silent=True) or {}
+    task_ids = data.get("task_ids") or []
+    if not task_ids:
+        return jsonify({"code": 400, "msg": "task_ids 不能为空"}), 400
+    tq = get_task_queue()
+    cancelled = 0
+    for tid in task_ids:
+        try:
+            if tq.cancel_task(tid):
+                cancelled += 1
+        except Exception as exc:
+            logger.warning("[TaskQueue] 批量取消 %s 失败: %s", tid, exc)
+    return jsonify({
+        "code": 200,
+        "msg": f"已请求取消 {cancelled}/{len(task_ids)} 个任务",
+        "data": {"cancelled": cancelled, "total": len(task_ids)},
+    })
 
 
 @ext_api.route('/tasks/<task_id>/retry', methods=['POST'])
@@ -715,6 +742,7 @@ def get_settings():
             "autoSaveDraft": "true",
             "autoSaveInterval": "10",
             "accountCheckMode": "pre-publish",
+            "batchTaskInterval": "0",
         }
         defaults.update(settings)
         # 转换布尔值类型
@@ -722,7 +750,8 @@ def get_settings():
             if key in defaults:
                 defaults[key] = defaults[key] in ('true', 'True', '1', True)
         # 转换数值类型
-        for key in ['publishInterval', 'maxConcurrent', 'heartbeatInterval', 'autoSaveInterval']:
+        for key in ['publishInterval', 'maxConcurrent', 'heartbeatInterval',
+                    'autoSaveInterval', 'batchTaskInterval']:
             if key in defaults:
                 try:
                     defaults[key] = int(defaults[key])
@@ -979,8 +1008,20 @@ def delete_draft(draft_id):
 
 # ---------- Draft metadata extraction helpers ----------
 
+def _active_draft_view(draft_data):
+    """v2 批量草稿（version=2, videos[]）→ 当前视频的单视频视图；v1 原样返回。"""
+    if isinstance(draft_data, dict) and draft_data.get('version') == 2:
+        videos = draft_data.get('videos') or []
+        idx = draft_data.get('currentIndex') or 0
+        if 0 <= idx < len(videos):
+            return videos[idx] or {}
+        return videos[0] if videos else {}
+    return draft_data
+
+
 def _extract_draft_title(draft_data):
     """从草稿数据中提取标题（第一个非空的平台标题）"""
+    draft_data = _active_draft_view(draft_data)
     pc = draft_data.get('platformConfigs', {})
     for key in ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'channels',
                 'baijiahao', 'tiktok', 'youtube', 'iqiyi', 'tencent_video']:
@@ -992,6 +1033,7 @@ def _extract_draft_title(draft_data):
 
 def _extract_draft_cover(draft_data):
     """从草稿数据中提取封面路径或URL"""
+    draft_data = _active_draft_view(draft_data)
     cc = draft_data.get('commonConfig', {})
     for key in ['coverPortrait', 'coverLandscape']:
         cover = cc.get(key)
@@ -1005,6 +1047,7 @@ def _extract_draft_cover(draft_data):
 
 def _extract_channels_summary(draft_data):
     """从草稿数据中提取渠道摘要（按平台分组计数）"""
+    draft_data = _active_draft_view(draft_data)
     account_ids = draft_data.get('publishAccountIds', [])
     if not account_ids:
         return []
@@ -1057,6 +1100,7 @@ def _extract_video_duration(draft_data):
 
 def _extract_video_file_size(draft_data):
     """从草稿数据中提取视频文件大小"""
+    draft_data = _active_draft_view(draft_data)
     cc = draft_data.get('commonConfig', {})
     for key in ['videoPortrait', 'videoLandscape']:
         video = cc.get(key)
@@ -1221,6 +1265,7 @@ def batch_publish_drafts():
     """视频草稿批量发布：每个 (draft, account) 入队 1 个 task。
 
     Body: {"draft_ids": [int, ...]}  (1-30 个视频草稿 id)
+    v2 批量草稿（videos[]）按视频拆分，每个视频独立校验 + 独立 batch。
     Response: {"code": 200, "task_ids": [...], "failed": [...]}
     """
     data = request.get_json() or {}
@@ -1257,50 +1302,274 @@ def batch_publish_drafts():
     task_queue = _tq.get_task_queue()
     task_ids = []
     failed = []
-    # draft_id → batch_id 映射，让同一 draft 的多个 detail 共享一个 batch
+    # batch_key → batch_id 映射，让同一 draft/视频 的多个 detail 共享一个 batch
     task_batch_id_by_draft = {}
 
+    def _draft_video_views(draft_data):
+        """v2 批量草稿 → videos[] 单视频视图列表；v1 → [draft_data] 自身。"""
+        if isinstance(draft_data, dict) and draft_data.get('version') == 2:
+            return list(draft_data.get('videos') or []) or [{}]
+        return [draft_data]
+
     for r in rows:
-        draft = {
-            'id': r['id'],
-            'type': r['type'],
-            'draft_data': json.loads(r['draft_data'] or '{}'),
-        }
+        raw_data = json.loads(r['draft_data'] or '{}')
+        views = _draft_video_views(raw_data)
+        for vi, view in enumerate(views):
+            # v2 多视频：每个视频独立 batch；v1 单视频：整个草稿一个 batch
+            batch_key = str(r['id']) if len(views) == 1 else f"{r['id']}:{vi}"
+            draft = {'id': r['id'], 'type': r['type'], 'draft_data': view}
+            try:
+                errs = validate_draft_for_publish(draft)
+                if errs:
+                    failed.append({'draft_id': r['id'], 'reason': '; '.join(errs)})
+                    continue
+
+                draft_data = draft['draft_data']
+                common = draft_data.get('commonConfig') or {}
+                platform_configs = draft_data.get('platformConfigs') or {}
+                account_overrides = draft_data.get('accountOverrides') or {}
+                publish_account_ids = draft_data.get('publishAccountIds') or []
+
+                for account_id in publish_account_ids:
+                    # 查 user_info（生产 schema: id, type INTEGER, filePath TEXT）
+                    acc_conn = sqlite3.connect(str(db_path))
+                    acc_conn.row_factory = sqlite3.Row
+                    acc_row = acc_conn.execute(
+                        "SELECT id, type, filePath, userName FROM user_info WHERE id = ?",
+                        (account_id,),
+                    ).fetchone()
+                    acc_conn.close()
+                    if not acc_row:
+                        failed.append({'draft_id': r['id'], 'reason': f'账号 {account_id} 不存在'})
+                        continue
+
+                    account_platform = PLATFORM_ID_TO_KEY.get(acc_row['type'], '')
+                    platform_default = platform_configs.get(account_platform) or {}
+                    account_ov = account_overrides.get(str(account_id)) or {}
+
+                    platform_overrides = draft_data.get('platformOverrides') or {}
+                    merged = merge_config(
+                        common, platform_default,
+                        platform_overrides.get(account_platform),
+                        account_ov,
+                    )
+
+                    account_obj = type('Account', (), {})()
+                    account_obj.id = acc_row['id']
+                    account_obj.platform = account_platform
+                    account_obj.file_path = acc_row['filePath']
+
+                    payload = build_platform_kwargs(merged, common, account_obj)
+
+                    ptype = KEY_TO_PLATFORM_ID.get(account_platform)
+                    if not ptype:
+                        failed.append({'draft_id': r['id'], 'reason': f'未知平台: {account_platform}'})
+                        continue
+
+                    task_id = str(uuid.uuid4())
+                    # 草稿批量发布：每个 (draft, account) 一个 detail，但同一 draft 的所有 detail 共享一个 batch_id
+                    # （task.batch_id 第一次循环时初始化，后续同 draft 共享；这里每个 draft_id 只一次循环无问题）
+                    if not task_batch_id_by_draft.get(batch_key):
+                        task_batch_id_by_draft[batch_key] = str(uuid.uuid4())
+                    # 把 stored_path 相对路径转成绝对路径（与 postVideo 的 _resolve_material_path 一致）
+                    # 否则 worker 拿相对路径去 set_input_files，Playwright 找不到文件，会触发 3 次重试。
+                    from storage import resolve_material_path
+                    raw_video = (payload.get('files') or [''])[0]
+                    raw_thumbnail = payload.get('thumbnail_path', '') or ''
+                    resolved_video = resolve_material_path(raw_video)
+                    resolved_thumbnail = resolve_material_path(raw_thumbnail)
+                    if not resolved_video:
+                        # 文件解析失败（草稿里引用了已被用户从磁盘删除的文件），直接标记失败，
+                        # 避免 worker 重复开浏览器重试 3 次。
+                        failed.append({
+                            'draft_id': r['id'],
+                            'reason': f'账号 {account_id} 视频文件不存在: {raw_video}',
+                        })
+                        continue
+                    task = PublishTask(
+                        id=task_id,
+                        batch_id=task_batch_id_by_draft[batch_key],
+                        # platform 列存中文名(与 /postVideo 链路一致)。拼音 key 会让
+                        # 发布历史 platformList 按名匹配失败 → 显示拼音且无 logo。
+                        platform=PLATFORM_MAP.get(acc_row['type'], account_platform),
+                        platform_type=ptype,
+                        account_name=acc_row['userName'] or '',
+                        account_cookie_path=acc_row['filePath'] or '',
+                        video_path=resolved_video,
+                        title=payload.get('title', ''),
+                        description=payload.get('desc', ''),
+                        thumbnail_path=resolved_thumbnail,
+                        tags=payload.get('tags') or [],
+                        # 媒体/定时个性化字段：写入 account_configs 供发布历史还原封面
+                        video_landscape=merged.get('videoLandscape'),
+                        video_portrait=merged.get('videoPortrait'),
+                        cover_landscape=merged.get('coverLandscape'),
+                        cover_portrait=merged.get('coverPortrait'),
+                        enable_timer=payload.get('enableTimer'),
+                        schedule_time=payload.get('schedule_time_str'),
+                        ai_content=payload.get('ai_content'),
+                        is_original=payload.get('is_original'),
+                        source='draft',
+                        draft_id=r['id'],
+                        account_id=account_id,
+                        payload=payload,
+                        # 草稿批量发布:失败立即标记 FAILED,不重试(用户需求)
+                        max_retries=0,
+                    )
+                    try:
+                        task_queue.add_task(task)
+                        task_ids.append(task_id)
+                    except Exception as e:
+                        failed.append({'draft_id': r['id'], 'reason': f'入队失败: {e}'})
+            except Exception as e:
+                failed.append({'draft_id': r['id'], 'reason': str(e)})
+
+    return jsonify({"code": 200, "task_ids": task_ids, "failed": failed}), 200
+
+
+# ========== 批量视频发布（发布页视频队列） ==========
+
+def _lookup_material_duration_size(stored_path: str):
+    """按 stored_path 查素材表 duration/file_size。查不到返回 (None, None)。
+
+    duration<=0 时尝试同步补全（与 app._validate_publish_video 同语义），
+    补全失败则跳过校验（返回 None）。
+    """
+    if not stored_path:
+        return None, None
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT duration, file_size FROM materials WHERE stored_path = ?",
+            (stored_path,),
+        ).fetchone()
+        if row and (not row["duration"] or row["duration"] <= 0):
+            conn.close()
+            try:
+                from services.duration_repair import ensure_duration_or_probe
+                ensure_duration_or_probe(stored_path, row["duration"])
+            except Exception:
+                pass
+            conn = sqlite3.connect(str(DB_PATH))
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT duration, file_size FROM materials WHERE stored_path = ?",
+                (stored_path,),
+            ).fetchone()
+        conn.close()
+    except Exception:
+        return None, None
+    if row is None:
+        return None, None
+    return row["duration"], row["file_size"]
+
+
+def _validate_batch_account(platform_key: str, merged: dict) -> list:
+    """批量发布逐账号补充校验：标题/描述长度 + 视频时长/大小。
+
+    与 /postVideo 的校验同源（util/video_limits）。返回错误消息列表。
+    """
+    from util.video_limits import (
+        validate_title_for_platform, validate_desc_for_platform,
+        validate_video_for_platform,
+    )
+    errs = []
+
+    ok, err = validate_title_for_platform(platform_key, merged.get('title') or '')
+    if not ok:
+        errs.append(err)
+
+    ok, err = validate_desc_for_platform(platform_key, merged.get('description') or '')
+    if not ok:
+        errs.append(err)
+
+    video = merged.get('videoLandscape') or merged.get('videoPortrait') or {}
+    stored = video.get('stored_path') if isinstance(video, dict) else ''
+    duration, size = _lookup_material_duration_size(stored or '')
+    if duration:
+        ok, err = validate_video_for_platform(platform_key, duration, size or 0)
+        if not ok:
+            errs.append(err)
+    return errs
+
+
+@ext_api.route('/videos/batch-publish', methods=['POST'])
+def videos_batch_publish():
+    """批量视频发布：videos[] 为发布页每个视频的完整 draft_data 快照。
+
+    Body: {"videos": [ {commonConfig, platformConfigs, platformOverrides,
+                        accountOverrides, publishAccountIds, ...}, ... ]}
+    每个视频 × 其账号集合 → 逐账号 1 个 PublishTask；同一视频的任务共享
+    1 个 batch_id（发布历史按视频聚合）。source='batch'，失败不自动重试，
+    可在任务中心手动重试。数量不限。
+
+    Response: {"code": 200, "data": {"task_ids": [...], "batch_ids": [...],
+               "failed": [{"video": <下标>, "reason": "..."}]}}
+    """
+    data = request.get_json() or {}
+    videos = data.get('videos')
+    if not isinstance(videos, list) or not videos:
+        return jsonify({"code": 400, "msg": "videos 必须是非空数组"}), 400
+
+    from app import PLATFORM_ID_TO_KEY, PLATFORM_MAP
+    KEY_TO_PLATFORM_ID = {v: k for k, v in PLATFORM_ID_TO_KEY.items()}
+
+    from . import task_queue as _tq
+    task_queue = _tq.get_task_queue()
+    task_ids = []
+    batch_ids = []
+    failed = []
+
+    for idx, vd in enumerate(videos):
+        if not isinstance(vd, dict):
+            failed.append({'video': idx, 'reason': '视频配置格式错误'})
+            continue
         try:
+            draft = {'id': idx, 'type': 'video', 'draft_data': vd}
             errs = validate_draft_for_publish(draft)
             if errs:
-                failed.append({'draft_id': r['id'], 'reason': '; '.join(errs)})
+                failed.append({'video': idx, 'reason': '; '.join(errs)})
                 continue
 
-            draft_data = draft['draft_data']
-            common = draft_data.get('commonConfig') or {}
-            platform_configs = draft_data.get('platformConfigs') or {}
-            account_overrides = draft_data.get('accountOverrides') or {}
-            publish_account_ids = draft_data.get('publishAccountIds') or []
+            common = vd.get('commonConfig') or {}
+            platform_configs = vd.get('platformConfigs') or {}
+            platform_overrides = vd.get('platformOverrides') or {}
+            account_overrides = vd.get('accountOverrides') or {}
+            publish_account_ids = vd.get('publishAccountIds') or []
+            batch_id = str(uuid.uuid4())
 
             for account_id in publish_account_ids:
-                # 查 user_info（生产 schema: id, type INTEGER, filePath TEXT）
-                acc_conn = sqlite3.connect(str(db_path))
-                acc_conn.row_factory = sqlite3.Row
-                acc_row = acc_conn.execute(
+                conn = sqlite3.connect(str(DB_PATH))
+                conn.row_factory = sqlite3.Row
+                acc_row = conn.execute(
                     "SELECT id, type, filePath, userName FROM user_info WHERE id = ?",
                     (account_id,),
                 ).fetchone()
-                acc_conn.close()
+                conn.close()
                 if not acc_row:
-                    failed.append({'draft_id': r['id'], 'reason': f'账号 {account_id} 不存在'})
+                    failed.append({'video': idx, 'reason': f'账号 {account_id} 不存在'})
                     continue
 
                 account_platform = PLATFORM_ID_TO_KEY.get(acc_row['type'], '')
                 platform_default = platform_configs.get(account_platform) or {}
                 account_ov = account_overrides.get(str(account_id)) or {}
 
-                platform_overrides = draft_data.get('platformOverrides') or {}
                 merged = merge_config(
                     common, platform_default,
                     platform_overrides.get(account_platform),
                     account_ov,
                 )
+
+                # 逐账号补充校验（标题/描述长度、视频时长/大小）
+                acc_errs = _validate_batch_account(account_platform, merged)
+                if acc_errs:
+                    failed.append({
+                        'video': idx,
+                        'reason': f'{acc_row["userName"] or account_id}({account_platform}): '
+                                  + '; '.join(acc_errs),
+                    })
+                    continue
 
                 account_obj = type('Account', (), {})()
                 account_obj.id = acc_row['id']
@@ -1311,34 +1580,23 @@ def batch_publish_drafts():
 
                 ptype = KEY_TO_PLATFORM_ID.get(account_platform)
                 if not ptype:
-                    failed.append({'draft_id': r['id'], 'reason': f'未知平台: {account_platform}'})
+                    failed.append({'video': idx, 'reason': f'未知平台: {account_platform}'})
                     continue
 
-                task_id = str(uuid.uuid4())
-                # 草稿批量发布：每个 (draft, account) 一个 detail，但同一 draft 的所有 detail 共享一个 batch_id
-                # （task.batch_id 第一次循环时初始化，后续同 draft 共享；这里每个 draft_id 只一次循环无问题）
-                if not task_batch_id_by_draft.get(r['id']):
-                    task_batch_id_by_draft[r['id']] = str(uuid.uuid4())
-                # 把 stored_path 相对路径转成绝对路径（与 postVideo 的 _resolve_material_path 一致）
-                # 否则 worker 拿相对路径去 set_input_files，Playwright 找不到文件，会触发 3 次重试。
                 from storage import resolve_material_path
                 raw_video = (payload.get('files') or [''])[0]
-                raw_thumbnail = payload.get('thumbnail_path', '') or ''
-                resolved_video = resolve_material_path(raw_video)
-                resolved_thumbnail = resolve_material_path(raw_thumbnail)
+                resolved_video = resolve_material_path(raw_video) if raw_video else ''
                 if not resolved_video:
-                    # 文件解析失败（草稿里引用了已被用户从磁盘删除的文件），直接标记失败，
-                    # 避免 worker 重复开浏览器重试 3 次。
                     failed.append({
-                        'draft_id': r['id'],
+                        'video': idx,
                         'reason': f'账号 {account_id} 视频文件不存在: {raw_video}',
                     })
                     continue
+
                 task = PublishTask(
-                    id=task_id,
-                    batch_id=task_batch_id_by_draft[r['id']],
-                    # platform 列存中文名(与 /postVideo 链路一致)。拼音 key 会让
-                    # 发布历史 platformList 按名匹配失败 → 显示拼音且无 logo。
+                    id=str(uuid.uuid4()),
+                    batch_id=batch_id,
+                    # platform 列存中文名(与 /postVideo 链路一致),发布历史按名匹配 logo
                     platform=PLATFORM_MAP.get(acc_row['type'], account_platform),
                     platform_type=ptype,
                     account_name=acc_row['userName'] or '',
@@ -1346,24 +1604,38 @@ def batch_publish_drafts():
                     video_path=resolved_video,
                     title=payload.get('title', ''),
                     description=payload.get('desc', ''),
-                    thumbnail_path=resolved_thumbnail,
+                    thumbnail_path=payload.get('thumbnail_path', '') or '',
                     tags=payload.get('tags') or [],
-                    source='draft',
-                    draft_id=r['id'],
+                    # 媒体/定时个性化字段：写入 publish_details.account_configs，
+                    # 发布历史据此还原封面/视频缩略图（否则历史卡片无封面）
+                    video_landscape=merged.get('videoLandscape'),
+                    video_portrait=merged.get('videoPortrait'),
+                    cover_landscape=merged.get('coverLandscape'),
+                    cover_portrait=merged.get('coverPortrait'),
+                    enable_timer=payload.get('enableTimer'),
+                    schedule_time=payload.get('schedule_time_str'),
+                    ai_content=payload.get('ai_content'),
+                    is_original=payload.get('is_original'),
+                    source='batch',
                     account_id=account_id,
                     payload=payload,
-                    # 草稿批量发布:失败立即标记 FAILED,不重试(用户需求)
+                    # 批量发布:失败立即标记 FAILED,不自动重试(与草稿批量发布一致)
                     max_retries=0,
                 )
                 try:
                     task_queue.add_task(task)
-                    task_ids.append(task_id)
+                    task_ids.append(task.id)
+                    if batch_id not in batch_ids:
+                        batch_ids.append(batch_id)
                 except Exception as e:
-                    failed.append({'draft_id': r['id'], 'reason': f'入队失败: {e}'})
+                    failed.append({'video': idx, 'reason': f'入队失败: {e}'})
         except Exception as e:
-            failed.append({'draft_id': r['id'], 'reason': str(e)})
+            failed.append({'video': idx, 'reason': str(e)})
 
-    return jsonify({"code": 200, "task_ids": task_ids, "failed": failed}), 200
+    return jsonify({
+        "code": 200,
+        "data": {"task_ids": task_ids, "batch_ids": batch_ids, "failed": failed},
+    }), 200
 
 
 # ========== 视频草稿批量删除 ==========

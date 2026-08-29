@@ -10,6 +10,8 @@
 - publish_url: https://dr.jd.com/jm/#/n/publish-video.html?platform=jm-pop
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os

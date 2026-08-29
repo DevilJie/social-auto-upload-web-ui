@@ -23,6 +23,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_baijiahao_profile,
 )
@@ -554,6 +555,7 @@ class BaijiahaoPlatform(BasePlatform):
 
                 # Wait for the form page to appear
                 while True:
+                    raise_if_page_closed(page)
                     try:
                         await page.wait_for_selector(
                             "div#formMain:visible"
@@ -754,7 +756,8 @@ class BaijiahaoPlatform(BasePlatform):
         to trigger the topic search dropdown, then the first suggestion is
         selected.
         """
-        desc_text = (desc or title or "").strip()[:2000]
+        # 描述为空时不再回落标题，保持为空
+        desc_text = (desc or "").strip()[:2000]
 
         # Lexical contenteditable editor
         lexical_editor = page.locator('[data-lexical-editor="true"]')

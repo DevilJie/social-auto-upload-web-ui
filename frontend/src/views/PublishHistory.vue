@@ -196,14 +196,22 @@
           </div>
         </div>
 
-        <!-- 单条删除按钮（非多选模式下显示） -->
-        <button
-          v-if="!selectMode"
-          class="card-delete-btn"
-          @click.stop="confirmDelete(batch)"
-        >
-          <el-icon><Delete /></el-icon>
-        </button>
+        <!-- 悬停遮罩 + 居中操作按钮（非多选模式） -->
+        <div v-if="!selectMode" class="card-hover-overlay">
+          <div class="card-hover-actions">
+            <el-button
+              v-if="batchHasActive(batch)"
+              type="warning"
+              :icon="Close"
+              @click.stop="cancelBatch(batch)"
+            >取消发布</el-button>
+            <el-button
+              type="danger"
+              :icon="Delete"
+              @click.stop="confirmDelete(batch)"
+            >删除</el-button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -228,7 +236,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Picture, Refresh, Upload, CircleCheck, Calendar, Delete, Check, Select, Close } from '@element-plus/icons-vue'
-import { historyApi, statsApi } from '@/api/v2'
+import { historyApi, statsApi, taskApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import ChannelSummary from '@/components/ChannelSummary.vue'
 import PublishStats from '@/components/PublishStats.vue'
@@ -382,6 +390,31 @@ function onCardClick(id) {
     return
   }
   toggleSelection(id, !selection.value.has(id))
+}
+
+// ===== 取消发布（批次内有未完成任务时可取消） =====
+function batchHasActive(batch) {
+  return (batch.items || []).some(it =>
+    it.status === 'pending' || it.status === 'queued' || it.status === 'running')
+}
+
+async function cancelBatch(batch) {
+  const active = (batch.items || []).filter(it =>
+    it.status === 'pending' || it.status === 'queued' || it.status === 'running')
+  if (!active.length) return
+  try {
+    await ElMessageBox.confirm(
+      `「${batch.title || '无标题'}」有 ${active.length} 个剩余任务，确定全部取消？`,
+      '取消剩余任务',
+      { confirmButtonText: '取消发布', cancelButtonText: '再想想', type: 'warning' },
+    )
+  } catch { return }
+  let ok = 0
+  for (const it of active) {
+    try { await taskApi.cancelTask(it.id); ok++ } catch { /* 单个失败继续 */ }
+  }
+  ElMessage.success(ok > 0 ? `已请求取消 ${ok}/${active.length} 个任务` : '取消失败')
+  fetchHistory()
 }
 
 // ===== 单条删除 =====
@@ -769,40 +802,39 @@ onMounted(() => { fetchHistory(); fetchStats() })
         0 8px 32px rgba($brand-start, 0.35);
       transform: translateY(-2px);
 
-      // 多选模式下隐藏单条删除按钮,避免误触
-      .card-delete-btn { display: none; }
+      // 多选模式下隐藏悬停遮罩,避免误触
+      .card-hover-overlay { display: none; }
     }
   }
 
-  // 单条删除按钮(右上角,hover 显示)
-  .card-delete-btn {
+  // ===== 卡片悬停遮罩 + 居中标准按钮 =====
+  // hover 时整卡铺一层灰色半透明遮罩,按钮组(取消发布/删除)居中显示。
+  // 非 hover 时遮罩 opacity=0,不挡卡片内容。
+  .card-hover-overlay {
     position: absolute;
-    top: 8px;
-    right: 8px;
-    z-index: 3;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(8px);
-    border: none;
-    color: rgba($overlay-rgb, 0.85);
+    inset: 0;
+    z-index: 4;
+    border-radius: inherit;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
     opacity: 0;
-    transition: all 0.2s;
-    font-size: 14px;
+    transition: opacity 0.2s ease;
+    pointer-events: none;  // 遮罩自身不拦截点击,点击非按钮区域穿透到卡片进详情
+  }
 
-    &:hover {
-      background: rgba($danger-color, 0.9);
-      color: #fff;
-    }
+  .card-hover-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    pointer-events: auto;  // 按钮可点
+  }
 
-    .batch-card:hover & {
-      opacity: 1;
-    }
+  .batch-card:hover .card-hover-overlay {
+    opacity: 1;
   }
 
   // 多选模式下的选择圆圈

@@ -356,8 +356,26 @@ PIP_MIRROR="https://mirrors.aliyun.com/pypi/simple/"
 HASH_FILE="$PROJECT_ROOT/.backend_deps_hash"
 CURRENT_HASH=$(get_dir_hash "backend")
 
-if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_PIP" ]]; then
-    echo -n -e "  ${CYAN}⏳${NC} 创建虚拟环境..."
+# --- 检测 venv Python 版本与系统 Python 版本是否一致 ---
+# 之前用旧版 Python 创建的 venv 不会自动跟随系统升级,会导致代码使用
+# 错误的 Python 版本运行(app.py 会从 venv 启动)。
+# 这里对比 venv 的 sys.version_info 与系统 python3,不匹配则重建 venv。
+SYSTEM_PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+NEED_RECREATE_VENV=0
+if [[ -f "$VENV_PYTHON" ]]; then
+    VENV_PY_VERSION=$("$VENV_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
+    if [[ "$VENV_PY_VERSION" != "$SYSTEM_PY_VERSION" ]]; then
+        print_warn "venv Python ($VENV_PY_VERSION) 与系统 Python ($SYSTEM_PY_VERSION) 不一致,准备重建 venv"
+        NEED_RECREATE_VENV=1
+    fi
+fi
+
+if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_PIP" ]] || [[ "$NEED_RECREATE_VENV" -eq 1 ]]; then
+    if [[ "$NEED_RECREATE_VENV" -eq 1 ]]; then
+        echo -n -e "  ${CYAN}⏳${NC} 重建虚拟环境(对齐系统 Python $SYSTEM_PY_VERSION)..."
+    else
+        echo -n -e "  ${CYAN}⏳${NC} 创建虚拟环境..."
+    fi
     rm -rf "$VENV_DIR"
     if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
         printf "\r  ${WARN} 虚拟环境创建失败，正在安装 python3-venv...\n"

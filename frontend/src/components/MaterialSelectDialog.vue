@@ -53,8 +53,8 @@
           v-for="mat in items"
           :key="mat.id"
           class="msd-card"
-          :class="{ selected: selectedId === mat.id }"
-          @click="selectedId = mat.id"
+          :class="{ selected: isSelected(mat.id) }"
+          @click="onCardClick(mat)"
         >
           <!-- Preview -->
           <div class="msd-card-preview">
@@ -118,7 +118,7 @@
             </template>
 
             <!-- Selected check -->
-            <div v-if="selectedId === mat.id" class="msd-card-check">
+            <div v-if="isSelected(mat.id)" class="msd-card-check">
               <el-icon :size="14"><Check /></el-icon>
             </div>
 
@@ -180,7 +180,11 @@
     <template #footer>
       <div class="msd-footer">
         <div class="msd-footer-status">
-          <span v-if="selectedMat" class="msd-footer-selected">
+          <span v-if="multiple" class="msd-footer-selected">
+            <el-icon :size="14" color="var(--brand-start, #5b8cff)"><Check /></el-icon>
+            <span>已选：{{ selectedMats.length }} 个素材（可跨页选择）</span>
+          </span>
+          <span v-else-if="selectedMat" class="msd-footer-selected">
             <el-icon :size="14" color="var(--brand-start, #5b8cff)"><Check /></el-icon>
             <span>已选：{{ selectedMat.original_filename }}</span>
           </span>
@@ -188,8 +192,13 @@
         </div>
         <div class="msd-footer-actions">
           <el-button @click="visible = false">取消</el-button>
-          <el-button type="primary" :disabled="!selectedId" :loading="probing" @click="confirmSelect">
-            确定
+          <el-button
+            type="primary"
+            :disabled="multiple ? selectedMats.length === 0 : !selectedId"
+            :loading="probing"
+            @click="confirmSelect"
+          >
+            确定{{ multiple && selectedMats.length > 0 ? `（${selectedMats.length} 个）` : '' }}
           </el-button>
         </div>
       </div>
@@ -233,8 +242,25 @@ const pageSize = ref(24)
 const searchKeyword = ref('')
 const typeFilter = ref('all')
 const selectedId = ref(null)
+// 多选模式：保存完整素材对象（跨页保留，确认时一次性 emit）
+const selectedMats = ref([])
 // 当前正在播放的视频素材 id（互斥，同一时间只能播一个）
 const playingId = ref(null)
+
+function isSelected(id) {
+  if (props.multiple) return selectedMats.value.some((m) => m.id === id)
+  return selectedId.value === id
+}
+
+function onCardClick(mat) {
+  if (props.multiple) {
+    const idx = selectedMats.value.findIndex((m) => m.id === mat.id)
+    if (idx >= 0) selectedMats.value.splice(idx, 1)
+    else selectedMats.value.push(mat)
+  } else {
+    selectedId.value = mat.id
+  }
+}
 
 // 当 props.filterType 限定为 video/image 时，只显示对应按钮，不允许切换类型
 const typeOptions = computed(() => {
@@ -340,7 +366,8 @@ async function loadPage() {
       items.value = resp.data.items || []
       total.value = resp.data.total || 0
       // 翻页后，如果当前选中/正在播放的素材不在新页面则清空
-      if (selectedId.value && !items.value.some((m) => m.id === selectedId.value)) {
+      // （多选模式跨页保留已选项，不清空）
+      if (!props.multiple && selectedId.value && !items.value.some((m) => m.id === selectedId.value)) {
         selectedId.value = null
       }
       if (playingId.value && !items.value.some((m) => m.id === playingId.value)) {
@@ -356,16 +383,11 @@ async function loadPage() {
   }
 }
 
-async function confirmSelect() {
-  if (!selectedId.value) return
-  const material = items.value.find((m) => m.id === selectedId.value)
-  if (!material) return
-
-  // 视频且元数据缺失（duration=0）时,同步调用 /probe 补全元数据,
-  // 这样调用方在 publishAll 校验时拿到的 videoData 已含 duration
+// 视频且元数据缺失（duration=0）时,调用 /probe 补全元数据,
+// 这样调用方在发布校验时拿到的素材已含 duration
+async function probeIfMissing(material) {
   if (material.file_type === 'video' && (!material.duration || material.duration === 0)) {
     try {
-      probing.value = true
       const res = await materialsApi.probe(material.id)
       if (res?.code === 200 && res.data) {
         // 用后端返回的最新数据更新 material
@@ -377,12 +399,12 @@ async function confirmSelect() {
     } catch (err) {
       console.warn('[MaterialSelectDialog] probe failed:', err)
       // probe 失败也允许继续选,前端校验会兜底
-    } finally {
-      probing.value = false
     }
   }
+}
 
-  emit('select', {
+function toPayload(material) {
+  return {
     id: material.id,
     name: material.original_filename,
     url: getFileUrl(material.stored_path),
@@ -390,7 +412,38 @@ async function confirmSelect() {
     size: material.file_size,
     type: material.mime_type,
     duration: material.duration ?? 0,
-  })
+  }
+}
+
+async function confirmSelect() {
+  if (props.multiple) {
+    if (selectedMats.value.length === 0) return
+    probing.value = true
+    try {
+      // 串行探测元数据，避免并发 probe 压垮后端
+      for (const mat of selectedMats.value) {
+        await probeIfMissing(mat)
+      }
+    } finally {
+      probing.value = false
+    }
+    emit('select', selectedMats.value.map(toPayload))
+    visible.value = false
+    return
+  }
+
+  if (!selectedId.value) return
+  const material = items.value.find((m) => m.id === selectedId.value)
+  if (!material) return
+
+  probing.value = true
+  try {
+    await probeIfMissing(material)
+  } finally {
+    probing.value = false
+  }
+
+  emit('select', toPayload(material))
   visible.value = false
 }
 
@@ -399,6 +452,7 @@ function onClosed() {
   typeFilter.value = props.filterType || 'all'
   page.value = 1
   selectedId.value = null
+  selectedMats.value = []
   playingId.value = null
   items.value = []
   total.value = 0
@@ -409,6 +463,7 @@ async function open() {
   typeFilter.value = props.filterType || 'all'
   page.value = 1
   selectedId.value = null
+  selectedMats.value = []
   await loadPage()
 }
 

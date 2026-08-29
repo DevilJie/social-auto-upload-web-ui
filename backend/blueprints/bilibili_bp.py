@@ -7,6 +7,8 @@
 开发阶段:有头模式,便于观察。
 """
 
+from __future__ import annotations
+
 import asyncio
 import sqlite3
 from pathlib import Path

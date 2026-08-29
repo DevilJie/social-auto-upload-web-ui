@@ -9,6 +9,8 @@
 再从 URL 解析 token 拼装合集管理页 URL。
 """
 
+from __future__ import annotations
+
 import asyncio
 import re
 import sqlite3

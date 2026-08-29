@@ -43,11 +43,20 @@
           <el-button :icon="Setting" @click="batchSetDialogOpen = true" :disabled="publishAccountIds.size === 0" class="header-btn">
             批量设置
           </el-button>
-          <el-button type="primary" :icon="Promotion" @click="publishAll" :disabled="publishing" class="header-btn header-btn--primary">
-            {{ publishing ? '发布中...' : '一键发布' }}
+          <el-button type="primary" :icon="Promotion" @click="startBatchPublish" :disabled="batchSubmitting" class="header-btn header-btn--primary">
+            {{ batchSubmitting ? '提交中...' : '批量发布' }}
           </el-button>
         </div>
       </div>
+
+      <!-- ===== 视频队列栏（批量发布）===== -->
+      <VideoQueueBar
+        :videos="videoQueueItems"
+        :current="currentVideoIndex"
+        @select="switchVideo"
+        @add="openAddVideosDialog"
+        @remove="removeVideoAt"
+      />
 
       <!-- Scrollable content -->
       <div class="main-content">
@@ -85,6 +94,8 @@
                 v-model:active-ratio="coverPortraitActiveRatio"
                 :model-value="coverPortraitActiveCover"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
+                :cropping="isCoverCropping"
+                :crop-stage="coverCropStage"
                 @update:modelValue="onPortraitCoverChange"
                 @edit="openCoverEditor('portrait', coverPortraitActiveRatio)"
                 @open-library="selectFromLibrary('cover', 'portrait')"
@@ -95,6 +106,8 @@
                 v-model:active-ratio="coverLandscapeActiveRatio"
                 :model-value="coverLandscapeActiveCover"
                 :has-video="!!(currentEditTarget.videoPortrait || currentEditTarget.videoLandscape)"
+                :cropping="isCoverCropping"
+                :crop-stage="coverCropStage"
                 @update:modelValue="onLandscapeCoverChange"
                 @edit="openCoverEditor('landscape', coverLandscapeActiveRatio)"
                 @open-library="selectFromLibrary('cover', 'landscape')"
@@ -186,6 +199,12 @@
                   size="small"
                   :disable-transitions="false"
                 >#{{ tag }}</el-tag>
+              </div>
+              <!-- B 站专属:是否保留系统生成的标签 -->
+              <div v-if="selectedPlatform === 'bilibili'" class="tag-option-row">
+                <el-switch v-model="form.biliKeepSystemTags" size="small" />
+                <span class="tag-option-label">保留系统生成标签</span>
+                <span class="tag-option-hint">关闭后,发布会先清空 B 站自动生成的标签,再填入上面自己的标签</span>
               </div>
           </div>
 
@@ -492,6 +511,54 @@
                   @change="handleChannelsLocationChange"
                 />
               </div>
+              <!-- 链接(账号级,标准下拉 4 选 1)
+                   选哪个才显示对应子配置区。
+                   视频号发布页 DOM(实测):
+                     .post-link-wrap > .link-display-wrap > .link-placeholder(选择链接)
+                     点击展开 .link-list-options(4 个 .link-option-item) -->
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">链接</div>
+                <el-select
+                  v-model="form.channelsLinkType"
+                  placeholder="选择链接"
+                  clearable
+                  style="width: 100%"
+                  @change="onChannelsLinkTypeChange"
+                >
+                  <el-option label="公众号文章" value="article" />
+                  <el-option label="红包封面" value="red_envelope" />
+                  <el-option label="视频号剧集" value="drama" />
+                  <el-option label="小程序短剧" value="mini_drama" />
+                </el-select>
+
+                <!-- 子配置:视频号剧集 / 小程序短剧 → 走 picker 弹窗 -->
+                <div v-if="form.channelsLinkType === 'drama' || form.channelsLinkType === 'mini_drama'" class="link-sub">
+                  <div v-if="form.channelsDrama && form.channelsDrama.length > 0" class="channels-drama-selected">
+                    <div class="drama-pill">
+                      <img v-if="form.channelsDrama[0].cover" :src="form.channelsDrama[0].cover" class="drama-pill-cover" referrerpolicy="no-referrer" />
+                      <div class="drama-pill-text">
+                        <div class="drama-pill-title">{{ form.channelsDrama[0].title }}</div>
+                        <div v-if="form.channelsDrama[0].extinfo" class="drama-pill-ext">{{ form.channelsDrama[0].extinfo }}</div>
+                      </div>
+                      <el-button size="small" text type="danger" @click="form.channelsDrama = []">移除</el-button>
+                    </div>
+                    <el-button size="small" plain @click="openChannelsDramaPicker(form.channelsLinkType)">重新选择</el-button>
+                  </div>
+                  <el-button v-else size="default" :icon="Plus" plain @click="openChannelsDramaPicker(form.channelsLinkType)">
+                    选择{{ form.channelsLinkType === 'mini_drama' ? '小程序短剧' : '视频号剧集' }}
+                  </el-button>
+                </div>
+
+                <!-- 子配置:公众号文章(占位) -->
+                <div v-else-if="form.channelsLinkType === 'article'" class="link-sub">
+                  <el-input v-model="form.channelsLinkArticleUrl" placeholder="输入公众号文章链接" clearable />
+                </div>
+
+                <!-- 子配置:红包封面 → 粘贴红包封面链接 -->
+                <div v-else-if="form.channelsLinkType === 'red_envelope'" class="link-sub">
+                  <el-input v-model="form.channelsRedEnvelopeUrl" placeholder="粘贴红包封面链接" clearable />
+                </div>
+              </div>
             </template>
 
             <!-- 微博专属卡片(合集为账号级,选中账号后才显示) -->
@@ -759,6 +826,25 @@
       @uploaded="onVideoUploaded"
     />
 
+    <!-- Add Videos To Queue Dialog (multiple) -->
+    <MaterialUploader
+      v-model="addVideosDialogVisible"
+      accept="video/*"
+      :max-size="null"
+      :multiple="true"
+      :title="'添加视频到队列'"
+      tip="支持 MP4、AVI、MKV 等视频格式，可多选；新视频继承当前配置（含账号与平台设置）"
+      @all-uploaded="onVideosAdded"
+    />
+
+    <!-- Add Videos From Library To Queue Dialog (multiple) -->
+    <MaterialSelectDialog
+      ref="queueMaterialSelectRef"
+      filter-type="video"
+      :multiple="true"
+      @select="onQueueMaterialsSelected"
+    />
+
     <!-- Material Library Dialog -->
     <MaterialSelectDialog
       ref="materialSelectRef"
@@ -766,13 +852,22 @@
       @select="onMaterialSelect"
     />
 
-    <!-- Batch Publish Progress Dialog -->
-    <BatchPublishDialog
-      v-model="batchPublishDialogVisible"
-      :progress="publishProgress"
-      :results="publishResults"
-      :current-account="currentPublishingAccount"
-      @cancel="cancelBatch"
+    <!-- Batch Publish Confirm Dialog -->
+    <VideoBatchConfirmDialog
+      :visible="batchConfirmVisible"
+      :rows="batchConfirmRows"
+      :submitting="batchSubmitting"
+      @update:visible="batchConfirmVisible = $event"
+      @confirm="confirmBatchPublish"
+    />
+
+    <!-- Batch Publish Realtime Progress Dialog -->
+    <BatchTaskProgressDialog
+      :visible="batchProgressVisible"
+      :batch-ids="batchProgressBatchIds"
+      :failed-notes="batchProgressFailedNotes"
+      @update:visible="batchProgressVisible = $event"
+      @go-history="goPublishHistoryFromProgress"
     />
 
     <!-- Pre-publish Cookie Check Dialog -->
@@ -790,6 +885,7 @@
     <BatchSetDialog
       v-model="batchSetDialogOpen"
       :platforms="batchSetPlatforms"
+      :show-all-videos="true"
       @apply="onBatchSetApply"
     />
 
@@ -809,13 +905,22 @@
       :init-selected="form.jdProducts"
       @confirm="onJdPickerConfirm"
     />
+
+    <!-- 视频号:关联剧集选择弹窗(后端 channels drama_picker) -->
+    <ChannelsDramaPicker
+      v-model="channelsDramaPickerVisible"
+      :account-id="channelsDramaPickerAccountId"
+      :link-type="channelsDramaPickerLinkType"
+      :init-selected="form.channelsDrama"
+      @confirm="onChannelsDramaPickerConfirm"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, watch, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { materialsApi } from '@/api/materials'
@@ -827,13 +932,15 @@ import { validateVideoForPlatform, validateTitleForPlatform, validateDescForPlat
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
-import BatchPublishDialog from '@/components/BatchPublishDialog.vue'
 import BatchSetDialog from '@/components/BatchSetDialog.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
 import MaterialUploader from '@/components/MaterialUploader.vue'
 import OneClickFillDialog from '@/components/OneClickFillDialog.vue'
+import VideoQueueBar from '@/components/VideoQueueBar.vue'
+import VideoBatchConfirmDialog from '@/components/VideoBatchConfirmDialog.vue'
+import BatchTaskProgressDialog from '@/components/BatchTaskProgressDialog.vue'
 import DouyinActivitySelect from '@/components/douyin/ActivitySelect.vue'
 import DouyinTagSelect from '@/components/douyin/TagSelect.vue'
 import { channelsApi } from '@/api/channels'
@@ -843,6 +950,8 @@ import RemoteSearchSelect from '@/components/common/RemoteSearchSelect.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 import GuangheItemPicker from '@/components/GuangheItemPicker.vue'
 import JdItemPicker from '@/components/JdItemPicker.vue'
+import ChannelsDramaPicker from '@/components/ChannelsDramaPicker.vue'
+import { channelsDramaApi } from '@/api/channels_drama'
 import { xhsApi } from '@/api/xiaohongshu'
 import { biliApi } from '@/api/bilibili'
 import { douyinImageApi } from '@/api/douyinImage'
@@ -855,7 +964,8 @@ import { useAutoSave } from '@/composables/useAutoSave'
 import { useBatchSetApply } from '@/composables/useBatchSetApply'
 import { frameApi } from '@/api/frame'
 import { draftApi } from '@/api/draft'
-import { useRoute } from 'vue-router'
+import { batchPublishApi } from '@/api/v2'
+import { useRoute, useRouter } from 'vue-router'
 import { HASHTAG_RE as DESC_HASHTAG_RE, countDescriptionHashtags, useAutoExtractHashtags } from '@/utils/hashtag'
 
 // ========== Stores & Config ==========
@@ -865,6 +975,7 @@ appStore.loadAutoFillTitle()
 appStore.loadAccountCheckMode()
 appStore.loadAutoSaveSettings()
 const route = useRoute()
+const router = useRouter()
 
 // ========== Left Sidebar State ==========
 const expandedGroups = ref(new Set())
@@ -913,6 +1024,11 @@ const commonConfig = reactive({
 // 对应的 watch 注册在 currentEditTarget 声明之后
 const coverPortraitActiveRatio = ref('3:4')    // 竖版卡：默认 3:4
 const coverLandscapeActiveRatio = ref('4:3')    // 横版卡：默认 4:3
+
+// 自动裁剪封面的状态：上传/选视频后，后台抽帧 + 生成多比例封面（5~20s）
+// 用 cropping=true 让 CoverCard 显示「裁剪中…」反馈，避免用户以为没响应
+const isCoverCropping = ref(false)
+const coverCropStage = ref('')         // 'extracting' | 'saving'
 
 // 平台级覆写（spec §3.3）—— 公共区域的媒体字段覆写
 const platformOverrides = reactive({})         // { [platformKey]: { coverPortrait, coverLandscape, videoPortrait, videoLandscape } }
@@ -1047,6 +1163,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     creationDeclaration: accountOv?.creationDeclaration ?? platformOv?.creationDeclaration ?? platformDefault?.creationDeclaration,
     // B 站转载来源(创作声明=转载 时必填)
     biliRepostSource: accountOv?.biliRepostSource ?? platformOv?.biliRepostSource ?? platformDefault?.biliRepostSource ?? '',
+    // B 站是否保留系统生成的标签(关闭 = 发布前先清空 B 站标签栏再填自己的)
+    biliKeepSystemTags: accountOv?.biliKeepSystemTags ?? platformOv?.biliKeepSystemTags ?? platformDefault?.biliKeepSystemTags ?? true,
     riskWarning: accountOv?.riskWarning ?? platformOv?.riskWarning ?? platformDefault?.riskWarning,
     enableCashActivity: accountOv?.enableCashActivity ?? platformOv?.enableCashActivity ?? platformDefault?.enableCashActivity,
     supplementaryDeclaration: accountOv?.supplementaryDeclaration ?? platformOv?.supplementaryDeclaration ?? platformDefault?.supplementaryDeclaration,
@@ -1119,6 +1237,14 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     channelsShootDate: accountOv?.channelsShootDate ?? platformOv?.channelsShootDate ?? platformDefault?.channelsShootDate ?? '',
     channelsShootRegion: accountOv?.channelsShootRegion ?? platformOv?.channelsShootRegion ?? platformDefault?.channelsShootRegion ?? [],
     channelsRepostSource: accountOv?.channelsRepostSource ?? platformOv?.channelsRepostSource ?? platformDefault?.channelsRepostSource ?? '',
+    // 视频号剧集(账号级,每条视频关联 1 部剧集,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
+    channelsDrama: accountOv?.channelsDrama ?? platformOv?.channelsDrama ?? platformDefault?.channelsDrama ?? [],
+    // 视频号「链接」下拉选择(账号级): '' | 'article' | 'red_envelope' | 'drama' | 'mini_drama'
+    channelsLinkType: accountOv?.channelsLinkType ?? platformOv?.channelsLinkType ?? platformDefault?.channelsLinkType ?? '',
+    // 公众号文章链接(账号级,channelsLinkType='article' 时使用)
+    channelsLinkArticleUrl: accountOv?.channelsLinkArticleUrl ?? platformOv?.channelsLinkArticleUrl ?? platformDefault?.channelsLinkArticleUrl ?? '',
+    // 红包封面链接(账号级,channelsLinkType='red_envelope' 时使用)
+    channelsRedEnvelopeUrl: accountOv?.channelsRedEnvelopeUrl ?? platformOv?.channelsRedEnvelopeUrl ?? platformDefault?.channelsRedEnvelopeUrl ?? '',
     // CSDN 是否推荐(平台级开关)
     recommend: accountOv?.recommend ?? platformOv?.recommend ?? platformDefault?.recommend ?? false,
     // VIVO 平台特有字段(平台级)
@@ -1195,12 +1321,14 @@ const landscapeCoverFrames = computed(() =>
 )
 
 // ========== Per-platform Config ==========
-const platformConfigs = reactive({
+// 平台表单默认值（常量）。platformConfigs 是「当前视频」的活状态，
+// 切换视频时按默认值 + 快照重建（applyVideoSnapshot）。
+const DEFAULT_PLATFORM_CONFIGS = {
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
-  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '' },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
+  channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '', channelsRedEnvelopeUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
   youtube: { title: '', description: '', audience: 'not_kids', alteredContent: false, scheduleTime: '', tags: [] },
@@ -1217,7 +1345,9 @@ const platformConfigs = reactive({
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
   jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdNovelData: null, jdDeclaration: '', scheduleTime: '', tags: [] },
-})
+}
+
+const platformConfigs = reactive(JSON.parse(JSON.stringify(DEFAULT_PLATFORM_CONFIGS)))
 
 const accountOverrides = reactive({})
 
@@ -1363,6 +1493,54 @@ function removeGuangheItem(fieldKey, idx) {
   form[fieldKey] = form[fieldKey].filter((_, i) => i !== idx)
 }
 
+// ========== 视频号: 关联剧集 picker 方法 ==========
+// 走 channels drama_picker 后端流程(后端启常驻 headless 浏览器 → 开弹窗 → 多次 search/go_page)。
+// trace (keyword, page) 存进 channelsDrama[*].trace,发布时 platform.py 按 trace 复现选中。
+const channelsDramaPickerVisible = ref(false)
+const channelsDramaPickerAccountId = ref('')
+const channelsDramaPickerLinkType = ref('drama')
+
+function findAnyChannelsAccountId() {
+  if (!publishAccountIds || publishAccountIds.size === 0) return ''
+  for (const id of publishAccountIds) {
+    const a = accountStore.accounts.find((x) => x.id === id)
+    if (a && a.platform === '视频号') return id
+  }
+  return ''
+}
+
+function openChannelsDramaPicker(linkType) {
+  const accountId = findAnyChannelsAccountId()
+  if (!accountId) {
+    ElMessage.warning('请先选择至少一个视频号账号')
+    return
+  }
+  channelsDramaPickerAccountId.value = accountId
+  // linkType: 'drama'(视频号剧集) / 'mini_drama'(小程序短剧)
+  channelsDramaPickerLinkType.value = linkType === 'mini_drama' ? 'mini_drama' : 'drama'
+  channelsDramaPickerVisible.value = true
+}
+
+function onChannelsLinkTypeChange(val) {
+  // 切换链接类型时清空旧的剧集选择(类型不匹配)
+  if (val !== 'drama' && val !== 'mini_drama') {
+    form.channelsDrama = []
+  }
+}
+
+function onChannelsDramaPickerConfirm(items) {
+  if (!Array.isArray(items)) return
+  form.channelsDrama = items.slice(0, 1)
+  channelsDramaPickerVisible.value = false
+}
+
+onBeforeUnmount(() => {
+  const acc = channelsDramaPickerAccountId.value
+  if (acc && channelsDramaPickerVisible.value) {
+    channelsDramaApi.close(acc).catch(() => {})
+  }
+})
+
 // ========== 京东: 关联商品 picker 方法 ==========
 function openJdPicker() {
   // 关联挂件数据按账号挂钩,必须选中账号(区域 v-if 已保证 selectedAccountId 非空,这里兜底)
@@ -1440,7 +1618,8 @@ function getMergedSettings() {
   return { ...platform }
 }
 
-watch([selectedPlatform, selectedAccountId], () => {
+// 把 form 同步到「当前选中层级」的合并值（平台/账号切换、视频切换后调用）
+function syncFormToMergedSettings() {
   const merged = getMergedSettings()
   for (const key of Object.keys(merged)) {
     form[key] = merged[key]
@@ -1463,6 +1642,10 @@ watch([selectedPlatform, selectedAccountId], () => {
       }
     }
   }
+}
+
+watch([selectedPlatform, selectedAccountId], () => {
+  syncFormToMergedSettings()
 }, { immediate: true })
 
 // 小红书:内容来源声明选「来源转载」时,转载内容不能声明原创 →
@@ -1915,7 +2098,20 @@ const materialLibraryMode = ref('video')
 const materialLibraryCoverTarget = ref('landscape')
 const oneClickDialogOpen = ref(false)
 const materialLibraryVideoTarget = ref('landscape')
-const batchPublishDialogVisible = ref(false)
+
+// ========== 批量发布 ==========
+const batchConfirmVisible = ref(false)
+const batchConfirmRows = ref([])
+const batchSubmitting = ref(false)
+// 批量发布实时进度弹窗：提交成功后打开（保持原发布交互，不跳发布历史）
+const batchProgressVisible = ref(false)
+const batchProgressBatchIds = ref([])
+const batchProgressFailedNotes = ref([])
+
+function goPublishHistoryFromProgress() {
+  batchProgressVisible.value = false
+  router.push('/publish-history')
+}
 
 // ========== 发布前 Cookie 预检 ==========
 const prePublishCheckRef = ref(null)
@@ -1942,6 +2138,22 @@ const batchSetPlatforms = computed(() => {
   })
 })
 function onBatchSetApply(checkedKeys, payload) {
+  // 全视频应用：先固化当前视频到队列，再对队列中其余视频的快照逐个全量替换
+  // （当前视频走下方 applyBatchSet 的活状态路径，含 form 刷新）
+  const allVideos = payload.scope === 'all-videos'
+  if (allVideos) {
+    syncCurrentIntoQueue()
+    videoQueue.value.forEach((snap, i) => {
+      if (i === currentVideoIndex.value) return
+      if (!snap.platformConfigs) snap.platformConfigs = {}
+      if (!snap.accountOverrides) snap.accountOverrides = {}
+      applyBatchSet(checkedKeys, payload, {
+        platformConfigs: snap.platformConfigs,
+        accountOverrides: snap.accountOverrides,
+      })
+    })
+    hasChanges.value = true
+  }
   applyBatchSet(checkedKeys, payload)
   // 如果当前查看的渠道在批量设范围内,强制刷新 form (watch [selectedPlatform,...] 不会自动触发)
   if (selectedPlatform.value && checkedKeys.includes(selectedPlatform.value)) {
@@ -1955,18 +2167,428 @@ function onBatchSetApply(checkedKeys, payload) {
       }
     }
   }
-  ElMessage.success(`已批量设置到 ${checkedKeys.length} 个渠道`)
+  ElMessage.success(allVideos
+    ? `已全视频替换 ${videoQueue.value.length} 个视频 · ${checkedKeys.length} 个渠道`
+    : `已批量设置到 ${checkedKeys.length} 个渠道`)
 }
-
-// Batch publish state
-const publishing = ref(false)
-const publishProgress = ref(0)
-const publishResults = ref([])
-const currentPublishingAccount = ref('')
-const isCancelled = ref(false)
 
 // Selected accounts
 const publishAccountIds = reactive(new Set())
+
+// ========== 视频队列（批量发布） ==========
+// 每个队列元素 = 一份完整发布状态快照（与单视频 draft_data 同构，含所选账号/平台设置/个性化）。
+// 任意时刻只有 currentVideoIndex 对应的视频是「活状态」（顶层 reactive 对象），
+// 其余视频以快照存于 videoQueue；切换视频 = 活状态写回快照 + 目标快照装载进活状态。
+const videoQueue = ref([])
+const currentVideoIndex = ref(0)
+const addVideosDialogVisible = ref(false)
+
+function _slimMaterial(m) {
+  return m ? {
+    id: m.id, name: m.name, stored_path: m.stored_path, url: m.url,
+    size: m.size, type: m.type, _fromFrame: m._fromFrame,
+    duration: m.duration, orientation: m.orientation,
+  } : null
+}
+
+// 活状态 → 快照（与草稿 draft_data 同构）
+function snapshotLiveVideo() {
+  return {
+    commonConfig: {
+      videoLandscape: _slimMaterial(commonConfig.videoLandscape),
+      videoPortrait: _slimMaterial(commonConfig.videoPortrait),
+      coverLandscape: _slimMaterial(commonConfig.coverLandscape),
+      coverPortrait: _slimMaterial(commonConfig.coverPortrait),
+      coverLandscape169: _slimMaterial(commonConfig.coverLandscape169),
+      coverPortrait916: _slimMaterial(commonConfig.coverPortrait916),
+    },
+    platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
+    platformOverrides: JSON.parse(JSON.stringify(platformOverrides)),
+    accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
+    platformChecked: { ...platformChecked },
+    accountChecked: { ...accountChecked },
+    publishAccountIds: [...publishAccountIds],
+    selectedPlatform: selectedPlatform.value,
+    selectedAccountId: selectedAccountId.value,
+    expandedGroups: [...expandedGroups.value],
+  }
+}
+
+function _replaceReactiveMap(target, source) {
+  Object.keys(target).forEach(k => delete target[k])
+  if (source) Object.assign(target, source)
+}
+
+// 快照 → 活状态（in-place 赋值保持响应性；与旧 restoreDraft 同一套装载语义 + 旧格式兼容）
+function applyVideoSnapshot(dd) {
+  dd = dd || {}
+  const cc = dd.commonConfig || {}
+  for (const key of ['videoLandscape', 'videoPortrait', 'coverLandscape', 'coverPortrait', 'coverLandscape169', 'coverPortrait916']) {
+    const v = cc[key]
+    if (v && v.stored_path && !v.url) v.url = getFileUrl(v.stored_path)
+    commonConfig[key] = v || null
+  }
+
+  // 平台表单：默认值 + 快照整键重建（避免上一个视频的值残留）
+  const pcs = dd.platformConfigs || {}
+  for (const key of Object.keys(DEFAULT_PLATFORM_CONFIGS)) {
+    platformConfigs[key] = { ...DEFAULT_PLATFORM_CONFIGS[key], ...(pcs[key] || {}) }
+  }
+
+  // —— 旧格式兼容（与原 restoreDraft 一致）——
+  // commonConfig.topics 迁移到各平台 tags
+  if (cc.topics && cc.topics.length > 0) {
+    for (const key of Object.keys(platformConfigs)) {
+      if (!platformConfigs[key].tags || platformConfigs[key].tags.length === 0) {
+        platformConfigs[key].tags = [...cc.topics]
+      }
+    }
+  }
+  // bilibili tags 字符串 → 数组
+  if (typeof platformConfigs.bilibili?.tags === 'string') {
+    const str = platformConfigs.bilibili.tags
+    platformConfigs.bilibili.tags = str.split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
+  }
+  // 为缺少 tags 的平台补空数组
+  for (const key of Object.keys(platformConfigs)) {
+    if (!Array.isArray(platformConfigs[key].tags)) {
+      platformConfigs[key].tags = []
+    }
+  }
+  // 抖音新增字段兜底
+  {
+    const dy = platformConfigs.douyin
+    if (!Array.isArray(dy.activityId)) dy.activityId = []
+    if (dy.hotspotId === undefined) dy.hotspotId = ''
+    if (dy.hotspotData === undefined) dy.hotspotData = null
+    if (dy.selectedTag === undefined) dy.selectedTag = null
+    if (dy.tagType === undefined) dy.tagType = ''
+    if (dy.tagValue === undefined) dy.tagValue = ''
+    if (dy.mixId === undefined) dy.mixId = ''
+    if (dy.mixData === undefined) dy.mixData = null
+  }
+  // 淘宝光合关联商品/店铺兜底 + 字符串数组归一化
+  {
+    const tg = platformConfigs.taobao_guanghe
+    if (tg.guangheLinkType === undefined) tg.guangheLinkType = ''
+    if (!Array.isArray(tg.guangheProducts)) tg.guangheProducts = []
+    if (!Array.isArray(tg.guangheShops)) tg.guangheShops = []
+    const normalize = arr => arr.map(it =>
+      typeof it === 'string' ? { title: it, image: '' }
+        : { title: it?.title || '', image: it?.image || '' }
+    ).filter(it => it.title)
+    tg.guangheProducts = normalize(tg.guangheProducts)
+    tg.guangheShops = normalize(tg.guangheShops)
+  }
+  // 京东关联挂件字段兜底
+  {
+    const jd = platformConfigs.jingmai
+    if (jd.jdRelatedType === undefined) jd.jdRelatedType = ''
+    if (!Array.isArray(jd.jdProducts)) jd.jdProducts = []
+    if (jd.jdNovel === undefined) jd.jdNovel = ''
+    if (jd.jdNovelData === undefined) jd.jdNovelData = null
+    if (jd.jdDeclaration === undefined) jd.jdDeclaration = ''
+  }
+  // 清除残留 videoFormat（视频方向由素材 orientation 自动推导）
+  for (const key of Object.keys(platformConfigs)) {
+    if (platformConfigs[key]) delete platformConfigs[key].videoFormat
+  }
+
+  _replaceReactiveMap(accountOverrides, dd.accountOverrides)
+  _replaceReactiveMap(platformOverrides, dd.platformOverrides)
+  _replaceReactiveMap(platformChecked, dd.platformChecked)
+  _replaceReactiveMap(accountChecked, dd.accountChecked)
+
+  publishAccountIds.clear()
+  ;(dd.publishAccountIds || []).forEach(id => publishAccountIds.add(id))
+  expandedGroups.value = new Set(dd.expandedGroups || [])
+  selectedPlatform.value = dd.selectedPlatform || null
+  selectedAccountId.value = dd.selectedAccountId || null
+
+  // 平台/账号选中态可能没变（watch 不触发），强制把 form 同步到新视频的合并值
+  syncFormToMergedSettings()
+}
+
+// 活状态写回队列（切换/保存/提交/校验前调用）
+function syncCurrentIntoQueue() {
+  videoQueue.value[currentVideoIndex.value] = snapshotLiveVideo()
+}
+
+// —— 队列栏展示信息 ——
+const liveVideoStateForDisplay = computed(() => ({
+  commonConfig,
+  platformConfigs,
+  publishAccountIds: [...publishAccountIds],
+}))
+
+function _videoDisplayInfo(state) {
+  const cc = state.commonConfig || {}
+  const video = cc.videoLandscape || cc.videoPortrait
+  const cover = cc.coverLandscape || cc.coverPortrait
+  let title = ''
+  let hasSchedule = false
+  const pcs = state.platformConfigs || {}
+  for (const key of Object.keys(pcs)) {
+    if (!title && pcs[key]?.title) title = pcs[key].title
+    if (pcs[key]?.scheduleTime) hasSchedule = true
+  }
+  const accountIds = state.publishAccountIds || []
+  return {
+    name: video?.name || '未上传视频',
+    coverUrl: cover?.url || '',
+    title,
+    accountCount: accountIds.length,
+    hasVideo: !!video,
+    hasSchedule,
+    warn: !!(video && (!cover || accountIds.length === 0)),
+  }
+}
+
+const videoQueueItems = computed(() =>
+  videoQueue.value.map((snap, i) =>
+    _videoDisplayInfo(i === currentVideoIndex.value ? liveVideoStateForDisplay.value : snap)
+  )
+)
+
+function switchVideo(index) {
+  if (index === currentVideoIndex.value) return
+  if (index < 0 || index >= videoQueue.value.length) return
+  syncCurrentIntoQueue()
+  currentVideoIndex.value = index
+  applyVideoSnapshot(videoQueue.value[index])
+  // 清临时 UI 状态并重抽帧（封面编辑器用，横竖共用）
+  tagInput.value = ''
+  landscapeFrames.value = []
+  portraitFrames.value = []
+  const draftVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
+  if (draftVideo) triggerFrameExtraction(draftVideo, 'landscape')
+  hasChanges.value = true
+}
+
+// —— 添加视频（来源由用户选择：素材库多选 / 本地多文件上传，均继承当前配置）——
+const queueMaterialSelectRef = ref(null)
+
+function openAddVideosDialog(mode) {
+  if (mode === 'library') {
+    queueMaterialSelectRef.value?.open()
+  } else {
+    addVideosDialogVisible.value = true
+  }
+}
+
+// 素材库多选回调：映射为与上传响应同构的数据，复用 onVideosAdded 入队逻辑
+async function onQueueMaterialsSelected(materials) {
+  const list = (Array.isArray(materials) ? materials : [materials]).filter(Boolean)
+  if (list.length === 0) return
+  // 去重：跳过已在队列中的同一素材，避免误重复发布
+  syncCurrentIntoQueue()
+  const queuedIds = new Set(
+    videoQueue.value
+      .map(v => v.commonConfig?.videoLandscape?.id || v.commonConfig?.videoPortrait?.id)
+      .filter(Boolean)
+  )
+  const fresh = list.filter(m => !queuedIds.has(m.id))
+  const dupCount = list.length - fresh.length
+  if (fresh.length === 0) {
+    ElMessage.warning('所选视频都已在队列中')
+    return
+  }
+  const responses = fresh.map(m => ({
+    id: m.id,
+    original_filename: m.name,
+    stored_path: m.stored_path,
+    file_size: m.size,
+    mime_type: m.type,
+    duration: m.duration ?? 0,
+  }))
+  await onVideosAdded(responses)
+  if (dupCount > 0) {
+    ElMessage.info(`${dupCount} 个视频已在队列中，已跳过`)
+  }
+}
+
+async function onVideosAdded(responses) {
+  addVideosDialogVisible.value = false
+  const list = (responses || []).filter(Boolean)
+  if (list.length === 0) return
+  syncCurrentIntoQueue()
+  const base = JSON.parse(JSON.stringify(videoQueue.value[currentVideoIndex.value] || {}))
+  const firstNewIndex = videoQueue.value.length
+  for (const d of list) {
+    const videoData = {
+      id: d.id,
+      name: d.original_filename,
+      url: getFileUrl(d.stored_path),
+      stored_path: d.stored_path,
+      size: d.file_size,
+      type: d.mime_type,
+      duration: d.duration ?? 0,
+    }
+    const snap = JSON.parse(JSON.stringify(base))
+    snap.commonConfig = snap.commonConfig || {}
+    snap.commonConfig.videoLandscape = _slimMaterial(videoData)
+    snap.commonConfig.videoPortrait = null
+    // 清封面，后台自动抽帧补默认封面
+    snap.commonConfig.coverLandscape = null
+    snap.commonConfig.coverPortrait = null
+    snap.commonConfig.coverLandscape169 = null
+    snap.commonConfig.coverPortrait916 = null
+    // 标题自动填文件名（autoFillTitle 开启时），平台级 + 账号级覆盖
+    if (appStore.autoFillTitle) {
+      const title = videoData.name.replace(/\.[^.]+$/, '')
+      const pcs = snap.platformConfigs || {}
+      for (const key of Object.keys(pcs)) {
+        if (pcs[key]) pcs[key].title = title
+      }
+      const aos = snap.accountOverrides || {}
+      for (const aid of Object.keys(aos)) {
+        if (aos[aid]) aos[aid].title = title
+      }
+    }
+    videoQueue.value.push(snap)
+  }
+  ElMessage.success(`已添加 ${list.length} 个视频（已继承当前配置）`)
+  // 切到最后添加的视频
+  switchVideo(videoQueue.value.length - 1)
+  // 后台为每个新视频抽帧选默认封面
+  for (let k = 0; k < list.length; k++) {
+    autoCoverForVideo(firstNewIndex + k, list[k])
+  }
+}
+
+// —— 自动默认封面 ——
+// 选帧策略：优先「前面 1~5 秒」窗口内最接近 3s 的帧（避开 0s 处常见黑帧/
+// 转场，也符合封面取片头画面的习惯）；视频过短没有该区间帧时退回第一帧。
+function pickAutoCoverFrame(frames) {
+  const inWindow = frames.filter(f => f.seconds >= 1 && f.seconds <= 5)
+  if (inWindow.length > 0) {
+    return inWindow.reduce((best, f) =>
+      Math.abs(f.seconds - 3) < Math.abs(best.seconds - 3) ? f : best)
+  }
+  return frames[0]
+}
+
+// 公共：等待抽帧完成 → 取「前面 1~5 秒」中最接近 3s 的帧 → save-cover 生成 4 比例封面。失败返回 null。
+// onStage?: (stage: 'extracting' | 'saving') => void — 通知调用方当前阶段，
+// 用于 CoverCard「裁剪中…」文案展示。
+async function fetchAutoCovers(materialId, onStage) {
+  if (!materialId) return null
+  try {
+    onStage?.('extracting')
+    let frames = []
+    for (let attempt = 0; attempt < 15; attempt++) {
+      try {
+        const resp = await frameApi.getFrames(materialId)
+        const data = resp?.data || {}
+        frames = data.frames || []
+        if (data.status === 'done' && frames.length > 0) break
+      } catch { /* 素材探测中等，继续重试 */ }
+      await frameApi.extractFrames(materialId).catch(() => {})
+      await new Promise(r => setTimeout(r, 2500))
+    }
+    if (!frames.length) return null
+    const pick = pickAutoCoverFrame(frames)
+    if (!pick || pick.seconds === undefined || pick.seconds === null) return null
+    onStage?.('saving')
+    const resp = await http.post('/api/frames/save-cover', {
+      material_id: materialId,
+      seconds: pick.seconds,
+    })
+    const d = resp?.data
+    if (!d?.landscape_43) return null
+    // 后端按 4 个比例中心裁剪，前端分别填入对应字段（与手动裁剪结果同构）
+    const toCover = c => c ? {
+      id: c.id, name: c.original_filename, url: getFileUrl(c.stored_path),
+      stored_path: c.stored_path, size: c.file_size, type: c.mime_type,
+    } : null
+    return {
+      coverLandscape: toCover(d.landscape_43),
+      coverLandscape169: toCover(d.landscape_169),
+      coverPortrait: toCover(d.portrait_34),
+      coverPortrait916: toCover(d.portrait_916),
+    }
+  } catch (e) {
+    console.warn('[自动封面] 生成失败（可手动设置）:', e)
+    return null
+  }
+}
+
+// 队列快照版：为队列中指定下标的视频自动补默认封面（添加视频到队列后调用）
+async function autoCoverForVideo(index, materialData) {
+  const covers = await fetchAutoCovers(materialData?.id)
+  if (!covers) return
+  const snap = videoQueue.value[index]
+  // 队列索引可能已漂移（视频被移除/提交）：校验素材 ID 仍匹配才写入
+  if (!snap || snap.commonConfig?.videoLandscape?.id !== materialData.id) return
+  // 用户已手动设置封面时不覆盖
+  if (snap.commonConfig.coverLandscape || snap.commonConfig.coverPortrait) return
+  Object.assign(snap.commonConfig, covers)
+  if (index === currentVideoIndex.value
+      && !commonConfig.coverLandscape && !commonConfig.coverPortrait) {
+    Object.assign(commonConfig, covers)
+  }
+}
+
+// 换视频时清掉旧封面：旧封面属于旧视频，留着会把 autoCoverForLiveVideo 挡住
+// （它见已有封面就跳过），导致换视频后封面还是上一条的。用 assign 回调包住视频
+// 字段写入，前后对比「当前视频」是否变化，变了才清 4 个比例的封面字段。
+function replaceVideoWithCoverReset(target, assign) {
+  const oldVideo = target?.videoLandscape || target?.videoPortrait
+  assign()
+  const newVideo = target?.videoLandscape || target?.videoPortrait
+  if (oldVideo?.id === newVideo?.id) return
+  target.coverLandscape = null
+  target.coverLandscape169 = null
+  target.coverPortrait = null
+  target.coverPortrait916 = null
+}
+
+// 活状态版：发布页主区域上传/素材库选视频后，自动补默认封面到 currentEditTarget
+async function autoCoverForLiveVideo(videoData) {
+  const target = currentEditTarget.value   // 捕获当前编辑目标（视频写到哪，封面写到哪）
+  if (!target || !videoData?.id) return
+  // 翻起「裁剪中…」状态，让 CoverCard 显示旋转图标 + 进度文案
+  isCoverCropping.value = true
+  try {
+    const covers = await fetchAutoCovers(videoData.id, (stage) => {
+      coverCropStage.value = stage
+    })
+    if (!covers) return
+    // 期间用户已手动设置封面，或又换了别的视频 → 不写入
+    if (target.coverLandscape || target.coverPortrait) return
+    const curVideo = target.videoLandscape || target.videoPortrait
+    if (curVideo?.id !== videoData.id) return
+    Object.assign(target, covers)
+  } finally {
+    isCoverCropping.value = false
+    coverCropStage.value = ''
+  }
+}
+
+function removeVideoAt(index) {
+  if (videoQueue.value.length <= 1) {
+    ElMessage.warning('至少保留一个视频')
+    return
+  }
+  if (index === currentVideoIndex.value) {
+    videoQueue.value.splice(index, 1)
+    const next = Math.min(index, videoQueue.value.length - 1)
+    applyVideoSnapshot(videoQueue.value[next])
+    currentVideoIndex.value = next
+    tagInput.value = ''
+    landscapeFrames.value = []
+    portraitFrames.value = []
+    const draftVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
+    if (draftVideo) triggerFrameExtraction(draftVideo, 'landscape')
+  } else {
+    videoQueue.value.splice(index, 1)
+    if (index < currentVideoIndex.value) currentVideoIndex.value -= 1
+  }
+  hasChanges.value = true
+}
+
+// 初始队列：1 个空白视频（与旧单视频页面一致）
+videoQueue.value = [snapshotLiveVideo()]
 
 // ========== Sidebar Methods ==========
 
@@ -2099,9 +2721,13 @@ async function onVideoUploaded(d) {
     duration: d.duration ?? 0,
   }
   if (videoUploadTarget.value === 'portrait') {
-    currentEditTarget.value.videoPortrait = videoData
+    replaceVideoWithCoverReset(currentEditTarget.value, () => {
+      currentEditTarget.value.videoPortrait = videoData
+    })
   } else {
-    currentEditTarget.value.videoLandscape = videoData
+    replaceVideoWithCoverReset(currentEditTarget.value, () => {
+      currentEditTarget.value.videoLandscape = videoData
+    })
   }
   videoUploadDialogVisible.value = false
   ElMessage.success('视频上传成功')
@@ -2119,6 +2745,8 @@ async function onVideoUploaded(d) {
     }
   }
   triggerFrameExtraction(videoData, videoUploadTarget.value)
+  // 后台自动补默认封面（4 比例，可手动替换）
+  autoCoverForLiveVideo(videoData)
 }
 
 // ========== Material Library ==========
@@ -2149,9 +2777,13 @@ function onMaterialSelect(material) {
     ElMessage.success('封面已设置')
   } else {
     if (materialLibraryVideoTarget.value === 'portrait') {
-      currentEditTarget.value.videoPortrait = material
+      replaceVideoWithCoverReset(currentEditTarget.value, () => {
+        currentEditTarget.value.videoPortrait = material
+      })
     } else {
-      currentEditTarget.value.videoLandscape = material
+      replaceVideoWithCoverReset(currentEditTarget.value, () => {
+        currentEditTarget.value.videoLandscape = material
+      })
     }
     ElMessage.success('视频已设置')
     if (appStore.autoFillTitle) {
@@ -2168,6 +2800,8 @@ function onMaterialSelect(material) {
       }
     }
     triggerFrameExtraction(material, materialLibraryVideoTarget.value)
+    // 后台自动补默认封面（4 比例，可手动替换）
+    autoCoverForLiveVideo(material)
   }
 }
 
@@ -2180,36 +2814,12 @@ watch(accountOverrides, () => { hasChanges.value = true }, { deep: true })
 
 async function saveDraft() {
   try {
+    // 活状态写回队列后整队列序列化（v2 批量草稿结构）
+    syncCurrentIntoQueue()
     const draftData = {
-      commonConfig: {
-        videoLandscape: commonConfig.videoLandscape
-          ? { id: commonConfig.videoLandscape.id, name: commonConfig.videoLandscape.name, stored_path: commonConfig.videoLandscape.stored_path, url: commonConfig.videoLandscape.url, size: commonConfig.videoLandscape.size, type: commonConfig.videoLandscape.type }
-          : null,
-        videoPortrait: commonConfig.videoPortrait
-          ? { id: commonConfig.videoPortrait.id, name: commonConfig.videoPortrait.name, stored_path: commonConfig.videoPortrait.stored_path, url: commonConfig.videoPortrait.url, size: commonConfig.videoPortrait.size, type: commonConfig.videoPortrait.type }
-          : null,
-        coverLandscape: commonConfig.coverLandscape
-          ? { id: commonConfig.coverLandscape.id, name: commonConfig.coverLandscape.name, stored_path: commonConfig.coverLandscape.stored_path, url: commonConfig.coverLandscape.url, size: commonConfig.coverLandscape.size, type: commonConfig.coverLandscape.type, _fromFrame: commonConfig.coverLandscape._fromFrame }
-          : null,
-        coverPortrait: commonConfig.coverPortrait
-          ? { id: commonConfig.coverPortrait.id, name: commonConfig.coverPortrait.name, stored_path: commonConfig.coverPortrait.stored_path, url: commonConfig.coverPortrait.url, size: commonConfig.coverPortrait.size, type: commonConfig.coverPortrait.type, _fromFrame: commonConfig.coverPortrait._fromFrame }
-          : null,
-        coverLandscape169: commonConfig.coverLandscape169
-          ? { id: commonConfig.coverLandscape169.id, name: commonConfig.coverLandscape169.name, stored_path: commonConfig.coverLandscape169.stored_path, url: commonConfig.coverLandscape169.url, size: commonConfig.coverLandscape169.size, type: commonConfig.coverLandscape169.type, _fromFrame: commonConfig.coverLandscape169._fromFrame }
-          : null,
-        coverPortrait916: commonConfig.coverPortrait916
-          ? { id: commonConfig.coverPortrait916.id, name: commonConfig.coverPortrait916.name, stored_path: commonConfig.coverPortrait916.stored_path, url: commonConfig.coverPortrait916.url, size: commonConfig.coverPortrait916.size, type: commonConfig.coverPortrait916.type, _fromFrame: commonConfig.coverPortrait916._fromFrame }
-          : null,
-      },
-      platformConfigs: JSON.parse(JSON.stringify(platformConfigs)),
-      platformOverrides: JSON.parse(JSON.stringify(platformOverrides)),
-      accountOverrides: JSON.parse(JSON.stringify(accountOverrides)),
-      platformChecked: { ...platformChecked },
-      accountChecked: { ...accountChecked },
-      publishAccountIds: [...publishAccountIds],
-      selectedPlatform: selectedPlatform.value,
-      selectedAccountId: selectedAccountId.value,
-      expandedGroups: [...expandedGroups.value],
+      version: 2,
+      currentIndex: currentVideoIndex.value,
+      videos: videoQueue.value.map(v => JSON.parse(JSON.stringify(v))),
     }
 
     if (currentDraftId.value) {
@@ -2235,161 +2845,31 @@ async function restoreDraft(draftId) {
       return
     }
 
-    if (dd.commonConfig) {
-      if (dd.commonConfig.videoLandscape) {
-        const v = dd.commonConfig.videoLandscape
-        if (v.stored_path) v.url = getFileUrl(v.stored_path)
-        commonConfig.videoLandscape = v
-      }
-      if (dd.commonConfig.videoPortrait) {
-        const v = dd.commonConfig.videoPortrait
-        if (v.stored_path) v.url = getFileUrl(v.stored_path)
-        commonConfig.videoPortrait = v
-      }
-      if (dd.commonConfig.coverLandscape) {
-        const v = dd.commonConfig.coverLandscape
-        if (v.stored_path) v.url = getFileUrl(v.stored_path)
-        commonConfig.coverLandscape = v
-      }
-      if (dd.commonConfig.coverPortrait) {
-        const v = dd.commonConfig.coverPortrait
-        if (v.stored_path) v.url = getFileUrl(v.stored_path)
-        commonConfig.coverPortrait = v
-      }
-      if (dd.commonConfig.coverLandscape169) {
-        const v = dd.commonConfig.coverLandscape169
-        if (v.stored_path) v.url = getFileUrl(v.stored_path)
-        commonConfig.coverLandscape169 = v
-      }
-      if (dd.commonConfig.coverPortrait916) {
-        const v = dd.commonConfig.coverPortrait916
-        if (v.stored_path) v.url = getFileUrl(v.stored_path)
-        commonConfig.coverPortrait916 = v
-      }
+    // v2 批量草稿：videos[] 整队列恢复；v1 单视频草稿：包装成单元素队列
+    let videosData
+    let currentIndex = 0
+    if (Array.isArray(dd.videos) && dd.videos.length > 0) {
+      videosData = dd.videos
+      currentIndex = Math.min(dd.currentIndex || 0, videosData.length - 1)
+    } else {
+      videosData = [dd]
+      currentIndex = 0
     }
 
-    if (dd.platformConfigs) {
-      for (const [key, val] of Object.entries(dd.platformConfigs)) {
-        if (platformConfigs[key]) {
-          Object.assign(platformConfigs[key], val)
-        }
-      }
-    }
-
-    // 兼容旧草稿格式：将 commonConfig.topics 迁移到各平台的 tags
-    if (dd.commonConfig?.topics && dd.commonConfig.topics.length > 0) {
-      for (const key of Object.keys(platformConfigs)) {
-        if (!platformConfigs[key].tags || platformConfigs[key].tags.length === 0) {
-          platformConfigs[key].tags = [...dd.commonConfig.topics]
-        }
-      }
-    }
-
-    // 兼容旧草稿格式：bilibili 的 tags 从字符串转数组
-    if (dd.platformConfigs?.bilibili && typeof dd.platformConfigs.bilibili.tags === 'string') {
-      const str = dd.platformConfigs.bilibili.tags
-      platformConfigs.bilibili.tags = str.split(/[,，\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean)
-    }
-
-    // 兼容旧草稿格式：为缺少 tags 的平台补充空数组
-    for (const key of Object.keys(platformConfigs)) {
-      if (!Array.isArray(platformConfigs[key].tags)) {
-        platformConfigs[key].tags = []
-      }
-    }
-
-    // 兼容旧草稿格式：为抖音补充新增字段
-    if (dd.platformConfigs?.douyin) {
-      const dy = platformConfigs.douyin
-      if (!Array.isArray(dy.activityId)) dy.activityId = []
-      if (dy.hotspotId === undefined) dy.hotspotId = ''
-      if (dy.hotspotData === undefined) dy.hotspotData = null
-      if (dy.selectedTag === undefined) dy.selectedTag = null
-      if (dy.tagType === undefined) dy.tagType = ''
-      if (dy.tagValue === undefined) dy.tagValue = ''
-      if (dy.mixId === undefined) dy.mixId = ''
-      if (dy.mixData === undefined) dy.mixData = null
-    }
-
-    // 兼容旧草稿:淘宝光合新增关联商品/店铺字段
-    if (dd.platformConfigs?.taobao_guanghe) {
-      const tg = platformConfigs.taobao_guanghe
-      if (tg.guangheLinkType === undefined) tg.guangheLinkType = ''
-      if (!Array.isArray(tg.guangheProducts)) tg.guangheProducts = []
-      if (!Array.isArray(tg.guangheShops)) tg.guangheShops = []
-      // 旧草稿可能是字符串数组 → 转为统一的对象数组格式 [{title, image}]
-      const normalize = arr => arr.map(it =>
-        typeof it === 'string' ? { title: it, image: '' }
-          : { title: it?.title || '', image: it?.image || '' }
-      ).filter(it => it.title)
-      tg.guangheProducts = normalize(tg.guangheProducts)
-      tg.guangheShops = normalize(tg.guangheShops)
-    }
-
-    // 兼容旧草稿:京东关联挂件字段
-    if (dd.platformConfigs?.jd) {
-      const jd = platformConfigs.jd
-      if (jd.jdRelatedType === undefined) jd.jdRelatedType = ''
-      if (!Array.isArray(jd.jdProducts)) jd.jdProducts = []
-      if (jd.jdNovel === undefined) jd.jdNovel = ''
-      if (jd.jdNovelData === undefined) jd.jdNovelData = null
-      if (jd.jdDeclaration === undefined) jd.jdDeclaration = ''
-    }
-
-    if (dd.accountOverrides) {
-      Object.keys(accountOverrides).forEach(k => delete accountOverrides[k])
-      Object.assign(accountOverrides, dd.accountOverrides)
-    }
-
-    if (dd.platformOverrides) {
-      Object.keys(platformOverrides).forEach(k => delete platformOverrides[k])
-      Object.assign(platformOverrides, dd.platformOverrides)
-    }
-
-    if (dd.platformChecked) {
-      Object.keys(platformChecked).forEach(k => delete platformChecked[k])
-      Object.assign(platformChecked, dd.platformChecked)
-    }
-
-    if (dd.accountChecked) {
-      Object.keys(accountChecked).forEach(k => delete accountChecked[k])
-      Object.assign(accountChecked, dd.accountChecked)
-    }
-
-    if (dd.publishAccountIds) {
-      publishAccountIds.clear()
-      dd.publishAccountIds.forEach(id => publishAccountIds.add(id))
-    }
-
-    if (dd.expandedGroups) {
-      expandedGroups.value = new Set(dd.expandedGroups)
-    }
-
-    if (dd.selectedPlatform) {
-      selectedPlatform.value = dd.selectedPlatform
-    }
-
-    if (dd.selectedAccountId) {
-      selectedAccountId.value = dd.selectedAccountId
-    }
-
-    // 旧草稿兼容:清除残留的 videoFormat(videoModeTab 已废弃,由视频方向自动推导)
-    if (dd.platformConfigs) {
-      for (const key of Object.keys(dd.platformConfigs)) {
-        if (dd.platformConfigs[key]) delete dd.platformConfigs[key].videoFormat
-      }
-    }
+    videoQueue.value = videosData.map(v => JSON.parse(JSON.stringify(v || {})))
+    currentVideoIndex.value = currentIndex
+    applyVideoSnapshot(videoQueue.value[currentIndex])
 
     currentDraftId.value = draftId
 
-    // 视频已不区分横竖版：只对实际可用的视频抽帧一次（横版优先，没有才竖版），
+    // 视频已不区分横竖版：只对当前视频抽帧一次（横版优先，没有才竖版），
     // 横竖版共用同一份帧缓存；避免对旧草稿里可能残留的失效 videoPortrait.id 重复抽帧触发"素材失效"提示。
     const draftVideo = commonConfig.videoLandscape || commonConfig.videoPortrait
     if (draftVideo) {
       triggerFrameExtraction(draftVideo, 'landscape')
     }
 
-    ElMessage.success('草稿已恢复')
+    ElMessage.success(`草稿已恢复（${videoQueue.value.length} 个视频）`)
   } catch (e) {
     ElMessage.error('草稿恢复失败')
   }
@@ -2428,80 +2908,73 @@ onMounted(async () => {
   startAutoSaveTimer()
 })
 
-async function publishAll() {
-  // 视频校验：扫全部 3 个源（commonConfig / platformOverrides / accountOverrides）
-  // 个性化模式下视频可能在 platformOverrides 里，commonConfig 为空是正常的，
-  // 只看 commonConfig 会误判为「未上传视频」。
-  const hasAnyVideo = (() => {
-    if (commonConfig.videoLandscape || commonConfig.videoPortrait) return true
-    for (const aid of publishAccountIds) {
-      const ov = accountOverrides[aid]
-      if (ov && (ov.videoLandscape || ov.videoPortrait)) return true
-    }
-    for (const pkey of Object.keys(platformOverrides)) {
-      const pov = platformOverrides[pkey]
-      if (pov && (pov.videoLandscape || pov.videoPortrait)) return true
-    }
-    return false
-  })()
+// ========== 批量发布：逐视频校验 + 提交 ==========
+// 与后端 merge_config 同语义：对任意视频快照做 4 级合并（accountOv > platformOv > platformDefault > common）
+function resolveAccountConfigFor(state, platformKey, accountId) {
+  const accountOv = state.accountOverrides?.[accountId] || null
+  const platformOv = state.platformOverrides?.[platformKey] || null
+  const platformDefault = state.platformConfigs?.[platformKey] || null
+  return mergeConfig(state.commonConfig || {}, platformDefault, platformOv, accountOv)
+}
+
+const _DECLARATION_PLATFORMS = {
+  xiaohongshu: 'aiContent',
+  douyin: 'aiContent',
+  kuaishou: 'aiContent',
+  bilibili: 'creationDeclaration',
+  baijiahao: 'creationDeclaration',
+  tencent_video: 'creationDeclaration',
+  iqiyi: 'creationDeclaration',
+  youtube: ['audience', 'alteredContent'],
+  tiktok: 'aiContent',
+  weibo: 'contentStatement',
+  alipay: 'authorStatement',
+  taobao_guanghe: 'guangheClaim',
+  // channels 不必填
+}
+
+// 单个视频快照的发布前校验（collect-all）：返回错误消息数组（空数组 = 通过）。
+// 由旧 publishAll 的校验段移植，参数化为快照状态。
+function collectVideoErrors(state) {
+  const publishIds = state.publishAccountIds || []
+  const cc = state.commonConfig || {}
+  const pOvs = state.platformOverrides || {}
+  const aOvs = state.accountOverrides || {}
+  const errors = []  // [{ type, accounts: [...] }]
+
+  // 1. 视频文件（扫 3 个源，个性化模式下视频可能在 override 里）
+  const hasAnyVideo = !!(cc.videoLandscape || cc.videoPortrait)
+    || Object.values(aOvs).some(ov => ov && (ov.videoLandscape || ov.videoPortrait))
+    || Object.values(pOvs).some(ov => ov && (ov.videoLandscape || ov.videoPortrait))
   if (!hasAnyVideo) {
-    ElMessage.error('请先上传至少一个视频文件')
-    return
+    return ['缺少视频文件']
   }
 
-  // ===== Collect ALL errors first (collect-all-then-show-one) =====
-  const errors = []  // [{ type: '作品声明', accounts: ['账号A(B站)', ...] }, ...]
-
-  // 1. 封面校验（扫 3 个源）
-  const hasAnyCover = (() => {
-    if (commonConfig.coverLandscape || commonConfig.coverPortrait) return true
-    for (const aid of publishAccountIds) {
-      const ov = accountOverrides[aid]
-      if (ov && (ov.coverLandscape || ov.coverPortrait)) return true
-    }
-    for (const pkey of Object.keys(platformOverrides)) {
-      const pov = platformOverrides[pkey]
-      if (pov && (pov.coverLandscape || pov.coverPortrait)) return true
-    }
-    return false
-  })()
+  // 2. 至少一张封面（扫 3 个源）
+  const hasAnyCover = !!(cc.coverLandscape || cc.coverPortrait)
+    || Object.values(aOvs).some(ov => ov && (ov.coverLandscape || ov.coverPortrait))
+    || Object.values(pOvs).some(ov => ov && (ov.coverLandscape || ov.coverPortrait))
   if (!hasAnyCover) {
     errors.push({ type: '封面', accounts: ['所有账号都缺封面，请上传至少一张'] })
   }
 
-  // 2. 作品声明 + 标题 + 封面 per-account
+  // 3. 逐账号校验（声明/标题/封面/时长/字数/平台专属）
   const accountsWithoutDeclaration = []
-  // B 站联动校验: 创作声明=转载 时转载来源必填
   const accountsWithoutRepostSource = []
-  // 支付宝联动校验: 作者声明=内容为转载 时转载来源地址必填
   const accountsWithoutReprintUrl = []
   const accountsWithoutTitle = []
-  const accountsWithoutCover = []  // 格式: '账号X(平台Y)'
-  const DECLARATION_PLATFORMS = {
-    xiaohongshu: 'aiContent',
-    douyin: 'aiContent',
-    kuaishou: 'aiContent',
-    bilibili: 'creationDeclaration',
-    baijiahao: 'creationDeclaration',
-    tencent_video: 'creationDeclaration',
-    iqiyi: 'creationDeclaration',
-    youtube: ['audience', 'alteredContent'],
-    tiktok: 'aiContent',
-    weibo: 'contentStatement',
-    alipay: 'authorStatement',
-    taobao_guanghe: 'guangheClaim',
-    // channels 不必填
-  }
+  const accountsWithoutCover = []
+  const accountsVideoInvalid = []
 
   for (const group of accountGroups.value) {
     if (group.accounts.length === 0) continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig(group.key, account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, group.key, account.id)
       const platformKey = group.key
 
-      // 2a. 作品声明
-      const declFields = DECLARATION_PLATFORMS[platformKey]
+      // 3a. 作品声明
+      const declFields = _DECLARATION_PLATFORMS[platformKey]
       if (declFields) {
         const fields = Array.isArray(declFields) ? declFields : [declFields]
         for (const field of fields) {
@@ -2516,26 +2989,26 @@ async function publishAll() {
         }
       }
 
-      // 2a-bonus. B 站联动校验: 创作声明=转载 时, 转载来源必填
+      // 3a-bonus. B 站联动校验: 创作声明=转载 时, 转载来源必填
       if (platformKey === 'bilibili' && merged.creationDeclaration === '内容为转载') {
         if (!merged.biliRepostSource || !merged.biliRepostSource.trim()) {
           accountsWithoutRepostSource.push(`${account.name}(${group.name})`)
         }
       }
 
-      // 2a-bonus-2. 支付宝联动校验: 作者声明=内容为转载 时, 转载来源地址必填
+      // 3a-bonus-2. 支付宝联动校验: 作者声明=内容为转载 时, 转载来源地址必填
       if (platformKey === 'alipay' && merged.authorStatement === '内容为转载') {
         if (!merged.reprintUrl || !merged.reprintUrl.trim()) {
           accountsWithoutReprintUrl.push(`${account.name}(${group.name})`)
         }
       }
 
-      // 2b. 标题
+      // 3b. 标题
       if (!merged.title || !merged.title.trim()) {
         accountsWithoutTitle.push(`${account.name}(${group.name})`)
       }
 
-      // 2c. 封面 per-account(横竖任一即可,不再按视频格式区分)
+      // 3c. 封面 per-account(横竖任一即可)
       if (!merged.coverLandscape && !merged.coverPortrait) {
         accountsWithoutCover.push(`${account.name}(${group.name})`)
       }
@@ -2548,16 +3021,15 @@ async function publishAll() {
   if (accountsWithoutTitle.length > 0) errors.push({ type: '标题', accounts: accountsWithoutTitle })
   if (accountsWithoutCover.length > 0) errors.push({ type: '封面', accounts: accountsWithoutCover })
 
-  // 3. 视频时长/大小校验
-  const accountsVideoInvalid = []
+  // 4. 视频时长/大小 + 标题/简介长度校验
   for (const group of accountGroups.value) {
     if (group.accounts.length === 0) continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig(group.key, account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, group.key, account.id)
       const platformKey = group.key
 
-      // 取有效视频:横版优先,无则竖版(不再依赖 videoFormat)
+      // 取有效视频:横版优先,无则竖版
       const video = merged.videoLandscape || merged.videoPortrait
 
       if (!video || !video.duration || video.duration === 0) {
@@ -2565,8 +3037,7 @@ async function publishAll() {
         continue
       }
 
-      // 标题长度校验（如小红书 ≤ 20 字）。京东标题有专属校验块（类型「京东标题」），
-      // 这里排除 jingmai 避免重复归类到「视频校验」。
+      // 标题长度校验（如小红书 ≤ 20 字）。京东标题有专属校验块，排除避免重复归类。
       if (platformKey !== 'jingmai') {
         const titleResult = validateTitleForPlatform(platformKey, merged.title)
         if (!titleResult.ok) {
@@ -2593,24 +3064,19 @@ async function publishAll() {
   }
 
   // ===== 爱奇艺专属校验:标题 ≤30 字符、描述+标签 ≤450 字符(emoji 按 3 算) =====
-  const iqiyiTitleAccounts = []   // 标题超 30 字符的账号
-  const iqiyiDescAccounts = []    // 描述+标签总长超 450 的账号
+  const iqiyiTitleAccounts = []
+  const iqiyiDescAccounts = []
   for (const group of accountGroups.value) {
     if (group.key !== 'iqiyi') continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig('iqiyi', account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, 'iqiyi', account.id)
 
-      // 1. 标题:用 countCharsWithEmoji 复用 emoji=3 规则
       const titleChars = countCharsWithEmoji(merged.title || '')
       if (titleChars > 30) {
-        iqiyiTitleAccounts.push(
-          `${account.name}(爱奇艺) 标题 ${titleChars} 字符,超过 30`
-        )
+        iqiyiTitleAccounts.push(`${account.name}(爱奇艺) 标题 ${titleChars} 字符,超过 30`)
       }
 
-      // 2. 描述 + 标签拼接(同 baijiahao 已有拼接规则,前端 useAutoExtractHashtags
-      //    会把 #xxx 从描述抽到 tags,所以这里"描述+标签"即"最终填到文本框的总长")
       const desc = merged.description || ''
       const tags = merged.tags || []
       const parts = [desc]
@@ -2618,33 +3084,26 @@ async function publishAll() {
       const full = parts.filter(Boolean).join(' ').trim()
       const charCount = countCharsWithEmoji(full)
       if (charCount > 450) {
-        iqiyiDescAccounts.push(
-          `${account.name}(爱奇艺) 描述+标签共 ${charCount} 字符,超过 450`
-        )
+        iqiyiDescAccounts.push(`${account.name}(爱奇艺) 描述+标签共 ${charCount} 字符,超过 450`)
       }
     }
   }
-  if (iqiyiTitleAccounts.length > 0) {
-    errors.push({ type: '爱奇艺标题', accounts: iqiyiTitleAccounts })
-  }
-  if (iqiyiDescAccounts.length > 0) {
-    errors.push({ type: '爱奇艺描述/标签', accounts: iqiyiDescAccounts })
-  }
+  if (iqiyiTitleAccounts.length > 0) errors.push({ type: '爱奇艺标题', accounts: iqiyiTitleAccounts })
+  if (iqiyiDescAccounts.length > 0) errors.push({ type: '爱奇艺描述/标签', accounts: iqiyiDescAccounts })
 
   // ===== 百家号专属校验:描述+标签总字符 ≤ 50(emoji 按 3 算),最多 10 标签 =====
-  const baijiahaoAccountsNoTag = []   // 标签过多的账号
+  const baijiahaoAccountsNoTag = []
   for (const group of accountGroups.value) {
     if (group.key !== 'baijiahao') continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig('baijiahao', account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, 'baijiahao', account.id)
       const desc = merged.description || ''
       const tags = merged.tags || []
       if (tags.length > 10) {
         baijiahaoAccountsNoTag.push(`${account.name}(百家号) 最多 10 个标签,当前 ${tags.length} 个`)
         continue
       }
-      // 计算 desc + tags 拼接后的总字符数(emoji=3)
       const parts = [desc]
       if (tags.length > 0) parts.push(tags.map(t => `#${t}`).join(' '))
       const full = parts.filter(Boolean).join(' ').trim()
@@ -2666,8 +3125,8 @@ async function publishAll() {
   for (const group of accountGroups.value) {
     if (group.key !== 'jingmai') continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig('jingmai', account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, 'jingmai', account.id)
       const titleResult = validateTitleForPlatform('jingmai', merged.title || '')
       if (!titleResult.ok) {
         jdAccountsTitleInvalid.push(`${account.name}(京麦): ${titleResult.error}`)
@@ -2683,8 +3142,8 @@ async function publishAll() {
   for (const group of accountGroups.value) {
     if (group.key !== 'douyin') continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig('douyin', account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, 'douyin', account.id)
       const dh = countDescriptionHashtags(merged.description)
       const ac = (merged.activityId || []).length
       const tc = (merged.tags || []).length
@@ -2705,8 +3164,8 @@ async function publishAll() {
   for (const group of accountGroups.value) {
     if (group.key !== 'xiaohongshu') continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig('xiaohongshu', account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, 'xiaohongshu', account.id)
       const dh = countDescriptionHashtags(merged.description)
       const tc = (merged.tags || []).length
       const total = dh + tc
@@ -2726,13 +3185,11 @@ async function publishAll() {
   for (const group of accountGroups.value) {
     if (group.key !== 'kuaishou') continue
     for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      const merged = resolveAccountConfig('kuaishou', account.id)
+      if (!publishIds.includes(account.id)) continue
+      const merged = resolveAccountConfigFor(state, 'kuaishou', account.id)
       const tc = (merged.tags || []).length
       if (tc > 4) {
-        kuaishouAccountsTooManyTags.push(
-          `${account.name}(快手) 标签最多 4 个,当前 ${tc} 个`
-        )
+        kuaishouAccountsTooManyTags.push(`${account.name}(快手) 标签最多 4 个,当前 ${tc} 个`)
       }
     }
   }
@@ -2740,357 +3197,107 @@ async function publishAll() {
     errors.push({ type: '快手标签', accounts: kuaishouAccountsTooManyTags })
   }
 
-  if (errors.length > 0) {
-    const maxShow = 3
-    const body = errors.map(e => {
-      const list = e.accounts
-      const shown = list.length > maxShow
-        ? list.slice(0, maxShow).join('、') + ` 等 ${list.length} 个账号`
-        : list.join('、')
-      return `<div style="margin-bottom:6px;"><b style="color:#f56c6c">未设置${e.type}：</b>${shown}</div>`
-    }).join('')
-    ElNotification({
-      title: '发布前检查未通过',
-      message: body,
-      type: 'error',
-      dangerouslyUseHTMLString: true,
-      duration: 5000,
-    })
+  // 压缩成字符串数组（确认弹窗展开行展示用）
+  return errors.map(e => {
+    const list = e.accounts || [e.type]
+    const shown = list.length > 3
+      ? list.slice(0, 3).join('、') + ` 等 ${list.length} 项`
+      : list.join('、')
+    return `【${e.type}】${shown}`
+  })
+}
+
+// 点「批量发布」：逐视频校验 → Cookie 预检（通过视频的账号并集）→ 弹确认框
+async function startBatchPublish() {
+  if (videoQueue.value.length === 0) {
+    ElMessage.error('请先添加视频')
     return
   }
+  syncCurrentIntoQueue()
 
-  // ===== 表单校验全部通过后，进行 Cookie 预检 =====
-  // 如果设置为「启动时检测」模式,则跳过发布前预检(两个机制互斥)
-  if (appStore.accountCheckMode === 'pre-publish' && publishAccountIds.size > 0 && prePublishCheckRef.value) {
-    const accountsToCheck = accountStore.accounts.filter(a => publishAccountIds.has(a.id))
+  const rows = videoQueue.value.map((snap, i) => ({
+    index: i,
+    ..._videoDisplayInfo(snap),
+    errors: collectVideoErrors(snap),
+  }))
+  const validRows = rows.filter(r => r.errors.length === 0)
+
+  if (validRows.length === 0) {
+    ElMessage.warning('所有视频都未通过发布前检查，请在确认框中查看原因')
+  }
+
+  // Cookie 预检（对通过校验视频的账号并集做一次检查）
+  if (appStore.accountCheckMode === 'pre-publish' && validRows.length > 0 && prePublishCheckRef.value) {
+    const seen = new Set()
+    const accountsToCheck = []
+    for (const r of validRows) {
+      for (const aid of (videoQueue.value[r.index].publishAccountIds || [])) {
+        if (!seen.has(aid)) {
+          seen.add(aid)
+          const acc = accountStore.accounts.find(a => a.id === aid)
+          if (acc) accountsToCheck.push(acc)
+        }
+      }
+    }
     if (accountsToCheck.length > 0) {
       const allValid = await prePublishCheckRef.value.open(accountsToCheck)
       if (!allValid) return  // 用户取消或未全部修复
     }
   }
 
-  publishing.value = true
-  publishProgress.value = 0
-  publishResults.value = []
-  isCancelled.value = false
-  currentPublishingAccount.value = ''
-  batchPublishDialogVisible.value = true
+  batchConfirmRows.value = rows
+  batchConfirmVisible.value = true
+}
 
-  const allTasks = []
-  for (const group of accountGroups.value) {
-    if (group.accounts.length === 0) continue
-    for (const account of group.accounts) {
-      if (!publishAccountIds.has(account.id)) continue
-      // 4 级优先级合并：accountOv > platformOv > platformDefault > common
-      const merged = resolveAccountConfig(group.key, account.id)
-      // 修：平台特有字段都从 merged.xxx 取（mergeConfig 已 4 级合并）。
-      // 之前用 platformSettings.xxx（只读渠道默认），账号级填的值进不来。
-      const pSettings = platformConfigs[group.key] || {}
-      allTasks.push({ account, group, merged, platformSettings: pSettings })
-    }
-  }
+// 确认弹窗回调：提交勾选视频 → 移出队列 → 结果反馈
+async function confirmBatchPublish(selectedIndexes) {
+  if (!selectedIndexes || selectedIndexes.length === 0) return
+  batchSubmitting.value = true
+  try {
+    const sorted = [...selectedIndexes].sort((a, b) => a - b)
+    const videos = sorted.map(i => videoQueue.value[i])
+    const resp = await batchPublishApi.batchPublishVideos(videos)
+    const data = resp?.data || resp || {}
+    const taskIds = data.task_ids || []
+    const failed = data.failed || []
 
-  // 生成本次一键发布的 batchId 与素材 ID（一次发布，跨账号复用）
-  const batchId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2))
-  const videoMaterialId = commonConfig.videoLandscape?.id || commonConfig.videoPortrait?.id || ''
-  const landscapeCoverMaterialId = commonConfig.coverLandscape?.id || ''
-  const portraitCoverMaterialId = commonConfig.coverPortrait?.id || ''
+    // 发布后视频保留在队列,不再自动移出(用户要求):
+    // 发布是后端异步任务,任务卡住/失败时视频还在队列里可直接再次点发布重发;
+    // 不需要的视频由用户在队列栏手动移除。先把活状态写回对应位置保留内容。
+    syncCurrentIntoQueue()
 
-  if (allTasks.length === 0) {
-    ElMessage.warning('没有可发布的账号')
-    publishing.value = false
-    batchPublishDialogVisible.value = false
-    return
-  }
+    // 发布不改动草稿（用户要求）：与当前草稿解绑。
+    // 已发布的草稿保持原样；后续再编辑/保存会另存为新草稿，不覆盖它。
+    currentDraftId.value = null
+    // applyVideoSnapshot 等清理会触发 deep watcher 把 hasChanges 置 true，
+    // 等 watcher 跑完立刻复位，避免自动保存把「空白队列」写成新草稿。
+    await nextTick()
+    hasChanges.value = false
+    batchConfirmVisible.value = false
 
-  for (let i = 0; i < allTasks.length; i++) {
-    if (isCancelled.value) {
-      publishResults.value.push({
-        label: allTasks[i].account.name,
-        status: 'cancelled',
-        message: '已取消',
+    const failLines = failed
+      .filter(f => videos[f.video])
+      .map(f => {
+        const v = videos[f.video]
+        const name = (v.commonConfig?.videoLandscape || v.commonConfig?.videoPortrait)?.name || '未知视频'
+        return `「${name}」${f.reason || ''}`
       })
-      continue
+    if (taskIds.length > 0) {
+      // 不再跳发布历史：保持原发布交互，弹窗实时展示后端队列执行进度
+      batchProgressBatchIds.value = data.batch_ids || []
+      batchProgressFailedNotes.value = failLines
+      batchProgressVisible.value = true
+    } else if (failLines.length) {
+      ElMessage.error(`提交失败：${failLines.join('；')}`)
     }
-
-    const { account, group, merged, platformSettings } = allTasks[i]
-    currentPublishingAccount.value = account.name
-    publishProgress.value = Math.floor((i / allTasks.length) * 100)
-
-    // DEBUG: dump merged 关键字段，便于排查前端到底有没有 category
-    console.log('[ZHIHU DEBUG] platform=' + group.key + ' form.category=' + JSON.stringify(form.category) + ' platformConfigs[zhihu].category=' + JSON.stringify(platformConfigs['zhihu']?.category) + ' accountOverrides[account.id]?.category=' + JSON.stringify(accountOverrides[account.id]?.category) + ' merged.category=' + JSON.stringify(merged.category))
-
-    // 取发布视频:横版优先,无则竖版(不再区分横竖,上传了即可发)
-    const selectedVideo = merged.videoLandscape || commonConfig.videoLandscape || merged.videoPortrait || commonConfig.videoPortrait
-
-    // [DEBUG 2026-06-10] 详细日志：把 4 级合并后的视频相关字段都打出来
-    console.log('[PublishCenter.publish.account] account=' + account.name + ' platform=' + group.key + ' merged.videoLandscape.id=' + (merged.videoLandscape && merged.videoLandscape.id) + ' merged.videoPortrait.id=' + (merged.videoPortrait && merged.videoPortrait.id) + ' commonConfig.videoLandscape.id=' + (commonConfig.videoLandscape && commonConfig.videoLandscape.id) + ' commonConfig.videoPortrait.id=' + (commonConfig.videoPortrait && commonConfig.videoPortrait.id) + ' selectedVideo.id=' + (selectedVideo && selectedVideo.id))
-
-    if (!selectedVideo) {
-        publishResults.value.push({
-          label: account.name,
-          status: 'error',
-          message: '未找到可发布的视频',
-        })
-        continue
-      }
-
-    // 封面走 4 级合并（merged.coverLandscape/Portrait），common 兜底
-    // 封面缺失校验已在 publishAll 顶部 collect-all 阶段完成，这里不再重复
-    const thumbnailLandscapeMaterial = merged.coverLandscape || commonConfig.coverLandscape
-    const thumbnailPortraitMaterial = merged.coverPortrait || commonConfig.coverPortrait
-    // 16:9 / 9:16 次尺寸封面(各平台按需选用,如知乎横版用 16:9)
-    const thumbnailLandscape169Material = merged.coverLandscape169 || commonConfig.coverLandscape169
-    const thumbnailPortrait916Material = merged.coverPortrait916 || commonConfig.coverPortrait916
-
-    try {
-      const tags = merged.tags || []
-
-      const publishData = {
-        type: group.id,
-        title: merged.title,
-        description: merged.description || '',
-        tags: tags,
-        activities: merged.activityId || [],
-        fileList: [selectedVideo.stored_path],
-        // 视频素材方向(horizontal/vertical/square):小红书据此选择对应方向封面
-        videoOrientation: selectedVideo.orientation || '',
-        accountList: [account.filePath],
-        thumbnailLandscape: thumbnailLandscapeMaterial ? thumbnailLandscapeMaterial.stored_path : '',
-        thumbnailPortrait: thumbnailPortraitMaterial ? thumbnailPortraitMaterial.stored_path : '',
-        // 16:9 / 9:16 次尺寸封面(知乎等平台横版视频用 16:9)
-        thumbnailLandscape169: thumbnailLandscape169Material ? thumbnailLandscape169Material.stored_path : '',
-        thumbnailPortrait916: thumbnailPortrait916Material ? thumbnailPortrait916Material.stored_path : '',
-        enableTimer: merged.scheduleTime ? 1 : 0,
-        scheduleTime: merged.scheduleTime || '',
-        videosPerDay: 1,
-        dailyTimes: ['10:00'],
-        startDays: 0,
-        // 修：账号级填的 zone 才能进 publishData
-        // 微博分类走 cascader(数组 [channel_name, sub_name])
-        // 知乎用 settingsFields.category(中文字符串)，4 重兜底直接读
-        // 真实状态源，避免 watch/mergeConfig 链路丢字段：
-        //   form.category > accountOverrides > platformConfigs > merged
-        // 其他平台用 zone(B 站分区 tid)或数值兜底
-        category: group.key === 'weibo'
-          ? (Array.isArray(merged.weiboCategory) ? merged.weiboCategory : [])
-          : group.key === 'zhihu'
-          ? (form.category
-              ?? accountOverrides[account.id]?.category
-              ?? platformConfigs['zhihu']?.category
-              ?? merged.category
-              ?? '')
-          : (merged.zone ?? merged.category ?? (merged.isOriginal ? 1 : 0)),
-        // 微博的「类型」(原创/二创/转载)走 aiContent 字段透传给后端
-        aiContent: group.key === 'weibo'
-          ? (merged.videoType || '')
-          : (merged.aiContent || ''),
-        // 微博「内容声明」单独透传(版本1 + 版本2必选 + 版本2可选)
-        contentStatement: group.key === 'weibo' ? (merged.contentStatement || '') : '',
-        contentStatement2: group.key === 'weibo' ? (merged.contentStatement2 || '') : '',
-        contentStatement2Optional: group.key === 'weibo' ? (merged.contentStatement2Optional || '') : '',
-        // 微博「合集」单独透传(合集名称,后端切换开关+勾选对应项)
-        weiboCollection: group.key === 'weibo' ? (merged.weiboCollectionName || '') : '',
-        // 支付宝「作者声明」+「转载来源」+「合集」单独透传(其他平台忽略)
-        authorStatement: merged.authorStatement || '',
-        reprintUrl: merged.reprintUrl || '',
-        compilation: merged.compilation || '',
-        // 今日头条特有字段
-        enableGenerateImage: merged.enableGenerateImage ?? true,
-        collection: merged.collection || '',
-        extendLink: merged.extendLink || false,
-        extendLinkUrl: merged.extendLinkUrl || '',
-        // CSDN 是否推荐
-        recommend: merged.recommend || false,
-        // VIVO 平台特有字段(平台级)
-        vivoLocationName: merged.vivoLocationName || '',
-        vivoDistribution: merged.vivoDistribution || false,
-        vivoDeclaration: merged.vivoDeclaration || '',
-        vivoPrivacy: merged.vivoPrivacy || '公开',
-        vivoDownloadPermission: merged.vivoDownloadPermission || '允许',
-        // 微信公众号特有参数(原创声明/创作来源/合集)
-        isOriginal: merged.isOriginal ?? false,
-        gzhClaimSource: merged.gzhClaimSource || '',
-        gzhCollectionName: merged.gzhCollectionName || '',
-        // 淘宝光合创作者声明
-        guangheClaim: merged.guangheClaim || '',
-        // 淘宝光合关联商品/店铺(发布时按名称在光合面板内搜索匹配勾选)
-        // 完整透传含 id 和 trace 的对象数组,后端按 trace 分组重现
-        // 兼容旧字符串:统一规整为 {title, image, id, trace}
-        guangheLinkType: merged.guangheLinkType || '',
-        guangheProducts: (merged.guangheProducts || [])
-          .map(p => typeof p === 'string'
-            ? { title: p, image: '', id: p, trace: undefined }
-            : {
-                title: p?.title || '',
-                image: p?.image || '',
-                id: p?.id || p?.title || '',
-                trace: p?.trace,
-              })
-          .filter(p => p.title || p.id),
-        guangheShops: (merged.guangheShops || [])
-          .map(s => typeof s === 'string'
-            ? { title: s, image: '', id: s, trace: undefined }
-            : {
-                title: s?.title || '',
-                image: s?.image || '',
-                id: s?.id || s?.title || '',
-                trace: s?.trace,
-              })
-          .filter(s => s.title || s.id),
-        // 京东关联挂件(平台级)
-        jdRelatedType: merged.jdRelatedType || '',
-        jdProducts: (merged.jdProducts || [])
-          .map(p => typeof p === 'string'
-            ? { title: p, image: '', id: p, trace: undefined }
-            : {
-                title: p?.title || '',
-                image: p?.image || '',
-                id: p?.id || p?.title || '',
-                trace: p?.trace,
-              })
-          .filter(p => p.title || p.id),
-        jdNovel: merged.jdNovelData || (merged.jdNovel ? { title: merged.jdNovel } : ''),
-        jdDeclaration: merged.jdDeclaration || '',
-        hotspot: merged.hotspotId || '',
-        tag_type: merged.tagType || '',
-        tag_value: merged.tagValue || '',
-        mini_link: merged.selectedTag?.type === 'miniapp' ? (merged.selectedTag._searchKeyword || '') : '',
-        mix_id: merged.mixId || '',
-        // B 站合集(账号级配置)
-        biliCollectionName: merged.biliCollectionName || '',
-        // 视频号合集(账号级配置)
-        channelsCollectionName: merged.channelsCollectionName || '',
-        // 视频号位置(账号级,空=不显示位置)
-        channelsLocationName: merged.channelsLocationName || '',
-        // 视频号活动(账号级,空=不参与活动)
-        channelsActivityName: merged.channelsActivityName || '',
-        // 视频号视频标注(平台级):tagName 文本,后端据此在发布页下拉里选中对应项
-        channelsMarkTag: merged.channelsMarkTag || '无需标注',
-        channelsShootDate: merged.channelsShootDate || '',
-        channelsShootRegion: merged.channelsShootRegion || [],
-        channelsRepostSource: merged.channelsRepostSource || '',
-        // 小红书合集(账号级配置):collectionId 给后端定位,collectionName 兜底匹配
-        collectionId: merged.collectionId || '',
-        collectionName: merged.collectionName || '',
-        // 小红书内容来源声明(平台级):自主拍摄需拍摄地点+日期,来源转载需转载来源
-        xhsSourceType: merged.xhsSourceType || '',
-        xhsShootLocation: merged.xhsShootLocation || '',
-        xhsShootDate: merged.xhsShootDate || '',
-        xhsRepostSource: merged.xhsRepostSource || '',
-        // Other platform fields (修：channels isDraft 同)
-        isDraft: merged.isDraft || false,
-        // creationDeclaration 走 merged（已含 platformDefault 兜底）
-        creationDeclaration: Array.isArray(merged.creationDeclaration)
-          ? merged.creationDeclaration.join(',')
-          : merged.creationDeclaration || '',
-        // B 站转载来源(创作声明=转载 时必填)
-        biliRepostSource: merged.biliRepostSource || '',
-        riskWarning: merged.riskWarning || '',
-        // 百家号补充声明
-        supplementaryDeclaration: merged.supplementaryDeclaration || '',
-        enableCashActivity: merged.enableCashActivity || false,
-        audience: merged.audience || 'not_kids',
-        alteredContent: merged.alteredContent || false,
-        // Task 12：本次一键发布的批次与素材 ID
-        batchId,
-        videoMaterialId,
-        landscapeCoverMaterialId,
-        portraitCoverMaterialId,
-        accountId: account.id,
-        // Task 7：透传 4 级合并后的素材对象（供后端持久化到 account_configs JSON，符合 spec §3.3）
-        coverLandscape: thumbnailLandscapeMaterial,
-        coverPortrait: thumbnailPortraitMaterial,
-        videoLandscape: merged.videoLandscape,
-        videoPortrait: merged.videoPortrait,
-      }
-
-      // [DEBUG 2026-06-10] 详细日志：把要发的 publishData 关键字段打印
-      console.log('[PublishCenter.publish] account=' + account.name + ' platform=' + group.key + ' fileList=' + JSON.stringify(publishData.fileList) + ' videoLandscape.id=' + (publishData.videoLandscape && publishData.videoLandscape.id) + ' videoPortrait.id=' + (publishData.videoPortrait && publishData.videoPortrait.id) + ' coverLandscape.id=' + (publishData.coverLandscape && publishData.coverLandscape.id) + ' coverPortrait.id=' + (publishData.coverPortrait && publishData.coverPortrait.id) + ' creationDeclaration=' + publishData.creationDeclaration + ' aiContent=' + publishData.aiContent)
-      // 今日头条特有参数日志
-      if (group.key === 'toutiao') {
-        console.log('[PublishCenter.publish] 今日头条参数: extendLink=' + publishData.extendLink + ' extendLinkUrl=' + publishData.extendLinkUrl + ' enableGenerateImage=' + publishData.enableGenerateImage + ' collection=' + publishData.collection)
-      }
-      // 异步发布：POST 只做校验+入队，立即返回 taskId；浏览器自动化由
-      // 后端串行队列执行，前端轮询任务状态直到终态。根治「大视频上传
-      // 期间 HTTP 长连接被传输层/代理层掐断 → 前端误判失败 → 继续发
-      // 下一账号 → 多个浏览器并发发布」的问题。
-      const resp = await http.post('/postVideo', publishData)
-      const taskId = resp?.data?.taskId
-      if (!taskId) throw new Error('后端未返回发布任务 ID')
-      const final = await pollPublishStatus(taskId)
-      if (final.status === 'success') {
-        publishResults.value.push({
-          label: account.name,
-          status: 'success',
-          message: final.msg || '发布成功',
-        })
-      } else {
-        publishResults.value.push({
-          label: account.name,
-          status: 'error',
-          message: final.msg || '发布失败',
-        })
-      }
-    } catch (error) {
-      publishResults.value.push({
-        label: account.name,
-        status: 'error',
-        message: error.message || '发布失败',
-      })
-    }
-  }
-
-  publishProgress.value = 100
-  currentPublishingAccount.value = ''
-  publishing.value = false
-
-  const successCount = publishResults.value.filter(r => r.status === 'success').length
-  const failCount = publishResults.value.filter(r => r.status === 'error').length
-
-  if (failCount > 0) {
-    ElMessage.warning(`发布完成：${successCount}个成功，${failCount}个失败`)
-  } else {
-    ElMessage.success('全部发布成功')
-    setTimeout(() => {
-      batchPublishDialogVisible.value = false
-    }, 1500)
+  } catch (e) {
+    ElMessage.error(`批量发布提交失败：${e?.message || e}`)
+  } finally {
+    batchSubmitting.value = false
   }
 }
 
-// 轮询异步发布任务状态，直到 success / failed。
-// 用原生 fetch（同源）而非 axios：轮询期间的临时网络错误不应触发全局
-// 错误 toast；连续 30 次（约 1 分钟）查询失败才判定任务状态丢失。
-async function pollPublishStatus(taskId) {
-  const POLL_INTERVAL_MS = 2000
-  const MAX_CONSECUTIVE_ERRORS = 30
-  let errors = 0
-  for (;;) {
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
-    try {
-      const res = await fetch(`/postVideo/status/${encodeURIComponent(taskId)}`)
-      if (res.status === 404) {
-        return { status: 'failed', msg: '发布任务状态丢失（后端可能已重启），请在发布历史中确认结果' }
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const body = await res.json()
-      const st = body?.data?.status
-      if (st === 'success' || st === 'failed') {
-        return { status: st, msg: body?.data?.msg || '' }
-      }
-      errors = 0
-    } catch {
-      if (++errors >= MAX_CONSECUTIVE_ERRORS) {
-        return { status: 'failed', msg: '持续无法查询发布状态（网络异常），任务仍在后端执行，请在发布历史中确认结果' }
-      }
-    }
-  }
-}
-
-function cancelBatch() {
-  isCancelled.value = true
-  ElMessage.info('正在取消发布...')
-}
+// （旧前端逐账号发布链路已删除：批量发布改走后端持久化任务队列 /api/v2/videos/batch-publish）
 
 function handleOneClickFill(record) {
   const histConfig = record.account_configs || {}
@@ -3914,6 +4121,60 @@ function formatSize(bytes) {
 .guanghe-items-field {
   width: 100%;
 }
+
+.link-sub {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.channels-drama-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  .drama-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    background: rgba(255, 80, 0, 0.06);
+    border: 1px solid rgba(255, 80, 0, 0.25);
+    border-radius: 6px;
+    max-width: 320px;
+    flex: 1 1 320px;
+    min-width: 0;
+
+    .drama-pill-cover {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: rgba(0, 0, 0, 0.05);
+    }
+    .drama-pill-text {
+      flex: 1;
+      min-width: 0;
+
+      .drama-pill-title {
+        font-size: 13px;
+        color: var(--el-text-color-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .drama-pill-ext {
+        font-size: 11px;
+        color: var(--el-text-color-secondary);
+        margin-top: 2px;
+      }
+    }
+  }
+}
 .guanghe-selected-list {
   // 跟弹窗里 .grid 完全一致
   display: grid;
@@ -4052,5 +4313,21 @@ html.dark .guanghe-add-card:hover {
   background: #3a2018;
   color: #ff5000;
   border-color: #ff5000;
+}
+/* B 站标签选项行(保留系统生成标签开关) */
+.tag-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.tag-option-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tag-option-hint {
+  font-size: 12px;
+  color: $text-muted;
 }
 </style>

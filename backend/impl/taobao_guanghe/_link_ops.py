@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import asyncio
 
+from util._logger import get_channel_logger
+
+logger = get_channel_logger("taobao_guanghe")
+
 # 类型常量
 TYPE_PRODUCT = "product"
 TYPE_SHOP = "shop"
@@ -262,11 +266,94 @@ async def scrape_filters(frame) -> dict:
 # 面板操作
 # ----------------------------------------------------------------------
 
+async def ensure_link_section_ready(frame, type_: str, timeout_s: int = 15) -> None:
+    """确保发布页「关联商品/店铺」区域已渲染(发布路径专用)。
+
+    背景: picker 是一进发布页就开面板,所以关联商品区立即可见。
+    发布路径会先上传视频/封面/标题/描述/创作者声明,这些操作可能
+    让关联商品区延迟渲染,导致 switch_radio/click_add_card 直接
+    wait_for 超时 10s 然后 raise TimeoutError(实际用户体感:11 秒后
+    「浏览器已关闭」)。
+
+    修复: 显式滚动到页面底部 + 等待「关联商品/店铺」表单区出现,
+    再交给 switch_radio/click_add_card。
+
+    DOM 锚点: ``form-item:has-text("关联商品")`` / ``form-item:has-text("关联店铺")``
+    (光合发布页关联商品是一个独立的 form-item 区块)。
+    """
+    section_text = "关联商品" if type_ == TYPE_PRODUCT else "关联店铺"
+    # 诊断 1: 当前 frame 的 URL(确认是不是 huodong 发布表单 frame)
+    try:
+        logger.info("[关联%s][诊断] 当前 frame.url=%s", section_text, frame.url or "(空)")
+    except Exception:
+        pass
+    # 诊断 2: 当前 frame 里所有 .next-radio-label 文本
+    try:
+        labels = await frame.locator(".next-radio-label").all_text_contents()
+        logger.info(
+            "[关联%s][诊断] 当前 frame radio-labels: %s",
+            section_text,
+            [t.strip()[:30] for t in (labels or [])],
+        )
+    except Exception:
+        pass
+    # 诊断 3: 当前 frame body 里含「商品/店铺/关联/添加」的文本片段
+    #         (确认关联商品入口到底叫什么、长什么样)
+    try:
+        snippets = await frame.evaluate(
+            """() => {
+                const text = (document.body && document.body.innerText) || '';
+                const lines = text.split('\\n').map(s => s.trim()).filter(Boolean);
+                const kw = ['商品', '店铺', '关联', '添加', '带货', '选品'];
+                return lines.filter(l => kw.some(k => l.includes(k))).slice(0, 30);
+            }"""
+        )
+        logger.info("[关联%s][诊断] 含关键词文本片段: %s", section_text, snippets)
+    except Exception:
+        pass
+    # 诊断 4: 页面所有 frame 的 URL(看关联商品区是否在另一个 iframe)
+    try:
+        page = frame.page
+        urls = [f.url for f in (page.frames if page else [])]
+        logger.info("[关联%s][诊断] 全部 frames(%d): %s", section_text, len(urls), urls)
+    except Exception:
+        pass
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            # 1) 滚动 frame 内容到底部,触发懒加载区域
+            await frame.evaluate(
+                "() => { const c = document.querySelector('.post-side, .form-area, body');"
+                "  if (c) c.scrollTop = c.scrollHeight || 99999;"
+                "  window.scrollTo(0, document.body.scrollHeight); }"
+            )
+            # 2) 等关联商品 form-item 出现
+            section = frame.locator(f'.form-item:has-text("{section_text}")').first
+            if await section.count() > 0 and await section.is_visible():
+                # 滚到 section 视口内
+                try:
+                    await section.scroll_into_view_if_needed(timeout=2000)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.8)
+    # 超时不 raise —— 让后续 switch_radio/wait_panel_ready 仍有机会命中
+    # (避免遮蔽其它可能更准的错误信息)
+
+
 async def switch_radio(frame, type_: str) -> None:
     """切换商品/店铺 radio(.next-radio-label + 文本)。"""
     target_label = "商品" if type_ == TYPE_PRODUCT else "店铺"
     radio_label = frame.locator(f'.next-radio-label:has-text("{target_label}")').first
-    await radio_label.wait_for(state="visible", timeout=10000)
+    try:
+        await radio_label.wait_for(state="visible", timeout=10000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"switch_radio 找不到可见 radio(文本={target_label}): {exc}"
+        ) from exc
     is_checked = await radio_label.evaluate(
         "el => el.closest('label')?.classList.contains('checked')"
     )
@@ -279,7 +366,12 @@ async def click_add_card(frame, type_: str) -> None:
     """点击「添加商品/店铺」卡片打开选择面板。"""
     trigger_text = "添加商品" if type_ == TYPE_PRODUCT else "添加店铺"
     trigger = frame.get_by_text(trigger_text, exact=True).first
-    await trigger.wait_for(state="visible", timeout=8000)
+    try:
+        await trigger.wait_for(state="visible", timeout=8000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"click_add_card 找不到可见触发器(文本={trigger_text}): {exc}"
+        ) from exc
     await trigger.click()
     await asyncio.sleep(2)
 
@@ -287,13 +379,23 @@ async def click_add_card(frame, type_: str) -> None:
 async def wait_panel_ready(frame, type_: str) -> None:
     """等待选择面板就绪(商品:等 tab;店铺:等搜索框)。"""
     if type_ == TYPE_PRODUCT:
-        await frame.locator(
-            '.next-tabs-tab:has-text("已购商品"), .next-tabs-tab:has-text("平台优选")'
-        ).first.wait_for(state="visible", timeout=10000)
+        try:
+            await frame.locator(
+                '.next-tabs-tab:has-text("已购商品"), .next-tabs-tab:has-text("平台优选")'
+            ).first.wait_for(state="visible", timeout=10000)
+        except Exception as exc:
+            raise RuntimeError(
+                "wait_panel_ready(商品) 等不到「已购商品/平台优选」tab: %s" % exc
+            ) from exc
     else:
-        await frame.locator('input[placeholder*="店铺"]').first.wait_for(
-            state="visible", timeout=10000
-        )
+        try:
+            await frame.locator('input[placeholder*="店铺"]').first.wait_for(
+                state="visible", timeout=10000
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "wait_panel_ready(店铺) 等不到店铺搜索框: %s" % exc
+            ) from exc
 
 
 async def switch_tab(frame, tab: str) -> None:

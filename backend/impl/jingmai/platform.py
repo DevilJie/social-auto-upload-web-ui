@@ -24,6 +24,7 @@ from util._logger import get_channel_logger
 
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import (
+    raise_if_page_closed,
     save_login_result,
     scrape_jingmai_profile,
 )
@@ -265,6 +266,7 @@ class JingmaiPlatform(BasePlatform):
             """在主页面 + 全部子 frame 里找运营卡片，返回命中的 scope。"""
             deadline = asyncio.get_event_loop().time() + total_timeout
             while asyncio.get_event_loop().time() < deadline:
+                raise_if_page_closed(page)
                 # 1) 主页面（历史布局：卡片直接挂在首页 DOM）
                 try:
                     await page.wait_for_selector(selector, timeout=1000)

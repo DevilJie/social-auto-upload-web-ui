@@ -124,8 +124,33 @@ def merge_config(common, platform_default, platform_ov, account_ov):
         'zone', 'activityId', 'hotspotId', 'hotspotData', 'selectedTag',
         'tagType', 'tagValue', 'mixId', 'mixData', 'topic', 'isDraft',
         'location', 'collection', 'groupChat',
+        # 批量发布补齐：与 PublishCenter mergeConfig / /postVideo 字段集对齐
+        'category', 'biliRepostSource', 'biliKeepSystemTags', 'biliCollectionName', 'biliCollectionData',
+        'weiboCategory', 'videoType', 'contentStatement', 'contentStatement2',
+        'contentStatement2Optional', 'weiboCollectionName',
+        'authorStatement', 'reprintUrl', 'compilation', 'compilationData',
+        'enableGenerateImage', 'extendLinkUrl',
+        'recommend',
+        'vivoLocationName', 'vivoLocationData', 'vivoDeclaration',
+        'vivoPrivacy', 'vivoDownloadPermission',
+        'gzhClaimSource', 'gzhCollectionName', 'gzhCollectionData',
+        'guangheClaim', 'guangheLinkType', 'guangheProducts', 'guangheShops',
+        'jdRelatedType', 'jdProducts', 'jdNovelData', 'jdDeclaration',
+        'channelsCollectionName', 'channelsLocationName',
+        'channelsActivityName', 'channelsActivityData', 'channelsMarkTag',
+        'channelsShootDate', 'channelsShootRegion', 'channelsRepostSource',
+        'channelsDrama', 'channelsLinkType', 'channelsLinkArticleUrl',
+        'channelsRedEnvelopeUrl',
+        'collectionId', 'collectionName', 'collectionData',
+        'xhsSourceType', 'xhsShootLocation', 'xhsShootDate', 'xhsRepostSource',
     ]:
         platform_specific[field] = _first_truthy(
+            account_ov.get(field), platform_ov.get(field), platform_default.get(field)
+        )
+
+    # 布尔字段单独用 _first_bool（False 是有效值，不能用 _first_truthy 跳过）
+    for field in ['extendLink', 'vivoDistribution']:
+        platform_specific[field] = _first_bool(
             account_ov.get(field), platform_ov.get(field), platform_default.get(field)
         )
 
@@ -309,6 +334,16 @@ def build_platform_kwargs(merged, common, account):
         or _resolve_stored_path(common.get('coverLandscape'))
     cover_portrait = _resolve_stored_path(merged.get('coverPortrait')) \
         or _resolve_stored_path(common.get('coverPortrait'))
+    cover_landscape_169 = _resolve_stored_path(merged.get('coverLandscape169')) \
+        or _resolve_stored_path(common.get('coverLandscape169'))
+    cover_portrait_916 = _resolve_stored_path(merged.get('coverPortrait916')) \
+        or _resolve_stored_path(common.get('coverPortrait916'))
+
+    # 兜底：只上传了横版或竖版之一时，另一个用同图（与 /postVideo 一致）
+    if cover_landscape and not cover_portrait:
+        cover_portrait = cover_landscape
+    elif cover_portrait and not cover_landscape:
+        cover_landscape = cover_portrait
 
     # 通用 thumbnail（仅 portrait 缺时用 landscape 兜底，反之亦然；否则两者都有）
     generic_thumbnail = cover_portrait or cover_landscape
@@ -322,13 +357,26 @@ def build_platform_kwargs(merged, common, account):
     else:
         creation_declaration = ''
 
-    # category: zone 优先（B 站），否则 isOriginal ? 1 : 0
-    zone = merged.get('zone') or ''
-    is_original = merged.get('isOriginal')
-    if zone:
-        category = zone
+    # category: 微博级联数组 > zhihu 等字符串 category > B站 zone > 原创/转载数值
+    weibo_cat = merged.get('weiboCategory')
+    if isinstance(weibo_cat, list) and weibo_cat:
+        category = weibo_cat
+    elif merged.get('category'):
+        category = merged.get('category')
     else:
-        category = 1 if is_original else 0
+        zone = merged.get('zone') or ''
+        is_original = merged.get('isOriginal')
+        if zone:
+            category = zone
+        else:
+            category = 1 if is_original else 0
+
+    # aiContent: 微博的「类型」(原创/二创/转载)走 videoType 字段透传（与 /postVideo 一致）
+    platform_key = getattr(account, 'platform', '') if account else ''
+    if platform_key == 'weibo':
+        ai_content = merged.get('videoType', '') or ''
+    else:
+        ai_content = merged.get('aiContent', '') or ''
 
     # schedule_time
     schedule_time_str = merged.get('scheduleTime') or ''
@@ -356,11 +404,16 @@ def build_platform_kwargs(merged, common, account):
         'thumbnail_path': generic_thumbnail,
         'thumbnail_landscape_path': cover_landscape,
         'thumbnail_portrait_path': cover_portrait,
+        'thumbnail_landscape_169_path': cover_landscape_169,
+        'thumbnail_portrait_916_path': cover_portrait_916,
         'productLink': merged.get('productLink', '') or '',
         'productTitle': merged.get('productTitle', '') or '',
         'schedule_time_str': schedule_time_str,
-        'ai_content': merged.get('aiContent', '') or '',
+        'ai_content': ai_content,
         'creation_declaration': creation_declaration,
+        # B 站转载来源(创作声明=转载 时必填)
+        'bili_repost_source': merged.get('biliRepostSource', '') or '',
+        'bili_keep_system_tags': bool(merged.get('biliKeepSystemTags', True)),
         'risk_warning': merged.get('riskWarning', '') or '',
         'enable_cash_activity': bool(merged.get('enableCashActivity')),
         'supplementary_declaration': merged.get('supplementaryDeclaration', '') or '',
@@ -372,6 +425,56 @@ def build_platform_kwargs(merged, common, account):
         'tag_value': merged.get('tagValue', '') or '',
         'mini_link': mini_link,
         'mix_id': merged.get('mixId', '') or '',
+        # 微博特有参数（类型走 ai_content，内容声明/合集单独透传）
+        'content_statement': merged.get('contentStatement', '') or '',
+        'content_statement2': merged.get('contentStatement2', '') or '',
+        'content_statement2_optional': merged.get('contentStatement2Optional', '') or '',
+        'weibo_collection': merged.get('weiboCollectionName', '') or '',
+        # 支付宝特有参数（作者声明/转载来源/合集）
+        'author_statement': merged.get('authorStatement', '') or '',
+        'compilation': merged.get('compilation', '') or '',
+        'reprint_url': merged.get('reprintUrl', '') or '',
+        # 今日头条特有参数
+        'enable_generate_image': merged.get('enableGenerateImage') if merged.get('enableGenerateImage') is not None else True,
+        'collection_id': merged.get('collection', '') or '',
+        'extend_link': bool(merged.get('extendLink')),
+        'extend_link_url': merged.get('extendLinkUrl', '') or '',
+        # CSDN 是否推荐
+        'recommend': bool(merged.get('recommend')),
+        # VIVO 平台特有参数
+        'vivo_location_name': merged.get('vivoLocationName', '') or '',
+        'vivo_distribution': bool(merged.get('vivoDistribution')),
+        'vivo_declaration': merged.get('vivoDeclaration', '') or '',
+        'vivo_privacy': merged.get('vivoPrivacy') or '公开',
+        'vivo_download_permission': merged.get('vivoDownloadPermission') or '允许',
+        # 微信公众号特有参数
+        'is_original': bool(merged.get('isOriginal')),
+        'gzh_collection_name': merged.get('gzhCollectionName', '') or '',
+        'gzh_claim_source': merged.get('gzhClaimSource', '') or '',
+        # 淘宝光合创作者声明 + 关联商品/店铺
+        'guanghe_claim': merged.get('guangheClaim', '') or '',
+        'guangheLinkType': merged.get('guangheLinkType', '') or '',
+        'guangheProducts': merged.get('guangheProducts') or [],
+        'guangheShops': merged.get('guangheShops') or [],
+        # 京东平台特有参数
+        'jd_related_type': merged.get('jdRelatedType', '') or '',
+        'jd_products': merged.get('jdProducts') or [],
+        'jd_novel': merged.get('jdNovelData') or (
+            {'title': merged['jdNovel']} if merged.get('jdNovel') else ''),
+        'jd_declaration': merged.get('jdDeclaration', '') or '',
+        # 视频号合集/位置/活动/标注/拍摄信息
+        'channels_activity_name': merged.get('channelsActivityName', '') or '',
+        'channels_activity_id': (merged.get('channelsActivityData') or {}).get('activity_id', ''),
+        'channels_mark_tag': merged.get('channelsMarkTag') or '无需标注',
+        'channels_shoot_date': merged.get('channelsShootDate', '') or '',
+        'channels_shoot_region': merged.get('channelsShootRegion') or [],
+        'channels_repost_source': merged.get('channelsRepostSource', '') or '',
+        # 视频号关联剧集(picker 选择结果,含发布复现用 trace)+ 链接类型/公众号文章/红包封面链接
+        'channels_drama': merged.get('channelsDrama') or [],
+        'channels_link_type': merged.get('channelsLinkType', '') or '',
+        'channels_link_article_url': merged.get('channelsLinkArticleUrl', '') or '',
+        'channels_red_envelope_url': merged.get('channelsRedEnvelopeUrl', '') or '',
+        'schedule_time': schedule_time_str,
         # 小红书合集(账号级):用 xhs_ 前缀避免与头条 collection_id 冲突
         'xhs_collection_id': merged.get('collectionId', '') or '',
         'xhs_collection_name': merged.get('collectionName', '') or '',

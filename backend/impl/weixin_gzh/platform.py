@@ -32,6 +32,7 @@ from .._utils import (
     clear_input,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_weixin_gzh_profile,
 )
@@ -675,6 +676,11 @@ class WeixinGzhPlatform(BasePlatform):
                 await page2.wait_for_load_state("domcontentloaded", timeout=30000)
                 await asyncio.sleep(2)
 
+                # 0. 关闭教育弹窗(「支持添加话题卡片」等引导,按钮=我知道了)
+                #    弹窗 DOM: div.weui-desktop-dialog > ... > button.weui-desktop-btn_primary
+                #    不点掉会遮挡后续填写/发表操作。短时轮询,点不到不阻塞流程。
+                await self._dismiss_education_dialog(page2)
+
                 # 1. 再次填标题(发布页标题独立于素材标题)
                 logger.info("[阶段②] 填写发布页标题: %s", title)
                 await self._fill_publish_title(page2, title)
@@ -783,6 +789,7 @@ class WeixinGzhPlatform(BasePlatform):
         deadline = asyncio.get_event_loop().time() + timeout_s
         last_progress = ""
         while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page)
             # 成功信号: 文本「视频上传成功」且元素可见
             try:
                 success_visible = await page.evaluate(
@@ -916,34 +923,99 @@ class WeixinGzhPlatform(BasePlatform):
 
     @staticmethod
     async def _set_original(page):
-        """开启原创声明开关,并确认弹窗。
+        """开启原创声明。
 
-        DOM(文档):
-          开关: .ori-reward-info_wrp .weui-desktop-switch
-          原创须知弹窗: .weui-desktop-dialog_original-video 内「确定」按钮
+        流程(实测,2026 新版 DOM):
+        1. **判定当前账号是否有原创权益**: 检测 ``.declare-original-checkbox``
+           是否存在。存在 = 该账号支持原创声明;不存在 = 跳过整个流程
+           (没权益的账号点了也无效,反而弹窗流程会卡)。
+        2. 点 checkbox 开关 ``.declare-original-checkbox .ant-checkbox-wrapper``
+           → 触发 .declare-original-dialog 弹窗(默认 display:none → 显现)。
+        3. 弹窗里勾选协议 checkbox: ``.original-proto-wrapper .ant-checkbox-wrapper``
+           (勾上后「声明原创」按钮的 _disabled 类才会去掉)。
+        4. 等「声明原创」按钮去掉 ``weui-desktop-btn_disabled`` 后点击。
+        5. 兜底关弹窗。
+
+        DOM 参考:
+          开关区: ``.declare-original-checkbox > label.ant-checkbox-wrapper``
+          协议弹窗: ``.declare-original-dialog .weui-desktop-dialog``
+          协议勾选: ``.original-proto-wrapper .ant-checkbox-wrapper``
+          确认按钮: ``.declare-original-dialog button.weui-desktop-btn_primary``
+          取消按钮: ``.declare-original-dialog button.weui-desktop-btn_default``
         """
-        switch = page.locator(".ori-reward-info_wrp .weui-desktop-switch").first
-        await switch.wait_for(state="visible", timeout=10000)
-        await switch.click()
-        logger.info("[阶段①] 已点击原创声明开关,等待须知弹窗...")
+        # 1. 检测账号是否有原创权益(开关区存在性)
+        declare_checkbox = page.locator(".declare-original-checkbox").first
+        try:
+            await declare_checkbox.wait_for(state="visible", timeout=10000)
+        except Exception:
+            logger.warning(
+                "[阶段①] 当前账号没有原创权益(.declare-original-checkbox 不存在),跳过原创声明"
+            )
+            return
+
+        # 2. 点 checkbox 打开协议弹窗
+        wrap = declare_checkbox.locator("label.ant-checkbox-wrapper").first
+        try:
+            await wrap.wait_for(state="visible", timeout=5000)
+            await wrap.click()
+        except Exception as exc:
+            logger.warning("[阶段①] 找不到/点不到原创声明 checkbox: %s", exc)
+            return
+        logger.info("[阶段①] 已点击原创声明 checkbox,等待协议弹窗...")
         await asyncio.sleep(1.5)
-        # 点弹窗内「确定」
-        ok_clicked = await page.evaluate(
-            """() => {
-                const dialog = document.querySelector('.weui-desktop-dialog_original-video')
-                    || document.querySelector('.weui-desktop-dialog__wrp');
-                if (!dialog) return false;
-                const btns = dialog.querySelectorAll('button.weui-desktop-btn_primary');
-                for (const b of btns) {
-                    b.click();
-                    return true;
-                }
-                return false;
-            }"""
-        )
-        if not ok_clicked:
-            logger.warning("[阶段①] 未找到原创须知弹窗的「确定」按钮")
+
+        # 3. 等协议弹窗内的勾选出现
+        proto_wrap = page.locator(".declare-original-dialog .original-proto-wrapper label.ant-checkbox-wrapper").first
+        try:
+            await proto_wrap.wait_for(state="visible", timeout=10000)
+        except Exception as exc:
+            logger.warning("[阶段①] 未出现原创协议勾选框,可能该账号无权益: %s", exc)
+            return
+
+        # 4. 勾选协议
+        try:
+            await proto_wrap.click()
+        except Exception as exc:
+            logger.warning("[阶段①] 勾选原创协议失败: %s", exc)
+            return
+        logger.info("[阶段①] 已勾选原创协议,等待「声明原创」按钮可点击...")
+        await asyncio.sleep(0.5)
+
+        # 5. 等「声明原创」按钮 enabled 后点击
+        confirm_btn = page.locator(
+            ".declare-original-dialog button.weui-desktop-btn_primary"
+        ).first
+        deadline = asyncio.get_event_loop().time() + 15
+        clicked = False
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+                    disabled = await confirm_btn.evaluate(
+                        "el => el.classList.contains('weui-desktop-btn_disabled')"
+                    )
+                    if not disabled:
+                        await confirm_btn.click()
+                        clicked = True
+                        break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        if clicked:
+            logger.info("[阶段①] 已点击「声明原创」,原创声明流程完成")
+        else:
+            logger.warning("[阶段①] 「声明原创」按钮 15s 内未启用")
         await asyncio.sleep(1)
+
+        # 6. 兜底关弹窗(若还开着)
+        try:
+            close_btn = page.locator(
+                ".declare-original-dialog .weui-desktop-dialog__close-btn"
+            ).first
+            if await close_btn.count() > 0 and await close_btn.is_visible():
+                await close_btn.click()
+                logger.info("[阶段①] 已关闭原创协议弹窗")
+        except Exception:
+            pass
 
     @staticmethod
     async def _check_service_rule(page):
@@ -1132,6 +1204,39 @@ class WeixinGzhPlatform(BasePlatform):
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def _dismiss_education_dialog(page, timeout_s: int = 10):
+        """关闭发布编辑页(阶段②)可能弹出的教育引导弹窗。
+
+        实测 DOM（宽度 960px 的 weui-desktop-dialog）:
+        ``div.weui-desktop-dialog > div.weui-desktop-dialog__ft >
+        button.weui-desktop-btn.weui-desktop-btn_primary``(文本=我知道了)
+        另有右上角关闭按钮 ``weui-desktop-dialog__close-btn`` 可兜底。
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                known_btn = page.locator(
+                    "div.weui-desktop-dialog button.weui-desktop-btn_primary"
+                ).filter(has_text="我知道了").first
+                if await known_btn.is_visible():
+                    await known_btn.click()
+                    logger.info("[阶段②] 已点击教育弹窗「我知道了」")
+                    await asyncio.sleep(0.5)
+                    return
+                close_btn = page.locator(
+                    "div.weui-desktop-dialog .weui-desktop-dialog__close-btn"
+                ).first
+                if await close_btn.is_visible():
+                    await close_btn.click()
+                    logger.info("[阶段②] 已点教育弹窗关闭按钮(X)")
+                    await asyncio.sleep(0.5)
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        logger.info("[阶段②] 未检测到教育弹窗,继续")
+
+    @staticmethod
     async def _fill_publish_title(page, title: str, max_len: int = 64):
         """发布编辑页标题。
 
@@ -1176,7 +1281,7 @@ class WeixinGzhPlatform(BasePlatform):
         """填写描述(contenteditable ProseMirror),含 # 标签。
 
         DOM(文档): ``#guide_words_main .ProseMirror``(contenteditable)
-        desc 为空时回落 title;tags 拼成 ``#话题`` 追加。
+        desc 为空时保持为空(不回落 title);tags 拼成 ``#话题`` 追加。
         按 CLAUDE.md: contenteditable 用 press_sequentially 逐字符输入,
         比剪贴板粘贴/keyboard.type 更可靠地触发 React onChange。
         max_len 默认 300(视频),图集传 1000。
@@ -1184,8 +1289,8 @@ class WeixinGzhPlatform(BasePlatform):
         editor = page.locator("#guide_words_main .ProseMirror").first
         await editor.wait_for(state="visible", timeout=15000)
 
-        # 组装最终文本: desc(或回落 title) + # 话题
-        base = (desc or "").strip() or (title or "").strip()
+        # 组装最终文本: desc + # 话题（描述为空不回落标题）
+        base = (desc or "").strip()
         tag_parts = [f"#{t.strip()}" for t in (tags or []) if str(t).strip()]
         tag_text = " ".join(tag_parts)
         full = f"{base} {tag_text}".strip() if tag_text else base
@@ -1844,7 +1949,18 @@ class WeixinGzhPlatform(BasePlatform):
 
     @staticmethod
     async def _wait_for_home(page, timeout_s: int = 120):
-        """等待页面跳转到公众号首页(发表成功信号)。"""
+        """等待发表成功的信号。
+
+        成功信号有两种：
+        1. URL 跳转到首页(/cgi-bin/home + token=) —— 正常路径，扫码后跳转;
+        2. 弹出「已发送操作申请」对话框(用户消息:等待管理员验证后发表，
+           30 分钟后过期) —— 部分公众号开了「管理员扫码验证」策略，
+           点完「继续发表」后会停在这种弹窗，不会跳转首页，
+           但申请已提交，应视为成功。点「我知道了」关闭即可。
+
+        DOM: ``.page_msg`` 内 ``h4`` 文案为「已发送操作申请」,
+        对话框 footer 有「我知道了」按钮 ``.btn.btn_default``。
+        """
         deadline = asyncio.get_event_loop().time() + timeout_s
         while asyncio.get_event_loop().time() < deadline:
             try:
@@ -1852,10 +1968,30 @@ class WeixinGzhPlatform(BasePlatform):
                 if _HOME_PATH in url and "token=" in url:
                     logger.info("[阶段②] 已跳转首页,发表成功")
                     return
+                # 「已发送操作申请」弹窗（管理员验证策略）
+                page_msg = page.locator(".page_msg")
+                if await page_msg.count() > 0:
+                    h4 = page_msg.locator("h4").first
+                    if await h4.count() > 0:
+                        h4_text = (await h4.text_content() or "").strip()
+                        if "已发送操作申请" in h4_text:
+                            # 点「我知道了」关掉对话框（申请已提交）
+                            know_btn = page.locator(
+                                ".dialog .btn.btn_default", has_text="我知道了"
+                            ).first
+                            try:
+                                if await know_btn.count() > 0:
+                                    await know_btn.click()
+                            except Exception:
+                                pass
+                            logger.info(
+                                "[阶段②] 检测到「已发送操作申请」弹窗(管理员验证策略)，申请已提交，视为发表成功"
+                            )
+                            return
             except Exception:
                 pass
             await asyncio.sleep(2)
-        logger.warning("[阶段②] %ds 内未跳转首页(发表可能仍在处理)", timeout_s)
+        logger.warning("[阶段②] %ds 内未检测到成功信号(发表可能仍在处理)", timeout_s)
 
     # ==================================================================
     # publish_image — 图集(贴图)发布

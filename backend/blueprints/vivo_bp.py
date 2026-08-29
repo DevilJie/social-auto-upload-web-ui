@@ -13,6 +13,8 @@ POI 搜索同源),不直接 fetch。
     下拉: .position-list li,每项 .position-name + .position-info
 """
 
+from __future__ import annotations
+
 import asyncio
 import sqlite3
 from pathlib import Path

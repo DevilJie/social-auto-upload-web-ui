@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="modelValue"
     @update:model-value="handleVisibilityChange"
-    :width="mode === 'product' ? '90%' : '70%'"
+    :width="mode === 'product' ? '960px' : '760px'"
     top="5vh"
     :close-on-click-modal="false"
     :close-on-press-escape="false"
@@ -11,8 +11,13 @@
   >
     <template #header>
       <div class="picker-header">
+        <span class="header-accent"></span>
+        <el-icon class="header-icon"><Goods /></el-icon>
         <h3>{{ mode === 'product' ? '关联商品' : '关联店铺' }}</h3>
         <span class="picker-tip">最多选择 6 个{{ mode === 'product' ? '商品' : '店铺' }}</span>
+        <span class="picker-progress" :class="{ full: selectedItems.length >= MAX_SELECTED }">
+          {{ selectedItems.length }} / {{ MAX_SELECTED }}
+        </span>
       </div>
     </template>
 
@@ -20,22 +25,22 @@
       <!-- 商品模式: 筛选条件(平台优选内置,无 tab 切换) -->
       <template v-if="mode === 'product'">
         <div class="filter-row">
-          <span class="filter-label">推荐规则:</span>
-          <span
+          <span class="filter-label">推荐</span>
+          <button
             v-for="r in rules"
             :key="r"
-            :class="['filter-item', { active: activeRule === r }]"
+            :class="['pill', { active: activeRule === r }]"
             @click="onRuleChange(r)"
-          >{{ r }}</span>
+          >{{ r }}</button>
         </div>
         <div class="filter-row">
-          <span class="filter-label">品类筛选:</span>
-          <span
+          <span class="filter-label">品类</span>
+          <button
             v-for="c in categories"
             :key="c"
-            :class="['filter-item', { active: activeCategory === c }]"
+            :class="['pill', { active: activeCategory === c }]"
             @click="onCategoryChange(c)"
-          >{{ c }}</span>
+          >{{ c }}</button>
         </div>
       </template>
 
@@ -71,6 +76,9 @@
           <div class="img-wrap">
             <img :src="item.image" :alt="item.title" loading="lazy" referrerpolicy="no-referrer" />
             <span v-if="item.disabled" class="disabled-mask">不可选</span>
+            <span v-if="isSelected(item)" class="selected-badge">
+              <el-icon :size="12"><Check /></el-icon>
+            </span>
           </div>
           <div class="info">
             <div class="title" :title="item.title">{{ item.title }}</div>
@@ -81,11 +89,6 @@
             </div>
             <div v-if="item.buy_count" class="buy-count">{{ item.buy_count }}</div>
           </div>
-          <div class="check">
-            <span class="checkbox-icon">
-              <el-icon><Check /></el-icon>
-            </span>
-          </div>
         </div>
       </div>
 
@@ -93,14 +96,17 @@
         <span v-if="!loadingMore">加载更多</span>
         <span v-else>加载中...</span>
       </div>
-      <div v-else-if="!hasMore && items.length > 0" class="no-more">没有更多了</div>
-      <div v-else-if="!loading && items.length === 0" class="empty">暂无数据</div>
+      <div v-else-if="!hasMore && items.length > 0" class="no-more">已经到底啦</div>
+      <div v-else-if="!loading && items.length === 0" class="empty">
+        <el-icon class="empty-icon"><Goods /></el-icon>
+        <span>暂无数据</span>
+      </div>
     </div>
 
     <template #footer>
       <div class="picker-footer">
         <div class="selected-summary">
-          <span>已选 <b>{{ selectedItems.length }}</b>/6</span>
+          <span class="selected-count">已选 <b>{{ selectedItems.length }}</b>/6</span>
           <div class="selected-chips">
             <el-tag
               v-for="(item, i) in selectedItems"
@@ -109,6 +115,7 @@
               closable
               @close="removeSelected(item)"
             >{{ item.title }}</el-tag>
+            <span v-if="selectedItems.length === 0" class="no-selected">尚未选择，点击卡片即可加入</span>
           </div>
         </div>
         <div class="footer-actions">
@@ -123,7 +130,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Check } from '@element-plus/icons-vue'
+import { Search, Check, Goods } from '@element-plus/icons-vue'
 import { guangheApi } from '@/api/taobaoGuanghe'
 
 const props = defineProps({
@@ -380,129 +387,175 @@ async function handleClose() {
 .guanghe-picker-dialog {
   :deep(.el-dialog__body) {
     padding: 0 20px;
-    max-height: 70vh;
-    overflow-y: auto;
+    // 不限制高度：内容区(.picker-content)固定高度内自己滚动,
+    // 这样不管商品有多少,toolbar 始终贴顶、footer 始终贴底,弹窗总高度稳定
   }
 
-  // loading 遮罩:用主题感知的 CSS 变量,亮/暗都协调
-  :deep(.el-loading-mask) {
-    background-color: var(--guanghe-loading-mask-bg, rgba(255, 247, 240, 0.92));
-    backdrop-filter: blur(2px);
-  }
-  :deep(.el-loading-spinner) {
-    .circular {
-      width: 36px;
-      height: 36px;
-    }
-    .path {
-      stroke: #ff5000;
-      stroke-width: 4;
-    }
-    .el-loading-text {
-      color: #ff5000;
-      font-size: 13px;
-      margin: 8px 0 0;
-    }
+  // 商品区显式白/暗背景，避免和 EP 默认 --el-mask-color (rgba 半透明) 叠出来偏灰
+  // loading 遮罩 spinner 颜色由下方非 scoped 块统一接管（带 !important）
+  .picker-content {
+    background: var(--guanghe-card-bg);
+    border-radius: 0 0 8px 8px;
   }
 }
 
 .picker-header {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
+
+  .header-accent {
+    width: 4px;
+    height: 16px;
+    border-radius: 2px;
+    background: #ff5000;
+    flex-shrink: 0;
+  }
+  .header-icon {
+    color: #ff5000;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
   h3 {
     margin: 0;
-    font-size: 18px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--guanghe-card-title, #333);
+    letter-spacing: -0.01em;
   }
   .picker-tip {
     font-size: 12px;
-    color: #999;
+    color: var(--guanghe-card-meta, #999);
+    flex: 1;
+    min-width: 0;
+  }
+  .picker-progress {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--guanghe-pill-border, #ffd9c2);
+    color: #ff5000;
+    background: rgba(255, 80, 0, 0.06);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+
+    &.full {
+      color: #fff;
+      background: #ff5000;
+      border-color: #ff5000;
+    }
   }
 }
 
 .picker-toolbar {
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--guanghe-toolbar-border, #f0f0f0);
 
   .filter-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 12px;
-    margin-bottom: 6px;
+    gap: 8px;
     font-size: 13px;
 
     .filter-label {
-      color: #999;
-      margin-right: 4px;
+      color: var(--guanghe-card-meta, #999);
+      flex-shrink: 0;
+      min-width: 32px;
     }
 
-    .filter-item {
+    .pill {
+      border: 1px solid var(--guanghe-pill-border, #e8e8e8);
+      background: var(--guanghe-pill-bg, #fafafa);
+      color: var(--guanghe-card-title, #555);
+      padding: 4px 12px;
+      border-radius: 14px;
+      font-size: 12px;
       cursor: pointer;
-      padding: 2px 10px;
-      border-radius: 4px;
-      color: #555;
       transition: all 0.15s;
-      &:hover { color: #ff5000; }
+
+      &:hover {
+        border-color: #ff5000;
+        color: #ff5000;
+      }
       &.active {
-        color: #fff;
         background: #ff5000;
+        border-color: #ff5000;
+        color: #fff;
       }
     }
   }
 
   .search-row {
-    margin-top: 8px;
     :deep(.el-input) {
-      max-width: 320px;
+      max-width: 340px;
+      width: 100%;
+    }
+    :deep(.el-input__wrapper) {
+      border-radius: 14px;
+      padding-left: 12px;
     }
   }
 }
 
 .picker-content {
   padding: 16px 0;
-  min-height: 300px;
+  // 商品区固定高度,内部出滚动条 — 商品再多也不撑大弹窗整体高度,
+  // toolbar 始终贴顶、footer 始终贴底;视窗高度自适应
+  height: 52vh;
+  min-height: 360px;
+  max-height: 560px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  // 浅色滚动条:在商品区背景上更自然
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.2); }
+  &::-webkit-scrollbar-track { background: transparent; }
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
     gap: 12px;
 
     &.shop-grid {
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
     }
   }
 
   .card {
     position: relative;
     border: 1px solid var(--guanghe-card-border);
-    border-radius: 6px;
+    border-radius: 10px;
     background: var(--guanghe-card-bg);
     overflow: hidden;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
     display: flex;
     flex-direction: column;
 
     &:hover {
       border-color: #ff5000;
-      box-shadow: 0 2px 8px rgba(255, 80, 0, 0.12);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px rgba(255, 80, 0, 0.10);
     }
 
     &.selected {
       border-color: #ff5000;
-      box-shadow: 0 0 0 2px rgba(255, 80, 0, 0.3);
-      .check .checkbox-icon {
-        background: #ff5000;
-        color: #fff;
-        opacity: 1;
-      }
+      box-shadow: 0 0 0 2px rgba(255, 80, 0, 0.25);
     }
 
     &.disabled {
       cursor: not-allowed;
-      opacity: 0.5;
-      &:hover { border-color: var(--guanghe-card-border); box-shadow: none; }
+      opacity: 0.55;
+      &:hover { border-color: var(--guanghe-card-border); transform: none; box-shadow: none; }
     }
 
     .img-wrap {
@@ -510,25 +563,44 @@ async function handleClose() {
       width: 100%;
       aspect-ratio: 1;
       background: var(--guanghe-card-img-placeholder);
+
       img {
         width: 100%;
         height: 100%;
         object-fit: cover;
+        display: block;
       }
+
       .disabled-mask {
         position: absolute;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(0,0,0,0.4);
+        background: rgba(0, 0, 0, 0.4);
         color: #fff;
         font-size: 13px;
+        border-radius: 10px;
+      }
+
+      .selected-badge {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #ff5000;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
       }
     }
 
     .info {
-      padding: 8px;
+      padding: 10px;
       flex: 1;
       display: flex;
       flex-direction: column;
@@ -537,46 +609,38 @@ async function handleClose() {
       .title {
         font-size: 12px;
         color: var(--guanghe-card-title);
-        line-height: 1.4;
+        line-height: 1.45;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        min-height: 34px;
+        min-height: 35px;
       }
+
       .price {
         color: #ff5000;
         font-size: 14px;
         font-weight: 600;
       }
+
       .shop {
         display: flex;
         justify-content: space-between;
+        gap: 6px;
         font-size: 11px;
         color: var(--guanghe-card-meta);
+
+        .shop-name {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .sold { flex-shrink: 0; }
       }
+
       .buy-count {
         font-size: 11px;
         color: var(--guanghe-card-meta);
-      }
-    }
-
-    .check {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      .checkbox-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.9);
-        color: transparent;
-        border: 1px solid #ddd;
-        opacity: 0.8;
-        font-size: 12px;
       }
     }
   }
@@ -584,45 +648,79 @@ async function handleClose() {
   .load-more {
     margin: 20px auto;
     text-align: center;
-    padding: 8px 24px;
-    background: #f5f5f5;
-    border-radius: 4px;
-    color: #666;
+    padding: 8px 28px;
+    background: var(--guanghe-pill-bg, #f5f5f5);
+    border: 1px solid var(--guanghe-pill-border, #e8e8e8);
+    border-radius: 16px;
+    color: var(--guanghe-card-title, #666);
     cursor: pointer;
     width: fit-content;
     font-size: 13px;
-    &:hover { background: #eaeaea; }
+
+    &:hover {
+      border-color: #ff5000;
+      color: #ff5000;
+    }
   }
 
-  .no-more, .empty {
+  .no-more {
     text-align: center;
-    color: #aaa;
+    color: var(--guanghe-card-meta, #aaa);
+    font-size: 12px;
+    padding: 18px 0 4px;
+  }
+
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    color: var(--guanghe-card-meta, #aaa);
     font-size: 13px;
-    padding: 30px 0;
+    padding: 48px 0;
+
+    .empty-icon {
+      font-size: 42px;
+      opacity: 0.6;
+    }
   }
 }
 
 .picker-footer {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
 
   .selected-summary {
     flex: 1;
     min-width: 0;
-    b { color: #ff5000; }
+
+    .selected-count {
+      font-size: 13px;
+      color: var(--guanghe-card-title, #333);
+      b { color: #ff5000; }
+    }
+
+    .no-selected {
+      font-size: 12px;
+      color: var(--guanghe-card-meta, #999);
+    }
+
     .selected-chips {
       margin-top: 6px;
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
+      max-height: 64px;
+      overflow-y: auto;
     }
   }
 
   .footer-actions {
     display: flex;
     gap: 8px;
+    flex-shrink: 0;
   }
 }
 </style>
@@ -631,19 +729,37 @@ async function handleClose() {
 <style lang="scss">
 // loading 遮罩 + 卡片主题变量(亮/暗)
 html:not(.dark) .guanghe-picker-dialog {
-  --guanghe-loading-mask-bg: rgba(255, 247, 240, 0.92);  // 极淡橙色
+  // 同时覆盖 EP 自己的遮罩变量（v-loading 直接用它）
+  --el-mask-color: #ffffff !important;
   --guanghe-card-bg: #ffffff;
   --guanghe-card-border: #eeeeee;
   --guanghe-card-title: #333333;
   --guanghe-card-meta: #999999;
   --guanghe-card-img-placeholder: #f5f5f5;
+  --guanghe-toolbar-border: #f0f0f0;
+  --guanghe-pill-border: #e8e8e8;
+  --guanghe-pill-bg: #fafafa;
 }
 html.dark .guanghe-picker-dialog {
-  --guanghe-loading-mask-bg: rgba(30, 25, 22, 0.88);  // 暗色暖调
+  --el-mask-color: #2a2a2c !important;
   --guanghe-card-bg: #2a2a2c;
   --guanghe-card-border: #3a3a3c;
   --guanghe-card-title: #e5e5e7;
   --guanghe-card-meta: #8a8a8e;
   --guanghe-card-img-placeholder: #1f1f21;
+  --guanghe-toolbar-border: #333;
+  --guanghe-pill-border: #3a3a3c;
+  --guanghe-pill-bg: #262628;
+}
+
+// 兜底：!important 强制盖掉 EP 的默认 rgba 遮罩，杜绝「灰色蒙层」
+.guanghe-picker-dialog .el-loading-mask {
+  background-color: var(--guanghe-card-bg) !important;
+  border-radius: 0 0 8px 8px !important;
+}
+.guanghe-picker-dialog .el-loading-spinner {
+  .circular { width: 36px; height: 36px; }
+  .path { stroke: #ff5000; stroke-width: 4; }
+  .el-loading-text { color: #ff5000; font-size: 13px; margin: 8px 0 0; }
 }
 </style>

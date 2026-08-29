@@ -1050,6 +1050,7 @@ def postVideo():
                 creation_declaration=data.get('creationDeclaration', ''),
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
+                bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1100,6 +1101,11 @@ def postVideo():
                 channels_shoot_date=data.get('channelsShootDate', ''),
                 channels_shoot_region=data.get('channelsShootRegion', []),
                 channels_repost_source=data.get('channelsRepostSource', ''),
+                # 视频号关联剧集(picker 选择结果,含发布复现用 trace)
+                channels_drama=data.get('channelsDrama') or [],
+                channels_link_type=data.get('channelsLinkType', ''),
+                channels_link_article_url=data.get('channelsLinkArticleUrl', ''),
+                channels_red_envelope_url=data.get('channelsRedEnvelopeUrl', ''),
                 # CSDN 是否推荐
                 recommend=data.get('recommend', False),
                 # VIVO 平台特有参数
@@ -1209,6 +1215,7 @@ def postVideoBatch():
                     creation_declaration=data.get('creationDeclaration', ''),
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
+                bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1254,6 +1261,7 @@ def postVideoBatch():
                     creation_declaration=data.get('creationDeclaration', ''),
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
+                bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),

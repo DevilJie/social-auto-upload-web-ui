@@ -89,6 +89,7 @@
         type="primary"
         plain
         :disabled="checkedCount === 0"
+        title="只覆盖已填写的字段，留空字段保持各视频原值（仅当前视频）"
         @click="handleApply('partial')"
       >
         仅应用已填写
@@ -96,9 +97,19 @@
       <el-button
         type="primary"
         :disabled="checkedCount === 0"
+        title="覆盖全部字段，留空字段清空原值（仅当前视频）"
         @click="handleApply('full')"
       >
         全量应用
+      </el-button>
+      <el-button
+        v-if="showAllVideos"
+        type="warning"
+        :disabled="checkedCount === 0"
+        title="队列中所有视频（含当前视频）全量替换：留空字段也会清空原值"
+        @click="handleApply('full', 'all-videos')"
+      >
+        全视频应用
       </el-button>
     </template>
   </el-dialog>
@@ -114,6 +125,8 @@ const props = defineProps({
   modelValue: { type: Boolean, required: true },
   platforms: { type: Array, required: true },
   title: { type: String, default: '批量设置' },
+  // 是否显示「全视频应用」按钮（仅视频发布页的视频队列场景开启，图片发布页无队列）
+  showAllVideos: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue', 'apply'])
@@ -170,7 +183,7 @@ function removeTag(idx) {
   formTags.value = formTags.value.filter((_, i) => i !== idx)
 }
 
-function handleApply(mode = 'full') {
+function handleApply(mode = 'full', scope = 'current') {
   emit('apply', Array.from(checkedKeys.value), {
     title: formTitle.value,
     description: formDescription.value,
@@ -178,6 +191,8 @@ function handleApply(mode = 'full') {
     scheduleTime: formScheduleTime.value || '',
     // 'full' = 全量覆盖（空值也会清空原值）；'partial' = 仅覆盖已填写字段（空值跳过）
     mode,
+    // scope: 'current' = 仅当前视频；'all-videos' = 队列内所有视频全部替换
+    scope,
   })
   emit('update:modelValue', false)
 }

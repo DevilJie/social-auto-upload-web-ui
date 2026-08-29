@@ -3,6 +3,8 @@
 使用 CloakBrowser 拦截音乐搜索接口。
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import sqlite3

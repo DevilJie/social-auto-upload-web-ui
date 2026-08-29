@@ -15,7 +15,7 @@ from conf import BASE_DIR
 
 from util._logger import bind_account_name, get_channel_logger
 from .._browser import create_browser_sync, create_context_sync
-from .._utils import clear_and_type, get_account_name_by_cookie_file, parse_schedule_time, save_login_result
+from .._utils import clear_and_type, get_account_name_by_cookie_file, parse_schedule_time, raise_if_page_closed, save_login_result
 from ..base_platform import BasePlatform
 
 logger = get_channel_logger("iqiyi")
@@ -1007,6 +1007,7 @@ class IqiyiPlatform(BasePlatform):
                 deadline = asyncio.get_event_loop().time() + 1800
                 last_percent = -1
                 while asyncio.get_event_loop().time() < deadline:
+                    raise_if_page_closed(page)
                     try:
                         if await upload_card.count() == 0:
                             break

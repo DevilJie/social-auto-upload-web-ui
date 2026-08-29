@@ -6,6 +6,8 @@ Channels (视频号) platform implementation.
 and shared utilities from ``backend/impl/_utils.py``.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import threading
@@ -24,6 +26,7 @@ from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
     parse_schedule_time,
+    raise_if_page_closed,
     save_login_result,
     scrape_tencent_profile,
 )
@@ -39,8 +42,10 @@ TENCENT_UPLOAD_URL = "https://channels.weixin.qq.com/platform/post/create"
 TENCENT_MANAGE_URL = "https://channels.weixin.qq.com/platform/post/list"
 
 # 调试开关:True = 走到发布按钮时只输出参数日志、不实际点击发布(便于检查内容);
-# False = 正常点击发布。验证完发布内容无误后改回 False 即可。
-_PUBLISH_DRY_RUN = False
+# False = 正常点击发布。默认关闭(真实发布),需要模拟时设环境变量
+# CHANNELS_DRY_RUN_PUBLISH=1。
+import os as _os_ch_dry
+_PUBLISH_DRY_RUN = _os_ch_dry.environ.get("CHANNELS_DRY_RUN_PUBLISH", "0") == "1"
 
 
 def _format_short_title(origin_title: str) -> str:
@@ -758,6 +763,7 @@ async def _wait_for_upload_complete(page, file_path: str) -> None:
     re-uploaded automatically.
     """
     while True:
+        raise_if_page_closed(page)
         try:
             publish_button = page.get_by_role("button", name="发表")
             button_class = await publish_button.get_attribute("class")
@@ -827,6 +833,7 @@ async def _wait_for_cover_ready(page, *, action: str = "") -> None:
     logger.info(f"[设置封面] 封面阻塞提示出现({action}):「{blocking}」，开始无限等待...")
     waited = 0
     while True:
+        raise_if_page_closed(page)
         await asyncio.sleep(1)
         waited += 1
         still_blocking = None
@@ -907,6 +914,7 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
         cover_dialog = None
         attempt = 0
         while cover_dialog is None:
+            raise_if_page_closed(page)
             attempt += 1
             try:
                 try:
@@ -1059,6 +1067,77 @@ async def _set_thumbnail(page, thumbnail_path: str | None, thumbnail_landscape_p
     logger.info("[设置封面] all cover images set complete")
 
 
+async def _link_drama(page, channels_drama: list) -> None:
+    """按用户保存的 trace 在发布页打开剧集弹窗,选中指定剧集。
+
+    channels_drama 形状(从前端 picker 传来,可能为空):
+      [{key, title, cover, extinfo, sourceLeft, sourceRight, trace:{keyword,page}}]
+    视频号 1 条视频只关联 1 部剧集,取第一项。
+    """
+    if not channels_drama:
+        return
+    item = channels_drama[0]
+    if not isinstance(item, dict) or not item.get("key"):
+        logger.info("[关联剧集] 缺少 drama.key,跳过(可能旧数据)")
+        return
+    trace = item.get("trace") or {}
+    kw = (trace.get("keyword") or "").strip()
+    page_num = int(trace.get("page") or 1)
+    # 从 trace/数据里推断 link_type;picker 存的 trace 无 linkType,默认 drama
+    link_type = (item.get("linkType") or trace.get("linkType") or "drama")
+    try:
+        from . import _drama_link_ops as drama_ops
+        # 走真实 DOM 流程: 点链接下拉 → 选剧集类型 → 点子区入口 → 打开剧集弹窗
+        await drama_ops.open_drama_panel(page, link_type)
+        await drama_ops.wait_panel_ready(page)
+        # 按 trace 复现(搜索 → 翻页)
+        if kw:
+            await drama_ops.search(page, kw)
+            await drama_ops.wait_panel_ready(page)
+        if page_num > 1:
+            await drama_ops.go_page(page, page_num)
+            await drama_ops.wait_panel_ready(page)
+        # 选中目标 row(若在当前页),否则滚后续页找
+        target_key = str(item.get("key") or "")
+        info = None
+        for try_page in range(page_num, min(page_num + 10, 50)):
+            if try_page > page_num:
+                await drama_ops.go_page(page, try_page)
+                await drama_ops.wait_panel_ready(page)
+            rows = await drama_ops.scrape_rows(page)
+            hit = next((r for r in rows if str(r.get("key")) == target_key), None)
+            if hit:
+                info = await drama_ops.select_drama_by_id(page, target_key)
+                logger.info(
+                    "[关联剧集] ✓ 已选 drama=%s key=%s page=%d",
+                    info.get("title"), info.get("key"), try_page,
+                )
+                break
+        if not info:
+            logger.warning(
+                "[关联剧集] 找不到 drama key=%s(trace page=%d),跳过",
+                target_key, page_num,
+            )
+        # 关掉弹窗(选完会自动关闭,防御性关一次)
+        await drama_ops.close_panel(page)
+    except Exception as exc:
+        logger.warning("[关联剧集] 选剧集失败(不阻塞发布): %s", exc)
+
+
+async def _link_url(page, link_type: str, url: str) -> None:
+    """链接 → 公众号文章/红包封面: 选下拉项 + 子区「粘贴xx链接」输入框填 URL。
+
+    失败只打 warning,不阻塞发布。
+    """
+    label = "公众号文章" if link_type == "article" else "红包封面"
+    try:
+        from . import _drama_link_ops as drama_ops
+        await drama_ops.link_paste_url(page, link_type, url)
+        logger.info("[%s链接] ✓ 已设置%s链接: %s", label, label, (url or "")[:60])
+    except Exception as exc:
+        logger.warning("[%s链接] 设置%s链接失败(不阻塞发布): %s", label, label, exc)
+
+
 async def _set_schedule_time(page, publish_date) -> None:
     """Set the scheduled publish time in the Channels date/time picker."""
     label_element = page.locator("label").filter(has_text="定时").nth(1)
@@ -1121,6 +1200,7 @@ async def _dismiss_i_know_dialog(page) -> bool:
 async def _submit_publish(page, is_draft: bool = False) -> None:
     """Click the publish (or save-draft) button and wait for navigation."""
     while True:
+        raise_if_page_closed(page)
         try:
             if is_draft:
                 draft_button = page.locator(
@@ -1213,6 +1293,8 @@ class ChannelsPlatform(BasePlatform):
             # 轮询 URL 判断登录完成（无限等，浏览器由用户自己关）
             poll_interval = 3
             while True:
+                # 用户关闭浏览器 = 放弃扫码登录,立即失败而非无限轮询
+                raise_if_page_closed(page)
                 if await _is_login_completed(page):
                     logger.info(f"[发布] login successful, redirected to: {page.url}")
                     # 资料卡 (finder-card) 在创作中心首页 /platform 渲染。
@@ -1519,6 +1601,12 @@ class ChannelsPlatform(BasePlatform):
         channels_shoot_region = kwargs.get("channels_shoot_region", []) or []
         # 转载联动:转载来源(选填文本)
         channels_repost_source = kwargs.get("channels_repost_source", "")
+        # 视频号剧集(账号级,值是 [{key,title,cover,extinfo,sourceLeft,sourceRight,trace}])
+        channels_drama = kwargs.get("channels_drama", []) or []
+        # 链接类型(''/article/red_envelope/drama/mini_drama)+ 公众号文章/红包封面链接
+        channels_link_type = kwargs.get("channels_link_type", "") or ""
+        channels_link_article_url = kwargs.get("channels_link_article_url", "") or ""
+        channels_red_envelope_url = kwargs.get("channels_red_envelope_url", "") or ""
 
         # 打印发布参数摘要
         logger.info("[发布参数] 标题: %s", title)
@@ -1579,6 +1667,7 @@ class ChannelsPlatform(BasePlatform):
                         # 有头模式发布(便于观察);不开 humanize(no_viewport=True 与
                         # 拟人化鼠标轨迹冲突,会抛 "Viewport size not available")
                         browser = await self.create_browser(headless=False)
+                        keep_browser_open = False  # DRY_RUN 模拟发布成功后保留浏览器窗口
                         try:
                             context = await self.create_context(
                                 browser, storage_state=cookie_path
@@ -1614,6 +1703,20 @@ class ChannelsPlatform(BasePlatform):
                                 channels_repost_source,
                             )
 
+                            # 关联链接:剧集(drama/mini_drama) / 公众号文章 / 红包封面
+                            # (页面在上传中即可设置,提前到等上传完成之前处理,节省总耗时)
+                            if channels_drama:
+                                await _link_drama(page, channels_drama)
+                            elif channels_link_type == "article" and channels_link_article_url:
+                                await _link_url(page, "article", channels_link_article_url)
+                            elif channels_link_type == "red_envelope" and channels_red_envelope_url:
+                                await _link_url(page, "red_envelope", channels_red_envelope_url)
+                            elif channels_link_type in ("article", "red_envelope"):
+                                logger.warning(
+                                    "[链接] linkType=%s 但链接 URL 为空,跳过设置",
+                                    channels_link_type,
+                                )
+
                             # Wait for upload to finish (auto-retries on error)
                             await _wait_for_upload_complete(page, file_path)
 
@@ -1644,19 +1747,24 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("[发布调试] 拍摄时间(shoot_dt): %s", channels_shoot_date or "(无)")
                             logger.info("[发布调试] 拍摄地点(shoot_rg): %s", " / ".join(channels_shoot_region) if channels_shoot_region else "(无)")
                             logger.info("[发布调试] 转载来源(repost)   : %s", channels_repost_source or "(无)")
+                            if channels_drama:
+                                d = channels_drama[0]
+                                logger.info("[发布调试] 关联剧集(drama)    : %s (%s) key=%s", d.get("title", "(无)"), d.get("extinfo", ""), d.get("key", ""))
+                            else:
+                                logger.info("[发布调试] 关联剧集(drama)    : (无)")
+                            logger.info("[发布调试] 链接(link)       : type=%s article=%s red_envelope=%s", channels_link_type or "(无)", channels_link_article_url or "(无)", channels_red_envelope_url or "(无)")
                             logger.info("[发布调试] 定时(enable_timer): %s", enable_timer)
                             logger.info("[发布调试] ========================================")
                             logger.info("=" * 60)
 
                             if _PUBLISH_DRY_RUN:
-                                logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击发布,流程到此结束(不发布)")
-                                logger.info("[发布调试] DRY_RUN: 浏览器保持打开,等待你手动关闭窗口后再结束...")
-                                try:
-                                    while browser.is_connected():
-                                        await asyncio.sleep(1)
-                                    logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
-                                except Exception:
-                                    pass
+                                # 模拟发布成功: 不真实点击「发表」,打成功日志即算发布完成;
+                                # 浏览器停留在发布界面(不自动关窗),人工检查表单后手动关闭。
+                                # 立即 return 让任务记为成功,不阻塞等关窗(避免和 watchdog
+                                # 竞争把「手动关窗」误判为取消失败)。
+                                logger.info("[发布] ✅ DRY_RUN 模拟发布成功(未真实点击「发表」)")
+                                logger.info("[发布] DRY_RUN: 浏览器停留在发布界面,请人工检查表单后手动关闭窗口")
+                                keep_browser_open = True
                                 return
 
                             # Submit
@@ -1666,14 +1774,18 @@ class ChannelsPlatform(BasePlatform):
                             await context.storage_state(path=cookie_path)
                             logger.info("[发布] Cookie状态已更新")
                         finally:
-                            try:
-                                await context.close()
-                            except Exception:
-                                pass
-                            try:
-                                await self.close_browser(browser, is_close_by_code=True)
-                            except Exception:
-                                pass
+                            if keep_browser_open:
+                                # DRY_RUN: 保留浏览器窗口在发布页,跳过收尾
+                                logger.info("[发布] DRY_RUN: 跳过浏览器收尾,窗口停留在发布界面")
+                            else:
+                                try:
+                                    await context.close()
+                                except Exception:
+                                    pass
+                                try:
+                                    await self.close_browser(browser, is_close_by_code=True)
+                                except Exception:
+                                    pass
 
         asyncio.run(_do_upload())
 

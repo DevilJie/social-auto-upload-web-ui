@@ -76,6 +76,15 @@
           </el-select>
         </div>
       </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">批量发布任务间隔（分钟）</span>
+          <span class="setting-desc">批量发布时每个发布任务完成后的等待时间，用于避免平台风控。0 表示不等待、连续执行</span>
+        </div>
+        <div class="setting-control">
+          <el-input-number v-model="settings.batchTaskInterval" :min="0" :max="120" controls-position="right" style="width: 120px" />
+        </div>
+      </div>
     </div>
 
     <!-- 渠道黑名单 -->
@@ -439,6 +448,7 @@ const settings = reactive({
   autoSaveDraft: true,
   autoSaveInterval: 10,
   accountCheckMode: 'pre-publish',
+  batchTaskInterval: 0,
   storage: {
     type: 'local',
     s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
@@ -496,6 +506,7 @@ const fetchSettings = async () => {
       if (res.data.autoSaveDraft !== undefined) settings.autoSaveDraft = res.data.autoSaveDraft
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
+      if (res.data.batchTaskInterval !== undefined) settings.batchTaskInterval = res.data.batchTaskInterval
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }
@@ -536,6 +547,7 @@ const handleSave = async () => {
       autoSaveDraft: settings.autoSaveDraft,
       autoSaveInterval: settings.autoSaveInterval,
       accountCheckMode: settings.accountCheckMode,
+      batchTaskInterval: settings.batchTaskInterval,
       storage: settings.storage,
       feedbackEmail: settings.feedbackEmail,
     })

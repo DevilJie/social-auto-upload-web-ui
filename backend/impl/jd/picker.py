@@ -7,6 +7,8 @@
 浏览器策略:headless=True(无头模式,关联挂件自动化不打扰用户)
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import sqlite3

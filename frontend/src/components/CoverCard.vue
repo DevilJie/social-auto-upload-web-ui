@@ -34,6 +34,19 @@
         </div>
       </div>
 
+      <!-- 自动裁剪中（用户上传视频后，后台正在抽帧 + 生成多比例封面） -->
+      <div v-else-if="cropping" class="cover-cropping">
+        <div class="cover-cropping-glow"></div>
+        <div class="cover-cropping-spin">
+          <el-icon :size="32" class="spin"><Loading /></el-icon>
+        </div>
+        <span class="cover-cropping-title">正在自动裁剪封面</span>
+        <span class="cover-cropping-desc">{{ cropStageText }}</span>
+        <div class="cover-cropping-bar">
+          <div class="cover-cropping-bar-fill"></div>
+        </div>
+      </div>
+
       <!-- No cover yet -->
       <div v-else :class="['cover-empty', { disabled }]" @click="!disabled && $emit('edit')">
         <div class="cover-empty-icon">
@@ -47,7 +60,8 @@
 </template>
 
 <script setup>
-import { Picture, Edit, Delete } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { Picture, Edit, Delete, Loading } from '@element-plus/icons-vue'
 import { getFileUrl } from '@/utils/storage'
 
 const props = defineProps({
@@ -60,6 +74,16 @@ const props = defineProps({
   modelValue: { type: Object, default: null },
   hasVideo: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
+  // 是否正在后台自动裁剪封面（用户上传视频后）
+  cropping: { type: Boolean, default: false },
+  // 裁剪阶段：'extracting' 抽帧中 / 'saving' 生成多比例中
+  cropStage: { type: String, default: '' },
+})
+
+const cropStageText = computed(() => {
+  if (props.cropStage === 'extracting') return '正在抽取第 1-5 秒关键帧…'
+  if (props.cropStage === 'saving') return '正在生成 4 种比例封面…'
+  return '处理中，请稍候…'
 })
 
 defineEmits([
@@ -249,5 +273,92 @@ defineEmits([
 .cover-empty-desc {
   font-size: 11px;
   color: $text-muted;
+}
+
+// ===== 自动裁剪中状态 =====
+// 上传视频后，后台抽帧 + 生成多比例封面（一般 5-20s），
+// 用旋转图标 + 不定进度条 + 阶段文案告诉用户在跑任务
+.cover-cropping {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 24px;
+  min-height: 180px;
+  cursor: default;
+  background: rgba($brand-start, 0.03);
+  overflow: hidden;
+
+  .cover-cropping-glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse at center,
+      rgba($brand-start, 0.08) 0%,
+      transparent 70%
+    );
+    animation: cropping-pulse 2.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .cover-cropping-spin {
+    position: relative;
+    z-index: 1;
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba($brand-start, 0.12);
+    color: $brand-start;
+  }
+
+  .cover-cropping-title {
+    position: relative;
+    z-index: 1;
+    font-size: 14px;
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  .cover-cropping-desc {
+    position: relative;
+    z-index: 1;
+    font-size: 12px;
+    color: $text-secondary;
+  }
+
+  .cover-cropping-bar {
+    position: relative;
+    z-index: 1;
+    width: 60%;
+    max-width: 160px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba($brand-start, 0.12);
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .cover-cropping-bar-fill {
+    position: absolute;
+    top: 0;
+    left: -40%;
+    width: 40%;
+    height: 100%;
+    border-radius: 2px;
+    background: $gradient-brand;
+    animation: cropping-bar 1.6s ease-in-out infinite;
+  }
+}
+@keyframes cropping-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+@keyframes cropping-bar {
+  0% { left: -40%; }
+  100% { left: 100%; }
 }
 </style>

@@ -5,6 +5,8 @@ Provides utilities to locate ffmpeg/ffprobe binaries, extract video metadata,
 and perform frame extraction (thumbnail and HD) for the video timeline feature.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import shutil

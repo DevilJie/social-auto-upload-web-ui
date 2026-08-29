@@ -6,6 +6,8 @@
 所有 context 使用 no_viewport=True，页面内容跟随窗口大小自动 reflow。
 """
 
+from __future__ import annotations
+
 import asyncio
 
 from conf import LOGIN_HEADLESS, LOCAL_CHROME_HEADLESS

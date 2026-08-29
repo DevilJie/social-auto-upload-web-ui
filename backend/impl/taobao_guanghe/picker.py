@@ -17,6 +17,8 @@ DOM 选择器策略(避免 CSS Modules 哈希 class 模糊匹配):
 - 复杂关系(卡片定位) 用 ``frame.evaluate(JS)`` 以稳定锚点向上找祖先
 """
 
+from __future__ import annotations
+
 import asyncio
 import sqlite3
 import threading

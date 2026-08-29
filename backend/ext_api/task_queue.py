@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass, field, asdict
@@ -203,6 +203,11 @@ class PublishTask:
     detail_id: str = ''            # publish_details.id
     payload: dict = field(default_factory=dict)
 
+    # 本次批量发布的视频间隔（分钟）。仅本次批量生效，覆盖全局
+    # settings.batchTaskInterval；None/0 表示不等待，立即开始下一个任务。
+    # 不持久化（属于一次性执行参数）。
+    batch_interval_minutes: float | None = None
+
     def to_dict(self):
         d = asdict(self)
         d['tags'] = json.dumps(self.tags, ensure_ascii=False)
@@ -279,7 +284,16 @@ class TaskQueue:
         self._thread: threading.Thread = None
         self._started = False
         self._status_callbacks = []  # 状态变更回调
-        self._interval_gate: asyncio.Lock | None = None  # 间隔模式的串行闸门
+        # ===== 发布链调度（DB 驱动，用户设计）=====
+        # 提交批量发布时：只有链头视频的任务立即入队；后续视频的任务暂存于
+        # pending_batches，等前驱视频全部完成后按间隔排程（写 scheduled_at），
+        # 由 _scheduler_loop 轮询到点入队执行。
+        self._pending_batches: dict[str, list[PublishTask]] = {}
+        self._pending_lock = threading.Lock()
+        self._scheduler_thread: threading.Thread = None
+        # 全局间隔回退（settings.batchTaskInterval，任务未带 batch_interval_minutes
+        # 时使用，如草稿批量）：batch_id → 最近完成时刻，worker 开始前分段等待。
+        self._batch_last_finished: dict[str, float] = {}
         # 取消支持：running 的 asyncio task 句柄 / 队列中待取消的 id / 已取消集合
         self._running_tasks: dict[str, asyncio.Task] = {}
         self._queued_ids: set[str] = set()
@@ -294,27 +308,176 @@ class TaskQueue:
         _cleanup_orphaned_tasks()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+        # 发布链调度轮询：到点的待发布视频入队执行
+        self._scheduler_thread = threading.Thread(
+            target=self._scheduler_loop, daemon=True, name="interval-scheduler"
+        )
+        self._scheduler_thread.start()
         self._started = True
         logger.info(f"[TaskQueue] 启动，并发数={self.max_concurrent}")
+
+    # ===== 发布链调度（DB 驱动）=====
+
+    def add_pending_batch(self, batch_id: str, tasks: list) -> None:
+        """暂存一个待排程视频的任务（由 videos/batch-publish 路由调用）。"""
+        with self._pending_lock:
+            self._pending_batches[batch_id] = list(tasks)
+
+    def cancel_pending_batch(self, batch_id: str) -> bool:
+        """取消一个尚未排程入队的待发布视频：内存任务全部标记取消并落库。"""
+        with self._pending_lock:
+            tasks = self._pending_batches.pop(batch_id, None)
+        if not tasks:
+            return False
+        now = datetime.now().isoformat()
+        for t in tasks:
+            t.status = TaskStatus.CANCELLED
+            t.error_message = "用户取消发布"
+            t.finished_at = now
+            self.completed.append(t)
+            self._update_db(t)
+            self._notify_status(t)
+        self._finish_batch_row(batch_id, 'cancelled')
+        logger.info("[TaskQueue] 待发布视频 %s 已取消（未入队直接落 cancelled）", batch_id)
+        return True
+
+    def _finish_batch_row(self, batch_id: str, status: str) -> None:
+        try:
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                conn.execute(
+                    "UPDATE publish_batches SET status=?, finished_at=?, updated_at=?"
+                    " WHERE id=?",
+                    (status, datetime.now().isoformat(),
+                     datetime.now().isoformat(), batch_id),
+                )
+        except Exception as e:
+            logger.info("[TaskQueue] 更新批次 %s 状态失败: %s", batch_id, e)
+
+    def _on_batch_maybe_finished(self, task: PublishTask) -> None:
+        """task 落终态后调用：若所属视频（batch）全部终态且有后继，按间隔排程下一个。
+
+        用户设计的链式规则：
+          本视频全部账号任务完成（无论成功/失败/取消）→ 读取 interval_minutes
+          和 next_batch_id → UPDATE 下一个视频 scheduled_at = now + interval。
+        interval=0 时直接置 now（立即可被调度器入队）。
+        """
+        try:
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                row = conn.execute(
+                    "SELECT interval_minutes, next_batch_id FROM publish_batches"
+                    " WHERE id=?",
+                    (task.batch_id,),
+                ).fetchone()
+                if not row or not row[1]:
+                    return
+                interval_min, next_id = float(row[0] or 0), row[1]
+                # 本视频是否全部终态（queued/running 视为未完成）
+                unfinished = conn.execute(
+                    "SELECT COUNT(*) FROM publish_details"
+                    " WHERE batch_id=? AND status IN ('pending','queued','running')",
+                    (task.batch_id,),
+                ).fetchone()[0]
+                if unfinished > 0:
+                    return
+                # 排程下一个视频：仅当它还在等待（pending 且未排程），保证只排一次
+                due = datetime.now() + timedelta(minutes=interval_min)
+                cur = conn.execute(
+                    "UPDATE publish_batches SET scheduled_at=?, updated_at=?"
+                    " WHERE id=? AND status='pending' AND scheduled_at=''",
+                    (due.isoformat(), datetime.now().isoformat(), next_id),
+                )
+                if cur.rowcount > 0:
+                    logger.info(
+                        "[TaskQueue] 视频 %s 已完成，下一个视频 %s 排程于 %s（间隔 %.1f 分钟）",
+                        task.batch_id, next_id, due.strftime('%H:%M:%S'), interval_min,
+                    )
+        except Exception as e:
+            logger.info("[TaskQueue] 排程下一个视频失败(%s): %s", task.batch_id, e)
+
+    def _scheduler_loop(self):
+        """轮询 DB：预定发布时间已到的待发布视频 → 任务入队执行。"""
+        while True:
+            time.sleep(2.0)
+            self._scheduler_tick()
+
+    def _scheduler_tick(self):
+        """调度一轮：到点的待发布视频入队；断链（重启丢暂存）标 failed 提示重发。"""
+        try:
+            now_iso = datetime.now().isoformat()
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                rows = conn.execute(
+                    "SELECT id FROM publish_batches"
+                    " WHERE status='pending' AND scheduled_at != ''"
+                    " AND scheduled_at <= ? ORDER BY scheduled_at LIMIT 10",
+                    (now_iso,),
+                ).fetchall()
+            for (bid,) in rows:
+                with self._pending_lock:
+                    tasks = self._pending_batches.pop(bid, None)
+                if not tasks:
+                    # 重启断链：暂存任务丢失，无法继续发布，明确标记让用户重发
+                    self._finish_batch_row(bid, 'failed')
+                    with sqlite3.connect(str(DB_PATH)) as conn:
+                        conn.execute(
+                            "UPDATE publish_details SET status='failed',"
+                            " error_message='服务重启导致发布链中断，请重新发布',"
+                            " finished_at=? WHERE batch_id=? AND status='pending'",
+                            (datetime.now().isoformat(), bid),
+                        )
+                    logger.info("[TaskQueue] 待发布视频 %s 因重启断链标记失败", bid)
+                    continue
+                logger.info("[TaskQueue] 视频间隔到达，视频 %s 开始发布（%d 个任务）",
+                            bid, len(tasks))
+                for t in tasks:
+                    self.add_task(t)
+        except Exception as e:
+            logger.info("[TaskQueue] 调度轮询异常: %s", e)
 
     def _run_loop(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self.queue = asyncio.Queue()
-        self._interval_gate = asyncio.Lock()
         for i in range(self.max_concurrent):
             self._loop.create_task(self._worker(f"worker-{i}"))
         self._loop.run_forever()
+
+    async def _wait_batch_interval(self, task: PublishTask, interval_min: float) -> None:
+        """等待本批次的发布间隔（可被取消打断）。
+
+        语义：本批次上一个 task 完成后需间隔 interval_min 分钟才能开始下一个。
+        分段 sleep（每段 ≤1s）并在每段之间检查 task 是否已被用户取消，
+        取消则立即返回（后续的出队取消检查会把它落成 cancelled）。
+        第一个 task（本批次无完成记录）不等待，立即执行。
+        """
+        last_fin = self._batch_last_finished.get(task.batch_id)
+        if last_fin is None:
+            return
+        target = last_fin + interval_min * 60
+        while True:
+            remaining = target - time.time()
+            if remaining <= 0:
+                return
+            with self._cancel_lock:
+                if task.id in self._cancelled_ids:
+                    return  # 已取消，跳过等待走取消分支
+            await asyncio.sleep(min(remaining, 1.0))
 
     async def _worker(self, name: str):
         while True:
             task = await self.queue.get()
             self._queued_ids.discard(task.id)
-            # 任务间隔（settings.batchTaskInterval，分钟）：>0 时串行 + 完成后等待
-            interval_min = _get_interval_minutes()
-            gated = interval_min > 0
-            if gated and self._interval_gate:
-                await self._interval_gate.acquire()
+            # 任务间隔（分钟）：
+            # - 任务级 batch_interval_minutes（发布页视频间隔）：不在 worker 等待，
+            #   由 DB 发布链调度（前驱视频完成后写 next.scheduled_at，调度器到点入队）。
+            # - 未带（如草稿批量发布）：回退全局 settings.batchTaskInterval，
+            #   worker 开始前按批次完成记录分段等待。
+            chain_mode = task.batch_interval_minutes is not None
+            if chain_mode:
+                interval_min = max(0.0, float(task.batch_interval_minutes))
+            else:
+                interval_min = _get_interval_minutes()
+                if interval_min > 0:
+                    await self._wait_batch_interval(task, interval_min)
 
             # 用户取消：出队前被标记取消 → 直接落 cancelled（不执行）
             with self._cancel_lock:
@@ -328,8 +491,9 @@ class TaskQueue:
                 self.completed.append(task)
                 self._update_db(task)
                 self._notify_status(task)
-                if gated and self._interval_gate:
-                    self._interval_gate.release()
+                if chain_mode:
+                    # 排队中取消也可能是视频的最后一个任务：同样检查是否该排程下一个
+                    self._on_batch_maybe_finished(task)
                 self.queue.task_done()
                 continue
 
@@ -340,6 +504,7 @@ class TaskQueue:
             self._update_db(task)
             self._notify_status(task)
 
+            cancelled_by_user = False
             try:
                 await self._execute(task)
                 task.status = TaskStatus.SUCCESS
@@ -349,6 +514,15 @@ class TaskQueue:
                 )
                 task.status = TaskStatus.CANCELLED
                 task.error_message = "用户取消发布"
+                cancelled_by_user = True
+                # 同步平台（如微博）在 executor 线程里跑，无法强杀，要等线程自然
+                # 收尾（_execute 里 while not cf.done(): await sleep）。但这段时间
+                # 任务在 DB 里仍是 running，前端看不到 cancel 信号，会以为「点了
+                # 没反应」。这里先把状态写库 + 推 SSE，让前端立刻看到 cancelled。
+                task.started_at = task.started_at or datetime.now().isoformat()
+                task.finished_at = datetime.now().isoformat()
+                self._update_db(task)
+                self._notify_status(task)
             except Exception as e:
                 # 重试逻辑已禁用 — 长耗时任务(如视频上传)失败立即标记 FAILED,
                 # 避免误触发「同一任务再次开浏览器重新上传」
@@ -360,14 +534,22 @@ class TaskQueue:
                 if task.id in self.running:
                     del self.running[task.id]
                 self._running_tasks.pop(task.id, None)
-                self.completed.append(task)
-                self._update_db(task)
-                self._notify_status(task)
-                if gated and self._interval_gate:
-                    try:
-                        await asyncio.sleep(interval_min * 60)
-                    finally:
-                        self._interval_gate.release()
+                if not cancelled_by_user:
+                    # 正常完成/失败：进 completed 列表 + 写库 + 推 SSE。
+                    self.completed.append(task)
+                    self._update_db(task)
+                    self._notify_status(task)
+                    if not chain_mode and interval_min > 0:
+                        # 全局间隔回退路径：记录批次完成时刻（下一个 task 据此等待）
+                        self._batch_last_finished[task.batch_id] = time.time()
+                else:
+                    # 用户取消：上面已经写过库/推过 SSE；不进 completed（重试会
+                    # 用到），也不更新批次完成时刻 —— 取消不该让后续 task 白等间隔。
+                    self._update_db(task)
+                if chain_mode:
+                    # 发布链调度：本视频（batch）全部账号任务终态后，
+                    # 按间隔排程下一个视频（写 next.scheduled_at，调度器到点入队）。
+                    self._on_batch_maybe_finished(task)
                 self.queue.task_done()
 
     async def _execute(self, task: PublishTask):
@@ -469,12 +651,11 @@ class TaskQueue:
         logger.info(f"[TaskQueue] 任务已入队: {task.id} ({task.platform}/{task.account_name})")
 
     def cancel_task(self, task_id: str) -> bool:
-        """取消任务：支持 running / queued / cancelled 前的任务。
+        """取消任务：支持 running / queued / 待排程（发布链暂存）/ 孤儿任务。
 
         - queued（还在队列里）：标记取消，worker 出队时直接落 cancelled；
         - running：cancel 对应 asyncio task → worker 捕获 CancelledError 落 cancelled；
-          注意同步平台(如微博)在 executor 线程里跑，无法强杀线程，但任务状态会
-          立即置 cancelled（线程残留工作结束后自然消亡）；
+        - 待排程（发布链 _pending_batches 里，视频间隔还没到）：取消整个视频；
         - 已完成的任务不可取消，返回 False。
         """
         with self._cancel_lock:
@@ -491,18 +672,29 @@ class TaskQueue:
             if task_id in self._queued_ids or task_id in self._cancelled_ids:
                 self._cancelled_ids.add(task_id)
                 return True
+        # 发布链待排程：task 还没入队（前驱视频的间隔没到）→ 取消整个待发布视频。
+        # 注意：只在锁内查 batch_id，取消动作放锁外（cancel_pending_batch 自己
+        # 也要拿 _pending_lock，threading.Lock 不可重入，锁内直调会死锁）。
+        pending_bid = None
+        with self._pending_lock:
+            for bid, tasks in self._pending_batches.items():
+                if any(t.id == task_id for t in tasks):
+                    pending_bid = bid
+                    break
+        if pending_bid is not None:
+            return self.cancel_pending_batch(pending_bid)
         # 内存里找不到:可能是服务重启后 DB 残留的孤儿任务(永远不会执行),
         # 直接在 DB 落 cancelled —— 否则前端永远「排队中」且取消报 400
         return self._cancel_orphan_in_db(task_id)
 
     def _cancel_orphan_in_db(self, task_id: str) -> bool:
-        """孤儿任务兜底取消:DB 里仍是 running/queued 但内存无此任务。"""
+        """孤儿任务兜底取消:DB 里仍是 running/queued/pending 但内存无此任务。"""
         now = datetime.now().isoformat()
         try:
             with sqlite3.connect(str(DB_PATH)) as conn:
                 row = conn.execute(
                     "SELECT batch_id FROM publish_details"
-                    " WHERE id=? AND status IN ('running', 'queued')",
+                    " WHERE id=? AND status IN ('running', 'queued', 'pending')",
                     (task_id,),
                 ).fetchone()
                 if not row:

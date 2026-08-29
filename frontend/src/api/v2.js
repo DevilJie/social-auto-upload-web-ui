@@ -67,7 +67,12 @@ export const settingsApi = {
 // 批量视频发布（发布页视频队列）
 export const batchPublishApi = {
   // videos: 发布页每个视频的完整 draft_data 快照数组
-  batchPublishVideos(videos) {
-    return http.post('/api/v2/videos/batch-publish', { videos })
+  // intervalMinutes: 本次批量发布视频间隔（分钟），仅本次批量生效；
+  //                 缺省/NaN/负数视为 0（= 立即发布下一个）。后端写 task.batch_interval_minutes。
+  batchPublishVideos(videos, intervalMinutes = 0) {
+    return http.post('/api/v2/videos/batch-publish', {
+      videos,
+      interval_minutes: Math.max(0, Number(intervalMinutes) || 0),
+    })
   },
 }

@@ -58,7 +58,10 @@ def _setup_db(tmp_db):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             started_at TIMESTAMP,
             finished_at TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            scheduled_at TEXT DEFAULT '',
+            interval_minutes REAL DEFAULT 0,
+            next_batch_id TEXT DEFAULT ''
         );
         CREATE TABLE publish_details (
             id TEXT PRIMARY KEY,
@@ -125,7 +128,7 @@ def _patch_common(monkeypatch, db_path):
 
 
 def test_batch_publish_2videos_2accounts(tmp_path, monkeypatch):
-    """2 视频 × 各 1 账号 → 2 task，2 batch（每视频一个 batch）。"""
+    """2 视频 × 各 1 账号 → 2 batch；链头视频立即入队，第二个视频暂存待排程。"""
     db_path = tmp_path / "test.db"
     _setup_db(db_path)
     with sqlite3.connect(str(db_path)) as conn:
@@ -137,8 +140,8 @@ def test_batch_publish_2videos_2accounts(tmp_path, monkeypatch):
         added_tasks.append(task)
 
     from ext_api import task_queue as tq
-    monkeypatch.setattr(tq, 'get_task_queue',
-                        lambda: MagicMock(add_task=fake_add_task))
+    queue_mock = MagicMock(add_task=fake_add_task)
+    monkeypatch.setattr(tq, 'get_task_queue', lambda: queue_mock)
     _patch_common(monkeypatch, db_path)
 
     from app import app
@@ -151,12 +154,19 @@ def test_batch_publish_2videos_2accounts(tmp_path, monkeypatch):
     assert len(data['task_ids']) == 2
     assert len(set(data['batch_ids'])) == 2   # 每视频独立 batch
     assert data['failed'] == []
-    assert len(added_tasks) == 2
-    assert all(t.source == 'batch' for t in added_tasks)
-    assert all(t.max_retries == 0 for t in added_tasks)
-    assert all(t.platform == '小红书' for t in added_tasks)
-    titles = {t.title for t in added_tasks}
-    assert titles == {'T'}
+    # 发布链：只有链头（第一个视频）的任务立即入队执行
+    assert len(added_tasks) == 1
+    assert added_tasks[0].source == 'batch'
+    assert added_tasks[0].max_retries == 0
+    assert added_tasks[0].platform == '小红书'
+    assert added_tasks[0].title == 'T'
+    # 第二个视频：只写库（details=pending）+ 暂存待排程，不立即入队
+    queue_mock._insert_db.assert_called_once()
+    queue_mock.add_pending_batch.assert_called_once()
+    pending_bid, pending_tasks = queue_mock.add_pending_batch.call_args[0]
+    assert len(pending_tasks) == 1
+    assert pending_bid in data['batch_ids']
+    assert pending_bid != added_tasks[0].batch_id
 
 
 def test_batch_publish_invalid_video_reports_failure(tmp_path, monkeypatch):
@@ -291,6 +301,57 @@ def test_batch_publish_payload_platform_fields(tmp_path, monkeypatch):
     # 封面互备：只有横版封面时竖版用同图
     assert p['thumbnail_landscape_path'] == '/abs/c.jpg'
     assert p['thumbnail_portrait_path'] == '/abs/c.jpg'
+
+
+def test_batch_publish_propagates_interval_minutes(tmp_path, monkeypatch):
+    """发布页 interval_minutes 被写入每个任务的 batch_interval_minutes。
+
+    覆盖三种语义：
+      - 正数（30）→ 透传，worker 会等待 30 分钟
+      - 0        → 写入 0.0（= 不等待）
+      - 缺省     → 写入 0.0（与旧行为一致，向后兼容）
+    """
+    db_path = tmp_path / "test.db"
+    _setup_db(db_path)
+    with sqlite3.connect(str(db_path)) as conn:
+        _insert_user(conn, 1, 'xiaohongshu', '/cookies/x1')
+
+    added_tasks = []
+    from ext_api import task_queue as tq
+    monkeypatch.setattr(tq, 'get_task_queue',
+                        lambda: MagicMock(add_task=added_tasks.append))
+    _patch_common(monkeypatch, db_path)
+
+    from app import app
+    client = app.test_client()
+
+    # 1) 显式传 30 → task.batch_interval_minutes == 30.0
+    resp = client.post(
+        '/api/v2/videos/batch-publish',
+        json={'videos': [_video_data('a.mp4')], 'interval_minutes': 30},
+    )
+    assert resp.status_code == 200
+    assert added_tasks[-1].batch_interval_minutes == 30.0
+
+    # 2) 显式传 0 → task.batch_interval_minutes == 0.0（不等待）
+    resp = client.post(
+        '/api/v2/videos/batch-publish',
+        json={'videos': [_video_data('b.mp4')], 'interval_minutes': 0},
+    )
+    assert resp.status_code == 200
+    assert added_tasks[-1].batch_interval_minutes == 0.0
+
+    # 3) 缺省/非法/负数 → 统一规整为 0.0，向后兼容
+    for bad in (None, 'abc', -5, -0.001):
+        added_tasks.clear()
+        body = {'videos': [_video_data('c.mp4')]}
+        if bad is not None:
+            body['interval_minutes'] = bad
+        resp = client.post('/api/v2/videos/batch-publish', json=body)
+        assert resp.status_code == 200
+        assert added_tasks[-1].batch_interval_minutes == 0.0, (
+            f"interval_minutes={bad!r} should normalize to 0.0"
+        )
 
 
 def test_batch_publish_empty_videos_rejected(tmp_path, monkeypatch):

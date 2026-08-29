@@ -78,6 +78,37 @@
         </el-table-column>
       </el-table>
 
+      <!-- 视频发布间隔提示 + 设置：仅本次批量生效 -->
+      <el-alert
+        class="interval-tip"
+        type="warning"
+        :closable="false"
+        show-icon
+      >
+        <template #title>
+          <span>请设置每个视频发布间隔（单位：分钟）</span>
+        </template>
+        <template #default>
+          <div class="interval-tip-body">
+            <span class="interval-hint">
+              数值 <b>&gt; 0</b> 时，每发布完一个视频等待指定分钟数再发布下一个；
+              填 <b>0</b> 则发布完一个视频立即开始发布下一个。设置仅对本次批量生效。
+            </span>
+            <div class="interval-input">
+              <el-input-number
+                v-model="intervalMinutes"
+                :min="0"
+                :max="120"
+                :step="1"
+                controls-position="right"
+                style="width: 140px"
+              />
+              <span class="interval-unit">分钟</span>
+            </div>
+          </div>
+        </template>
+      </el-alert>
+
       <div class="summary">
         已选 <b>{{ selectedIndexes.length }}</b> / {{ rows.length }} 个视频
         · 预计产生 <b>{{ estimatedTasks }}</b> 个发布任务
@@ -118,6 +149,10 @@ const emit = defineEmits(['update:visible', 'confirm'])
 const selectedIndexes = ref([])
 // 有校验错误的行自动展开（row-key 为 index，需字符串）
 const expandedKeys = ref([])
+// 本次批量发布的视频间隔（分钟）。0 = 立即开始下一个；>0 = 等满分钟再发下一个。
+// 仅本次批量生效，不影响 settings.batchTaskInterval 全局值。
+// 默认 30 分钟：避免平台风控（用户反馈：默认 0 太隐蔽，容易忘记设置）。
+const intervalMinutes = ref(30)
 
 const failedCount = computed(() => props.rows.filter((r) => r.errors.length > 0).length)
 
@@ -165,7 +200,12 @@ function toggleAll(checked) {
 
 function onConfirm() {
   if (selectedIndexes.value.length === 0) return
-  emit('confirm', [...selectedIndexes.value])
+  // 父组件读取数值并传给后端（仅本次批量生效）。
+  // el-input-number 已限制 min=0，组件无需重复校验。
+  emit('confirm', {
+    selectedIndexes: [...selectedIndexes.value],
+    intervalMinutes: Number(intervalMinutes.value) || 0,
+  })
 }
 </script>
 
@@ -287,6 +327,37 @@ function onConfirm() {
     color: $text-muted;
     font-size: 12px;
     margin-left: 6px;
+  }
+}
+
+// 视频发布间隔提示：位于表格下方、summary 上方，使用 warning 强调需要确认
+.interval-tip {
+  margin: 14px 0 10px;
+
+  .interval-tip-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 2px;
+  }
+
+  .interval-hint {
+    font-size: 12px;
+    line-height: 1.7;
+    color: $text-secondary;
+
+    b { color: $brand-start; }
+  }
+
+  .interval-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .interval-unit {
+    font-size: 13px;
+    color: $text-secondary;
   }
 }
 </style>

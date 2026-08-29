@@ -110,7 +110,10 @@ def init_database():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         started_at TIMESTAMP,
         finished_at TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        scheduled_at TEXT DEFAULT '',
+        interval_minutes REAL DEFAULT 0,
+        next_batch_id TEXT DEFAULT ''
     )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_publish_batches_created ON publish_batches(created_at DESC)")
@@ -267,6 +270,21 @@ def migrate_database():
         logger.info("已创建 idx_publish_batches_draft 索引")
     except sqlite3.OperationalError:
         pass  # 索引已存在
+
+    # 发布链调度：发布页批量发布时视频间隔用（DB 驱动的定时调度）
+    # scheduled_at = 该视频预定开始发布的时间（ISO，空 = 不等待/立即）
+    # interval_minutes = 本批次提交时的视频间隔（分钟）
+    # next_batch_id = 链表：本视频全部完成后按间隔排程下一个视频
+    for col_sql in (
+        "ALTER TABLE publish_batches ADD COLUMN scheduled_at TEXT DEFAULT ''",
+        "ALTER TABLE publish_batches ADD COLUMN interval_minutes REAL DEFAULT 0",
+        "ALTER TABLE publish_batches ADD COLUMN next_batch_id TEXT DEFAULT ''",
+    ):
+        try:
+            cursor.execute(col_sql)
+            logger.info(f"已添加 publish_batches.{col_sql.split('ADD COLUMN ')[1].split()[0]} 列")
+        except sqlite3.OperationalError:
+            pass  # 列已存在
 
     # 确保 tags 表存在（幂等）
     cursor.execute("""

@@ -20,6 +20,15 @@
         <span v-else-if="currentRunning" class="current">
           正在发布：{{ currentRunning.account_name }}（{{ currentRunning.platform }}）
         </span>
+        <span v-else-if="countdownActive" class="current countdown">
+          距下一个视频发布还有
+          <b class="countdown-num">{{ countdownText }}</b>
+        </span>
+        <span v-else-if="intervalModeOn && hasActive" class="current countdown-muted">
+          视频间隔
+          <b class="countdown-num">{{ intervalHintText }}</b>
+          ，第一个视频立即开始
+        </span>
         <span v-else class="current muted">队列调度中…</span>
         <span class="stats">{{ finishedCount }} / {{ totalTasks }} 个任务</span>
       </div>
@@ -46,6 +55,15 @@
             <i v-if="g.summaryType === 'running'" class="chip-dot spin"></i>
             <i v-else class="chip-dot"></i>
             {{ g.summaryLabel }}
+          </span>
+          <!-- 仅「下一个等待视频」显示倒计时；后续排队视频无法预测时长，不展示 -->
+          <span
+            v-if="countdownActive && g.id === nextWaitingGroupId"
+            class="card-countdown"
+            :title="`间隔 ${intervalMinutes} 分钟`"
+          >
+            <el-icon class="card-countdown-icon"><Timer /></el-icon>
+            {{ countdownText }}
           </span>
           <span :class="['group-count', { 'is-done': g.doneCount === g.items.length }]">
             {{ g.doneCount }}/{{ g.items.length }}
@@ -107,9 +125,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, onMounted, triggerRef } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, Clock, CircleCheckFilled, CircleCloseFilled, VideoCameraFilled, ArrowDown } from '@element-plus/icons-vue'
+import { Loading, Clock, CircleCheckFilled, CircleCloseFilled, VideoCameraFilled, ArrowDown, Timer } from '@element-plus/icons-vue'
 import { historyApi, taskApi } from '@/api/v2'
 
 // 批量视频发布实时进度弹窗：
@@ -127,6 +145,9 @@ const props = defineProps({
   batchIds: { type: Array, default: () => [] },
   // 提交阶段就失败的视频（未生成任务），文案由父组件拼好
   failedNotes: { type: Array, default: () => [] },
+  // 本次批量间隔（分钟），用于在等待阶段显示「距下一个视频发布还有 mm:ss」倒计时。
+  // 0 或不传 = 不显示倒计时（= 连续发布）。
+  intervalMinutes: { type: Number, default: 0 },
 })
 
 const emit = defineEmits(['update:visible', 'go-history'])
@@ -169,9 +190,12 @@ function isActive(status) {
   return status === 'pending' || status === 'queued' || status === 'running'
 }
 
-// 展示用分组：doneCount + 汇总标签 + 展开态 + 排序（未完成的在前，已完成的沉底）
+// 展示用分组：doneCount + 汇总标签 + 展开态
+// 注意：不改变视频卡片的提交顺序（用户要求：已完成不要沉底）—— 严格按 batch_ids 顺序
+// （也就是 batches.value 的原顺序，由 refreshAll / refreshBatch 入队时按提交顺序插入）。
+// 视频内 task 行排序仍按 rowRank（进行中靠前），符合用户已有诉求。
 const sortedGroups = computed(() => batches.value
-  .map(b => {
+  .map((b, gIdx) => {
     const items = (b.items || [])
       .map((it, idx) => ({ ...it, _idx: idx }))
       .sort((a, b2) => rowRank(a.status) - rowRank(b2.status) || a._idx - b2._idx)
@@ -180,7 +204,7 @@ const sortedGroups = computed(() => batches.value
     const done = total > 0 && doneCount === total
     const fails = items.filter(it => it.status === 'failed' || it.status === 'cancelled').length
     const running = items.some(it => it.status === 'running')
-    const g = { ...b, items, doneCount }
+    const g = { ...b, items, doneCount, _gIdx: gIdx }
     if (done) {
       g.summaryType = fails > 0 ? 'fail' : 'ok'
       g.summaryLabel = fails > 0 ? (fails === total ? '全部失败' : '部分失败') : '全部成功'
@@ -194,10 +218,78 @@ const sortedGroups = computed(() => batches.value
     g.expanded = isGroupExpanded(g)
     return g
   })
-  .sort((a, b) => (a.doneCount === a.items.length ? 1 : 0) - (b.doneCount === b.items.length ? 1 : 0)))
+  // 保持提交顺序：batches 数组顺序就是 batch_ids 顺序（refreshAll/refreshBatch
+  // 都按 batchIds 顺序写入）。这里不再二次 sort，避免把已完成的视频卡片
+  // "沉底" 让用户觉得顺序被改动。
+  .sort((a, b) => a._gIdx - b._gIdx))
 
 let eventSource = null
 let pollTimer = null
+
+// ========== 「距下一个视频发布」倒计时 ==========
+// 三种文案：
+//   1. intervalMinutes === 0：完全无倒计时（连续发布，每发完一个立即发下一个）
+//   2. intervalMinutes > 0 且还没有任何 task 完成：提示"间隔 N 分钟，第一个视频立即开始"
+//   3. intervalMinutes > 0 且已有 task 完成、还有等待中的视频：实时倒计时
+//      锚点 = 最近一次 task 进入终态的时刻（取后端 finished_at，避免前端 Date.now() 误差）
+//      目标时间 = 锚点 + intervalMinutes 分钟
+//
+// 后续等待的视频不预测（用户反馈：每个视频实际发布时长不一，无法估算）。
+//
+// 实现：倒计时直接读后端写好的 scheduled_at（发布链调度，DB 驱动），
+// 每秒 ticker 刷新 countdownNow 驱动 mm:ss 文本递减。
+let countdownNow = ref(Date.now())    // 每秒刷新驱动 mm:ss 文本
+
+// 间隔模式开启：用户填了 > 0 的间隔。仅作模式开关，不强制要求有已完成 task。
+const intervalModeOn = computed(() =>
+  props.intervalMinutes != null && Number(props.intervalMinutes) > 0
+)
+
+// 「下一个待发布视频」：第一个等待中且已被排程（scheduled_at 非空）的视频。
+// 后端发布链：前驱视频全部完成后写 scheduled_at = 完成时刻 + 间隔，
+// 调度器到点自动入队发布。前端倒计时 = scheduled_at - 当前时间（用户设计）。
+const nextScheduled = computed(() => {
+  const g = sortedGroups.value.find(
+    g => g.summaryType === 'wait' && g.scheduledAt
+  )
+  if (!g) return null
+  const ts = Date.parse(g.scheduledAt)
+  return Number.isNaN(ts) ? null : { id: g.id, at: ts }
+})
+
+// 真实倒计时条件：间隔模式 + 存在已排程的等待视频 + 未全部完成
+const countdownActive = computed(() => {
+  if (!intervalModeOn.value) return false
+  if (nextScheduled.value === null) return false
+  return !allDone.value
+})
+
+const countdownMs = computed(() => {
+  if (!countdownActive.value) return 0
+  return Math.max(0, nextScheduled.value.at - countdownNow.value)
+})
+
+// 把毫秒格式化成 "mm:ss"（>= 1 小时显示 "H:MM:SS"），仅用于显示
+function formatCountdown(ms) {
+  const total = Math.ceil(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const pad = n => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
+}
+const countdownText = computed(() => formatCountdown(countdownMs.value))
+
+// 间隔模式下"提示文案"使用的最大间隔（mm:ss 形式）
+const intervalHintText = computed(() => formatCountdown(props.intervalMinutes * 60 * 1000))
+
+// 「下一个等待的视频」id：已排程的优先（显示倒计时标签）；
+// 未排程时退回第一个等待视频（前驱还在发布，暂时无法预测，不显示倒计时）。
+const nextWaitingGroupId = computed(() => {
+  if (nextScheduled.value) return nextScheduled.value.id
+  const g = sortedGroups.value.find(g => g.summaryType === 'wait')
+  return g?.id ?? null
+})
 
 const allItems = computed(() => batches.value.flatMap(b => b.items))
 const totalTasks = computed(() => allItems.value.length)
@@ -259,6 +351,9 @@ function mapBatch(b) {
     id: b.id,
     title: b.title,
     coverUrl: b.cover_url,
+    // 发布链排程时间（ISO）：前驱视频完成后写入 = 完成时刻 + 间隔，
+    // 前端据此显示"距下一个视频发布还有 mm:ss"倒计时
+    scheduledAt: b.scheduled_at || '',
     items: (b.items || []).map(it => ({ ...it })),
   }
 }
@@ -275,6 +370,9 @@ async function refreshAll() {
     const order = new Map(props.batchIds.map((id, i) => [id, i]))
     mapped.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
     batches.value = mapped
+    // 显式 triggerRef 兜底：batches = mapped 会触发 ref，但某些浏览器/Vue
+    // 边界场景下可能漏触发；显式调用让 nextScheduled computed 立刻重算。
+    triggerRef(batches)
     if (allDone.value) stopTracking()
   } catch { /* 下次轮询重试 */ }
 }
@@ -288,6 +386,7 @@ async function refreshBatch(batchId) {
     const idx = batches.value.findIndex(b => b.id === mapped.id)
     if (idx >= 0) batches.value[idx] = mapped
     else batches.value.push(mapped)
+    triggerRef(batches)
     if (allDone.value) stopTracking()
   } catch { /* 下次轮询兜底 */ }
 }
@@ -306,7 +405,13 @@ function connectSSE() {
     const it = b.items.find(it => it.id === d.id)
     it.status = d.status
     if (d.error) it.error_message = d.error
-    if (TERMINAL.includes(d.status)) refreshBatch(b.id)
+    // SSE 直接改对象属性（it.status = X）不会触发 batches ref 的响应式追踪,
+    // 显式 triggerRef 让 nextScheduled computed 重算（refreshBatch 还会拉到
+    // 后端排程好的 scheduled_at，倒计时随之出现）。
+    if (TERMINAL.includes(d.status)) {
+      triggerRef(batches)
+      refreshBatch(b.id)
+    }
   }
   // 断连不重连（EventSource 默认自动重连），交给 5s 轮询兜底
   es.onerror = () => closeSSE()
@@ -319,7 +424,11 @@ function closeSSE() {
 function stopTracking() {
   closeSSE()
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  if (tickerTimer) { clearInterval(tickerTimer); tickerTimer = null }
 }
+
+// 每秒刷新倒计时文本（仅在弹窗打开期间跑，关闭即停）
+let tickerTimer = null
 
 watch(
   () => props.visible,
@@ -329,9 +438,13 @@ watch(
       batches.value = []
       manualExpanded.value = new Set()
       manualCollapsed.value = new Set()
+      countdownNow.value = Date.now()
       refreshAll()
       connectSSE()
       pollTimer = setInterval(refreshAll, 5000)
+      tickerTimer = setInterval(() => {
+        countdownNow.value = Date.now()
+      }, 1000)
     }
   }
 )
@@ -360,6 +473,24 @@ onBeforeUnmount(stopTracking)
 
         &.done { color: $success-color; }
         &.muted { color: $text-muted; }
+        &.countdown {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 6px;
+          color: $brand-start;
+        }
+        .countdown-num {
+          font-variant-numeric: tabular-nums;
+          font-size: 15px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+        }
+        &.countdown-muted {
+          // 还没开始真实倒计时：文案比正在倒计时更克制，避免误以为已经等了 N 分钟
+          color: $text-secondary;
+
+          .countdown-num { font-size: 14px; }
+        }
       }
 
       .stats { color: $text-muted; flex-shrink: 0; }
@@ -487,6 +618,27 @@ onBeforeUnmount(stopTracking)
       font-variant-numeric: tabular-nums;
 
       &.is-done { color: $success-color; }
+    }
+
+    // 下一个等待视频卡上的小倒计时标签
+    .card-countdown {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      line-height: 1;
+      padding: 4px 8px;
+      border-radius: 10px;
+      background: color-mix(in srgb, $brand-start 12%, transparent);
+      color: $brand-start;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.3px;
+
+      .card-countdown-icon {
+        font-size: 12px;
+        animation: spin-rotate 2s linear infinite;
+      }
     }
 
     .chevron {

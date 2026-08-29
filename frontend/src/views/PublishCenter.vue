@@ -866,6 +866,7 @@
       :visible="batchProgressVisible"
       :batch-ids="batchProgressBatchIds"
       :failed-notes="batchProgressFailedNotes"
+      :interval-minutes="batchProgressIntervalMinutes"
       @update:visible="batchProgressVisible = $event"
       @go-history="goPublishHistoryFromProgress"
     />
@@ -2107,6 +2108,8 @@ const batchSubmitting = ref(false)
 const batchProgressVisible = ref(false)
 const batchProgressBatchIds = ref([])
 const batchProgressFailedNotes = ref([])
+// 本次批量间隔（分钟），传给进度弹窗用于显示「下一个视频倒计时」
+const batchProgressIntervalMinutes = ref(0)
 
 function goPublishHistoryFromProgress() {
   batchProgressVisible.value = false
@@ -3250,13 +3253,20 @@ async function startBatchPublish() {
 }
 
 // 确认弹窗回调：提交勾选视频 → 移出队列 → 结果反馈
-async function confirmBatchPublish(selectedIndexes) {
+async function confirmBatchPublish(payload) {
+  // 新格式：{ selectedIndexes, intervalMinutes }；兼容旧版直接传数组（防御性）
+  const selectedIndexes = Array.isArray(payload)
+    ? payload
+    : (payload?.selectedIndexes || [])
+  const intervalMinutes = Array.isArray(payload)
+    ? 0
+    : Math.max(0, Number(payload?.intervalMinutes) || 0)
   if (!selectedIndexes || selectedIndexes.length === 0) return
   batchSubmitting.value = true
   try {
     const sorted = [...selectedIndexes].sort((a, b) => a - b)
     const videos = sorted.map(i => videoQueue.value[i])
-    const resp = await batchPublishApi.batchPublishVideos(videos)
+    const resp = await batchPublishApi.batchPublishVideos(videos, intervalMinutes)
     const data = resp?.data || resp || {}
     const taskIds = data.task_ids || []
     const failed = data.failed || []
@@ -3286,6 +3296,7 @@ async function confirmBatchPublish(selectedIndexes) {
       // 不再跳发布历史：保持原发布交互，弹窗实时展示后端队列执行进度
       batchProgressBatchIds.value = data.batch_ids || []
       batchProgressFailedNotes.value = failLines
+      batchProgressIntervalMinutes.value = intervalMinutes
       batchProgressVisible.value = true
     } else if (failLines.length) {
       ElMessage.error(`提交失败：${failLines.join('；')}`)

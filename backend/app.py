@@ -1750,6 +1750,92 @@ if __name__ == "__main__":
     except Exception as _e:
         logger.warning("[Startup] 账号检查模式读取失败（不影响主服务）: %s", _e)
 
+    # ========== 视频号（channels）保活线程 ==========
+    # 视频号长时间无操作会自动退出登录。每 30 分钟对全部有效视频号账号
+    # 跑一次 sync_profile（与账号列表「同步」按钮同一调用）：访问创作者中心
+    # 刷新服务端会话，顺带回填昵称/头像/运营数据。
+    def _channels_keepalive_loop():
+        INTERVAL = 30 * 60  # 30 分钟
+        while True:
+            time.sleep(INTERVAL)
+            try:
+                db_path = _get_db_path()
+                with sqlite3.connect(str(db_path)) as conn:
+                    rows = conn.execute(
+                        "SELECT id, filePath, userName FROM user_info"
+                        " WHERE type = 2 AND status = 1"
+                    ).fetchall()
+                if not rows:
+                    continue
+                from impl.registry import get_platform as _gp
+                platform = _gp(2)  # 2 = 视频号 channels
+                if not platform:
+                    continue
+
+                # 发布进行中的账号本轮跳过：发布与保活同时开浏览器
+                # 操作同一 cookie 会话，避免并发冲突
+                try:
+                    from ext_api.task_queue import get_task_queue as _gtq
+                    _busy_cookies = {
+                        t.account_cookie_path
+                        for t in list(_gtq().running.values())
+                    }
+                except Exception:
+                    _busy_cookies = set()
+
+                logger.info(
+                    f"[ChannelsKeepAlive] 开始同步 {len(rows)} 个视频号账号"
+                )
+                for acc_id, cookie_file, nick in rows:
+                    if cookie_file in _busy_cookies:
+                        logger.info(
+                            f"[ChannelsKeepAlive] 账号 {nick}(id={acc_id})"
+                            " 有发布任务进行中，本轮跳过"
+                        )
+                        continue
+                    try:
+                        cookie_path = str(Path(BASE_DIR / "cookiesFile" / cookie_file))
+                        if not Path(cookie_path).exists():
+                            continue
+                        # 与 /syncProfile 路由同一约定：dict{name, avatar, stats}
+                        result = asyncio.run(platform.sync_profile(cookie_file))
+                        if isinstance(result, dict):
+                            name = result.get('name', '') or ''
+                            avatar = result.get('avatar', '') or ''
+                            stats = result.get('stats', []) or []
+                            if not isinstance(stats, list):
+                                stats = []
+                            if name or avatar:
+                                stats_json = json.dumps(stats, ensure_ascii=False)
+                                with sqlite3.connect(str(db_path)) as conn:
+                                    if name:
+                                        conn.execute(
+                                            'UPDATE user_info SET userName = ?,'
+                                            ' avatar = ?, stats = ? WHERE id = ?',
+                                            (name, avatar, stats_json, acc_id),
+                                        )
+                                    else:
+                                        conn.execute(
+                                            'UPDATE user_info SET avatar = ?,'
+                                            ' stats = ? WHERE id = ?',
+                                            (avatar, stats_json, acc_id),
+                                        )
+                        logger.info(
+                            f"[ChannelsKeepAlive] 账号 {nick}(id={acc_id}) 同步完成"
+                        )
+                    except Exception as e:
+                        logger.info(
+                            f"[ChannelsKeepAlive] 账号 {nick}(id={acc_id}) 同步异常: {e}"
+                        )
+                logger.info("[ChannelsKeepAlive] 本轮同步完成")
+            except Exception as e:
+                logger.info(f"[ChannelsKeepAlive] 保活线程异常: {e}")
+
+    threading.Thread(
+        target=_channels_keepalive_loop, daemon=True, name="channels-keepalive"
+    ).start()
+    logger.info("[Startup] 视频号保活线程已启动（每 30 分钟同步一次全部视频号账号）")
+
     port = int(os.environ.get("SAU_PORT", "5409"))
     if port == 5409:
         try:

@@ -190,6 +190,15 @@
           <div class="card-meta">
             <span class="meta-time">{{ formatCardTime(batch.created_at) }}</span>
             <span class="status-tag" :class="`status-${batch.status}`">{{ statusLabel(batch.status) }}</span>
+            <!-- 发布链间隔等待中：显示距自动发布的倒计时（读后端 scheduled_at） -->
+            <span
+              v-if="batchCountdownMs(batch, now) !== null"
+              class="countdown-chip"
+              :title="`预定 ${formatTime(batch.scheduled_at)} 自动发布`"
+            >
+              <el-icon><Timer /></el-icon>
+              {{ formatCountdown(batchCountdownMs(batch, now)) }} 后发布
+            </span>
           </div>
           <div class="card-stats">
             <PublishStats compact />
@@ -232,19 +241,30 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Clock, Picture, Refresh, Upload, CircleCheck, Calendar, Delete, Check, Select, Close } from '@element-plus/icons-vue'
+import { Clock, Picture, Refresh, Upload, CircleCheck, Calendar, Delete, Check, Select, Close, Timer } from '@element-plus/icons-vue'
 import { historyApi, statsApi, taskApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import ChannelSummary from '@/components/ChannelSummary.vue'
 import PublishStats from '@/components/PublishStats.vue'
+import { useNowTicker, formatCountdown, batchCountdownMs } from '@/composables/useNowTicker'
 
 const router = useRouter()
 const batches = ref([])
 const stats = ref({ total: 0, successRate: 0, monthlyTotal: 0 })
 const loading = ref(false)
+
+// 每秒跳动的当前时间：驱动「xx 后发布」倒计时文本
+const now = useNowTicker()
+
+function formatTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
+}
 
 // Filters
 const timeRange = ref('all')
@@ -319,6 +339,40 @@ async function fetchHistory() {
     loading.value = false
   }
 }
+
+// 静默刷新（不触发 loading，避免轮询时列表闪烁）
+async function fetchHistorySilent() {
+  try {
+    const params = { page: currentPage.value, pageSize: pageSize.value }
+    if (timeRange.value !== 'all') params.timeRange = timeRange.value
+    if (typeFilter.value !== 'all') params.type = typeFilter.value
+    if (platformFilter.value !== 'all') params.platform = platformFilter.value
+    if (statusFilter.value !== 'all') params.status = statusFilter.value
+    const res = await historyApi.getHistory(params)
+    if (res.code === 200) {
+      batches.value = res.data?.items || []
+      total.value = res.data?.total || 0
+    }
+  } catch { /* 静默轮询失败忽略，下轮再试 */ }
+}
+
+// 有进行中/等待间隔的批次时每 5s 静默轮询：
+// 倒计时归零后调度器会开始发布，列表状态需自动翻转，无需手刷
+const hasActiveBatches = computed(() =>
+  batches.value.some(b => ['pending', 'queued', 'running'].includes(b.status))
+)
+let pollTimer = null
+watch(hasActiveBatches, (active) => {
+  if (active && !pollTimer) {
+    pollTimer = setInterval(fetchHistorySilent, 5000)
+  } else if (!active && pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}, { immediate: true })
+onBeforeUnmount(() => {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+})
 
 async function fetchStats() {
   try {
@@ -953,6 +1007,20 @@ onMounted(() => { fetchHistory(); fetchStats() })
     &.status-pending, &.status-cancelled {
       background: rgba(0, 0, 0, 0.06); color: $text-muted;
     }
+  }
+
+  // 发布链间隔等待中：距自动发布的倒计时标签
+  .countdown-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    background: rgba($brand-start, 0.12);
+    color: $brand-start;
   }
 
   .card-stats {

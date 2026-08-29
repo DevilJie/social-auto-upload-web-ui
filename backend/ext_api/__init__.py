@@ -448,6 +448,9 @@ def _serialize_batch_with_items(b, items):
         'failed_count': b.get('failed_count', 0),
         'status': b.get('status', 'pending'),
         'schedule_time': b.get('schedule_time', ''),
+        # 发布链调度字段（视频间隔）：前端倒计时 = scheduled_at - 当前时间
+        'scheduled_at': b.get('scheduled_at', '') or '',
+        'interval_minutes': b.get('interval_minutes', 0) or 0,
         'created_at': _to_beijing_time(b.get('created_at')),
         'started_at': _to_beijing_time(b.get('started_at')),
         'finished_at': _to_beijing_time(b.get('finished_at')),
@@ -1499,10 +1502,15 @@ def videos_batch_publish():
     """批量视频发布：videos[] 为发布页每个视频的完整 draft_data 快照。
 
     Body: {"videos": [ {commonConfig, platformConfigs, platformOverrides,
-                        accountOverrides, publishAccountIds, ...}, ... ]}
+                        accountOverrides, publishAccountIds, ...}, ... ],
+           "interval_minutes": <可选, 数字, 仅本次批量生效>}
     每个视频 × 其账号集合 → 逐账号 1 个 PublishTask；同一视频的任务共享
     1 个 batch_id（发布历史按视频聚合）。source='batch'，失败不自动重试，
     可在任务中心手动重试。数量不限。
+
+    interval_minutes：发布页「视频发布间隔」输入框的值，单位分钟。
+    0 = 发布完一个视频立即开始下一个；>0 = 等满分钟再发下一个视频。
+    仅本次批量生效，覆盖全局 settings.batchTaskInterval。
 
     Response: {"code": 200, "data": {"task_ids": [...], "batch_ids": [...],
                "failed": [{"video": <下标>, "reason": "..."}]}}
@@ -1512,6 +1520,13 @@ def videos_batch_publish():
     if not isinstance(videos, list) or not videos:
         return jsonify({"code": 400, "msg": "videos 必须是非空数组"}), 400
 
+    # 间隔（分钟）：缺省 / 非法值 / 负数都规整为 0（= 不等待，立即发下一个）。
+    raw_interval = data.get('interval_minutes')
+    try:
+        batch_interval_minutes = max(0.0, float(raw_interval)) if raw_interval is not None else 0.0
+    except (TypeError, ValueError):
+        batch_interval_minutes = 0.0
+
     from app import PLATFORM_ID_TO_KEY, PLATFORM_MAP
     KEY_TO_PLATFORM_ID = {v: k for k, v in PLATFORM_ID_TO_KEY.items()}
 
@@ -1520,6 +1535,10 @@ def videos_batch_publish():
     task_ids = []
     batch_ids = []
     failed = []
+    # 发布链：本批次有效视频的 batch_id 顺序表（链头立即发布，其余按间隔排程）
+    chain = []
+    pending_chain_started = False
+    video_tasks_pending = []
 
     for idx, vd in enumerate(videos):
         if not isinstance(vd, dict):
@@ -1538,6 +1557,7 @@ def videos_batch_publish():
             account_overrides = vd.get('accountOverrides') or {}
             publish_account_ids = vd.get('publishAccountIds') or []
             batch_id = str(uuid.uuid4())
+            video_tasks_pending = []  # 本视频暂存的待排程任务（非链头时）
 
             for account_id in publish_account_ids:
                 conn = sqlite3.connect(str(DB_PATH))
@@ -1621,16 +1641,49 @@ def videos_batch_publish():
                     payload=payload,
                     # 批量发布:失败立即标记 FAILED,不自动重试(与草稿批量发布一致)
                     max_retries=0,
+                    # 本次批量发布间隔（分钟）；worker 优先取该值再回退全局设置
+                    batch_interval_minutes=batch_interval_minutes,
                 )
                 try:
-                    task_queue.add_task(task)
+                    # 发布链调度：链头视频立即入队；后续视频只写库（details=pending）
+                    # 并暂存到 TaskQueue，等前驱视频完成后按间隔排程入队。
+                    if not pending_chain_started:
+                        task_queue.add_task(task)
+                    else:
+                        task_queue._insert_db(task)
+                        video_tasks_pending.append(task)
                     task_ids.append(task.id)
                     if batch_id not in batch_ids:
                         batch_ids.append(batch_id)
                 except Exception as e:
                     failed.append({'video': idx, 'reason': f'入队失败: {e}'})
+
+            # 本视频有成功入队的任务 → 记入链；链头之后的视频暂存待排程
+            if batch_id in batch_ids:
+                if not pending_chain_started:
+                    pending_chain_started = True  # 第一个有效视频已入队
+                elif video_tasks_pending:
+                    task_queue.add_pending_batch(batch_id, video_tasks_pending)
+                chain.append(batch_id)
         except Exception as e:
             failed.append({'video': idx, 'reason': str(e)})
+
+    # 写发布链：每个视频记录间隔 + 指向下一个视频（用户设计的链式调度）
+    # 前驱视频全部任务终态后，_on_batch_maybe_finished 会把
+    # next.scheduled_at 置为 完成时刻 + interval_minutes，调度器到点入队。
+    if len(chain) > 1:
+        try:
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                for i, bid in enumerate(chain):
+                    nxt = chain[i + 1] if i + 1 < len(chain) else ''
+                    conn.execute(
+                        "UPDATE publish_batches SET interval_minutes=?, next_batch_id=?,"
+                        " updated_at=? WHERE id=?",
+                        (batch_interval_minutes, nxt,
+                         datetime.now().isoformat(), bid),
+                    )
+        except Exception as e:
+            print(f"[videos/batch-publish] 写发布链失败: {e}")
 
     return jsonify({
         "code": 200,

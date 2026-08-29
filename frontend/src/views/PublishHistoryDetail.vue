@@ -8,6 +8,15 @@
         <span v-if="batch" class="status-tag" :class="`status-${batch.status}`">
           {{ statusLabel(batch.status) }}
         </span>
+        <!-- 发布链间隔等待中：距自动发布的倒计时（读后端 scheduled_at） -->
+        <span
+          v-if="batch && batchCountdownMs(batch, now) !== null"
+          class="countdown-chip"
+          :title="`预定 ${formatTime(batch.scheduled_at)} 自动发布`"
+        >
+          <el-icon><Timer /></el-icon>
+          {{ formatCountdown(batchCountdownMs(batch, now)) }} 后发布
+        </span>
         <span v-if="batch?.created_at" class="header-time">{{ formatTime(batch.created_at) }}</span>
       </div>
     </header>
@@ -171,16 +180,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, WarningFilled, DocumentRemove, CircleCloseFilled, Picture } from '@element-plus/icons-vue'
+import { ArrowLeft, WarningFilled, DocumentRemove, CircleCloseFilled, Picture, Timer } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { accountApi } from '@/api/account'
 import { historyApi, taskApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import PublishStats from '@/components/PublishStats.vue'
+import { useNowTicker, formatCountdown, batchCountdownMs } from '@/composables/useNowTicker'
 
 const route = useRoute()
 const router = useRouter()
@@ -193,6 +203,9 @@ const selectedAccountId = ref(null)
 const metaOpen = ref([])
 const expandedGroups = reactive(new Set())
 const readonlyPublishAccountIds = new Set()  // 空 Set，AccountSidebar 内部不过滤
+
+// 每秒跳动的当前时间：驱动「xx 后发布」倒计时文本
+const now = useNowTicker()
 
 const batchAccounts = computed(() => {
   if (!batch.value) return []
@@ -344,6 +357,32 @@ async function fetchDetail() {
   }
 }
 
+// 静默刷新（不动 loading，避免轮询时整页转圈）
+async function fetchDetailSilent() {
+  try {
+    const res = await historyApi.getBatch(route.params.batchId)
+    batch.value = res.data
+  } catch { /* 静默轮询失败忽略 */ }
+}
+
+// 批次还在等待间隔/发布中时每 5s 静默轮询：
+// 倒计时归零后调度器开始发布，详情页状态自动翻转，无需手刷
+const batchActive = computed(() =>
+  batch.value && ['pending', 'queued', 'running'].includes(batch.value.status)
+)
+let pollTimer = null
+watch(batchActive, (active) => {
+  if (active && !pollTimer) {
+    pollTimer = setInterval(fetchDetailSilent, 5000)
+  } else if (!active && pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}, { immediate: true })
+onBeforeUnmount(() => {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+})
+
 onMounted(async () => {
   // 串行：先加载账号 store，再拉详情
   try {
@@ -453,6 +492,20 @@ onMounted(async () => {
     background: rgba(0, 0, 0, 0.06);
     color: $text-muted;
   }
+}
+
+// 发布链间隔等待中：距自动发布的倒计时标签（与状态 tag 并排）
+.countdown-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  background: rgba($brand-start, 0.12);
+  color: $brand-start;
 }
 
 // 5xx 错误降级红条：使用项目 danger 色 + 8px 圆角 + 浅红底 + 1px 红边

@@ -232,11 +232,14 @@ async function cancelAllActive() {
       { type: 'warning', confirmButtonText: '取消发布', cancelButtonText: '再想想' },
     )
   } catch { return }
-  let ok = 0
-  for (const it of active) {
-    try { await taskApi.cancelTask(it.id); ok++ } catch { /* 单个失败继续 */ }
+  try {
+    const res = await taskApi.cancelTasks(active.map(it => it.id))
+    const d = res?.data || {}
+    const ok = typeof d.cancelled === 'number' ? d.cancelled : active.length
+    ElMessage.success(`已请求取消 ${ok}/${active.length} 个任务`)
+  } catch (e) {
+    ElMessage.error('取消失败: ' + (e?.message || e))
   }
-  ElMessage.success(`已请求取消 ${ok}/${active.length} 个任务`)
   refreshAll()
 }
 

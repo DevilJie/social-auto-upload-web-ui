@@ -15,6 +15,10 @@ export const taskApi = {
   cancelTask(taskId) {
     return http.post(`/api/v2/tasks/${taskId}/cancel`)
   },
+  cancelTasks(taskIds) {
+    // 批量取消:一次请求全取消,避免逐个请求中途被打断
+    return http.post('/api/v2/tasks/cancel-batch', { task_ids: taskIds })
+  },
   retryTask(taskId) {
     return http.post(`/api/v2/tasks/${taskId}/retry`)
   },

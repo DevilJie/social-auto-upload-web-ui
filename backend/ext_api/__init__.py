@@ -285,6 +285,32 @@ def cancel_task(task_id):
     return jsonify({"code": 400, "msg": "无法取消该任务"}), 400
 
 
+@ext_api.route('/tasks/cancel-batch', methods=['POST'])
+def cancel_tasks_batch():
+    """批量取消任务(一次请求全取消)。
+
+    前端「取消所有剩余」以前逐个发 HTTP 请求,多任务时慢,还可能中途
+    被打断留下半取消状态;改为服务端一次循环取消完再返回。
+    """
+    data = request.get_json(silent=True) or {}
+    task_ids = data.get("task_ids") or []
+    if not task_ids:
+        return jsonify({"code": 400, "msg": "task_ids 不能为空"}), 400
+    tq = get_task_queue()
+    cancelled = 0
+    for tid in task_ids:
+        try:
+            if tq.cancel_task(tid):
+                cancelled += 1
+        except Exception as exc:
+            logger.warning("[TaskQueue] 批量取消 %s 失败: %s", tid, exc)
+    return jsonify({
+        "code": 200,
+        "msg": f"已请求取消 {cancelled}/{len(task_ids)} 个任务",
+        "data": {"cancelled": cancelled, "total": len(task_ids)},
+    })
+
+
 @ext_api.route('/tasks/<task_id>/retry', methods=['POST'])
 def retry_task(task_id):
     """重试失败任务"""

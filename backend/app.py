@@ -1050,6 +1050,7 @@ def postVideo():
                 creation_declaration=data.get('creationDeclaration', ''),
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
+                bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1214,6 +1215,7 @@ def postVideoBatch():
                     creation_declaration=data.get('creationDeclaration', ''),
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
+                bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1259,6 +1261,7 @@ def postVideoBatch():
                     creation_declaration=data.get('creationDeclaration', ''),
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
+                bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),

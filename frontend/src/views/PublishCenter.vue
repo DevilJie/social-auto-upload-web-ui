@@ -200,6 +200,12 @@
                   :disable-transitions="false"
                 >#{{ tag }}</el-tag>
               </div>
+              <!-- B 站专属:是否保留系统生成的标签 -->
+              <div v-if="selectedPlatform === 'bilibili'" class="tag-option-row">
+                <el-switch v-model="form.biliKeepSystemTags" size="small" />
+                <span class="tag-option-label">保留系统生成标签</span>
+                <span class="tag-option-hint">关闭后,发布会先清空 B 站自动生成的标签,再填入上面自己的标签</span>
+              </div>
           </div>
 
           <!-- 淘宝光合:关联商品/店铺(独占一整行,放在标签下面) -->
@@ -1157,6 +1163,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     creationDeclaration: accountOv?.creationDeclaration ?? platformOv?.creationDeclaration ?? platformDefault?.creationDeclaration,
     // B 站转载来源(创作声明=转载 时必填)
     biliRepostSource: accountOv?.biliRepostSource ?? platformOv?.biliRepostSource ?? platformDefault?.biliRepostSource ?? '',
+    // B 站是否保留系统生成的标签(关闭 = 发布前先清空 B 站标签栏再填自己的)
+    biliKeepSystemTags: accountOv?.biliKeepSystemTags ?? platformOv?.biliKeepSystemTags ?? platformDefault?.biliKeepSystemTags ?? true,
     riskWarning: accountOv?.riskWarning ?? platformOv?.riskWarning ?? platformDefault?.riskWarning,
     enableCashActivity: accountOv?.enableCashActivity ?? platformOv?.enableCashActivity ?? platformDefault?.enableCashActivity,
     supplementaryDeclaration: accountOv?.supplementaryDeclaration ?? platformOv?.supplementaryDeclaration ?? platformDefault?.supplementaryDeclaration,
@@ -1319,7 +1327,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
   channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '', channelsRedEnvelopeUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
@@ -4305,5 +4313,21 @@ html.dark .guanghe-add-card:hover {
   background: #3a2018;
   color: #ff5000;
   border-color: #ff5000;
+}
+/* B 站标签选项行(保留系统生成标签开关) */
+.tag-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.tag-option-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tag-option-hint {
+  font-size: 12px;
+  color: $text-muted;
 }
 </style>

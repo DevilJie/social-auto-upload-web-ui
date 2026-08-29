@@ -125,7 +125,7 @@ def merge_config(common, platform_default, platform_ov, account_ov):
         'tagType', 'tagValue', 'mixId', 'mixData', 'topic', 'isDraft',
         'location', 'collection', 'groupChat',
         # 批量发布补齐：与 PublishCenter mergeConfig / /postVideo 字段集对齐
-        'category', 'biliRepostSource', 'biliCollectionName', 'biliCollectionData',
+        'category', 'biliRepostSource', 'biliKeepSystemTags', 'biliCollectionName', 'biliCollectionData',
         'weiboCategory', 'videoType', 'contentStatement', 'contentStatement2',
         'contentStatement2Optional', 'weiboCollectionName',
         'authorStatement', 'reprintUrl', 'compilation', 'compilationData',
@@ -413,6 +413,7 @@ def build_platform_kwargs(merged, common, account):
         'creation_declaration': creation_declaration,
         # B 站转载来源(创作声明=转载 时必填)
         'bili_repost_source': merged.get('biliRepostSource', '') or '',
+        'bili_keep_system_tags': bool(merged.get('biliKeepSystemTags', True)),
         'risk_warning': merged.get('riskWarning', '') or '',
         'enable_cash_activity': bool(merged.get('enableCashActivity')),
         'supplementary_declaration': merged.get('supplementaryDeclaration', '') or '',

@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
@@ -26,6 +27,10 @@ from impl.registry import get_platform
 logger = get_channel_logger("task_queue")
 
 DB_PATH = BASE_DIR / "db" / "database.db"
+
+# 同步平台(publish_video 内部自己 asyncio.run)的执行线程池。
+# 必须自持有 CF future:同步线程无法强杀,取消时要能等它自然收尾。
+_SYNC_EXEC = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sync-publish")
 
 # 任务间隔设置缓存（settings.batchTaskInterval，分钟）。worker 每次取任务前读取，
 # 30s 缓存避免频繁开 DB；异常一律回退 0（= 连续发布，与旧行为一致）。
@@ -278,6 +283,9 @@ class TaskQueue:
                 await self._execute(task)
                 task.status = TaskStatus.SUCCESS
             except asyncio.CancelledError:
+                logger.info(
+                    "[TaskQueue] 任务取消完成: %s (%s)", task.id, task.platform
+                )
                 task.status = TaskStatus.CANCELLED
                 task.error_message = "用户取消发布"
             except Exception as e:
@@ -316,9 +324,22 @@ class TaskQueue:
             if asyncio.iscoroutinefunction(publish_fn):
                 return await publish_fn(**task.payload)
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                None, lambda: publish_fn(**task.payload)
-            )
+            cf = _SYNC_EXEC.submit(lambda: publish_fn(**task.payload))
+            try:
+                return await asyncio.wrap_future(cf)
+            except asyncio.CancelledError:
+                # 同步平台跑在独立线程里,无法强杀:取消只是不再等它。
+                # 必须等该线程自然收尾后再放行 worker —— 否则 worker 立刻
+                # 取下一个任务开浏览器,多次取消会变成「所有平台浏览器同时
+                # 发布」。收尾期间不再启动任何新任务。
+                logger.info(
+                    "[TaskQueue] 任务 %s (%s) 已取消,等待其发布线程收尾(收尾前不启动后续任务)...",
+                    task.id, task.platform,
+                )
+                while not cf.done():
+                    await asyncio.sleep(0.5)
+                logger.info("[TaskQueue] 任务 %s 发布线程已收尾", task.id)
+                raise
 
         # 旧逻辑：保留原代码不动
         from myUtils.postVideo import (
@@ -397,6 +418,10 @@ class TaskQueue:
         """
         with self._cancel_lock:
             if task_id in self.running:
+                if task_id in self._cancelled_ids:
+                    # 已在取消流程中(同步平台正在等线程收尾):不重复 cancel,
+                    # 否则会打断收尾等待,worker 提前放行 → 并发开浏览器
+                    return True
                 self._cancelled_ids.add(task_id)
                 at = self._running_tasks.get(task_id)
                 if at is not None and not at.done():

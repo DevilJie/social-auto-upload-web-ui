@@ -32,6 +32,65 @@ DB_PATH = BASE_DIR / "db" / "database.db"
 # 必须自持有 CF future:同步线程无法强杀,取消时要能等它自然收尾。
 _SYNC_EXEC = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sync-publish")
 
+
+def _refresh_batch_status(conn, batch_id: str):
+    """按 detail 行重算 batch 聚合状态(与 _update_db 内逻辑一致)。"""
+    counts = conn.execute(
+        """SELECT COUNT(*),
+                  SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN status IN ('running', 'queued') THEN 1 ELSE 0 END)
+           FROM publish_details WHERE batch_id=?""",
+        (batch_id,),
+    ).fetchone()
+    total, succ, fail, in_flight = counts[0], counts[1] or 0, counts[2] or 0, counts[3] or 0
+    bs = aggregate_batch_status(succ=succ, fail=fail, in_flight=in_flight, total=total)
+    now = datetime.now().isoformat()
+    conn.execute(
+        """UPDATE publish_batches
+           SET status=?, success_count=?, failed_count=?, account_count=?,
+               finished_at=COALESCE(finished_at, ?), updated_at=?
+           WHERE id=?""",
+        (bs, succ, fail, total, now, now, batch_id),
+    )
+
+
+def _cleanup_orphaned_tasks() -> int:
+    """启动时清理孤儿任务:上次进程退出时仍卡在 running/queued 的行。
+
+    这些任务随旧进程消亡:永远不会执行,内存里也不存在 → cancel_task
+    找不到只能回 400「无法取消」,而 DB/前端会永远显示「排队中」。
+    启动时统一落 cancelled + 中断说明,状态诚实可见。
+    """
+    now = datetime.now().isoformat()
+    try:
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            rows = conn.execute(
+                "SELECT id, batch_id FROM publish_details"
+                " WHERE status IN ('running', 'queued')"
+            ).fetchall()
+            if not rows:
+                return 0
+            ids = [r[0] for r in rows]
+            batch_ids = sorted({r[1] for r in rows if r[1]})
+            ph = ",".join("?" * len(ids))
+            conn.execute(
+                f"UPDATE publish_details SET status='cancelled',"
+                f" error_message='服务重启,任务已中断', finished_at=?"
+                f" WHERE id IN ({ph})",
+                (now, *ids),
+            )
+            for bid in batch_ids:
+                _refresh_batch_status(conn, bid)
+            logger.info(
+                "[TaskQueue] 启动清理: %d 个孤儿任务(重启前残留 running/queued)已标记取消",
+                len(ids),
+            )
+            return len(ids)
+    except Exception as e:
+        logger.info("[TaskQueue] 启动清理孤儿任务失败: %s", e)
+        return 0
+
 # 任务间隔设置缓存（settings.batchTaskInterval，分钟）。worker 每次取任务前读取，
 # 30s 缓存避免频繁开 DB；异常一律回退 0（= 连续发布，与旧行为一致）。
 _interval_cache = {"value": 0.0, "fetched_at": 0.0}
@@ -231,6 +290,8 @@ class TaskQueue:
         """在后台线程中启动事件循环"""
         if self._started:
             return
+        # 先清掉上次进程遗留的孤儿任务,避免前端永远显示「排队中」且无法取消
+        _cleanup_orphaned_tasks()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         self._started = True
@@ -430,7 +491,35 @@ class TaskQueue:
             if task_id in self._queued_ids or task_id in self._cancelled_ids:
                 self._cancelled_ids.add(task_id)
                 return True
-        return False
+        # 内存里找不到:可能是服务重启后 DB 残留的孤儿任务(永远不会执行),
+        # 直接在 DB 落 cancelled —— 否则前端永远「排队中」且取消报 400
+        return self._cancel_orphan_in_db(task_id)
+
+    def _cancel_orphan_in_db(self, task_id: str) -> bool:
+        """孤儿任务兜底取消:DB 里仍是 running/queued 但内存无此任务。"""
+        now = datetime.now().isoformat()
+        try:
+            with sqlite3.connect(str(DB_PATH)) as conn:
+                row = conn.execute(
+                    "SELECT batch_id FROM publish_details"
+                    " WHERE id=? AND status IN ('running', 'queued')",
+                    (task_id,),
+                ).fetchone()
+                if not row:
+                    return False
+                conn.execute(
+                    "UPDATE publish_details SET status='cancelled',"
+                    " error_message='任务已失效(服务重启),现已取消', finished_at=?"
+                    " WHERE id=?",
+                    (now, task_id),
+                )
+                if row[0]:
+                    _refresh_batch_status(conn, row[0])
+            logger.info("[TaskQueue] 孤儿任务 %s 已在 DB 直接标记取消", task_id)
+            return True
+        except Exception as e:
+            logger.info("[TaskQueue] 取消孤儿任务 %s 失败: %s", task_id, e)
+            return False
 
     def retry_task(self, task_id: str) -> bool:
         """重试失败的任务"""
@@ -563,6 +652,9 @@ class TaskQueue:
 # 并发数=1：严格串行执行（一个任务（=一个视频×一个账号）发布完才轮到下一个），
 # 避免多浏览器并发发布触发平台风控；配合 settings.batchTaskInterval 还能在任务间加等待。
 task_queue = TaskQueue(max_concurrent=1)
+
+# 进程启动即清理孤儿任务(不等第一次 add_task,前端进度弹窗才能立刻看到真实状态)
+_cleanup_orphaned_tasks()
 
 
 def get_task_queue() -> TaskQueue:

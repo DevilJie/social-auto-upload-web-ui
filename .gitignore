@@ -54,3 +54,6 @@ AGENTS.md
 
 # ZCode 工具配置
 .zcode/
+
+# CloakBrowser 升级压缩包（>500MB，仅本地分发用，勿入 git）
+/cloakbrowser-windows-x64.zip

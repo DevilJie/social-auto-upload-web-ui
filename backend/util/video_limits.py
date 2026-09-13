@@ -29,6 +29,8 @@ VIDEO_LIMITS: dict[str, dict] = {
     "taobao_guanghe": {"min_duration": 0, "max_duration": 1800,            "max_size": int(1.5 * 1024**3), "max_title_length": 30, "max_desc_length": 1000},
     # 京东京麦: 标题 5~27 字
     "jingmai":        {"min_duration": 0, "max_duration": math.inf,        "max_size": math.inf,     "min_title_length": 5, "max_title_length": 27},
+    # 大鱼号: 视频大小≤5G, 时长≤30min(1800s), 标题 5~60 字, 简介≤200字
+    "dayu":           {"min_duration": 0, "max_duration": 1800,           "max_size": 5 * 1024**3,  "min_title_length": 5, "max_title_length": 60, "max_desc_length": 200},
 }
 
 
@@ -51,6 +53,7 @@ _PLATFORM_NAMES = {
     "weixin_gzh": "微信公众号",
     "taobao_guanghe": "淘宝光合",
     "jingmai": "京东京麦",
+    "dayu": "大鱼号",
 }
 
 

@@ -59,6 +59,7 @@ DECLARATION_PLATFORMS = {
     'baijiahao': 'creationDeclaration',
     'tencent_video': 'creationDeclaration',
     'iqiyi': 'creationDeclaration',
+    'dayu': 'creationDeclaration',
     'youtube': ['audience', 'alteredContent'],
     # channels / tiktok 不在此表（不校验声明字段）
 }
@@ -136,6 +137,7 @@ def merge_config(common, platform_default, platform_ov, account_ov):
         'gzhClaimSource', 'gzhCollectionName', 'gzhCollectionData',
         'guangheClaim', 'guangheLinkType', 'guangheProducts', 'guangheShops',
         'jdRelatedType', 'jdProducts', 'jdNovelData', 'jdDeclaration',
+        'dayuRepostUrl',
         'channelsCollectionName', 'channelsLocationName',
         'channelsActivityName', 'channelsActivityData', 'channelsMarkTag',
         'channelsShootDate', 'channelsShootRegion', 'channelsRepostSource',
@@ -462,6 +464,8 @@ def build_platform_kwargs(merged, common, account):
         'jd_novel': merged.get('jdNovelData') or (
             {'title': merged['jdNovel']} if merged.get('jdNovel') else ''),
         'jd_declaration': merged.get('jdDeclaration', '') or '',
+        # 大鱼号转载原文链接(信息来源=转载 时必填)
+        'dayu_repost_url': merged.get('dayuRepostUrl', '') or '',
         # 视频号合集/位置/活动/标注/拍摄信息
         'channels_activity_name': merged.get('channelsActivityName', '') or '',
         'channels_activity_id': (merged.get('channelsActivityData') or {}).get('activity_id', ''),

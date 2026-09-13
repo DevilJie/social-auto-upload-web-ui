@@ -1119,6 +1119,51 @@ async def scrape_taobao_guanghe_profile(page):
     return name, avatar
 
 
+async def scrape_dayu_profile(page):
+    """大鱼号专用 scraper。
+
+    当前页应为 https://mp.dayu.com/dashboard/index 创作中心首页,已登录。
+
+    DOM 说明(对接指南提供,无 hash 的语义 class,稳定可用):
+      - 头像: .header-user 内第一个 img 的 src(//image.uc.cn/... 协议相对地址)
+      - 昵称: .header-info .name 的文本(注意去掉换行/缩进空白)
+
+    Returns:
+        tuple[str, str]: (user_name, avatar_url)
+    """
+    name = ""
+    avatar = ""
+    try:
+        await asyncio.sleep(2)
+
+        # 头像(.header-user 内 img, 36x36)
+        try:
+            avatar_el = page.locator(".header-user img").first
+            if await avatar_el.count() > 0:
+                avatar = (await avatar_el.get_attribute("src") or "").strip()
+                if avatar.startswith("//"):
+                    avatar = "https:" + avatar
+        except Exception as e:
+            logger.info(f"[dayu] 头像抓取失败: {e}")
+
+        # 昵称(.header-info .name, 文本带换行缩进)
+        try:
+            name_el = page.locator(".header-info .name").first
+            if await name_el.count() > 0:
+                name = (await name_el.text_content() or "").strip()
+        except Exception as e:
+            logger.info(f"[dayu] 昵称抓取失败: {e}")
+
+        logger.info(
+            f"[dayu] profile scraped - name={name!r} "
+            f"avatar={avatar[:80] if avatar else 'None'}"
+        )
+    except Exception as e:
+        logger.info(f"[dayu] profile scrape error: {e}")
+
+    return name, avatar
+
+
 async def scrape_jingmai_profile(page):
     """京东京麦专用 scraper。
 
@@ -1420,6 +1465,7 @@ PLATFORM_SYNC_URLS = {
     17: "https://mp.weixin.qq.com/",
     18: "https://creator.guanghe.taobao.com/",
     19: "https://dr.jd.com/jm/",
+    21: "https://mp.dayu.com/dashboard/index",
 }
 
 
@@ -1445,6 +1491,7 @@ PLATFORM_SCRAPE_FNS = {
     17: scrape_weixin_gzh_profile,  # 微信公众号
     18: scrape_taobao_guanghe_profile,  # 淘宝光合
     19: scrape_jingmai_profile,     # 京东京麦
+    21: scrape_dayu_profile,        # 大鱼号
 }
 
 

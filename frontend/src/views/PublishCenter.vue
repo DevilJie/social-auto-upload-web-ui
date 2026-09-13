@@ -154,8 +154,8 @@
               <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标题</div>
               <el-input
                 v-model="form.title"
-                :placeholder="currentPlatformConfig.key === 'jingmai' ? '添加一个亮眼的标题吧，5~27个字' : '请输入标题...'"
-                :maxlength="currentPlatformConfig.key === 'jingmai' ? 27 : 100"
+                :placeholder="currentPlatformConfig.key === 'jingmai' ? '添加一个亮眼的标题吧，5~27个字' : currentPlatformConfig.key === 'dayu' ? '请输入标题（5~60个字）' : '请输入标题...'"
+                :maxlength="currentPlatformConfig.key === 'jingmai' ? 27 : currentPlatformConfig.key === 'dayu' ? 60 : 100"
                 show-word-limit
               />
             </div>
@@ -170,7 +170,7 @@
                 type="textarea"
                 :rows="5"
                 placeholder="请输入描述..."
-                maxlength="2000"
+                :maxlength="currentPlatformConfig.key === 'dayu' ? 200 : 2000"
                 show-word-limit
               />
             </div>
@@ -1220,6 +1220,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     collection: accountOv?.collection ?? platformOv?.collection ?? platformDefault?.collection ?? '',
     extendLink: accountOv?.extendLink ?? platformOv?.extendLink ?? platformDefault?.extendLink ?? false,
     extendLinkUrl: accountOv?.extendLinkUrl ?? platformOv?.extendLinkUrl ?? platformDefault?.extendLinkUrl ?? '',
+    // 大鱼号转载原文链接(信息来源=转载 时必填)
+    dayuRepostUrl: accountOv?.dayuRepostUrl ?? platformOv?.dayuRepostUrl ?? platformDefault?.dayuRepostUrl ?? '',
     // B 站合集(账号级)
     biliCollectionName: accountOv?.biliCollectionName ?? platformOv?.biliCollectionName ?? platformDefault?.biliCollectionName ?? '',
     biliCollectionData: accountOv?.biliCollectionData ?? platformOv?.biliCollectionData ?? platformDefault?.biliCollectionData ?? null,
@@ -1346,6 +1348,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   weixin_gzh: { title: '', description: '', isOriginal: false, gzhClaimSource: '', gzhCollectionName: '', gzhCollectionData: null, scheduleTime: '', tags: [] },
   taobao_guanghe: { title: '', description: '', guangheClaim: '', guangheLinkType: '', guangheProducts: [], guangheShops: [], scheduleTime: '', tags: [] },
   jingmai: { title: '', description: '', jdRelatedType: '', jdProducts: [], jdNovel: '', jdNovelData: null, jdDeclaration: '', scheduleTime: '', tags: [] },
+  dayu: { title: '', description: '', creationDeclaration: '', dayuRepostUrl: '', category: '', scheduleTime: '', tags: [] },
 }
 
 const platformConfigs = reactive(JSON.parse(JSON.stringify(DEFAULT_PLATFORM_CONFIGS)))
@@ -2933,6 +2936,7 @@ const _DECLARATION_PLATFORMS = {
   weibo: 'contentStatement',
   alipay: 'authorStatement',
   taobao_guanghe: 'guangheClaim',
+  dayu: 'creationDeclaration',
   // channels 不必填
 }
 
@@ -2965,6 +2969,7 @@ function collectVideoErrors(state) {
   const accountsWithoutDeclaration = []
   const accountsWithoutRepostSource = []
   const accountsWithoutReprintUrl = []
+  const accountsWithoutDayuRepostUrl = []
   const accountsWithoutTitle = []
   const accountsWithoutCover = []
   const accountsVideoInvalid = []
@@ -3006,6 +3011,13 @@ function collectVideoErrors(state) {
         }
       }
 
+      // 3a-bonus-3. 大鱼号联动校验: 信息来源=转载 时, 原文链接必填
+      if (platformKey === 'dayu' && merged.creationDeclaration === '转载') {
+        if (!merged.dayuRepostUrl || !merged.dayuRepostUrl.trim()) {
+          accountsWithoutDayuRepostUrl.push(`${account.name}(${group.name})`)
+        }
+      }
+
       // 3b. 标题
       if (!merged.title || !merged.title.trim()) {
         accountsWithoutTitle.push(`${account.name}(${group.name})`)
@@ -3021,6 +3033,7 @@ function collectVideoErrors(state) {
   if (accountsWithoutDeclaration.length > 0) errors.push({ type: '作品声明', accounts: accountsWithoutDeclaration })
   if (accountsWithoutRepostSource.length > 0) errors.push({ type: '转载来源(B站)', accounts: accountsWithoutRepostSource })
   if (accountsWithoutReprintUrl.length > 0) errors.push({ type: '转载来源(支付宝)', accounts: accountsWithoutReprintUrl })
+  if (accountsWithoutDayuRepostUrl.length > 0) errors.push({ type: '原文链接(大鱼号)', accounts: accountsWithoutDayuRepostUrl })
   if (accountsWithoutTitle.length > 0) errors.push({ type: '标题', accounts: accountsWithoutTitle })
   if (accountsWithoutCover.length > 0) errors.push({ type: '封面', accounts: accountsWithoutCover })
 

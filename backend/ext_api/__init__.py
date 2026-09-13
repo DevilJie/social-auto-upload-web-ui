@@ -33,6 +33,7 @@ _PLATFORM_ID_TO_NAME = {
     6: "百家号", 7: "TikTok", 8: "YouTube", 9: "腾讯视频",
     10: "爱奇艺", 11: "微博", 12: "支付宝", 13: "今日头条", 14: "知乎",
     15: "CSDN", 16: "VIVO", 17: "微信公众号", 18: "淘宝光合", 19: "京东京麦",
+    21: "大鱼号",
 }
 
 # 平台 key(拼音) → 中文名称。修复 publish_details.platform 历史脏数据:
@@ -45,7 +46,7 @@ _PLATFORM_KEY_TO_NAME = {
     "tencent_video": "腾讯视频", "iqiyi": "爱奇艺",
     "weibo": "微博", "alipay": "支付宝", "toutiao": "今日头条", "zhihu": "知乎",
     "csdn": "CSDN", "vivo": "VIVO", "weixin_gzh": "微信公众号",
-    "taobao_guanghe": "淘宝光合", "jingmai": "京东京麦",
+    "taobao_guanghe": "淘宝光合", "jingmai": "京东京麦", "dayu": "大鱼号",
 }
 
 # SSE 订阅者
@@ -836,6 +837,7 @@ _PLATFORM_ID_MAP = {
     18: ('taobao_guanghe', '淘宝光合'),
     19: ('jingmai', '京东京麦'),
     # 注: jd (id=20) 与 jingmai 是同一产品,不单独映射
+    21: ('dayu', '大鱼号'),
 }
 
 
@@ -1062,7 +1064,7 @@ def _extract_channels_summary(draft_data):
         'tencent_video': '腾讯视频',
         'weibo': '微博', 'alipay': '支付宝', 'toutiao': '今日头条', 'zhihu': '知乎',
         'csdn': 'CSDN', 'vivo': 'VIVO', 'weixin_gzh': '微信公众号',
-        'taobao_guanghe': '淘宝光合', 'jingmai': '京东京麦',
+        'taobao_guanghe': '淘宝光合', 'jingmai': '京东京麦', 'dayu': '大鱼号',
     }
 
     try:
@@ -1081,7 +1083,7 @@ def _extract_channels_summary(draft_data):
             'tencent_video': 9, 'iqiyi': 10,
             'weibo': 11, 'alipay': 12, 'toutiao': 13, 'zhihu': 14, 'csdn': 15,
             'vivo': 16, 'weixin_gzh': 17,
-            'taobao_guanghe': 18, 'jingmai': 19,
+            'taobao_guanghe': 18, 'jingmai': 19, 'dayu': 21,
         }.items()}
 
         platform_counts = {}

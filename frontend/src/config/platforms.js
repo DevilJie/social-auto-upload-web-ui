@@ -24,6 +24,7 @@ import logoVivo from '@/assets/logos/vivo.svg'
 import logoWeixinGzh from '@/assets/logos/weixin_gzh.png'
 import logoTaobaoGuanghe from '@/assets/logos/taobao_guanghe.png'
 import logoJingmai from '@/assets/logos/jingmai.png'
+import logoDayu from '@/assets/logos/dayu.png'
 
 import { WEIBO_CATEGORIES } from './weibo-categories'
 import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags'
@@ -738,6 +739,113 @@ export const PLATFORMS = {
       jdDeclaration: '',
       scheduleTime: '',
     },
+  },
+  DAYU: {
+    id: 21,
+    key: 'dayu',
+    name: '大鱼号',
+    shortName: '大鱼',
+    letter: '鱼',
+    logo: logoDayu,
+    color: '#FA541C',
+    bgColor: 'rgba(250, 84, 28, 0.15)',
+    cssClass: 'dayu',
+    creatorUrl: 'https://mp.dayu.com/dashboard/index',
+    settingsFields: [
+      // 信息来源(页面必选单选,radio value 与文案一致)
+      { key: 'creationDeclaration', label: '信息来源', type: 'select', required: true, placeholder: '请选择信息来源', options: [
+        { label: '无需标注', value: '无需标注' },
+        { label: 'AI生成', value: 'AI生成' },
+        { label: '虚构演绎', value: '虚构演绎' },
+        { label: '营销信息', value: '营销信息' },
+        { label: '转载', value: '转载' },
+        { label: '个人观点', value: '个人观点' },
+        { label: '不适宜未成年人', value: '不适宜未成年人' },
+      ] },
+      // 转载联动字段:信息来源选「转载」时显示,大鱼号要求原文链接必填
+      { key: 'dayuRepostUrl', label: '原文链接', type: 'input', required: true, placeholder: '请输入原文链接(必填)', visibleWhen: { key: 'creationDeclaration', value: '转载' } },
+      // 视频分类(页面必选,选项与大鱼号发布页一致)
+      { key: 'category', label: '视频分类', type: 'select', required: true, placeholder: '选择视频分类', options: [
+        { label: '其他', value: '其他' },
+        { label: '社会', value: '社会' },
+        { label: '国内', value: '国内' },
+        { label: '国际', value: '国际' },
+        { label: '体育', value: '体育' },
+        { label: '科技', value: '科技' },
+        { label: '娱乐', value: '娱乐' },
+        { label: '军事', value: '军事' },
+        { label: '财经', value: '财经' },
+        { label: '汽车', value: '汽车' },
+        { label: '房产', value: '房产' },
+        { label: '时尚', value: '时尚' },
+        { label: '健康', value: '健康' },
+        { label: '两性情感', value: '两性情感' },
+        { label: '游戏', value: '游戏' },
+        { label: '动漫', value: '动漫' },
+        { label: '旅游', value: '旅游' },
+        { label: '美食', value: '美食' },
+        { label: '历史', value: '历史' },
+        { label: '奇闻', value: '奇闻' },
+        { label: '科学探索', value: '科学探索' },
+        { label: '星座', value: '星座' },
+        { label: '育儿', value: '育儿' },
+        { label: '教育', value: '教育' },
+        { label: '美女', value: '美女' },
+        { label: '搞笑', value: '搞笑' },
+        { label: '演讲', value: '演讲' },
+        { label: '萌娃', value: '萌娃' },
+        { label: '萌宠', value: '萌宠' },
+        { label: '音乐', value: '音乐' },
+        { label: '语言类', value: '语言类' },
+        { label: '记录短片', value: '记录短片' },
+        { label: '涨姿势', value: '涨姿势' },
+        { label: '劲爆体育', value: '劲爆体育' },
+        { label: '幽默', value: '幽默' },
+        { label: '综艺', value: '综艺' },
+        { label: '电视剧', value: '电视剧' },
+        { label: '电影', value: '电影' },
+        { label: '纪录片', value: '纪录片' },
+        { label: '少儿', value: '少儿' },
+        { label: '文化', value: '文化' },
+        { label: '三农', value: '三农' },
+        { label: '生活方式', value: '生活方式' },
+      ] },
+      { key: 'scheduleTime', label: '定时发布', type: 'datetime', placeholder: '选择时间（7天内，5分钟间隔）',
+        disabledDate: (time) => {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const maxDate = new Date(today);
+          maxDate.setDate(maxDate.getDate() + 7);
+          return time.getTime() < today.getTime() || time.getTime() > maxDate.getTime();
+        },
+        disabledHours: (_role, comparingDate) => {
+          if (!comparingDate) return [];
+          const now = new Date();
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate;
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate();
+          if (!isToday) return [];
+          return Array.from({ length: now.getHours() + 1 }, (_, i) => i);
+        },
+        disabledMinutes: (hour, _role, comparingDate) => {
+          // 大鱼号定时发布只能选 5 分钟间隔(11:05/11:10...)
+          const base = Array.from({ length: 60 }, (_, i) => i).filter(m => m % 5 !== 0)
+          if (!comparingDate) return base
+          const now = new Date()
+          const d = comparingDate.toDate ? comparingDate.toDate() : comparingDate
+          const isToday = d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && d.getDate() === now.getDate()
+          if (isToday && hour === now.getHours()) {
+            return base.concat(Array.from({ length: now.getMinutes() + 1 }, (_, i) => i))
+          }
+          return base
+        },
+      },
+      { key: 'videoFormat', label: '视频格式', type: 'radio', options: [{ label: '横版', value: 'landscape' }, { label: '竖版', value: 'portrait' }] },
+    ],
+    defaultSettings: { title: '', description: '', creationDeclaration: '', dayuRepostUrl: '', category: '', scheduleTime: '', tags: [] },
   },
   // 注: jd (id=20) 已合并到 jingmai (id=19) — 同一个产品 dr.jd.com/jm/
 }

@@ -32,6 +32,8 @@ export const VIDEO_LIMITS = {
   taobao_guanghe: { minDuration: 0,   maxDuration: 1800,         maxSize: 1.5 * GB, maxTitleLength: 30, maxDescLength: 1000 },
   // 京东京麦: 标题 5~27 字
   jingmai:        { minDuration: 0,   maxDuration: Infinity,     maxSize: Infinity, minTitleLength: 5, maxTitleLength: 27 },
+  // 大鱼号: 视频大小≤5G, 时长≤30min, 标题 5~60 字, 简介≤200字
+  dayu:           { minDuration: 0,   maxDuration: 1800,         maxSize: 5 * GB, minTitleLength: 5, maxTitleLength: 60, maxDescLength: 200 },
 }
 
 const PLATFORM_NAMES = {
@@ -53,6 +55,7 @@ const PLATFORM_NAMES = {
   weixin_gzh: '微信公众号',
   taobao_guanghe: '淘宝光合',
   jingmai: '京东京麦',
+  dayu: '大鱼号',
 }
 
 export function formatSize(sizeBytes) {

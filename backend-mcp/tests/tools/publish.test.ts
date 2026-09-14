@@ -135,6 +135,7 @@ describe('publish tools', () => {
 
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't',
+      description: '', tags: [],
       cover_material_id: 'cover-img-1', wait: false,
     });
 
@@ -154,6 +155,7 @@ describe('publish tools', () => {
 
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't', wait: false,
+      description: '', tags: [],
       cover_landscape_material_id: 'img-land',
       cover_portrait_material_id: 'img-port',
     });
@@ -176,6 +178,7 @@ describe('publish tools', () => {
 
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't',
+      description: '简介', tags: ['标签'],
     });
 
     const parsed = JSON.parse(result.content[0].text);
@@ -191,6 +194,7 @@ describe('publish tools', () => {
 
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't', wait: false,
+      description: '', tags: [],
     });
 
     const parsed = JSON.parse(result.content[0].text);
@@ -215,7 +219,10 @@ describe('publish tools', () => {
     registerPublishTools(makeMockServer(tools), mockClient);
     const videoPublish = tools.find(t => t.name === 'video_publish')!;
 
-    const result = await videoPublish.handler({ account_ids: [7], material_id: 'nope', title: 't' });
+    const result = await videoPublish.handler({
+      account_ids: [7], material_id: 'nope', title: 't',
+      description: '', tags: [],
+    });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toBe('MATERIAL_NOT_FOUND');
     expect(mockClient.post).not.toHaveBeenCalled();
@@ -227,10 +234,63 @@ describe('publish tools', () => {
     registerPublishTools(makeMockServer(tools), mockClient);
     const videoPublish = tools.find(t => t.name === 'video_publish')!;
 
-    const result = await videoPublish.handler({ account_ids: [999], material_id: 'mat-1', title: 't' });
+    const result = await videoPublish.handler({
+      account_ids: [999], material_id: 'mat-1', title: 't',
+      description: '', tags: [],
+    });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toBe('ACCOUNT_NOT_FOUND');
     expect(mockClient.post).not.toHaveBeenCalled();
+  });
+
+  it('video_publish 缺描述/标签（未经用户确认）时拒绝发布', async () => {
+    const mockClient = makeMockClient();
+    const tools: any[] = [];
+    registerPublishTools(makeMockServer(tools), mockClient);
+    const videoPublish = tools.find(t => t.name === 'video_publish')!;
+
+    // 两个都缺
+    const both = await videoPublish.handler({ account_ids: [7], material_id: 'mat-1', title: 't' });
+    expect(both.isError).toBe(true);
+    const parsedBoth = JSON.parse(both.content[0].text);
+    expect(parsedBoth.error).toBe('MISSING_REQUIRED_FIELD');
+    expect(parsedBoth.message).toContain('description（描述）');
+    expect(parsedBoth.message).toContain('tags（标签）');
+
+    // 只缺标签
+    const tagsOnly = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't', description: '有描述',
+    });
+    expect(tagsOnly.isError).toBe(true);
+    expect(JSON.parse(tagsOnly.content[0].text).message).toContain('tags（标签）');
+
+    // 缺失场景下不应触达后端发布
+    expect(mockClient.post).not.toHaveBeenCalledWith('/api/v2/videos/batch-publish', expect.anything(), expect.anything());
+
+    // 显式空值 = 用户确认过，放行
+    const explicitEmpty = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't', description: '', tags: [], wait: false,
+    });
+    expect(explicitEmpty.isError).toBeFalsy();
+  });
+
+  it('video_batch_publish 某视频缺描述/标签时整批拒绝', async () => {
+    const mockClient = makeMockClient();
+    const tools: any[] = [];
+    registerPublishTools(makeMockServer(tools), mockClient);
+    const batchPublish = tools.find(t => t.name === 'video_batch_publish')!;
+
+    const result = await batchPublish.handler({
+      videos: [
+        { account_ids: [7], material_id: 'mat-1', title: '视频1', description: '', tags: [] },
+        { account_ids: [7], material_id: 'mat-1', title: '视频2' },  // 缺描述/标签
+      ],
+      wait: false,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toBe('MISSING_REQUIRED_FIELD');
+    expect(mockClient.post).not.toHaveBeenCalledWith('/api/v2/videos/batch-publish', expect.anything(), expect.anything());
   });
 
   it('video_batch_publish 多视频一次提交', async () => {
@@ -241,8 +301,8 @@ describe('publish tools', () => {
 
     const result = await batchPublish.handler({
       videos: [
-        { account_ids: [7], material_id: 'mat-1', title: '视频1' },
-        { account_ids: [7], material_id: 'mat-1', title: '视频2' },
+        { account_ids: [7], material_id: 'mat-1', title: '视频1', description: '', tags: [] },
+        { account_ids: [7], material_id: 'mat-1', title: '视频2', description: '', tags: [] },
       ],
       interval_minutes: 10,
       wait: false,

@@ -160,6 +160,21 @@ async function buildVideoSnapshot(
     platform_settings, schedule_time,
   } = params;
 
+  // 0. 发布要素确认守卫：网页端用户「看着表单里的空字段点发布」= 显式确认过；
+  //    MCP 里「没传」≠「确认不要」——描述/标签缺席时拒绝发布，强制 agent 先问用户。
+  //    用户明确不需要时须显式传空（description="" / tags=[]）。
+  if (description === undefined || tags === undefined) {
+    const missing: string[] = [];
+    if (description === undefined) missing.push('description（描述）');
+    if (tags === undefined) missing.push('tags（标签）');
+    return { error: formatErrorResult({
+      code: ErrorCodes.MISSING_REQUIRED_FIELD, error: 'MISSING_REQUIRED_FIELD',
+      message: `发布要素未确认：${missing.join('、')} 缺失。发布前必须逐项向用户确认标题/描述/标签/封面/声明/定时，不允许跳过询问直接发布`,
+      suggestion: '先向用户确认缺失项的内容后重试；用户明确不需要时显式传空（description 传空字符串、tags 传空数组）',
+      retryable: false,
+    }) };
+  }
+
   // 1. 账号 → 平台 key 集合
   const platformKeys = new Set<string>();
   for (const aid of account_ids) {
@@ -387,8 +402,8 @@ const videoParamsSchema = {
   account_ids: z.array(z.number()).min(1).describe('发布账号 ID 列表（多账号 = 多平台/同平台多号一次性发布）。调 account_list 获取'),
   material_id: z.string().describe('视频素材 ID。调 material_list 获取'),
   title: z.string().describe('视频标题（各平台标题长度限制不同，超限会被后端校验拦截）'),
-  description: z.string().optional().describe('视频描述/简介'),
-  tags: z.array(z.string()).optional().describe('标签列表'),
+  description: z.string().optional().describe('视频描述/简介（发布前必须与用户确认；用户明确不需要时显式传空字符串）'),
+  tags: z.array(z.string()).optional().describe('标签列表（发布前必须与用户确认；用户明确不需要时显式传空数组）'),
   cover_material_id: z.string().optional().describe('封面源图素材 ID：按网页同款规格中心裁剪出 4 个比例（横版 4:3/16:9 + 竖版 3:4/9:16），各平台按需取用。推荐提供'),
   cover_landscape_material_id: z.string().optional().describe('横版封面（4:3）源图素材 ID——若与 cover_material_id 不同则单独按 4:3 裁剪'),
   cover_portrait_material_id: z.string().optional().describe('竖版封面（3:4）源图素材 ID——若与 cover_material_id 不同则单独按 3:4 裁剪'),
@@ -409,14 +424,17 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
     'video_publish',
     `发布视频到所选账号的各平台（多平台/多账号一次性发布）。与网页发布页完全相同的链路与校验。
 
-【发布前必须向用户确认】
+【发布前必须逐项向用户确认——任何一项未确认就调用本工具发布都是错误用法，服务端会拒绝】
 1. 发布账号（account_ids）：哪些账号要发
-2. 封面：提供封面源图素材 ID（自动按网页同款规格裁出 4 个比例：4:3/16:9/3:4/9:16），
+2. 标题（title）
+3. 描述（description）：即使不需要也要用户确认后显式传空字符串
+4. 标签（tags）：即使不需要也要用户确认后显式传空数组
+5. 封面：提供封面源图素材 ID（自动按网页同款规格裁出 4 个比例：4:3/16:9/3:4/9:16），
    或确认由系统自动抽帧选帧（默认 3 秒附近）生成封面
-3. 作品声明：各平台必填的声明字段选项不同 —— 先调 platform_list 查该平台 fields 的合法值，向用户确认后填入 platform_settings
-4. 是否定时发布（schedule_time）
+6. 作品声明：各平台必填的声明字段选项不同 —— 先调 platform_list 查该平台 fields 的合法值，向用户确认后填入 platform_settings
+7. 是否定时发布（schedule_time）
 
-【流程建议】material_list 选视频 → account_list 选账号 → platform_list 查平台声明字段 → 与用户确认 → 发布。
+【流程建议】material_list 选视频 → account_list 选账号 → platform_list 查平台声明字段 → 与用户逐项确认上述清单 → 发布。
 
 默认等待全部任务终态后返回（wait=true）；wait=false 立即返回 task_ids，配合 task_get_status 轮询。`,
     {
@@ -453,7 +471,9 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
     `批量发布多个视频（网页「批量发布」的等价物）：每个视频可指定各自的账号/素材/标题/平台设置，
 按 videos 数组顺序排队执行，interval_minutes 为相邻视频的发布间隔（0 = 立即接着发）。
 
-单个视频的字段含义与 video_publish 相同；发布前同样必须与用户逐视频确认封面/声明/定时。`,
+【发布前必须逐视频向用户确认（与 video_publish 相同的清单，未确认会被服务端拒绝）】
+每个视频的：账号、标题、描述（确认为空须显式传 ""）、标签（确认为空须显式传 []）、
+封面、各平台作品声明（platform_settings，选项调 platform_list 查）、是否定时。`,
     {
       videos: z.array(z.object(videoParamsSchema)).min(1).max(30).describe('视频列表（按发布顺序）'),
       interval_minutes: z.number().optional().describe('相邻视频发布间隔（分钟，0=立即，默认 0）'),
@@ -491,10 +511,12 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
     'image_publish',
     `发布图文内容到指定平台（与网页图文发布同链路）。支持全部平台（key 列表见 platform_list）。
 
-【发布前必须向用户确认】
-1. 图片素材（image_ids）与封面（cover_material_id）
-2. 各平台声明字段（先调 platform_list 查合法值）
-3. 是否定时发布（scheduleTime，格式 yyyy-MM-dd HH:mm:ss）`,
+【发布前必须逐项向用户确认——未确认就发布是错误用法】
+1. 发布账号与各账号的标题（title）
+2. 描述（description）与标签（tags）：即使不需要也要用户确认后再留空
+3. 图片素材（image_ids）与封面（cover_material_id）
+4. 各平台作品声明（先调 platform_list 查合法值）
+5. 是否定时发布（scheduleTime，格式 yyyy-MM-dd HH:mm:ss）`,
     {
       image_ids: z.array(z.string()).describe('图片素材 ID 列表'),
       cover_material_id: z.string().optional().describe('封面图素材 ID（默认取第一张图）'),

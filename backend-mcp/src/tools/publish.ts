@@ -56,6 +56,75 @@ function slimMaterial(m: any): any {
   };
 }
 
+/** 封面对象（covers/crop、save-cover 返回）→ 前端 toCover 同构 slim 引用 */
+function toSlimCover(c: any): any {
+  if (!c) return null;
+  return {
+    id: c.id,
+    name: c.original_filename ?? '',
+    url: c.url ?? '',
+    stored_path: c.stored_path ?? '',
+    size: c.file_size ?? 0,
+    type: c.mime_type ?? 'image/jpeg',
+  };
+}
+
+/** {landscape_43, ...} 裁剪结果 → commonConfig 的 4 个封面字段 */
+function coversToCommonConfig(d: any) {
+  return {
+    coverLandscape: toSlimCover(d.landscape_43),
+    coverLandscape169: toSlimCover(d.landscape_169),
+    coverPortrait: toSlimCover(d.portrait_34),
+    coverPortrait916: toSlimCover(d.portrait_916),
+  };
+}
+
+/**
+ * 自动封面（与网页 fetchAutoCovers 完全同逻辑）：
+ * 等抽帧完成 → 选「1~5 秒内最接近 3 秒」的帧（无则第一帧）→ save-cover 裁 4 比例。
+ * preferredSeconds 指定时选最接近该秒数的帧。失败返回 null。
+ */
+async function autoCoversFromFrames(
+  client: BackendClient,
+  materialId: string,
+  preferredSeconds?: number,
+): Promise<any | null> {
+  let frames: any[] = [];
+  for (let attempt = 0; attempt < 15; attempt++) {
+    try {
+      const resp = await client.get('/api/frames', { material_id: materialId });
+      const data = resp?.data ?? {};
+      frames = data.frames ?? [];
+      if (data.status === 'done' && frames.length > 0) break;
+    } catch { /* 抽帧中，触发后重试 */ }
+    await client.post('/api/extract-frames', { material_id: materialId }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+  if (!frames.length) return null;
+
+  let pick: any;
+  if (preferredSeconds !== undefined && preferredSeconds !== null) {
+    pick = frames.reduce((b, f) => Math.abs(f.seconds - preferredSeconds) < Math.abs(b.seconds - preferredSeconds) ? f : b);
+  } else {
+    const inWindow = frames.filter((f: any) => f.seconds >= 1 && f.seconds <= 5);
+    pick = inWindow.length
+      ? inWindow.reduce((b, f) => Math.abs(f.seconds - 3) < Math.abs(b.seconds - 3) ? f : b)
+      : frames[0];
+  }
+  if (!pick || pick.seconds === undefined || pick.seconds === null) return null;
+
+  try {
+    const resp = await client.post('/api/frames/save-cover', {
+      material_id: materialId,
+      seconds: Math.round(pick.seconds),
+    });
+    const d = resp?.data;
+    return d?.landscape_43 ? d : null;
+  } catch {
+    return null;
+  }
+}
+
 interface PublishVideoParams {
   account_ids: number[];
   material_id: string;
@@ -67,6 +136,7 @@ interface PublishVideoParams {
   cover_portrait_material_id?: string;
   cover_landscape_169_material_id?: string;
   cover_portrait_916_material_id?: string;
+  cover_frame_seconds?: number;
   platform_settings?: Record<string, Record<string, any>>;
   schedule_time?: string;
 }
@@ -86,6 +156,7 @@ async function buildVideoSnapshot(
     account_ids, material_id, title, description, tags,
     cover_material_id, cover_landscape_material_id, cover_portrait_material_id,
     cover_landscape_169_material_id, cover_portrait_916_material_id,
+    cover_frame_seconds,
     platform_settings, schedule_time,
   } = params;
 
@@ -128,22 +199,68 @@ async function buildVideoSnapshot(
     coverPortrait916: null,
   };
 
-  // 3. 封面素材（cover_* 为通用兜底，与前端「只传一张封面」语义一致）
-  const [genericCover, coverL, coverP, coverL169, coverP916] = await Promise.all([
-    cover_material_id ? fetchMaterial(client, cover_material_id) : Promise.resolve(null),
-    cover_landscape_material_id ? fetchMaterial(client, cover_landscape_material_id) : Promise.resolve(null),
-    cover_portrait_material_id ? fetchMaterial(client, cover_portrait_material_id) : Promise.resolve(null),
-    cover_landscape_169_material_id ? fetchMaterial(client, cover_landscape_169_material_id) : Promise.resolve(null),
-    cover_portrait_916_material_id ? fetchMaterial(client, cover_portrait_916_material_id) : Promise.resolve(null),
-  ]);
-  for (const [mat, key] of [
-    [coverL ?? genericCover, 'coverLandscape'],
-    [coverP ?? genericCover, 'coverPortrait'],
-    [coverL169, 'coverLandscape169'],
-    [coverP916, 'coverPortrait916'],
-  ] as [any, string][]) {
-    if (mat) commonConfig[key] = slimMaterial(mat);
+  // 3. 封面——保证与网页相同的「4 比例齐备且比例正确」不变量：
+  //    各平台取用不同比例（如 B 站 4:3、知乎横版 16:9、竖版平台 3:4/9:16），
+  //    commonConfig 里 4 个封面字段必须是按比例中心裁剪好的图。
+  //    - 未指定封面 → 自动抽帧选 3 秒附近帧裁 4 张（网页添加视频的默认行为）
+  //    - 指定封面源图 → /covers/crop 以它裁出 4 张；其他显式指定的比例字段按各自源图单独裁剪覆盖
+  const primaryCoverId = cover_material_id
+    ?? cover_landscape_material_id ?? cover_portrait_material_id
+    ?? cover_landscape_169_material_id ?? cover_portrait_916_material_id
+    ?? null;
+
+  let coversDict: any = null;
+  if (primaryCoverId) {
+    try {
+      const resp = await client.post('/api/materials/covers/crop', { material_id: primaryCoverId });
+      coversDict = resp?.data ?? null;
+    } catch { coversDict = null; }
+    if (!coversDict?.landscape_43) {
+      return { error: formatErrorResult({
+        code: ErrorCodes.MATERIAL_NOT_FOUND, error: 'MATERIAL_NOT_FOUND',
+        message: `封面源图 ${primaryCoverId} 不存在或裁剪失败`,
+        suggestion: '调 material_list 选一张有效图片素材，或改用自动封面（不传封面参数）',
+        retryable: false,
+      }) };
+    }
+  } else {
+    coversDict = await autoCoversFromFrames(client, material_id, cover_frame_seconds);
+    if (!coversDict) {
+      return { error: formatErrorResult({
+        code: ErrorCodes.MISSING_REQUIRED_FIELD, error: 'MISSING_REQUIRED_FIELD',
+        message: '自动封面生成失败（视频抽帧超时或无可用帧）',
+        suggestion: '传 cover_material_id 指定封面源图，或传 cover_frame_seconds 指定选帧时间点',
+        retryable: false,
+      }) };
+    }
   }
+  const coverFields: Record<string, any> = coversToCommonConfig(coversDict);
+
+  // 显式指定且与主源不同的比例字段：按各自源图单独裁剪该比例后覆盖
+  const explicitCoverFields: [string, string | undefined, string][] = [
+    ['coverLandscape', cover_landscape_material_id, 'landscape_43'],
+    ['coverPortrait', cover_portrait_material_id, 'portrait_34'],
+    ['coverLandscape169', cover_landscape_169_material_id, 'landscape_169'],
+    ['coverPortrait916', cover_portrait_916_material_id, 'portrait_916'],
+  ];
+  for (const [field, matId, ratio] of explicitCoverFields) {
+    if (!matId || matId === primaryCoverId) continue;
+    let cropped: any = null;
+    try {
+      const resp = await client.post('/api/materials/covers/crop', { material_id: matId, ratios: [ratio] });
+      cropped = resp?.data?.[ratio] ?? null;
+    } catch { cropped = null; }
+    if (!cropped) {
+      return { error: formatErrorResult({
+        code: ErrorCodes.MATERIAL_NOT_FOUND, error: 'MATERIAL_NOT_FOUND',
+        message: `封面素材 ${matId} 不存在或按 ${ratio} 裁剪失败`,
+        suggestion: '调 material_list 换一张有效图片素材',
+        retryable: false,
+      }) };
+    }
+    coverFields[field] = toSlimCover(cropped);
+  }
+  Object.assign(commonConfig, coverFields);
 
   // 4. 每平台配置 = default_config（与网页一致）+ 公共字段 + platform_settings 覆盖
   const platformConfigs: Record<string, any> = {};
@@ -272,11 +389,12 @@ const videoParamsSchema = {
   title: z.string().describe('视频标题（各平台标题长度限制不同，超限会被后端校验拦截）'),
   description: z.string().optional().describe('视频描述/简介'),
   tags: z.array(z.string()).optional().describe('标签列表'),
-  cover_material_id: z.string().optional().describe('封面图素材 ID（横竖通用的兜底封面）'),
-  cover_landscape_material_id: z.string().optional().describe('横版封面素材 ID（4:3 主尺寸）'),
-  cover_portrait_material_id: z.string().optional().describe('竖版封面素材 ID（3:4 主尺寸）'),
-  cover_landscape_169_material_id: z.string().optional().describe('16:9 横版封面素材 ID（知乎等平台需要）'),
-  cover_portrait_916_material_id: z.string().optional().describe('9:16 竖版封面素材 ID'),
+  cover_material_id: z.string().optional().describe('封面源图素材 ID：按网页同款规格中心裁剪出 4 个比例（横版 4:3/16:9 + 竖版 3:4/9:16），各平台按需取用。推荐提供'),
+  cover_landscape_material_id: z.string().optional().describe('横版封面（4:3）源图素材 ID——若与 cover_material_id 不同则单独按 4:3 裁剪'),
+  cover_portrait_material_id: z.string().optional().describe('竖版封面（3:4）源图素材 ID——若与 cover_material_id 不同则单独按 3:4 裁剪'),
+  cover_landscape_169_material_id: z.string().optional().describe('16:9 横版封面源图素材 ID（知乎等平台用）'),
+  cover_portrait_916_material_id: z.string().optional().describe('9:16 竖版封面源图素材 ID'),
+  cover_frame_seconds: z.number().optional().describe('自动封面的选帧时间点（秒）。不传任何封面参数时自动抽帧选「1~5 秒内最接近 3 秒」的帧裁剪；传本参数可指定具体帧'),
   platform_settings: z.record(z.string(), z.record(z.string(), z.any())).optional().describe(
     `按平台 key 覆盖发布设置（各平台必填声明字段选项不同，先调 platform_list 查 fields 再填）。
 示例: {"bilibili": {"zone": "vlog", "creationDeclaration": "内容无需标注"}, "dayu": {"creationDeclaration": "无需标注", "category": "社会"}}
@@ -293,7 +411,8 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
 
 【发布前必须向用户确认】
 1. 发布账号（account_ids）：哪些账号要发
-2. 封面：提供封面素材 ID（cover_material_id，或横/竖版分开指定）
+2. 封面：提供封面源图素材 ID（自动按网页同款规格裁出 4 个比例：4:3/16:9/3:4/9:16），
+   或确认由系统自动抽帧选帧（默认 3 秒附近）生成封面
 3. 作品声明：各平台必填的声明字段选项不同 —— 先调 platform_list 查该平台 fields 的合法值，向用户确认后填入 platform_settings
 4. 是否定时发布（schedule_time）
 

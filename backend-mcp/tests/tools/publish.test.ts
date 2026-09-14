@@ -10,8 +10,19 @@ function makeMockServer(tools: any[]) {
   } as any;
 }
 
-/** 模拟后端：1 个抖音账号 + 抖音平台元数据 + 视频素材 + 成功任务 */
+/** 模拟后端：1 个抖音账号 + 抖音平台元数据 + 视频素材 + 成功任务 + 封面裁剪 */
 function makeMockClient(overrides: Record<string, any> = {}) {
+  const coverObj = (key: string) => ({
+    id: `cov-${key}`, original_filename: `cover_${key}.jpg`,
+    stored_path: `covers/${key}.jpg`, file_type: 'image',
+    mime_type: 'image/jpeg', file_size: 100, url: `http://x/${key}.jpg`, thumbnail_path: null,
+  });
+  const coverDict = {
+    landscape_43: coverObj('landscape_43'),
+    landscape_169: coverObj('landscape_169'),
+    portrait_34: coverObj('portrait_34'),
+    portrait_916: coverObj('portrait_916'),
+  };
   return {
     get: vi.fn(async (path: string) => {
       if (path === '/getAccounts') {
@@ -29,14 +40,29 @@ function makeMockClient(overrides: Record<string, any> = {}) {
           file_type: 'video', file_size: 1, duration: 10, orientation: 'horizontal',
         } };
       }
+      if (path === '/api/frames') {
+        return { data: { status: 'done', frames: [{ seconds: 1 }, { seconds: 3 }, { seconds: 5 }] } };
+      }
       if (path.startsWith('/api/v2/tasks/')) {
         return { data: { id: 'task-1', status: 'success', platform: '抖音', account_name: '抖音号', error_message: '' } };
       }
       return { data: null };
     }),
-    post: vi.fn(async (path: string) => {
+    post: vi.fn(async (path: string, body?: any) => {
       if (path === '/api/v2/videos/batch-publish') {
         return { code: 200, data: { task_ids: ['task-1'], batch_ids: ['batch-1'], failed: [] } };
+      }
+      if (path === '/api/frames/save-cover') {
+        return { code: 200, data: coverDict };
+      }
+      if (path === '/api/materials/covers/crop') {
+        // 指定 ratios 时只返回子集（与后端行为一致）
+        if (body?.ratios) {
+          const sub: any = {};
+          for (const r of body.ratios) sub[r] = coverDict[r as keyof typeof coverDict];
+          return { code: 200, data: sub };
+        }
+        return { code: 200, data: coverDict };
       }
       return { code: 200, data: {} };
     }),
@@ -91,8 +117,55 @@ describe('publish tools', () => {
       id: 'mat-1', stored_path: 'materials/v.mp4',
     }));
     expect(video.commonConfig.videoPortrait).toBeNull();
+    // 封面 4 比例齐备（自动路径：抽帧 → 3 秒帧 → save-cover 裁剪）
+    expect(mockClient.post).toHaveBeenCalledWith('/api/frames/save-cover', { material_id: 'mat-1', seconds: 3 });
+    expect(video.commonConfig.coverLandscape).toEqual(expect.objectContaining({ stored_path: 'covers/landscape_43.jpg' }));
+    expect(video.commonConfig.coverLandscape169).toEqual(expect.objectContaining({ stored_path: 'covers/landscape_169.jpg' }));
+    expect(video.commonConfig.coverPortrait).toEqual(expect.objectContaining({ stored_path: 'covers/portrait_34.jpg' }));
+    expect(video.commonConfig.coverPortrait916).toEqual(expect.objectContaining({ stored_path: 'covers/portrait_916.jpg' }));
     expect(video.platformOverrides).toEqual({});
     expect(video.accountOverrides).toEqual({});
+  });
+
+  it('video_publish 传 cover_material_id 时以源图裁 4 比例（covers/crop）', async () => {
+    const mockClient = makeMockClient();
+    const tools: any[] = [];
+    registerPublishTools(makeMockServer(tools), mockClient);
+    const videoPublish = tools.find(t => t.name === 'video_publish')!;
+
+    const result = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't',
+      cover_material_id: 'cover-img-1', wait: false,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.post).toHaveBeenCalledWith('/api/materials/covers/crop', { material_id: 'cover-img-1' });
+    const call = mockClient.post.mock.calls.find(c => c[0] === '/api/v2/videos/batch-publish');
+    const video = call![1].videos[0];
+    expect(video.commonConfig.coverLandscape.stored_path).toBe('covers/landscape_43.jpg');
+    expect(video.commonConfig.coverPortrait916.stored_path).toBe('covers/portrait_916.jpg');
+  });
+
+  it('video_publish 显式横版+竖版不同源图时按各自比例单独裁剪', async () => {
+    const mockClient = makeMockClient();
+    const tools: any[] = [];
+    registerPublishTools(makeMockServer(tools), mockClient);
+    const videoPublish = tools.find(t => t.name === 'video_publish')!;
+
+    const result = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't', wait: false,
+      cover_landscape_material_id: 'img-land',
+      cover_portrait_material_id: 'img-port',
+    });
+
+    expect(result.isError).toBeFalsy();
+    // 主源（横版）裁 4 张，竖版单独按 3:4 裁剪覆盖
+    expect(mockClient.post).toHaveBeenCalledWith('/api/materials/covers/crop', { material_id: 'img-land' });
+    expect(mockClient.post).toHaveBeenCalledWith('/api/materials/covers/crop', { material_id: 'img-port', ratios: ['portrait_34'] });
+    const call = mockClient.post.mock.calls.find(c => c[0] === '/api/v2/videos/batch-publish');
+    const video = call![1].videos[0];
+    expect(video.commonConfig.coverLandscape.stored_path).toBe('covers/landscape_43.jpg');
+    expect(video.commonConfig.coverPortrait.stored_path).toBe('covers/portrait_34.jpg');
   });
 
   it('video_publish 默认等待终态，返回 all_success', async () => {
@@ -162,12 +235,6 @@ describe('publish tools', () => {
 
   it('video_batch_publish 多视频一次提交', async () => {
     const mockClient = makeMockClient();
-    mockClient.post = vi.fn(async (path: string) => {
-      if (path === '/api/v2/videos/batch-publish') {
-        return { code: 200, data: { task_ids: ['task-1'], batch_ids: ['batch-1'], failed: [] } };
-      }
-      return { code: 200, data: {} };
-    });
     const tools: any[] = [];
     registerPublishTools(makeMockServer(tools), mockClient);
     const batchPublish = tools.find(t => t.name === 'video_batch_publish')!;

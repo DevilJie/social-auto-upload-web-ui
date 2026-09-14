@@ -1145,6 +1145,66 @@ def get_changelog():
     return jsonify({"code": 200, "data": files})
 
 
+# ========== 平台元数据（MCP / AI 自描述） ==========
+
+@ext_api.route('/platforms', methods=['GET'])
+def get_platforms():
+    """平台清单 + 各平台发布配置元数据。
+
+    registry 自动枚举平台（新平台注册后本端点自动可见），impl.platform_meta
+    补充发布字段定义（default_config / fields / schedule）。
+    """
+    from impl.registry import iter_platforms
+    from impl.platform_meta import build_platform_entry
+
+    platforms = [
+        build_platform_entry(p["platform_id"], p["platform_key"], p["platform_name"])
+        for p in iter_platforms()
+    ]
+    return jsonify({"code": 200, "data": {"platforms": platforms}})
+
+
+# ========== API 目录自省（MCP / AI 自动发现新端点） ==========
+
+@ext_api.route('/api-catalog', methods=['GET'])
+def get_api_catalog():
+    """枚举当前应用全部 HTTP 路由（path/methods/doc）。
+
+    后端新增任何路由，本端点自动可见——MCP 的 api_catalog / api_call
+    工具据此发现并调用未封装为专用工具的新能力。
+    Query: prefix（可选，按路径前缀过滤）
+    """
+    from flask import current_app
+
+    prefix = (request.args.get('prefix') or '').strip()
+    skip_paths = {'/', '/favicon.ico', '/vite.svg'}
+    skip_prefixes = ('/assets/', '/changelog/', '/static/')
+
+    items = []
+    for rule in current_app.url_map.iter_rules():
+        if rule.endpoint == 'static':
+            continue
+        path = rule.rule
+        if path in skip_paths or path.startswith(skip_prefixes):
+            continue
+        if prefix and not path.startswith(prefix):
+            continue
+        view = current_app.view_functions.get(rule.endpoint)
+        doc = ''
+        if view is not None and getattr(view, '__doc__', None):
+            # 首行文档（多行 docstring 取第一非空行）
+            doc = next((ln.strip() for ln in view.__doc__.splitlines() if ln.strip()), '')
+        items.append({
+            "path": path,
+            "methods": sorted(m for m in rule.methods if m not in ('HEAD', 'OPTIONS')),
+            "endpoint": rule.endpoint,
+            "doc": doc,
+        })
+
+    items.sort(key=lambda it: (it['path'], ','.join(it['methods'])))
+    return jsonify({"code": 200, "data": {"total": len(items), "apis": items}})
+
+
 # ========== 一键填写模板 ==========
 
 @ext_api.route('/publish-templates', methods=['GET'])

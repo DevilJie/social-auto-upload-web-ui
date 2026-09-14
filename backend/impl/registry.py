@@ -35,6 +35,22 @@ def is_supported(platform_id: int) -> bool:
     return platform_id in _registry
 
 
+def iter_platforms() -> list[dict]:
+    """枚举已注册平台（按 id 升序），供 /api/v2/platforms 等自描述端点使用。
+
+    新平台在 _populate_registry 注册后即自动出现在枚举结果中，
+    无需改动任何调用方（MCP 据此自动识别新平台）。
+    """
+    return [
+        {
+            "platform_id": pid,
+            "platform_key": getattr(cls, "platform_key", "") or "",
+            "platform_name": getattr(cls, "platform_name", "") or "",
+        }
+        for pid, cls in sorted(_registry.items())
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Populate registry -- late imports so modules can be added incrementally.
 # ---------------------------------------------------------------------------

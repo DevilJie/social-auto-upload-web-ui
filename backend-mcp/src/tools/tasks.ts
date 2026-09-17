@@ -87,6 +87,23 @@ export function registerTaskTools(server: McpServer, client: BackendClient): voi
     }
   );
 
+  // 批量取消任务
+  server.tool(
+    'task_cancel_batch',
+    '批量取消任务（一次请求全取消，避免逐个请求中途被打断）',
+    {
+      task_ids: z.array(z.string()).min(1).describe('任务 ID 列表'),
+    },
+    async ({ task_ids }) => {
+      try {
+        const response = await client.post('/api/v2/tasks/cancel-batch', { task_ids });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }] };
+      } catch (error: any) {
+        return formatErrorResult(translateError(null, error));
+      }
+    }
+  );
+
   // 任务状态 SSE 实时推送
   server.tool(
     'task_stream',

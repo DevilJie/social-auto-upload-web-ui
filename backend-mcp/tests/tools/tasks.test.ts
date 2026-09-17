@@ -3,7 +3,7 @@ import { registerTaskTools } from '../../src/tools/tasks';
 import { BackendClient } from '../../src/client';
 
 describe('task tools', () => {
-  it('应该注册5个任务管理工具', () => {
+  it('应该注册6个任务管理工具', () => {
     const mockClient = {} as BackendClient;
     const tools: any[] = [];
     const mockServer = {
@@ -12,12 +12,13 @@ describe('task tools', () => {
       }
     };
     registerTaskTools(mockServer as any, mockClient);
-    expect(tools).toHaveLength(5);
+    expect(tools).toHaveLength(6);
     expect(tools.map(t => t.name)).toEqual([
       'task_list',
       'task_get_status',
       'task_cancel',
       'task_retry',
+      'task_cancel_batch',
       'task_stream',
     ]);
   });

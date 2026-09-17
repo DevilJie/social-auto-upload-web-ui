@@ -46,15 +46,24 @@ async function main() {
     };
 
     app.get('/sse', requireAuth, async (req, res) => {
+      // 每个连接新建 McpServer 实例：共享单例时，上一个会话关闭后
+      // Protocol 仍持有旧 transport，重连/多客户端会话会互相污染。
+      const sessionServer = createMcpServer({
+        backendUrl: config.backendUrl,
+        dbPath: config.dbPath,
+      });
       const sseTransport = new SSEServerTransport('/messages', res);
       transports.set(sseTransport.sessionId, sseTransport);
 
-      sseTransport.onclose = () => {
+      // 注意：SDK 的 connect() 会自动调用 transport.start()（并发送 endpoint 事件），
+      // 这里不能再显式调用 start() —— 重复启动会抛错，导致 express 关闭 SSE 响应、
+      // transport 被清理，客户端随后 POST /messages 必然 400。
+      // 另外清理钩子挂 res 的 close 事件（transport.onclose 会被 Protocol.connect 覆盖）。
+      res.on('close', () => {
         transports.delete(sseTransport.sessionId);
-      };
+      });
 
-      await server.connect(sseTransport);
-      await sseTransport.start();
+      await sessionServer.connect(sseTransport);
     });
 
     app.post('/messages', requireAuth, async (req, res) => {

@@ -3,7 +3,7 @@ import { registerPublishExtraTools } from '../../src/tools/publish_extra';
 import { BackendClient } from '../../src/client';
 
 describe('publish extra tools', () => {
-  it('应该注册3个发布辅助工具', () => {
+  it('应该注册6个发布辅助工具', () => {
     const mockClient = {} as BackendClient;
     const tools: any[] = [];
     const mockServer = {
@@ -12,9 +12,12 @@ describe('publish extra tools', () => {
       }
     };
     registerPublishExtraTools(mockServer as any, mockClient);
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(6);
     expect(tools.map(t => t.name)).toEqual([
       'publish_history',
+      'history_detail',
+      'history_delete',
+      'publish_templates',
       'publish_stats',
       'queue_status',
     ]);

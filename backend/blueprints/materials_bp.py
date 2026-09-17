@@ -317,6 +317,50 @@ def covers_upload():
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
+@materials_bp.route("/covers/crop", methods=["POST"])
+def covers_crop():
+    """把素材库图片按 4 个比例中心裁剪为封面（covers/ 目录，不入素材库）。
+
+    Body: {"material_id": "...", "ratios": ["landscape_43", ...] 可选}
+    ratios 缺省裁全部 4 个；返回 {landscape_43, landscape_169, portrait_34,
+    portrait_916} 中被请求的比例，对象结构与 /api/frames/save-cover 同构。
+    发布（MCP）前统一裁出全比例封面，保证各平台取到比例正确的封面。
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    material_id = data.get("material_id", "")
+    if not material_id:
+        return jsonify({"code": 400, "msg": "material_id is required"}), 400
+
+    from services.cover_crop import RATIOS
+    ratios = data.get("ratios") or list(RATIOS.keys())
+    if (not isinstance(ratios, list) or not ratios
+            or any(r not in RATIOS for r in ratios)):
+        return jsonify({"code": 400, "msg": f"ratios 必须是 {list(RATIOS.keys())} 的非空子集"}), 400
+
+    conn = _get_db()
+    row = conn.execute("SELECT * FROM materials WHERE id = ?", (material_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"code": 404, "msg": "素材不存在"}), 404
+    if row["file_type"] != "image":
+        return jsonify({"code": 400, "msg": "仅支持图片素材裁剪封面"}), 400
+
+    from storage import get_storage_by_type
+    local_path = get_storage_by_type(row["storage_type"] or "local").get_local_path(row["stored_path"])
+    if not local_path or not os.path.isfile(local_path):
+        return jsonify({"code": 400, "msg": "素材文件不存在，无法裁剪"}), 400
+
+    from PIL import Image
+    from services.cover_crop import crop_image_to_covers
+    try:
+        src = Image.open(local_path)
+        result = crop_image_to_covers(src, filename_prefix=row["original_filename"], ratios=ratios)
+    except Exception as e:
+        return jsonify({"code": 500, "msg": f"封面裁剪失败: {e}"}), 500
+
+    return jsonify({"code": 200, "data": result})
+
+
 @materials_bp.route("/batch-delete", methods=["POST"])
 def batch_delete():
     """批量删除素材。

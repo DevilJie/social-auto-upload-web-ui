@@ -159,4 +159,42 @@ export function registerDraftTools(server: McpServer, client: BackendClient): vo
       }
     }
   );
+
+  // 批量发布草稿
+  server.tool(
+    'draft_batch_publish',
+    '批量发布视频草稿（每个 (草稿, 账号) 入队 1 个任务，与网页「草稿批量发布」同链路）。提交后返回 task_ids，用 task_get_status / publish_history 查询结果',
+    {
+      draft_ids: z.array(z.union([z.string(), z.number()])).min(1).max(30).describe('草稿 ID 列表（1-30 个）'),
+    },
+    async ({ draft_ids }) => {
+      try {
+        const response = await client.post('/api/v2/drafts/batch-publish', {
+          draft_ids: draft_ids.map((d) => Number(d)),
+        });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }] };
+      } catch (error: any) {
+        return formatErrorResult(translateError(null, error));
+      }
+    }
+  );
+
+  // 批量删除草稿
+  server.tool(
+    'draft_batch_delete',
+    '批量删除视频草稿（1-30 个）',
+    {
+      draft_ids: z.array(z.union([z.string(), z.number()])).min(1).max(30).describe('草稿 ID 列表'),
+    },
+    async ({ draft_ids }) => {
+      try {
+        const response = await client.deleteWithBody('/api/v2/drafts/batch', {
+          draft_ids: draft_ids.map((d) => Number(d)),
+        });
+        return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }] };
+      } catch (error: any) {
+        return formatErrorResult(translateError(null, error));
+      }
+    }
+  );
 }

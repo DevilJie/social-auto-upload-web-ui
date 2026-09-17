@@ -153,6 +153,12 @@ export class BackendClient {
     return response.data;
   }
 
+  /** DELETE 携带请求体（后端批量删除接口按 body 传 id 列表） */
+  async deleteWithBody<T = any>(path: string, data?: any): Promise<ApiResponse<T>> {
+    const response: AxiosResponse<ApiResponse<T>> = await this.http.delete(path, { data });
+    return response.data;
+  }
+
   async uploadFile<T>(path: string, filePath: string, additionalFields?: Record<string, string>): Promise<ApiResponse<T>> {
     const form = new FormData();
     form.append('file', fs.createReadStream(filePath));

@@ -82,14 +82,62 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
     }
   );
 
-  // 有效账号列表
+  // 有效账号列表（秒回：按最近一次校验结果筛选，不开浏览器）
   server.tool(
     'account_valid_list',
-    '获取所有 Cookie 有效的账号列表（发布前筛选可用账号）',
+    `获取 Cookie 有效的账号列表（按最近一次校验的缓存状态筛选，立即返回，不开浏览器）。
+
+要强制重新校验（会为每个账号打开无头浏览器，约 10~30 秒/账号）请改用 account_check_all，
+或用 account_check 校验单个账号。`,
     {},
     async () => {
       try {
-        const response = await client.get('/getValidAccounts');
+        const resp = await client.get('/getAccounts');
+        const raw: any[] = resp?.data ?? [];
+        const rows = raw.map((row: any) => Array.isArray(row)
+          ? { id: row[0], type: row[1], filePath: row[2], userName: row[3], status: row[4], avatar: row[5] }
+          : row
+        );
+        const valid = rows.filter((a: any) => Number(a.status) === 1);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ code: 200, data: valid, total: valid.length }, null, 2)
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `获取有效账号列表失败: ${error.message}`
+          }],
+          isError: true
+        };
+      }
+    }
+  );
+
+  // 强制重新校验账号 Cookie（开浏览器，慢）
+  server.tool(
+    'account_check_all',
+    `强制重新校验账号 Cookie 有效性（真实访问各平台创作中心，会为每个账号打开无头浏览器）。
+
+【耗时警告】每个账号约 10~30 秒，多账号会等待很久——校验 10 个账号可能需要 5 分钟。
+- 只想按最近结果筛选有效账号：用 account_valid_list（秒回）
+- 只想校验个别账号：传 account_ids 过滤，或逐个用 account_check
+
+返回全部账号及最新校验状态（status=1 有效，0 失效），结果已写回数据库。`,
+    {
+      account_ids: z.array(z.union([z.string(), z.number()])).optional().describe('只校验这些账号 ID（缺省校验全部）'),
+    },
+    async ({ account_ids }) => {
+      try {
+        const params: Record<string, string> = {};
+        if (account_ids?.length) {
+          params.ids = account_ids.map(String).join(',');
+        }
+        // 每账号 10~30s，全量校验需要超长超时（30 分钟兜底）
+        const response = await client.get('/getValidAccounts', params, 30 * 60 * 1000);
         return {
           content: [{
             type: 'text' as const,
@@ -100,7 +148,7 @@ export function registerAccountTools(server: McpServer, client: BackendClient): 
         return {
           content: [{
             type: 'text' as const,
-            text: `获取有效账号列表失败: ${error.message}`
+            text: `批量校验失败: ${error.message}`
           }],
           isError: true
         };

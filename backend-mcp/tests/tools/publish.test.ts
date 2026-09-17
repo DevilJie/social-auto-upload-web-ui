@@ -89,6 +89,7 @@ describe('publish tools', () => {
       title: '测试标题',
       description: '测试描述',
       tags: ['测试'],
+      use_auto_cover: true,
       platform_settings: { douyin: { aiContent: '内容由AI生成' } },
       schedule_time: '2026-09-20 18:00:00',
     });
@@ -179,6 +180,7 @@ describe('publish tools', () => {
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't',
       description: '简介', tags: ['标签'],
+      use_auto_cover: true,
     });
 
     const parsed = JSON.parse(result.content[0].text);
@@ -195,6 +197,7 @@ describe('publish tools', () => {
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't', wait: false,
       description: '', tags: [],
+      use_auto_cover: true,
     });
 
     const parsed = JSON.parse(result.content[0].text);
@@ -222,6 +225,7 @@ describe('publish tools', () => {
     const result = await videoPublish.handler({
       account_ids: [7], material_id: 'nope', title: 't',
       description: '', tags: [],
+      use_auto_cover: true,
     });
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content[0].text).error).toBe('MATERIAL_NOT_FOUND');
@@ -267,11 +271,47 @@ describe('publish tools', () => {
     // 缺失场景下不应触达后端发布
     expect(mockClient.post).not.toHaveBeenCalledWith('/api/v2/videos/batch-publish', expect.anything(), expect.anything());
 
-    // 显式空值 = 用户确认过，放行
+    // 显式空值 = 用户确认过，放行（封面同时确认抽帧自动）
     const explicitEmpty = await videoPublish.handler({
       account_ids: [7], material_id: 'mat-1', title: 't', description: '', tags: [], wait: false,
+      use_auto_cover: true,
     });
     expect(explicitEmpty.isError).toBeFalsy();
+  });
+
+  it('video_publish 封面方式未抉择（抽帧 or 用户封面图）时拒绝发布', async () => {
+    const mockClient = makeMockClient();
+    const tools: any[] = [];
+    registerPublishTools(makeMockServer(tools), mockClient);
+    const videoPublish = tools.find(t => t.name === 'video_publish')!;
+
+    // 描述/标签都确认了，但封面方式没让用户抉择
+    const result = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't',
+      description: '', tags: [],
+    });
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.error).toBe('MISSING_REQUIRED_FIELD');
+    expect(parsed.message).toContain('封面方式未确认');
+    expect(mockClient.post).not.toHaveBeenCalledWith('/api/frames/save-cover', expect.anything());
+    expect(mockClient.post).not.toHaveBeenCalledWith('/api/v2/videos/batch-publish', expect.anything(), expect.anything());
+
+    // 用户确认抽帧自动封面 → 放行并走抽帧裁剪
+    const autoOk = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't',
+      description: '', tags: [], use_auto_cover: true, wait: false,
+    });
+    expect(autoOk.isError).toBeFalsy();
+    expect(mockClient.post).toHaveBeenCalledWith('/api/frames/save-cover', { material_id: 'mat-1', seconds: 3 });
+
+    // 指定选帧时间点 = 隐式确认抽帧封面
+    const framePick = await videoPublish.handler({
+      account_ids: [7], material_id: 'mat-1', title: 't',
+      description: '', tags: [], cover_frame_seconds: 5, wait: false,
+    });
+    expect(framePick.isError).toBeFalsy();
+    expect(mockClient.post).toHaveBeenCalledWith('/api/frames/save-cover', { material_id: 'mat-1', seconds: 5 });
   });
 
   it('video_batch_publish 某视频缺描述/标签时整批拒绝', async () => {
@@ -282,7 +322,7 @@ describe('publish tools', () => {
 
     const result = await batchPublish.handler({
       videos: [
-        { account_ids: [7], material_id: 'mat-1', title: '视频1', description: '', tags: [] },
+        { account_ids: [7], material_id: 'mat-1', title: '视频1', description: '', tags: [], use_auto_cover: true },
         { account_ids: [7], material_id: 'mat-1', title: '视频2' },  // 缺描述/标签
       ],
       wait: false,
@@ -301,8 +341,8 @@ describe('publish tools', () => {
 
     const result = await batchPublish.handler({
       videos: [
-        { account_ids: [7], material_id: 'mat-1', title: '视频1', description: '', tags: [] },
-        { account_ids: [7], material_id: 'mat-1', title: '视频2', description: '', tags: [] },
+        { account_ids: [7], material_id: 'mat-1', title: '视频1', description: '', tags: [], use_auto_cover: true },
+        { account_ids: [7], material_id: 'mat-1', title: '视频2', description: '', tags: [], use_auto_cover: true },
       ],
       interval_minutes: 10,
       wait: false,

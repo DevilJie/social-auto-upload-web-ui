@@ -137,6 +137,7 @@ interface PublishVideoParams {
   cover_landscape_169_material_id?: string;
   cover_portrait_916_material_id?: string;
   cover_frame_seconds?: number;
+  use_auto_cover?: boolean;
   platform_settings?: Record<string, Record<string, any>>;
   schedule_time?: string;
 }
@@ -156,7 +157,7 @@ async function buildVideoSnapshot(
     account_ids, material_id, title, description, tags,
     cover_material_id, cover_landscape_material_id, cover_portrait_material_id,
     cover_landscape_169_material_id, cover_portrait_916_material_id,
-    cover_frame_seconds,
+    cover_frame_seconds, use_auto_cover,
     platform_settings, schedule_time,
   } = params;
 
@@ -214,15 +215,27 @@ async function buildVideoSnapshot(
     coverPortrait916: null,
   };
 
-  // 3. 封面——保证与网页相同的「4 比例齐备且比例正确」不变量：
+  // 3. 封面——封面方式必须由用户显式抉择（抽帧自动 or 用户封面图）：
+  //    未传任何封面参数且未显式确认自动封面 → 拒绝发布，防止 AI 静默用抽帧封面。
+  //    确定方式后保证与网页相同的「4 比例齐备且比例正确」不变量：
   //    各平台取用不同比例（如 B 站 4:3、知乎横版 16:9、竖版平台 3:4/9:16），
   //    commonConfig 里 4 个封面字段必须是按比例中心裁剪好的图。
-  //    - 未指定封面 → 自动抽帧选 3 秒附近帧裁 4 张（网页添加视频的默认行为）
-  //    - 指定封面源图 → /covers/crop 以它裁出 4 张；其他显式指定的比例字段按各自源图单独裁剪覆盖
+  //    - 用户封面图 → /covers/crop 以它裁出 4 张；其他显式指定的比例字段按各自源图单独裁剪覆盖
+  //    - 确认自动封面（use_auto_cover=true 或指定了 cover_frame_seconds）→ 抽帧选 3 秒附近帧裁 4 张
   const primaryCoverId = cover_material_id
     ?? cover_landscape_material_id ?? cover_portrait_material_id
     ?? cover_landscape_169_material_id ?? cover_portrait_916_material_id
     ?? null;
+
+  const autoCoverConfirmed = use_auto_cover === true || cover_frame_seconds !== undefined;
+  if (!primaryCoverId && !autoCoverConfirmed) {
+    return { error: formatErrorResult({
+      code: ErrorCodes.MISSING_REQUIRED_FIELD, error: 'MISSING_REQUIRED_FIELD',
+      message: '封面方式未确认：发布前必须让用户在「视频抽帧自动封面」与「用户自己的封面图」之间做出选择，不允许默认使用抽帧封面直接发布',
+      suggestion: '用户选抽帧自动封面 → 传 use_auto_cover=true（可用 cover_frame_seconds 指定帧，默认选 3 秒附近）；用户提供封面图 → 传 cover_material_id',
+      retryable: false,
+    }) };
+  }
 
   let coversDict: any = null;
   if (primaryCoverId) {
@@ -234,7 +247,7 @@ async function buildVideoSnapshot(
       return { error: formatErrorResult({
         code: ErrorCodes.MATERIAL_NOT_FOUND, error: 'MATERIAL_NOT_FOUND',
         message: `封面源图 ${primaryCoverId} 不存在或裁剪失败`,
-        suggestion: '调 material_list 选一张有效图片素材，或改用自动封面（不传封面参数）',
+        suggestion: '调 material_list 选一张有效图片素材，或让用户确认后改用抽帧自动封面（use_auto_cover=true）',
         retryable: false,
       }) };
     }
@@ -409,7 +422,8 @@ const videoParamsSchema = {
   cover_portrait_material_id: z.string().optional().describe('竖版封面（3:4）源图素材 ID——若与 cover_material_id 不同则单独按 3:4 裁剪'),
   cover_landscape_169_material_id: z.string().optional().describe('16:9 横版封面源图素材 ID（知乎等平台用）'),
   cover_portrait_916_material_id: z.string().optional().describe('9:16 竖版封面源图素材 ID'),
-  cover_frame_seconds: z.number().optional().describe('自动封面的选帧时间点（秒）。不传任何封面参数时自动抽帧选「1~5 秒内最接近 3 秒」的帧裁剪；传本参数可指定具体帧'),
+  cover_frame_seconds: z.number().optional().describe('抽帧自动封面的选帧时间点（秒），默认自动选 1~5 秒内最接近 3 秒的帧。传本参数即视为用户已确认使用抽帧封面'),
+  use_auto_cover: z.boolean().optional().describe('用户确认使用「视频抽帧自动封面」时传 true（否则须提供 cover_material_id 由用户封面图裁剪）'),
   platform_settings: z.record(z.string(), z.record(z.string(), z.any())).optional().describe(
     `按平台 key 覆盖发布设置（各平台必填声明字段选项不同，先调 platform_list 查 fields 再填）。
 示例: {"bilibili": {"zone": "vlog", "creationDeclaration": "内容无需标注"}, "dayu": {"creationDeclaration": "无需标注", "category": "社会"}}
@@ -429,8 +443,9 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
 2. 标题（title）
 3. 描述（description）：即使不需要也要用户确认后显式传空字符串
 4. 标签（tags）：即使不需要也要用户确认后显式传空数组
-5. 封面：提供封面源图素材 ID（自动按网页同款规格裁出 4 个比例：4:3/16:9/3:4/9:16），
-   或确认由系统自动抽帧选帧（默认 3 秒附近）生成封面
+5. 封面方式（必须让用户二选一，默认抽帧直接发布会被拒绝）：
+   a) 用户自己的封面图 → cover_material_id（自动按网页同款规格裁出 4 个比例：4:3/16:9/3:4/9:16）
+   b) 视频抽帧自动封面 → use_auto_cover=true（可用 cover_frame_seconds 指定帧，默认选 3 秒附近）
 6. 作品声明：各平台必填的声明字段选项不同 —— 先调 platform_list 查该平台 fields 的合法值，向用户确认后填入 platform_settings
 7. 是否定时发布（schedule_time）
 
@@ -473,7 +488,8 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
 
 【发布前必须逐视频向用户确认（与 video_publish 相同的清单，未确认会被服务端拒绝）】
 每个视频的：账号、标题、描述（确认为空须显式传 ""）、标签（确认为空须显式传 []）、
-封面、各平台作品声明（platform_settings，选项调 platform_list 查）、是否定时。`,
+封面方式（用户封面图 cover_material_id 或抽帧自动封面 use_auto_cover=true，二选一）、
+各平台作品声明（platform_settings，选项调 platform_list 查）、是否定时。`,
     {
       videos: z.array(z.object(videoParamsSchema)).min(1).max(30).describe('视频列表（按发布顺序）'),
       interval_minutes: z.number().optional().describe('相邻视频发布间隔（分钟，0=立即，默认 0）'),

@@ -31,8 +31,9 @@ export class BackendClient {
     return url.toString();
   }
 
-  async get<T = any>(path: string, params?: Record<string, string>): Promise<ApiResponse<T>> {
-    const response: AxiosResponse<ApiResponse<T>> = await this.http.get(path, { params });
+  async get<T = any>(path: string, params?: Record<string, string>, timeout?: number): Promise<ApiResponse<T>> {
+    const config = timeout ? { params, timeout } : { params };
+    const response: AxiosResponse<ApiResponse<T>> = await this.http.get(path, config);
     return response.data;
   }
 

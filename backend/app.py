@@ -302,8 +302,18 @@ def getAccounts():
 
 @app.route("/getValidAccounts", methods=['GET'])
 def getValidAccounts():
-    """获取所有账号并使用新引擎逐个验证 cookie 有效性"""
+    """获取所有账号并使用新引擎逐个验证 cookie 有效性。
+
+    Query: ids（可选，逗号分隔的账号 ID）——只重校验指定账号，缺省全量。
+    注意：每个账号会启动无头浏览器访问平台创作中心（约 10~30 秒/账号），
+    全量校验多账号时耗时较长，调用方需设置足够的超时。
+    """
     try:
+        ids_param = (request.args.get('ids') or '').strip()
+        wanted_ids = None
+        if ids_param:
+            wanted_ids = {int(x) for x in ids_param.split(',') if x.strip().isdigit()}
+
         with sqlite3.connect(str(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -312,6 +322,8 @@ def getValidAccounts():
             rows_list = [list(row) for row in rows]
 
         for row in rows_list:
+            if wanted_ids is not None and row[0] not in wanted_ids:
+                continue
             platform = get_platform(row[1])
             if platform:
                 try:

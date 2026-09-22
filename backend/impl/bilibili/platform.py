@@ -1366,17 +1366,33 @@ class BilibiliPlatform(BasePlatform):
             await asyncio.sleep(3)
 
             # Step 5: Click done button
+            # 注意: count() 只查 DOM 节点不查可见性, 弹窗关闭后残留节点 count>0,
+            # 直接 click 会等可见性直到 30s 默认超时, 故此处必须限定超时
             submit_btn = page.locator("div.button.submit").first
             if await submit_btn.count() > 0:
-                await submit_btn.click()
+                await submit_btn.click(timeout=10000)
             await asyncio.sleep(1)
 
             # Step 6: Click confirm button inside dialog
+            # 旧版: 点「完成」只关编辑器, 还需点外层 bcc-dialog 的「确定」
+            # 新版(2026-09): 弹窗即封面编辑器本体, 点「完成」整体关闭,
+            # 「确定」按钮随弹窗隐藏(v-show 残留在 DOM, count() 仍为 1),
+            # 若仍等它点击会 30s 超时, 误报 cover setting failed(封面实际已设置成功)
+            # 故必须先确认可见再点, 且失败不算错误
             confirm_btn = dialog.locator(
                 "button.bcc-button--primary"
             ).first
-            if await confirm_btn.count() > 0:
-                await confirm_btn.click()
+            try:
+                if (
+                    await confirm_btn.count() > 0
+                    and await confirm_btn.is_visible()
+                ):
+                    await confirm_btn.click(timeout=10000)
+            except Exception as confirm_exc:
+                logger.info(
+                    "[设置封面] 外层确定按钮未点到(弹窗可能已随「完成」关闭): %s",
+                    confirm_exc,
+                )
             await asyncio.sleep(1)
 
             # Ensure any stray dialogs are closed

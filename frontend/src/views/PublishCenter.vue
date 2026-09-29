@@ -2940,6 +2940,25 @@ const _DECLARATION_PLATFORMS = {
   // channels 不必填
 }
 
+// 错误类型 → 用户能看懂的「怎么解决」提示（确认弹窗展开行展示）
+const _ERROR_HINTS = {
+  '作品声明': '该平台发布时必须选择作品声明，请在右侧「发布设置」中选择，或用顶部「批量设置」一键填写',
+  '标题': '请填写视频标题后再发布',
+  '封面': '请上传封面图（横版或竖版至少一张）',
+  '转载来源(B站)': '创作声明选了「内容为转载」，B站要求必须填写转载来源',
+  '转载来源(支付宝)': '作者声明选了「内容为转载」，支付宝要求必须填写转载来源地址',
+  '原文链接(大鱼号)': '信息来源选了「转载」，大鱼号要求必须填写原文链接',
+  '视频校验': '视频时长/大小或文案长度超出平台限制，详见下方各账号说明',
+  '爱奇艺标题': '爱奇艺标题最多 30 个字符，请缩短标题',
+  '爱奇艺描述/标签': '爱奇艺描述+标签合计最多 450 个字符，请精简内容',
+  '百家号描述/标签': '百家号描述+标签合计最多 50 个字符、标签最多 10 个，请精简内容',
+  '京东标题': '京东标题需要 5~27 个字，请调整标题长度',
+  '抖音话题': '抖音话题总数最多 5 个（描述#话题 + 官方活动 + 标签），请删除多余话题',
+  '小红书话题': '小红书话题总数最多 10 个（描述#话题 + 标签），请删除多余话题',
+  '快手标签': '快手标签最多 4 个，请删除多余标签',
+  '视频文件': '请先上传视频文件',
+}
+
 // 单个视频快照的发布前校验（collect-all）：返回错误消息数组（空数组 = 通过）。
 // 由旧 publishAll 的校验段移植，参数化为快照状态。
 function collectVideoErrors(state) {
@@ -2954,7 +2973,7 @@ function collectVideoErrors(state) {
     || Object.values(aOvs).some(ov => ov && (ov.videoLandscape || ov.videoPortrait))
     || Object.values(pOvs).some(ov => ov && (ov.videoLandscape || ov.videoPortrait))
   if (!hasAnyVideo) {
-    return ['缺少视频文件']
+    return [{ type: '视频文件', hint: _ERROR_HINTS['视频文件'], accounts: [] }]
   }
 
   // 2. 至少一张封面（扫 3 个源）
@@ -3213,14 +3232,12 @@ function collectVideoErrors(state) {
     errors.push({ type: '快手标签', accounts: kuaishouAccountsTooManyTags })
   }
 
-  // 压缩成字符串数组（确认弹窗展开行展示用）
-  return errors.map(e => {
-    const list = e.accounts || [e.type]
-    const shown = list.length > 3
-      ? list.slice(0, 3).join('、') + ` 等 ${list.length} 项`
-      : list.join('、')
-    return `【${e.type}】${shown}`
-  })
+  // 结构化输出：{ type 问题名, hint 怎么解决, accounts 受影响账号 }（确认弹窗展开行展示用）
+  return errors.map(e => ({
+    type: e.type,
+    hint: _ERROR_HINTS[e.type] || '',
+    accounts: e.accounts || [],
+  }))
 }
 
 // 点「批量发布」：逐视频校验 → Cookie 预检（通过视频的账号并集）→ 弹确认框

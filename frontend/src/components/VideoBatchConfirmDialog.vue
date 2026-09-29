@@ -2,144 +2,173 @@
   <el-dialog
     :model-value="visible"
     title="批量发布确认"
-    width="720px"
+    width="860px"
+    top="6vh"
     :close-on-click-modal="false"
     @update:model-value="$emit('update:visible', $event)"
   >
     <div v-if="rows.length === 0" class="empty">队列为空</div>
     <template v-else>
-      <el-table
-        ref="tableRef"
-        :data="tableData"
-        :max-height="380"
-        row-key="index"
-        :expand-row-keys="expandedKeys"
-      >
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <div v-if="row.errors.length" class="err-list">
-              <div v-for="(e, i) in row.errors" :key="i" class="err-item">
-                <span class="err-dot"></span>{{ e }}
-              </div>
-            </div>
-            <div v-else class="err-list err-list--ok">发布前检查全部通过</div>
-          </template>
-        </el-table-column>
-        <el-table-column width="50">
-          <template #header>
-            <el-checkbox
-              :model-value="allChecked"
-              :indeterminate="someChecked"
-              @change="toggleAll"
-            />
-          </template>
-          <template #default="{ row }">
+      <!-- ── 顶部统计条：结果一目了然，可点击筛选 ── -->
+      <div class="stat-bar">
+        <div class="stat-chips">
+          <button
+            :class="['stat-chip', 'is-all', { 'is-active': filter === 'all' }]"
+            @click="filter = 'all'"
+          >全部 {{ rows.length }}</button>
+          <button
+            :class="['stat-chip', 'is-ok', { 'is-active': filter === 'ok' }]"
+            @click="filter = 'ok'"
+          >
+            <el-icon><CircleCheckFilled /></el-icon>可发布 {{ okCount }}
+          </button>
+          <button
+            v-if="failedCount > 0"
+            :class="['stat-chip', 'is-fail', { 'is-active': filter === 'failed' }]"
+            @click="filter = 'failed'"
+          >
+            <el-icon><CircleCloseFilled /></el-icon>待处理 {{ failedCount }}
+          </button>
+        </div>
+        <div class="stat-right">
+          预计产生 <b>{{ estimatedAllTasks }}</b> 个发布任务
+        </div>
+      </div>
+
+      <!-- ── 视频卡片列表 ── -->
+      <div class="video-list">
+        <div
+          v-for="row in filteredRows"
+          :key="row.index"
+          :class="['video-card', {
+            'is-selected': selectedIndexes.includes(row.index),
+            'is-failed': row.errors.length > 0,
+          }]"
+          :role="row.errors.length ? undefined : 'checkbox'"
+          :aria-checked="row.errors.length ? undefined : selectedIndexes.includes(row.index)"
+          @click="row.errors.length === 0 && toggleRow(row.index)"
+        >
+          <!-- 勾选区 -->
+          <div class="card-check">
             <el-checkbox
               :model-value="selectedIndexes.includes(row.index)"
               :disabled="row.errors.length > 0"
+              @click.stop
               @change="(val) => toggleRow(row.index, val)"
             />
-          </template>
-        </el-table-column>
-        <el-table-column label="视频" min-width="200">
-          <template #default="{ row }">
-            <div class="video-cell">
-              <div class="video-thumb">
-                <img v-if="row.coverUrl" :src="row.coverUrl" alt="" />
-                <el-icon v-else :size="16"><VideoCameraFilled /></el-icon>
-              </div>
-              <div class="video-info">
-                <div class="video-name" :title="row.name">{{ row.name }}</div>
-                <div class="video-title" :title="row.title">{{ row.title || '（无标题）' }}</div>
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="账号数" width="80" align="center">
-          <template #default="{ row }">
-            <span>{{ row.accountCount }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="定时" width="70" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.hasSchedule" type="warning" size="small">定时</el-tag>
-            <span v-else class="muted">立即</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="校验" min-width="220">
-          <template #default="{ row }">
-            <div v-if="row.errors.length === 0" class="check-cell">
-              <el-tag type="success" size="small">通过</el-tag>
-            </div>
-            <div v-else class="check-cell">
-              <el-tag type="danger" size="small">未通过 ({{ row.errors.length }})</el-tag>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
 
-      <!-- 视频发布间隔提示 + 设置：仅本次批量生效 -->
-      <el-alert
-        class="interval-tip"
-        type="warning"
-        :closable="false"
-        show-icon
-      >
-        <template #title>
-          <span>请设置每个视频发布间隔（单位：分钟）</span>
-        </template>
-        <template #default>
-          <div class="interval-tip-body">
-            <span class="interval-hint">
-              数值 <b>&gt; 0</b> 时，每发布完一个视频等待指定分钟数再发布下一个；
-              填 <b>0</b> 则发布完一个视频立即开始发布下一个。设置仅对本次批量生效。
-            </span>
-            <div class="interval-input">
-              <el-input-number
-                v-model="intervalMinutes"
-                :min="0"
-                :max="120"
-                :step="1"
-                controls-position="right"
-                style="width: 140px"
-              />
-              <span class="interval-unit">分钟</span>
+          <!-- 视频信息 -->
+          <div class="video-cell">
+            <div class="video-thumb">
+              <img v-if="row.coverUrl" :src="row.coverUrl" alt="" />
+              <el-icon v-else :size="18"><VideoCameraFilled /></el-icon>
+            </div>
+            <div class="video-info">
+              <div class="video-name" :title="row.name">{{ row.name }}</div>
+              <div class="video-title" :title="row.title">{{ row.title || '（无标题）' }}</div>
             </div>
           </div>
-        </template>
-      </el-alert>
 
-      <div class="summary">
-        已选 <b>{{ selectedIndexes.length }}</b> / {{ rows.length }} 个视频
-        · 预计产生 <b>{{ estimatedTasks }}</b> 个发布任务
-        <span v-if="failedCount > 0" class="summary-fail">
-          · <b>{{ failedCount }}</b> 个视频未通过检查（已展开详情，修复后重新发布）
-        </span>
-        <span class="hint">（提交后即可关闭页面，任务在后端继续执行）</span>
+          <!-- 元信息 -->
+          <div class="card-meta">
+            <span class="meta-item">{{ row.accountCount }} 个账号</span>
+            <span class="meta-item">{{ row.hasSchedule ? '定时发布' : '立即发布' }}</span>
+          </div>
+
+          <!-- 状态 -->
+          <div class="card-status">
+            <el-tag v-if="row.errors.length === 0" type="success" size="small" effect="light" round>
+              <el-icon class="tag-icon"><CircleCheckFilled /></el-icon>可发布
+            </el-tag>
+            <el-tag v-else type="danger" size="small" effect="light" round>
+              <el-icon class="tag-icon"><CircleCloseFilled /></el-icon>{{ row.errors.length }} 个问题
+            </el-tag>
+          </div>
+
+          <!-- ── 问题详情：直接内联展示，不用展开行 ── -->
+          <div v-if="row.errors.length > 0" class="card-errors" @click.stop>
+            <div v-for="(e, i) in row.errors" :key="i" class="err-block">
+              <div class="err-head">
+                <span class="err-type">{{ errType(e) }}</span>
+                <span v-if="errHint(e)" class="err-hint">{{ errHint(e) }}</span>
+              </div>
+              <div v-if="errAccounts(e).length" class="err-accounts">
+                <span class="err-accounts-label">影响账号（{{ errAccounts(e).length }}）</span>
+                <el-tag
+                  v-for="a in errAccounts(e)"
+                  :key="a"
+                  type="danger"
+                  effect="plain"
+                  size="small"
+                  class="err-account-tag"
+                >{{ a }}</el-tag>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="filteredRows.length === 0" class="empty">该分类下没有视频</div>
+      </div>
+
+      <!-- ── 发布间隔：紧凑一行 ── -->
+      <div class="interval-row">
+        <el-icon class="interval-icon"><Timer /></el-icon>
+        <span class="interval-label">发布间隔</span>
+        <el-input-number
+          v-model="intervalMinutes"
+          :min="0"
+          :max="120"
+          :step="1"
+          controls-position="right"
+          style="width: 110px"
+        />
+        <span class="interval-unit">分钟</span>
+        <el-tooltip placement="top">
+          <template #content>
+            每发布完一个视频等待指定分钟数再发布下一个，避免平台风控。<br />
+            填 0 表示立即发布下一个。仅对本次批量生效。
+          </template>
+          <el-icon class="interval-help"><QuestionFilled /></el-icon>
+        </el-tooltip>
       </div>
     </template>
 
     <template #footer>
-      <el-button @click="$emit('update:visible', false)" :disabled="submitting">取消</el-button>
-      <el-button
-        type="primary"
-        :disabled="selectedIndexes.length === 0"
-        :loading="submitting"
-        @click="onConfirm"
-      >
-        发布 {{ selectedIndexes.length }} 个视频
-      </el-button>
+      <div class="footer-row">
+        <div class="footer-summary">
+          <template v-if="rows.length > 0">
+            已选 <b>{{ selectedIndexes.length }}</b> / {{ rows.length }} 个视频
+            <template v-if="failedCount > 0">
+              · <span class="summary-fail">{{ failedCount }} 个视频需先修复上方问题</span>
+            </template>
+            <span class="hint">（提交后可关闭页面，任务在后端继续执行）</span>
+          </template>
+        </div>
+        <div class="footer-btns">
+          <el-button @click="$emit('update:visible', false)" :disabled="submitting">取消</el-button>
+          <el-button
+            type="primary"
+            :disabled="selectedIndexes.length === 0"
+            :loading="submitting"
+            @click="onConfirm"
+          >
+            发布 {{ selectedIndexes.length }} 个视频
+          </el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { VideoCameraFilled } from '@element-plus/icons-vue'
+import { VideoCameraFilled, CircleCheckFilled, CircleCloseFilled, Timer, QuestionFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   // [{index, name, coverUrl, title, accountCount, hasSchedule, errors: []}]
+  // errors 项为 { type, hint, accounts }（兼容旧版纯文本字符串）
   rows: { type: Array, default: () => [] },
   submitting: { type: Boolean, default: false },
 })
@@ -147,56 +176,63 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'confirm'])
 
 const selectedIndexes = ref([])
-// 有校验错误的行自动展开（row-key 为 index，需字符串）
-const expandedKeys = ref([])
+// 筛选：all / ok / failed
+const filter = ref('all')
 // 本次批量发布的视频间隔（分钟）。0 = 立即开始下一个；>0 = 等满分钟再发下一个。
 // 仅本次批量生效，不影响 settings.batchTaskInterval 全局值。
 // 默认 30 分钟：避免平台风控（用户反馈：默认 0 太隐蔽，容易忘记设置）。
 const intervalMinutes = ref(30)
 
-const failedCount = computed(() => props.rows.filter((r) => r.errors.length > 0).length)
+const okCount = computed(() => props.rows.filter((r) => r.errors.length === 0).length)
+const failedCount = computed(() => props.rows.length - okCount.value)
+const estimatedAllTasks = computed(() =>
+  props.rows.reduce((sum, r) => sum + (r.accountCount || 0), 0)
+)
 
-const tableData = computed(() => props.rows)
+const filteredRows = computed(() => {
+  if (filter.value === 'ok') return props.rows.filter((r) => r.errors.length === 0)
+  if (filter.value === 'failed') return props.rows.filter((r) => r.errors.length > 0)
+  return props.rows
+})
 
-// 默认勾选：所有校验通过的视频（每次打开重算）+ 自动展开错误行
+// 每次打开：勾选全部可发布视频、默认展示全部（问题已内联，无需定位）
 watch(
   () => props.visible,
   (vis) => {
     if (vis) {
+      filter.value = 'all'
       selectedIndexes.value = props.rows
         .filter((r) => r.errors.length === 0)
         .map((r) => r.index)
-      expandedKeys.value = props.rows
-        .filter((r) => r.errors.length > 0)
-        .map((r) => String(r.index))
     }
   },
   { immediate: true }
 )
-
-const okIndexes = computed(() => props.rows.filter((r) => r.errors.length === 0).map((r) => r.index))
-const allChecked = computed(() =>
-  okIndexes.value.length > 0 && okIndexes.value.every((i) => selectedIndexes.value.includes(i))
-)
-const someChecked = computed(() => !allChecked.value && selectedIndexes.value.length > 0)
 
 const estimatedTasks = computed(() =>
   props.rows
     .filter((r) => selectedIndexes.value.includes(r.index))
     .reduce((sum, r) => sum + (r.accountCount || 0), 0)
 )
+// 保留在 summary 里显示已选任务量
+void estimatedTasks
 
 function toggleRow(index, checked) {
-  if (checked) {
-    if (!selectedIndexes.value.includes(index)) selectedIndexes.value.push(index)
-  } else {
-    selectedIndexes.value = selectedIndexes.value.filter((i) => i !== index)
+  const has = selectedIndexes.value.includes(index)
+  if (checked === undefined) {
+    // 整卡点击 = 切换
+    if (has) selectedIndexes.value = selectedIndexes.value.filter((i) => i !== index)
+    else selectedIndexes.value = [...selectedIndexes.value, index]
+    return
   }
+  if (checked && !has) selectedIndexes.value = [...selectedIndexes.value, index]
+  if (!checked && has) selectedIndexes.value = selectedIndexes.value.filter((i) => i !== index)
 }
 
-function toggleAll(checked) {
-  selectedIndexes.value = checked ? [...okIndexes.value] : []
-}
+// 兼容新旧两种错误格式
+function errType(e) { return typeof e === 'string' ? '问题' : e.type }
+function errHint(e) { return typeof e === 'string' ? e : (e.hint || '') }
+function errAccounts(e) { return typeof e === 'string' ? [] : (e.accounts || []) }
 
 function onConfirm() {
   if (selectedIndexes.value.length === 0) return
@@ -218,15 +254,137 @@ function onConfirm() {
   padding: 40px 0;
 }
 
+// ── 顶部统计条 ──
+.stat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+
+  .stat-chips {
+    display: flex;
+    gap: 8px;
+  }
+
+  .stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    border: 1px solid $border;
+    background: $bg-surface;
+    font-size: 13px;
+    color: $text-secondary;
+    cursor: pointer;
+    transition: all 0.15s;
+
+    &:hover { border-color: $brand-start; }
+
+    &.is-active {
+      border-color: $brand-start;
+      background: rgba($brand-start, 0.08);
+      color: $brand-start;
+      font-weight: 600;
+    }
+
+    &.is-ok .el-icon { color: $success-color; }
+    &.is-fail .el-icon { color: $danger-color; }
+  }
+
+  .stat-right {
+    font-size: 13px;
+    color: $text-secondary;
+
+    b { color: $brand-start; }
+  }
+}
+
+// ── 视频卡片列表 ──
+.video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 2px 4px 2px 2px;
+}
+
+.video-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-areas:
+    'check video meta status'
+    'errors errors errors errors';
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  background: $bg-surface;
+  border: 1px solid $border;
+  border-radius: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+
+  &:not(.is-failed) {
+    cursor: pointer;
+
+    &:hover { border-color: $brand-start; }
+  }
+
+  &.is-selected {
+    border-color: $brand-start;
+    background: rgba($brand-start, 0.04);
+    box-shadow: 0 0 0 1px $brand-start inset;
+  }
+
+  &.is-failed {
+    border-left: 3px solid $danger-color;
+    background: rgba($danger-color, 0.03);
+    cursor: default;
+  }
+
+  .card-check {
+    grid-area: check;
+    display: flex;
+    align-items: center;
+  }
+
+  .card-meta {
+    grid-area: meta;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+
+    .meta-item {
+      font-size: 12px;
+      color: $text-muted;
+      white-space: nowrap;
+    }
+  }
+
+  .card-status {
+    grid-area: status;
+    display: flex;
+    align-items: center;
+
+    .tag-icon {
+      margin-right: 3px;
+    }
+  }
+}
+
 .video-cell {
+  grid-area: video;
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 
   .video-thumb {
-    width: 56px;
-    height: 32px;
-    border-radius: 4px;
+    width: 64px;
+    height: 36px;
+    border-radius: 6px;
     overflow: hidden;
     flex-shrink: 0;
     background: rgba($overlay-rgb, 0.06);
@@ -248,116 +406,140 @@ function onConfirm() {
 
     .video-name {
       font-size: 13px;
+      font-weight: 500;
       color: $text-primary;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 220px;
+      max-width: 340px;
     }
+
     .video-title {
       font-size: 12px;
       color: $text-muted;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 220px;
+      max-width: 340px;
+      margin-top: 2px;
     }
   }
 }
 
-.muted {
-  color: $text-muted;
-  font-size: 12px;
-}
-
-// 校验列：仅 tag，详情看展开行
-.check-cell {
+// ── 内联错误详情 ──
+.card-errors {
+  grid-area: errors;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  min-width: 0;
-}
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: rgba($danger-color, 0.05);
+  border-radius: 8px;
 
-// 展开行详情面板
-.err-list {
-  margin: 4px 12px 10px 24px;  // 少量缩进，贴近展开箭头即可
-  padding: 8px 14px;
-  background: rgba($overlay-rgb, 0.04);
-  border-left: 3px solid $danger-color;
-  border-radius: 4px;
+  .err-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 
-  .err-item {
+    & + .err-block {
+      padding-top: 8px;
+      border-top: 1px dashed rgba($danger-color, 0.2);
+    }
+  }
+
+  .err-head {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 12px;
-    color: $danger-color;
-    line-height: 1.9;
+    flex-wrap: wrap;
+
+    .err-type {
+      flex-shrink: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: $danger-color;
+    }
+
+    .err-hint {
+      font-size: 12px;
+      color: $text-secondary;
+      line-height: 1.6;
+    }
   }
 
-  .err-dot {
-    flex-shrink: 0;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: $danger-color;
-    transform: translateY(-2px);
-  }
-
-  &.err-list--ok {
-    border-left-color: $success-color;
-    color: $text-muted;
-  }
-}
-
-.summary {
-  margin-top: 12px;
-  font-size: 13px;
-  color: $text-secondary;
-
-  b {
-    color: $brand-start;
-  }
-  .summary-fail {
-    color: $danger-color;
-
-    b { color: $danger-color; }
-  }
-  .hint {
-    color: $text-muted;
-    font-size: 12px;
-    margin-left: 6px;
-  }
-}
-
-// 视频发布间隔提示：位于表格下方、summary 上方，使用 warning 强调需要确认
-.interval-tip {
-  margin: 14px 0 10px;
-
-  .interval-tip-body {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-top: 2px;
-  }
-
-  .interval-hint {
-    font-size: 12px;
-    line-height: 1.7;
-    color: $text-secondary;
-
-    b { color: $brand-start; }
-  }
-
-  .interval-input {
+  .err-accounts {
     display: flex;
     align-items: center;
-    gap: 8px;
-  }
+    flex-wrap: wrap;
+    gap: 6px;
 
-  .interval-unit {
+    .err-accounts-label {
+      font-size: 12px;
+      color: $text-muted;
+      flex-shrink: 0;
+    }
+
+    .err-account-tag {
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+// ── 发布间隔 ──
+.interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba($warning-color, 0.06);
+  border: 1px solid rgba($warning-color, 0.25);
+  border-radius: 8px;
+
+  .interval-icon { color: $warning-color; }
+  .interval-label { font-size: 13px; font-weight: 500; color: $text-primary; }
+  .interval-unit { font-size: 13px; color: $text-secondary; }
+
+  .interval-help {
+    color: $text-muted;
+    cursor: help;
+
+    &:hover { color: $text-secondary; }
+  }
+}
+
+// ── 底部 ──
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+
+  .footer-summary {
+    flex: 1;
     font-size: 13px;
     color: $text-secondary;
+    min-width: 0;
+
+    b { color: $brand-start; }
+
+    .summary-fail { color: $danger-color; }
+
+    .hint {
+      color: $text-muted;
+      font-size: 12px;
+      margin-left: 4px;
+    }
+  }
+
+  .footer-btns {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
   }
 }
 </style>

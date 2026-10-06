@@ -1,4 +1,4 @@
-import { getPlatformByKey } from '@/config/platforms'
+import { getPlatformByKey, DECLARATION_FIELD_MAP } from '@/config/platforms'
 
 /**
  * 视频发布批量设 composable。
@@ -21,7 +21,7 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
   function applyBatchSet(checkedPlatformKeys, payload, targets) {
     const pcs = targets?.platformConfigs || platformConfigs
     const aos = targets?.accountOverrides || accountOverrides
-    const { title, description, tags, scheduleTime } = payload
+    const { title, description, tags, scheduleTime, isOriginal, declaration } = payload
     const mode = payload.mode || 'full'
     const tagsCopy = Array.isArray(tags) ? [...tags] : []
     const scheduleTimeValue = scheduleTime || ''
@@ -32,6 +32,9 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
     const hasDescription = description !== undefined && description !== ''
     const hasTags = tagsCopy.length > 0
     const hasScheduleTime = scheduleTimeValue !== ''
+    // 作品声明/原创声明与 mode 无关：null = 未选择（跳过），选了就写
+    const hasIsOriginal = isOriginal === true || isOriginal === false
+    const hasDeclaration = declaration === 'none' || declaration === 'ai'
 
     for (const pk of checkedPlatformKeys) {
       // 1. 渠道级（覆盖）
@@ -40,6 +43,26 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
       if (!isPartial || hasDescription) pcs[pk].description = description
       if (!isPartial || hasTags) pcs[pk].tags = tagsCopy
       if (!isPartial || hasScheduleTime) pcs[pk].scheduleTime = scheduleTimeValue
+
+      // 2. 作品声明（批量统一语义 → 各平台字段 key + 选项文案）
+      if (hasDeclaration) {
+        const mapping = DECLARATION_FIELD_MAP[pk]
+        const value = mapping?.[declaration]
+        if (mapping && value !== undefined) {
+          pcs[pk][mapping.field] = value
+        }
+      }
+
+      // 3. 原创声明：有 isOriginal 字段的平台直接写；微博用 videoType 承担原创/转载语义
+      if (hasIsOriginal) {
+        const platformCfg = getPlatformByKey(pk)
+        const supportsIsOriginal = platformCfg?.settingsFields?.some(f => f.key === 'isOriginal')
+        if (supportsIsOriginal) {
+          pcs[pk].isOriginal = isOriginal
+        } else if (pk === 'weibo') {
+          pcs[pk].videoType = isOriginal ? '原创' : '转载'
+        }
+      }
 
       // 2. 该渠道下所有账号（覆盖）—— 不再用 accountChecked 筛选：
       //    五角星(账号级表单个性化)走的是 accountOverrides，与媒体开关 accountChecked 无关，
@@ -53,6 +76,22 @@ export function useBatchSetApply({ platformConfigs, accountOverrides, accountChe
         if (!isPartial || hasDescription) aos[acc.id].description = description
         if (!isPartial || hasTags) aos[acc.id].tags = tagsCopy
         if (!isPartial || hasScheduleTime) aos[acc.id].scheduleTime = scheduleTimeValue
+        if (hasDeclaration) {
+          const mapping = DECLARATION_FIELD_MAP[pk]
+          const value = mapping?.[declaration]
+          if (mapping && value !== undefined) {
+            aos[acc.id][mapping.field] = value
+          }
+        }
+        if (hasIsOriginal) {
+          const platformCfg = getPlatformByKey(pk)
+          const supportsIsOriginal = platformCfg?.settingsFields?.some(f => f.key === 'isOriginal')
+          if (supportsIsOriginal) {
+            aos[acc.id].isOriginal = isOriginal
+          } else if (pk === 'weibo') {
+            aos[acc.id].videoType = isOriginal ? '原创' : '转载'
+          }
+        }
       }
     }
   }

@@ -414,9 +414,11 @@ class XiaohongshuPlatform(BasePlatform):
         )
         logger.info("[发布策略] 发布策略: %s", strategy)
 
+        failed_accounts = []
         for index, file_path in enumerate(file_paths):
             logger.info("-" * 40)
             logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(file_paths), file_path)
+
             for cookie_index, cookie_path in enumerate(account_paths):
                 cookie_name = Path(cookie_path).name
                 nick = get_account_name_by_cookie_file(cookie_name)
@@ -429,31 +431,46 @@ class XiaohongshuPlatform(BasePlatform):
                         else publish_datetimes[index]
                     )
 
-                    asyncio.run(
-                        _publish_single_video(
-                            title=title,
-                            file_path=str(file_path),
-                            tags=tags,
-                            publish_date=pub_date,
-                            account_file=str(cookie_path),
-                            # 不开 humanize:no_viewport=True 与拟人化鼠标轨迹冲突,
-                            # 会抛 "Viewport size not available"
-                            create_browser_fn=self.create_browser,
-                            create_context_fn=self.create_context,
-                            thumbnail_path=effective_cover,
-                            desc=desc,
-                            ai_content=ai_content,
-                            publish_strategy=strategy,
-                            collection_id=collection_id,
-                            collection_name=collection_name,
-                            xhs_source_type=xhs_source_type,
-                            xhs_shoot_location=xhs_shoot_location,
-                            xhs_shoot_date=xhs_shoot_date,
-                            xhs_repost_source=xhs_repost_source,
+                    try:
+                        asyncio.run(
+                            _publish_single_video(
+                                title=title,
+                                file_path=str(file_path),
+                                tags=tags,
+                                publish_date=pub_date,
+                                account_file=str(cookie_path),
+                                # 不开 humanize:no_viewport=True 与拟人化鼠标轨迹冲突,
+                                # 会抛 "Viewport size not available"
+                                create_browser_fn=self.create_browser,
+                                create_context_fn=self.create_context,
+                                thumbnail_path=effective_cover,
+                                desc=desc,
+                                ai_content=ai_content,
+                                publish_strategy=strategy,
+                                collection_id=collection_id,
+                                collection_name=collection_name,
+                                xhs_source_type=xhs_source_type,
+                                xhs_shoot_location=xhs_shoot_location,
+                                xhs_shoot_date=xhs_shoot_date,
+                                xhs_repost_source=xhs_repost_source,
+                            )
                         )
-                    )
+                    except Exception as exc:
+                        # 单账号失败记录下来,继续发下一个账号;全部结束后统一上报
+                        failed_accounts.append(f"视频{index + 1} {nick or cookie_name}: {exc}")
+                        logger.error("[发布进度] 账号 %s 发布失败: %s", nick or cookie_name, exc)
 
         logger.info("=" * 60)
+        if failed_accounts:
+            total = len(file_paths) * len(account_paths)
+            logger.error(
+                "[发布视频] 视频发布流程结束: %d/%d 个发布任务失败 —— %s",
+                len(failed_accounts), total, "; ".join(failed_accounts),
+            )
+            raise RuntimeError(
+                f"小红书发布失败({len(failed_accounts)}/{total} 个发布任务): "
+                + "; ".join(failed_accounts)
+            )
         logger.info("[发布视频] 视频发布流程完成!")
         logger.info("=" * 60)
         return True
@@ -614,7 +631,7 @@ async def _publish_single_video(
         await context.grant_permissions(["geolocation"])
         try:
             page = await context.new_page()
-            await _upload_video_content(
+            publish_ok = await _upload_video_content(
                 page=page,
                 title=title,
                 file_path=file_path,
@@ -631,6 +648,10 @@ async def _publish_single_video(
                 xhs_shoot_date=xhs_shoot_date,
                 xhs_repost_source=xhs_repost_source,
             )
+            if not publish_ok:
+                raise RuntimeError(
+                    "小红书发布失败: 点击发布后页面未出现「发布成功」提示,也未跳转到成功页"
+                )
             await context.storage_state(path=account_file)
             logger.info("[发布] Cookie状态已更新")
         finally:
@@ -896,6 +917,8 @@ async def _upload_video_content(
     logger.info("[填写标题] 标题: %s", title)
 
     # --- Set cover / thumbnail ---
+    # PK封面新功能引导弹窗(若出现)会遮挡封面预览,先点「我知道了」关掉
+    await _dismiss_pk_cover_guide(page)
     logger.info("[设置封面] 开始设置视频封面...")
     await _set_thumbnail(page, thumbnail_path)
 
@@ -950,23 +973,41 @@ async def _upload_video_content(
 
     if _PUBLISH_DRY_RUN:
         logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击发布,流程到此结束(不发布)")
-        return
+        return True
 
     # --- Click publish ---
     btn_text = "定时发布" if publish_strategy == _PUBLISH_STRATEGY_SCHEDULED else "发布"
     logger.info("[发布] 正在点击发布按钮...")
     await _click_publish_button(page, btn_text)
 
-    # Wait for page navigation after click
-    current_url = page.url
-    await asyncio.sleep(3)
-    new_url = page.url
-    logger.info("[发布] 页面URL变化: %s -> %s", current_url, new_url)
+    # --- 判定发布成功:持续轮询等待页面出现「发布成功」文案(不限时) ---
+    # 小红书发布时可能弹出验证弹窗要求用户扫码确认,等待时长不可预估,
+    # 故不设超时,一直等到出现成功信号为止(浏览器为有头模式,用户可看到现场)。
+    # 成功信号(满足其一): ① 页面出现「发布成功」文案 ② URL 离开 /publish/publish 编辑页。
+    logger.info("[发布] 等待页面出现「发布成功」提示(如弹出验证请扫码确认,将持续等待)...")
+    success = False
+    wait_seconds = 0
+    while True:
+        await asyncio.sleep(1)
+        wait_seconds += 1
+        # 1. 主判定:页面出现「发布成功」文案
+        try:
+            if await page.get_by_text("发布成功").count() > 0:
+                success = True
+                break
+        except Exception:
+            pass  # 页面跳转瞬间 DOM 可能 detach,下一轮再试
+        # 2. 兜底判定:URL 已离开发布编辑页(或跳到 success 页)
+        new_url = page.url
+        if "success" in new_url.lower() or "publish/publish" not in new_url:
+            success = True
+            logger.info("[发布] 页面已跳转(未等到「发布成功」文案): %s", new_url)
+            break
+        if wait_seconds % 30 == 0:
+            logger.info("[发布] 已等待 %d 秒,继续等待(可能正在等待人工验证)...", wait_seconds)
 
-    if "success" in new_url.lower() or "publish/publish" not in new_url:
-        logger.info("[发布] 视频发布成功! 页面跳转到: %s", new_url)
-    else:
-        logger.error("[发布] 页面未跳转到成功页: %s", new_url)
+    logger.info("[发布] 视频发布成功! 页面URL: %s", page.url)
+    return True
 
 
 # ======================================================================
@@ -1110,6 +1151,33 @@ async def _fill_tags(page, tags: list) -> None:
         await asyncio.sleep(0.3)
 
 
+async def _dismiss_pk_cover_guide(page) -> None:
+    """关闭「PK封面新功能」引导弹窗(若出现)。
+
+    小红书视频发布页偶尔会弹出 pk-cover-guide-popover 引导弹窗,
+    遮挡封面预览导致后续悬停/点击「修改封面」失败。
+    优先点「我知道了」(.pk-cover-guide-confirm),兜底点右上角关闭(.pk-cover-guide-close)。
+    """
+    try:
+        if await page.locator(".pk-cover-guide-popover").count() == 0:
+            return
+        logger.info("[PK封面引导] 检测到 PK 封面新功能引导弹窗,点击「我知道了」...")
+        confirm = page.locator(".pk-cover-guide-confirm")
+        if await confirm.count() > 0:
+            await confirm.first.click(timeout=3000)
+        else:
+            # 兜底:点右上角 X
+            await page.locator(".pk-cover-guide-close").first.click(timeout=3000)
+        # 等弹窗退场动画结束,避免残影遮挡点击
+        for _ in range(5):
+            if await page.locator(".pk-cover-guide-popover").count() == 0:
+                break
+            await asyncio.sleep(0.3)
+        logger.info("[PK封面引导] 引导弹窗已关闭")
+    except Exception as e:
+        logger.info("[PK封面引导] 关闭失败(不阻断,继续后续流程): %s", e)
+
+
 async def _set_thumbnail(page, thumbnail_path: str) -> None:
     """Upload a custom cover image via the cover modal.
 
@@ -1126,23 +1194,56 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
     logger.info("[封面] 开始设置封面图片")
 
     try:
-        # The cover editor modal opens only after hovering the cover
-        # preview then clicking the "修改封面" overlay that appears.
-        # Step 1: hover the cover preview to reveal the operator overlay
-        cover_sel = 'div[style*="background-image"]'
-        cover_loc = page.locator(cover_sel).first
-        try:
-            await cover_loc.wait_for(state="attached", timeout=10_000)
-            await cover_loc.hover()
-            await page.wait_for_timeout(1000)
-            logger.info("[封面] 已悬停封面预览, 查找操作按钮...")
+        # Step 1: 悬停封面预览区,展开「编辑封面」操作层
+        # 新 UI(2026-09): 封面预览容器 .default--ai-cover-layout,悬停后出现
+        #   .operator > .cover-edit-entry > .cover-edit-entry-text(文案「编辑封面」)
+        # 旧 UI 兜底: div[style*="background-image"] + div.operator.pointer
+        cover_selectors = [
+            ".default--ai-cover-layout",
+            "div.default.column.default--ai-cover-layout",
+            'div[style*="background-image"]',
+        ]
+        cover_loc = None
+        for sel in cover_selectors:
+            loc = page.locator(sel).first
+            try:
+                if await loc.count() == 0:
+                    continue
+                await loc.wait_for(state="visible", timeout=10_000)
+                await loc.hover()
+                await page.wait_for_timeout(1000)
+                cover_loc = loc
+                logger.info("[封面] 已悬停封面预览 (%s)", sel)
+                break
+            except Exception as e:
+                logger.info("[封面] 悬停 %s 失败: %s", sel, e)
 
-            # Step 2: click the operator overlay
-            op_loc = page.locator("div.operator.pointer").first
-            await op_loc.click(force=True, timeout=5_000)
-            logger.info("[封面] 已点击封面操作遮罩")
-        except Exception as e:
-            logger.info("[封面] 封面悬停/点击失败: %s, 跳过", e)
+        if cover_loc is None:
+            logger.info("[封面] 未找到封面预览区, 跳过封面设置")
+            return
+
+        # Step 2: 点击「编辑封面」入口打开封面设置弹窗
+        entry_selectors = [
+            ".cover-edit-entry-text",
+            ".cover-edit-entry",
+            "div.operator.pointer",
+            "div.operator",
+        ]
+        clicked = False
+        for sel in entry_selectors:
+            loc = page.locator(sel).first
+            try:
+                if await loc.count() == 0:
+                    continue
+                await loc.click(force=True, timeout=5_000)
+                logger.info("[封面] 已点击「编辑封面」入口 (%s)", sel)
+                clicked = True
+                break
+            except Exception as e:
+                logger.info("[封面] 点击 %s 失败: %s", sel, e)
+
+        if not clicked:
+            logger.info("[封面] 未找到「编辑封面」入口, 跳过封面设置")
             return
 
         # Find the cover modal — retry once with an extra click if needed
@@ -1166,7 +1267,7 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
                 try:
                     await cover_loc.hover()
                     await page.wait_for_timeout(500)
-                    await page.locator("div.operator.pointer").first.click(force=True, timeout=5_000)
+                    await page.locator(".cover-edit-entry-text").first.click(force=True, timeout=5_000)
                 except Exception:
                     pass
 
@@ -1187,7 +1288,14 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
         await page.wait_for_timeout(3000)
 
         # Click confirm button
+        # 新 UI(2026-09): 上传图片后弹窗底部是红色「完成」按钮
+        #   button.mojito-button.custom-button.bg-red > .circle-button-content(文案「完成」)
+        # 旧 UI 兜底: 「确定」
         confirm_selectors = [
+            "button.mojito-button:has-text('完成')",
+            "button.custom-button.bg-red:has-text('完成')",
+            ".circle-button-content:has-text('完成')",
+            "button:has-text('完成')",
             "button.mojito-button:has-text('确定')",
             "button:has-text('确定')",
             ".d-modal-footer button:has-text('确定')",
@@ -1196,6 +1304,7 @@ async def _set_thumbnail(page, thumbnail_path: str) -> None:
         for sel in confirm_selectors:
             if await modal.locator(sel).count() > 0:
                 confirm_button = modal.locator(sel).first
+                logger.info("[封面] 找到确认按钮 (%s)", sel)
                 break
 
         if confirm_button:

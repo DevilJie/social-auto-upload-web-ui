@@ -7,11 +7,14 @@
     @update:model-value="onVisibleChange"
   >
     <div class="check-dialog-body">
-      <!-- 检查中：进度条 + 所有账号卡片实时状态 -->
+      <!-- 检查中：结论横幅 + 进度条 + 所有账号卡片实时状态 -->
       <div v-if="phase === 'checking'" class="checking-section">
-        <div class="progress-info">
-          <el-icon class="is-loading"><Loading /></el-icon>
-          <span>正在检查账号 Cookie 状态... {{ checkedCount }} / {{ totalCount }}</span>
+        <div class="phase-banner is-info">
+          <el-icon class="is-loading banner-icon"><Loading /></el-icon>
+          <div class="banner-text">
+            <div class="banner-title">正在检查 {{ totalCount }} 个账号的登录状态（{{ checkedCount }}/{{ totalCount }}）</div>
+            <div class="banner-desc">确认每个账号能否正常发布，一般需要几秒到十几秒</div>
+          </div>
         </div>
         <el-progress
           :percentage="progressPercent"
@@ -46,7 +49,7 @@
               </template>
               <template v-else>
                 <el-icon><WarningFilled /></el-icon>
-                <span class="status-fail">失效</span>
+                <span class="status-fail">登录已过期</span>
               </template>
             </div>
           </div>
@@ -59,12 +62,28 @@
         <span>{{ allValidText }}</span>
       </div>
 
-      <!-- 失效账号修复列表 -->
+      <!-- 有过期账号：结论横幅 + 修复列表 + 正常账号折叠 -->
       <div v-if="phase === 'fixing'" class="fix-section">
-        <p class="fix-hint">
-          <el-icon color="#f56c6c"><WarningFilled /></el-icon>
-          检测到 <strong>{{ invalidCards.length }}</strong> 个账号 Cookie 失效，请点击「重新登录」逐个修复
-        </p>
+        <div class="phase-banner is-danger">
+          <el-icon class="banner-icon"><WarningFilled /></el-icon>
+          <div class="banner-text">
+            <div class="banner-title">
+              <template v-if="fixedCount === 0">
+                {{ invalidTotal }} 个账号登录已过期，需要重新登录后才能发布
+              </template>
+              <template v-else-if="fixedCount < invalidTotal">
+                还剩 {{ invalidTotal - fixedCount }} 个账号未修复（已修复 {{ fixedCount }} 个）
+              </template>
+              <template v-else>
+                全部账号已修复
+              </template>
+            </div>
+            <div class="banner-desc">{{ fixBannerDesc }}</div>
+          </div>
+        </div>
+
+        <!-- 需要处理的账号 -->
+        <div class="section-label">需要重新登录（{{ invalidCards.length }}）</div>
         <div class="invalid-grid">
           <div
             v-for="card in invalidCards"
@@ -79,32 +98,54 @@
 
             <!-- 账号信息 -->
             <div class="card-info">
-              <div class="card-name">{{ card.name }}</div>
+              <div class="card-name-row">
+                <span class="card-name">{{ card.name }}</span>
+                <span :class="['fix-pill', `pill-${card.fixStatus}`]">{{ fixStatusText(card) }}</span>
+              </div>
               <div class="card-platform">{{ card.platformName }}</div>
-              <div v-if="card.fixStatus === 'fail'" class="card-error">{{ card.fixError }}</div>
+              <div v-if="card.fixStatus === 'fail'" class="card-error">
+                <el-icon><WarningFilled /></el-icon>
+                {{ card.fixError || '登录未完成，请重试' }}
+              </div>
             </div>
 
             <!-- 操作按钮 -->
             <div class="card-action">
               <button
-                v-if="card.fixStatus === 'idle'"
+                v-if="card.fixStatus === 'idle' || card.fixStatus === 'fail'"
                 class="action-btn action-relogin"
                 @click="startRelogin(card)"
               >
-                <el-icon><RefreshRight /></el-icon> 重新登录
+                <el-icon><component :is="card.fixStatus === 'fail' ? RefreshLeft : RefreshRight" /></el-icon>
+                {{ card.fixStatus === 'fail' ? '重试登录' : '重新登录' }}
               </button>
               <template v-else-if="card.fixStatus === 'logging'">
                 <el-icon class="is-loading loading-icon"><Loading /></el-icon>
                 <button class="action-btn action-cancel" @click="cancelRelogin(card)">取消</button>
               </template>
               <el-icon v-else-if="card.fixStatus === 'success'" class="success-mark"><Select /></el-icon>
-              <button
-                v-else-if="card.fixStatus === 'fail'"
-                class="action-btn action-retry"
-                @click="startRelogin(card)"
-              >
-                重试
-              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 正常账号（默认折叠，避免干扰） -->
+        <div v-if="validCards.length > 0" class="valid-toggle" @click="showValidAccounts = !showValidAccounts">
+          <el-icon :class="['toggle-icon', { 'is-open': showValidAccounts }]"><ArrowRight /></el-icon>
+          正常的账号（{{ validCards.length }}）<span class="toggle-hint">无需处理</span>
+        </div>
+        <div v-if="showValidAccounts" class="check-grid">
+          <div v-for="card in validCards" :key="card.id" class="check-card is-valid">
+            <div class="card-logo" :style="{ background: card.bgColor }">
+              <img v-if="card.logo" :src="card.logo" :alt="card.platformName" class="logo-img" />
+              <span v-else class="logo-letter" :style="{ color: card.color }">{{ card.letter }}</span>
+            </div>
+            <div class="card-info">
+              <div class="card-name">{{ card.name }}</div>
+              <div class="card-platform">{{ card.platformName }}</div>
+            </div>
+            <div class="card-status-badge">
+              <el-icon><Select /></el-icon>
+              <span class="status-ok">正常</span>
             </div>
           </div>
         </div>
@@ -118,12 +159,15 @@
     </div>
 
     <template #footer>
-      <el-button
-        v-if="phase === 'fixing'"
-        @click="onCancel"
-      >
-        {{ cancelButtonText }}
-      </el-button>
+      <div class="footer-row">
+        <span v-if="phase === 'fixing'" class="footer-hint">{{ footerHint }}</span>
+        <el-button
+          v-if="phase === 'fixing'"
+          @click="onCancel"
+        >
+          {{ cancelButtonText }}
+        </el-button>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -132,7 +176,7 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  Loading, Select, CircleCheckFilled, WarningFilled, RefreshRight,
+  Loading, Select, CircleCheckFilled, WarningFilled, RefreshRight, RefreshLeft, ArrowRight,
 } from '@element-plus/icons-vue'
 import { http } from '@/utils/request'
 import { getPlatformByKey } from '@/config/platforms'
@@ -177,7 +221,35 @@ const checkedCount = computed(() => cards.value.filter(c => c.checkStatus !== 'p
 const progressPercent = computed(() =>
   totalCount.value === 0 ? 0 : Math.round((checkedCount.value / totalCount.value) * 100)
 )
-const invalidCards = computed(() => cards.value.filter(c => !c.valid))
+// 待修复列表 = 检查无效 且 尚未修复成功（修复成功后留在列表里显示「已修复」，不跳走）
+const invalidCards = computed(() => cards.value.filter(c => !c.valid && c.fixStatus !== 'success'))
+const validCards = computed(() => cards.value.filter(c => c.valid))
+const fixedCount = computed(() => cards.value.filter(c => c.fixStatus === 'success').length)
+// 本次需要修复的总数（含已修复的）
+const invalidTotal = computed(() => invalidCards.value.length + fixedCount.value)
+// 正常账号折叠列表（修复阶段），默认收起
+const showValidAccounts = ref(false)
+
+// ===== 用户体验文案 =====
+const fixBannerDesc = computed(() => {
+  if (props.mode === 'account-check') {
+    return '点击「重新登录」，在打开的浏览器中扫码登录即可恢复账号'
+  }
+  return '点击「重新登录」，在打开的浏览器中扫码登录；全部修复后会自动继续发布'
+})
+const footerHint = computed(() => {
+  if (props.mode === 'account-check') return `已修复 ${fixedCount.value}/${invalidTotal.value}`
+  return `已修复 ${fixedCount.value}/${invalidTotal.value}，全部修复后自动继续发布`
+})
+
+function fixStatusText(card) {
+  switch (card.fixStatus) {
+    case 'logging': return '等待扫码登录...'
+    case 'success': return '已修复'
+    case 'fail': return '登录失败'
+    default: return '待处理'
+  }
+}
 
 // ===== 对外暴露：open(accountList) → Promise<boolean> =====
 let resolvePromise = null
@@ -342,8 +414,8 @@ function closeSSE(accountId) {
 }
 
 function checkAllFixed() {
-  // 所有失效卡片都已修复
-  const allFixed = invalidCards.value.every(c => c.fixStatus === 'success')
+  // 所有账号都已修复（检查有效 或 登录修复成功）
+  const allFixed = cards.value.every(c => c.valid || c.fixStatus === 'success')
   if (allFixed) {
     phase.value = 'done'
     setTimeout(() => {
@@ -450,6 +522,22 @@ defineExpose({ open })
   .status-fail { color: #f56c6c; font-weight: 500; }
 }
 
+// ── 底部：进度提示 + 取消按钮 ──
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 100%;
+
+  .footer-hint {
+    flex: 1;
+    font-size: 12px;
+    color: $text-muted;
+    text-align: left;
+  }
+}
+
 // ── 进度区（保留旧选择器兼容） ──
 .progress-section {
   margin-bottom: 20px;
@@ -466,6 +554,58 @@ defineExpose({ open })
       color: $brand-start;
     }
   }
+}
+
+// ── 结论横幅（检查中/修复阶段共用）──
+.phase-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: $radius-sm;
+  margin-bottom: 12px;
+
+  .banner-icon {
+    font-size: 20px;
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+
+  .banner-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: $text-primary;
+    line-height: 1.4;
+  }
+
+  .banner-desc {
+    font-size: 12px;
+    color: $text-secondary;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  &.is-info {
+    background: rgba($brand-start, 0.06);
+    border: 1px solid rgba($brand-start, 0.2);
+
+    .banner-icon { color: $brand-start; }
+  }
+
+  &.is-danger {
+    background: rgba($danger-color, 0.06);
+    border: 1px solid rgba($danger-color, 0.25);
+
+    .banner-icon { color: #f56c6c; }
+  }
+}
+
+// ── 分组标签 ──
+.section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: $text-secondary;
+  margin: 4px 0 8px;
 }
 
 // ── 全部正常 / 全部修复 ──
@@ -489,17 +629,26 @@ defineExpose({ open })
 
 // ── 失效修复区 ──
 .fix-section {
-  .fix-hint {
+  .valid-toggle {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 14px;
+    gap: 4px;
+    margin: 12px 0 8px;
+    font-size: 12px;
     color: $text-secondary;
-    margin: 0 0 16px 0;
+    cursor: pointer;
+    user-select: none;
 
-    strong {
-      color: #f56c6c;
-      font-weight: 600;
+    &:hover { color: $text-primary; }
+
+    .toggle-icon {
+      transition: transform 0.2s;
+      &.is-open { transform: rotate(90deg); }
+    }
+
+    .toggle-hint {
+      color: $text-muted;
+      margin-left: 2px;
     }
   }
 }
@@ -566,6 +715,13 @@ defineExpose({ open })
   flex: 1;
   min-width: 0;
 
+  .card-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
   .card-name {
     font-size: 14px;
     font-weight: 500;
@@ -575,6 +731,31 @@ defineExpose({ open })
     text-overflow: ellipsis;
   }
 
+  .fix-pill {
+    flex-shrink: 0;
+    font-size: 11px;
+    line-height: 1;
+    padding: 3px 8px;
+    border-radius: 999px;
+
+    &.pill-idle {
+      color: #e6a23c;
+      background: rgba(#e6a23c, 0.1);
+    }
+    &.pill-logging {
+      color: $brand-start;
+      background: rgba($brand-start, 0.1);
+    }
+    &.pill-success {
+      color: $success-color;
+      background: rgba($success-color, 0.1);
+    }
+    &.pill-fail {
+      color: #f56c6c;
+      background: rgba(#f56c6c, 0.1);
+    }
+  }
+
   .card-platform {
     font-size: 12px;
     color: $text-muted;
@@ -582,9 +763,12 @@ defineExpose({ open })
   }
 
   .card-error {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: 12px;
     color: #f56c6c;
-    margin-top: 2px;
+    margin-top: 4px;
   }
 }
 

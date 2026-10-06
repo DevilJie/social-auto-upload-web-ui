@@ -279,6 +279,7 @@
     <BatchSetDialog
       v-model="batchSetDialogOpen"
       :platforms="batchSetPlatforms"
+      :show-declaration="false"
       @apply="onBatchSetApply"
     />
   </div>

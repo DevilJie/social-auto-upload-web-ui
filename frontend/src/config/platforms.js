@@ -36,6 +36,45 @@ import { CHANNELS_MARK_TAGS, CHANNELS_SHOOT_REGIONS } from './channels-mark-tags
  */
 export const DECLARATION_NONE = '内容无需添加声明'
 
+/**
+ * 批量设置·作品声明的两个统一语义选项。
+ * 各平台页面文案不同，批量设置只暴露「不做声明 / AI生成」，
+ * 写入时经 DECLARATION_FIELD_MAP 映射成各平台自己的字段 key + 选项文案。
+ */
+export const DECLARATION_BATCH_OPTIONS = [
+  { label: '不做声明', value: 'none' },
+  { label: 'AI生成', value: 'ai' },
+]
+
+/**
+ * 批量设置·作品声明映射表：platformKey → 各平台的声明字段与选项文案。
+ * - field: 该平台声明字段在 settingsFields / defaultSettings 里的 key
+ * - none:  「不做声明」对应的平台选项值（undefined 表示该平台无此选项，跳过）
+ * - ai:    「AI生成」对应的平台选项值（undefined 表示该平台无此选项，跳过）
+ * 值类型与平台字段一致：普通 select 是字符串，tencent_video 多选为数组，
+ * tiktok 的 aiContent 是开关布尔值。
+ */
+export const DECLARATION_FIELD_MAP = {
+  xiaohongshu: { field: 'aiContent', ai: '笔记含AI合成内容' },
+  channels: { field: 'channelsMarkTag', none: '无需标注', ai: '含AI生成内容' },
+  douyin: { field: 'aiContent', none: '无需添加自主声明', ai: '内容由AI生成' },
+  kuaishou: { field: 'aiContent', none: DECLARATION_NONE, ai: '内容为AI生成' },
+  bilibili: { field: 'creationDeclaration', none: '内容无需标注', ai: '含AI生成内容' },
+  baijiahao: { field: 'creationDeclaration', none: '无需声明', ai: '含AI生成内容' },
+  tiktok: { field: 'aiContent', none: false, ai: true },
+  tencent_video: { field: 'creationDeclaration', none: [], ai: ['内容由AI生成'] },
+  iqiyi: { field: 'creationDeclaration', none: '内容无需标注', ai: '含AI生成内容' },
+  weibo: { field: 'contentStatement2', none: '内容无需标注', ai: '含AI生成内容' },
+  alipay: { field: 'authorStatement', none: '内容无需标注', ai: '内容由AI生成' },
+  toutiao: { field: 'creationDeclaration', ai: 'AI生成' },
+  zhihu: { field: 'creationDeclaration', none: '内容无需标注', ai: '含 AI 生成内容' },
+  vivo: { field: 'vivoDeclaration', none: '内容无需标注', ai: '含AI生成内容' },
+  weixin_gzh: { field: 'gzhClaimSource', none: '无需声明', ai: '内容由AI生成' },
+  taobao_guanghe: { field: 'guangheClaim', none: '内容无需标注', ai: '含AI生成内容' },
+  jingmai: { field: 'jdDeclaration', none: '内容无需标注', ai: '含AI生成内容' },
+  dayu: { field: 'creationDeclaration', none: '无需标注', ai: 'AI生成' },
+}
+
 export const PLATFORMS = {
   XIAOHONGSHU: {
     id: 1,

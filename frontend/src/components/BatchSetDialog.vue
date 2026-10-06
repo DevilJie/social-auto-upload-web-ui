@@ -46,6 +46,25 @@
           </div>
         </div>
       </el-form-item>
+      <template v-if="showDeclaration">
+        <el-form-item label="作品声明">
+          <el-select v-model="formDeclaration" placeholder="不设置（保持各视频原值）" clearable style="width: 100%">
+            <el-option
+              v-for="opt in DECLARATION_BATCH_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+          <div class="field-tip">各平台声明文案不同，按统一语义映射为各平台对应选项</div>
+        </el-form-item>
+        <el-form-item label="原创声明">
+          <el-select v-model="formIsOriginal" placeholder="不设置（保持各视频原值）" clearable style="width: 100%">
+            <el-option label="原创" value="true" />
+            <el-option label="非原创" value="false" />
+          </el-select>
+        </el-form-item>
+      </template>
       <el-form-item label="定时发布">
         <el-date-picker
           v-model="formScheduleTime"
@@ -118,6 +137,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { DECLARATION_BATCH_OPTIONS } from '@/config/platforms'
 
 const MAX_TAGS = 10
 
@@ -127,6 +147,8 @@ const props = defineProps({
   title: { type: String, default: '批量设置' },
   // 是否显示「全视频应用」按钮（仅视频发布页的视频队列场景开启，图片发布页无队列）
   showAllVideos: { type: Boolean, default: false },
+  // 是否显示作品声明/原创声明批量字段（视频发布页开启，图集发布页无此需求）
+  showDeclaration: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['update:modelValue', 'apply'])
@@ -136,6 +158,10 @@ const formDescription = ref('')
 const formTags = ref([])
 const tagInput = ref('')
 const formScheduleTime = ref('')
+// '' = 不设置；'true'/'false' = 原创/非原创（select value 必须是字符串，apply 时转换）
+const formIsOriginal = ref('')
+// '' = 不设置；'none'/'ai' = 不做声明/AI生成
+const formDeclaration = ref('')
 const checkedKeys = ref(new Set())
 
 const checkedCount = computed(() => checkedKeys.value.size)
@@ -147,6 +173,8 @@ watch(() => props.modelValue, (open) => {
     formTags.value = []
     tagInput.value = ''
     formScheduleTime.value = ''
+    formIsOriginal.value = ''
+    formDeclaration.value = ''
     checkedKeys.value = new Set(
       props.platforms.filter(p => p.count > 0).map(p => p.key)
     )
@@ -189,6 +217,10 @@ function handleApply(mode = 'full', scope = 'current') {
     description: formDescription.value,
     tags: [...formTags.value],
     scheduleTime: formScheduleTime.value || '',
+    // null = 不设置（跳过该字段）；true/false = 原创/非原创
+    isOriginal: formIsOriginal.value === '' ? null : formIsOriginal.value === 'true',
+    // null/'' = 不设置；'none'/'ai' = 不做声明/AI生成
+    declaration: formDeclaration.value || null,
     // 'full' = 全量覆盖（空值也会清空原值）；'partial' = 仅覆盖已填写字段（空值跳过）
     mode,
     // scope: 'current' = 仅当前视频；'all-videos' = 队列内所有视频全部替换
@@ -292,5 +324,11 @@ function handleApply(mode = 'full', scope = 'current') {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.field-tip {
+  font-size: 12px;
+  color: $text-muted;
+  line-height: 1.4;
 }
 </style>

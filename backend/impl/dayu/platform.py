@@ -707,31 +707,21 @@ class DayuPlatform(BasePlatform):
 
     @staticmethod
     async def _open_write_page(page):
-        """从创作中心首页进入「发布内容 → 短视频」发布页。"""
-        logger.info("[上传视频] 正在打开创作中心首页...")
-        await page.goto(HOME_URL, wait_until="domcontentloaded", timeout=30000)
+        """直接跳转视频发布页(不再走 首页悬停「发布内容」→「短视频」 的不稳定路径)。"""
+        logger.info("[上传视频] 正在直接打开视频发布页: %s", WRITE_URL)
         try:
-            await page.wait_for_selector(".publish_btn", timeout=10000)
+            await page.goto(WRITE_URL, wait_until="domcontentloaded", timeout=30000)
         except Exception as e:
-            raise RuntimeError(f"[上传视频] 创作中心首页未出现「发布内容」按钮(cookie 可能失效): {e}")
-
-        logger.info("[上传视频] 悬停「发布内容」展开菜单...")
-        await page.locator(".publish_btn").hover()
-        await asyncio.sleep(1)
-
-        short_video_link = page.locator('.publish_menus_wrapper a[href="/dashboard/video/write"]')
+            raise RuntimeError(f"[上传视频] 打开视频发布页失败(cookie 可能失效或网络异常): {e}")
+        # 等待发布页核心容器出现,确认页面加载完成
+        # (未登录时大鱼号会重定向到登录页,不会出现 article-write 系列容器)
         try:
-            await short_video_link.wait_for(state="visible", timeout=5000)
-        except Exception:
-            # 菜单未展开时再 hover 一次兜底
-            await page.locator(".publish_btn").hover()
-            await asyncio.sleep(1)
-        await short_video_link.first.hover()
-        await asyncio.sleep(0.5)
-        await short_video_link.first.click()
-        logger.info("[上传视频] 已点击「短视频」菜单,等待发布页打开...")
-        await page.wait_for_url("**/dashboard/video/write**", timeout=15000)
-        logger.info("[上传视频] 发布页面已打开")
+            await page.wait_for_selector("[class*='article-write']", timeout=20000)
+        except Exception as e:
+            raise RuntimeError(
+                f"[上传视频] 发布页未加载出编辑区(可能未登录被重定向到 {page.url}): {e}"
+            )
+        logger.info("[上传视频] 发布页面已打开: %s", page.url)
 
     # ------------------------------------------------------------------
     # Helper: set video category

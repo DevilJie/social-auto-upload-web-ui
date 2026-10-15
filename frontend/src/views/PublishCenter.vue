@@ -4118,6 +4118,18 @@ function formatSize(bytes) {
     }
   }
 
+  // 原生 el-select 触发器(分区/创作声明等):与 RemoteSearchSelect 同款边距
+  // 内边距加大 + 最小高度 40px,覆盖 size="small" 的 24px 扁高
+  :deep(.el-select__wrapper) {
+    padding: 6px 14px;
+    min-height: 40px;
+  }
+
+  // 下拉框与 label/卡片边缘的外间距(直接子级,避免叠加 RemoteSearchSelect 自身 margin)
+  > .el-select {
+    margin: 4px 0;
+  }
+
   .radio-row {
     display: flex;
     gap: 8px;

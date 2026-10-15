@@ -321,7 +321,10 @@ body {
   .el-select-dropdown__item {
     color: $popper-text !important;
     height: auto !important;
-    padding: 0 !important;
+    // 选项内留白 + 项间/面板边缘间距(原 padding:0 导致选项文字贴边、项间无分隔)
+    padding: 8px 14px !important;
+    margin: 2px 8px !important;
+    border-radius: 6px !important;
     transition: all 0.2s ease !important;
 
     &:hover {

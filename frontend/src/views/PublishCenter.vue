@@ -461,6 +461,77 @@
                   @change="handleBiliCollectionChange"
                 />
               </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">参与话题</div>
+                <RemoteSearchSelect
+                  v-model="form.biliTopicName"
+                  :data="form.biliTopicData"
+                  :fetcher="fetchBiliTopics"
+                  :field-map="{ label: 'name', desc: 'activityText' }"
+                  search-mode="frontend"
+                  empty-behavior="load-all"
+                  placeholder="从 B 站推荐话题中选择"
+                  search-placeholder="输入话题名称搜索"
+                  @change="handleBiliTopicChange"
+                />
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">可见范围</div>
+                <div class="radio-row">
+                  <label class="radio-item cursor-pointer">
+                    <input
+                      type="radio"
+                      :name="(selectedAccountId || selectedPlatform) + '-biliVisibility'"
+                      value="public"
+                      v-model="form.biliVisibility"
+                      class="cursor-pointer"
+                    />
+                    <span
+                      :class="['radio-text', { on: form.biliVisibility === 'public' }]"
+                      :style="form.biliVisibility === 'public' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    >公开可见</span>
+                  </label>
+                  <label class="radio-item cursor-pointer">
+                    <input
+                      type="radio"
+                      :name="(selectedAccountId || selectedPlatform) + '-biliVisibility'"
+                      value="self"
+                      v-model="form.biliVisibility"
+                      class="cursor-pointer"
+                    />
+                    <span
+                      :class="['radio-text', { on: form.biliVisibility === 'self' }]"
+                      :style="form.biliVisibility === 'self' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    >仅自己可见</span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">互动设置</div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliCloseDanmaku" size="small" />
+                  <span class="tag-option-label">关闭弹幕</span>
+                </div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliCloseComment" size="small" />
+                  <span class="tag-option-label">关闭评论</span>
+                </div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliFeaturedComment" size="small" />
+                  <span class="tag-option-label">开启精选评论</span>
+                </div>
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">粉丝动态</div>
+                <el-input
+                  v-model="form.biliFansDynamic"
+                  type="textarea"
+                  :rows="3"
+                  maxlength="233"
+                  show-word-limit
+                  placeholder="发布时同步一条粉丝动态,有趣的描述会增加上热门的机会(选填)"
+                />
+              </div>
             </template>
 
             <!-- 视频号平台级字段(选中平台就显示,无需先选账号) -->
@@ -1225,6 +1296,14 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // B 站合集(账号级)
     biliCollectionName: accountOv?.biliCollectionName ?? platformOv?.biliCollectionName ?? platformDefault?.biliCollectionName ?? '',
     biliCollectionData: accountOv?.biliCollectionData ?? platformOv?.biliCollectionData ?? platformDefault?.biliCollectionData ?? null,
+    // B 站参与话题/可见范围/互动设置/粉丝动态
+    biliTopicName: accountOv?.biliTopicName ?? platformOv?.biliTopicName ?? platformDefault?.biliTopicName ?? '',
+    biliTopicData: accountOv?.biliTopicData ?? platformOv?.biliTopicData ?? platformDefault?.biliTopicData ?? null,
+    biliVisibility: accountOv?.biliVisibility ?? platformOv?.biliVisibility ?? platformDefault?.biliVisibility ?? 'public',
+    biliCloseDanmaku: accountOv?.biliCloseDanmaku ?? platformOv?.biliCloseDanmaku ?? platformDefault?.biliCloseDanmaku ?? false,
+    biliCloseComment: accountOv?.biliCloseComment ?? platformOv?.biliCloseComment ?? platformDefault?.biliCloseComment ?? false,
+    biliFeaturedComment: accountOv?.biliFeaturedComment ?? platformOv?.biliFeaturedComment ?? platformDefault?.biliFeaturedComment ?? false,
+    biliFansDynamic: accountOv?.biliFansDynamic ?? platformOv?.biliFansDynamic ?? platformDefault?.biliFansDynamic ?? '',
     // 视频号合集(账号级)
     channelsCollectionName: accountOv?.channelsCollectionName ?? platformOv?.channelsCollectionName ?? platformDefault?.channelsCollectionName ?? '',
     channelsCollectionData: accountOv?.channelsCollectionData ?? platformOv?.channelsCollectionData ?? platformDefault?.channelsCollectionData ?? null,
@@ -1330,7 +1409,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null, biliTopicName: '', biliTopicData: null, biliVisibility: 'public', biliCloseDanmaku: false, biliCloseComment: false, biliFeaturedComment: false, biliFansDynamic: '' },
   channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '', channelsRedEnvelopeUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
@@ -1909,6 +1988,17 @@ async function fetchBiliCollections(keyword) {
   }
 }
 
+// B站参与话题 —— RemoteSearchSelect 数据源(前端过滤模式)
+// 数据源:后端登录 context 直连 B站话题接口,按当前标题相关性推荐
+async function fetchBiliTopics(keyword) {
+  const resp = await biliApi.getTopics(selectedAccountId.value, form.title || '')
+  const all = resp.data?.list || []
+  const kw = keyword?.trim().toLowerCase()
+  return {
+    list: kw ? all.filter(t => t.name?.toLowerCase().includes(kw)) : all
+  }
+}
+
 // 抖音合集(mix)—— RemoteSearchSelect 数据源(前端过滤模式,空关键词清空)
 async function fetchDouyinMixes(keyword) {
   const resp = await douyinImageApi.getMixList(selectedAccountId.value)
@@ -2023,6 +2113,16 @@ function handleBiliCollectionChange(col) {
     form.biliCollectionData = col
   } else {
     form.biliCollectionData = null
+  }
+}
+
+// B站话题选择回调:v-model 已把话题名绑到 form.biliTopicName,
+// 这里把完整对象存到 form.biliTopicData 便于回显与校验
+function handleBiliTopicChange(topic) {
+  if (topic && topic.name) {
+    form.biliTopicData = topic
+  } else {
+    form.biliTopicData = null
   }
 }
 

@@ -233,3 +233,108 @@ async def _fetch_collections_via_browser(cookie_file: str) -> dict:
             await context.close()
     finally:
         await browser.close()
+
+
+# ======================================================================
+# 参与话题列表 API
+# ======================================================================
+
+# B 站话题接口(2026-10 投稿页侦察确认:GET 无 wbi 签名,登录 cookie 即可)
+_BILI_TOPIC_API = "https://member.bilibili.com/x/vupre/web/topic/type/v2"
+
+
+@bilibili_bp.route('/topics', methods=['GET'])
+def list_topics():
+    """获取 B 站参与话题列表(投稿表单「参与话题」数据源)。
+
+    Query params:
+        account_id: 账号 id(用于取 cookie)
+        title: 视频标题(可选,B 站按标题相关性推荐话题)
+
+    流程(轻量,不开投稿表单):
+        1. 用账号 cookie 建登录 context
+        2. context.request 直接 GET B 站话题接口(自动携带 cookie,
+           带 Referer 通过风控;侦察确认该接口无需 wbi 签名)
+        3. 解析 data.topics 返回
+
+    Returns:
+        {"code": 200, "data": {"list": [{"topicId","topicName","activityText",
+         "activityDescription","playVv"}...], "total": N}}
+    """
+    account_id = request.args.get('account_id')
+    title = request.args.get('title', '')
+    logger.info(f"[话题列表] 收到请求: account_id={account_id} title={title!r}")
+
+    try:
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            logger.warning(f"[话题列表] 账号不存在: {account_id}")
+            return jsonify({"code": 404, "msg": "没有可用的 B 站账号"}), 404
+
+        result = run_async(_fetch_topics_via_api(cookie_file, title))
+
+        if result.get("success"):
+            data = result.get("data", {})
+            logger.info(f"[话题列表] 成功,共 {data.get('total', 0)} 个话题")
+            return jsonify({"code": 200, "data": data})
+        else:
+            logger.error(f"[话题列表] 失败: {result.get('error')}")
+            return jsonify({
+                "code": 500, "msg": result.get("error", "请求失败"),
+            }), 500
+    except Exception as e:
+        logger.error(f"[话题列表] 异常: {e}", exc_info=True)
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+
+async def _fetch_topics_via_api(cookie_file: str, title: str = "") -> dict:
+    """登录 context 内直连 B 站话题接口拉取推荐话题。
+
+    请求参数(照抄投稿页真实请求,去掉 upload_id/track_id 等会话参数):
+        pn=0&ps=20&title=<标题>&platform=pc&t=<毫秒时间戳>
+    """
+    import time as _time
+    from urllib.parse import quote
+
+    cookie_path = _get_cookie_path(cookie_file)
+    browser = await create_browser(headless=True)
+    try:
+        context = await create_context(browser, storage_state=cookie_path)
+        try:
+            params = {
+                "pn": "0",
+                "ps": "20",
+                "title": title or "视频投稿",
+                "platform": "pc",
+                "t": str(int(_time.time() * 1000)),
+            }
+            query = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in params.items())
+            url = f"{_BILI_TOPIC_API}?{query}"
+            headers = {
+                "Referer": "https://member.bilibili.com/platform/upload/video/frame",
+                "Origin": "https://member.bilibili.com",
+            }
+            resp = await context.request.get(url, headers=headers)
+            body = await resp.json()
+            if body.get("code") != 0:
+                return {
+                    "success": False,
+                    "error": f"B站接口返回异常: code={body.get('code')} {body.get('message', '')}",
+                }
+            topics = (body.get("data") or {}).get("topics") or []
+            items = [
+                {
+                    "topicId": t.get("topic_id"),
+                    "name": t.get("topic_name", ""),
+                    "activityText": t.get("activity_text") or "",
+                    "activityDescription": t.get("topic_description") or "",
+                    "playVv": t.get("arc_play_vv", 0),
+                }
+                for t in topics
+                if t.get("topic_name")
+            ]
+            return {"success": True, "data": {"list": items, "total": len(items)}}
+        finally:
+            await context.close()
+    finally:
+        await browser.close()

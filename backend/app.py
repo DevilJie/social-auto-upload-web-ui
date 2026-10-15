@@ -1063,6 +1063,13 @@ def postVideo():
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
                 bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
+                # B 站参与话题/可见范围/互动设置/粉丝动态
+                bili_topic_name=data.get('biliTopicName', ''),
+                bili_visibility=data.get('biliVisibility', ''),
+                bili_close_danmaku=bool(data.get('biliCloseDanmaku', False)),
+                bili_close_comment=bool(data.get('biliCloseComment', False)),
+                bili_featured_comment=bool(data.get('biliFeaturedComment', False)),
+                bili_fans_dynamic=data.get('biliFansDynamic', ''),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1230,6 +1237,13 @@ def postVideoBatch():
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
                 bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
+                # B 站参与话题/可见范围/互动设置/粉丝动态
+                bili_topic_name=data.get('biliTopicName', ''),
+                bili_visibility=data.get('biliVisibility', ''),
+                bili_close_danmaku=bool(data.get('biliCloseDanmaku', False)),
+                bili_close_comment=bool(data.get('biliCloseComment', False)),
+                bili_featured_comment=bool(data.get('biliFeaturedComment', False)),
+                bili_fans_dynamic=data.get('biliFansDynamic', ''),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1276,6 +1290,13 @@ def postVideoBatch():
                 # B 站转载来源(创作声明=转载 时必填)
                 bili_repost_source=data.get('biliRepostSource', ''),
                 bili_keep_system_tags=bool(data.get('biliKeepSystemTags', True)),
+                # B 站参与话题/可见范围/互动设置/粉丝动态
+                bili_topic_name=data.get('biliTopicName', ''),
+                bili_visibility=data.get('biliVisibility', ''),
+                bili_close_danmaku=bool(data.get('biliCloseDanmaku', False)),
+                bili_close_comment=bool(data.get('biliCloseComment', False)),
+                bili_featured_comment=bool(data.get('biliFeaturedComment', False)),
+                bili_fans_dynamic=data.get('biliFansDynamic', ''),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),

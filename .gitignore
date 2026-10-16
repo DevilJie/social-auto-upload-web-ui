@@ -30,7 +30,8 @@ frontend-dist/
 python/
 .gstack/
 docs/superpowers/.claude/
-.claude/
+.claude/*
+!.claude/skills/
 data/frames/*
 data/image-publish/*
 data/materials/*

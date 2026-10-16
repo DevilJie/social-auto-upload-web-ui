@@ -28,6 +28,7 @@ from conf import BASE_DIR
 from util._logger import get_channel_logger
 from impl._browser import create_browser, create_context
 from services.test_video import get_test_video
+from blueprints._platform_cache import get_cached, set_cached
 
 logger = get_channel_logger("xiaohongshu")
 
@@ -131,9 +132,18 @@ def list_collections():
 
     Returns:
         {"code": 200, "data": {"list": [...], "total": N}}
+
+    缓存:合集列表天级变化,进程内 TTL 缓存 5 分钟 —— 前端下拉每次展开
+    都会调本接口,缓存期内重复展开不再走浏览器流程(单次 15-60s)。
     """
     account_id = request.args.get('account_id')
     logger.info(f"[合集列表] 收到请求: account_id={account_id}")
+
+    cache_key = f"xhs:collections:{account_id}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        logger.info(f"[合集列表] 缓存命中: account_id={account_id}")
+        return jsonify(cached)
 
     try:
         cookie_file = _get_account_cookie_file(account_id)
@@ -146,7 +156,9 @@ def list_collections():
         if result.get("success"):
             data = result.get("data", {})
             logger.info(f"[合集列表] 成功,共 {data.get('total', 0)} 个合集")
-            return jsonify({"code": 200, "data": data})
+            payload = {"code": 200, "data": data}
+            set_cached(cache_key, payload)
+            return jsonify(payload)
         else:
             logger.error(f"[合集列表] 失败: {result.get('error')}")
             return jsonify({

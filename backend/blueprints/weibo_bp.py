@@ -20,6 +20,7 @@ from util._logger import get_channel_logger
 from impl._browser import create_browser, create_context
 from impl.weibo.platform import WeiboPlatform
 from services.test_video import get_test_video
+from blueprints._platform_cache import get_cached, set_cached
 
 logger = get_channel_logger("weibo")
 

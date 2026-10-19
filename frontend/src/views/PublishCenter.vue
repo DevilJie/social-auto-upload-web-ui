@@ -522,6 +522,14 @@
                 </div>
               </div>
               <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">分P投稿</div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliMultiPart" size="small" />
+                  <span class="tag-option-label">多文件合并为分P投稿</span>
+                </div>
+                <span class="tag-option-hint">开启后,本次发布的全部视频将合并为 1 个分P稿件(每个账号一份;分P名=文件名,串行上传,任一分P失败中止整稿)。关闭时每个视频为独立稿件。</span>
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
                 <div class="setting-label" :style="{ color: currentPlatformConfig.color }">粉丝动态</div>
                 <el-input
                   v-model="form.biliFansDynamic"
@@ -1304,6 +1312,8 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     biliCloseComment: accountOv?.biliCloseComment ?? platformOv?.biliCloseComment ?? platformDefault?.biliCloseComment ?? false,
     biliFeaturedComment: accountOv?.biliFeaturedComment ?? platformOv?.biliFeaturedComment ?? platformDefault?.biliFeaturedComment ?? false,
     biliFansDynamic: accountOv?.biliFansDynamic ?? platformOv?.biliFansDynamic ?? platformDefault?.biliFansDynamic ?? '',
+    // B 站分P模式
+    biliMultiPart: accountOv?.biliMultiPart ?? platformOv?.biliMultiPart ?? platformDefault?.biliMultiPart ?? false,
     // 视频号合集(账号级)
     channelsCollectionName: accountOv?.channelsCollectionName ?? platformOv?.channelsCollectionName ?? platformDefault?.channelsCollectionName ?? '',
     channelsCollectionData: accountOv?.channelsCollectionData ?? platformOv?.channelsCollectionData ?? platformDefault?.channelsCollectionData ?? null,
@@ -1409,7 +1419,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null, biliTopicName: '', biliTopicData: null, biliVisibility: 'public', biliCloseDanmaku: false, biliCloseComment: false, biliFeaturedComment: false, biliFansDynamic: '' },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null, biliTopicName: '', biliTopicData: null, biliVisibility: 'public', biliCloseDanmaku: false, biliCloseComment: false, biliFeaturedComment: false, biliFansDynamic: '', biliMultiPart: false },
   channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '', channelsRedEnvelopeUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },

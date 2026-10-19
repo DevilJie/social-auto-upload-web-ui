@@ -528,6 +528,9 @@ class BilibiliPlatform(BasePlatform):
             bili_featured_comment = bool(kwargs.get("bili_featured_comment", False))
             # B 站粉丝动态文案(发布时同步一条动态,最多 233 字)
             bili_fans_dynamic = kwargs.get("bili_fans_dynamic", "")
+            # B 站分P模式:True = 同一账号的全部文件合并为 1 个分P稿件
+            # (串行上传,分P标题用文件名);False/缺省 = 每个文件独立稿件(原行为)
+            bili_multi_part = bool(kwargs.get("bili_multi_part", False))
 
             # 打印发布参数摘要
             logger.info("[发布参数] 标题: %s", title)
@@ -563,22 +566,25 @@ class BilibiliPlatform(BasePlatform):
                 start_days,
             )
 
-            for index, file_path in enumerate(file_paths):
-                logger.info("-" * 40)
-                logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(file_paths), file_path)
+            if bili_multi_part:
+                # 分P模式:每个账号发 1 个稿件,全部文件为该稿件的分P(串行上传)
                 publish_date = (
-                    publish_datetimes[index]
+                    publish_datetimes[0]
                     if isinstance(publish_datetimes, list)
                     else publish_datetimes
+                )
+                logger.info(
+                    "[分P模式] %d 个文件将合并为 1 个分P稿件 × %d 个账号",
+                    len(file_paths), len(cookie_paths),
                 )
                 for cookie_index, cookie_path in enumerate(cookie_paths):
                     cookie_name = Path(cookie_path).name
                     nick = get_account_name_by_cookie_file(cookie_name)
                     with bind_account_name(nick or "-"):
-                        logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(cookie_paths), nick or "未知")
+                        logger.info("[发布进度] 分P稿件发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(cookie_paths), nick or "未知")
                         await self._upload_single_video(
                             title=title,
-                            file_path=file_path,
+                            file_paths=file_paths,
                             tags=tags,
                             publish_date=publish_date,
                             account_file=cookie_path,
@@ -596,6 +602,40 @@ class BilibiliPlatform(BasePlatform):
                             bili_featured_comment=bili_featured_comment,
                             bili_fans_dynamic=bili_fans_dynamic,
                         )
+            else:
+                for index, file_path in enumerate(file_paths):
+                    logger.info("-" * 40)
+                    logger.info("[发布进度] 处理第 %d/%d 个视频: %s", index + 1, len(file_paths), file_path)
+                    publish_date = (
+                        publish_datetimes[index]
+                        if isinstance(publish_datetimes, list)
+                        else publish_datetimes
+                    )
+                    for cookie_index, cookie_path in enumerate(cookie_paths):
+                        cookie_name = Path(cookie_path).name
+                        nick = get_account_name_by_cookie_file(cookie_name)
+                        with bind_account_name(nick or "-"):
+                            logger.info("[发布进度] 发布到第 %d/%d 个账号 (%s)", cookie_index + 1, len(cookie_paths), nick or "未知")
+                            await self._upload_single_video(
+                                title=title,
+                                file_paths=[file_path],
+                                tags=tags,
+                                publish_date=publish_date,
+                                account_file=cookie_path,
+                                category=category,
+                                desc=desc,
+                                thumbnail_path=thumbnail_path,
+                                creation_declaration=creation_declaration,
+                                bili_collection_name=bili_collection_name,
+                                bili_repost_source=bili_repost_source,
+                                bili_keep_system_tags=bili_keep_system_tags,
+                                bili_topic_name=bili_topic_name,
+                                bili_visibility=bili_visibility,
+                                bili_close_danmaku=bili_close_danmaku,
+                                bili_close_comment=bili_close_comment,
+                                bili_featured_comment=bili_featured_comment,
+                                bili_fans_dynamic=bili_fans_dynamic,
+                            )
 
             logger.info("=" * 60)
             logger.info("[发布视频] 视频发布流程完成!")
@@ -611,7 +651,7 @@ class BilibiliPlatform(BasePlatform):
     async def _upload_single_video(
         self,
         title: str,
-        file_path: str,
+        file_paths: list,
         tags: list,
         publish_date,
         account_file: str,
@@ -629,9 +669,16 @@ class BilibiliPlatform(BasePlatform):
         bili_featured_comment: bool = False,
         bili_fans_dynamic: str = "",
     ):
-        """Upload a single video to Bilibili using CloakBrowser."""
+        """Upload video(s) to Bilibili using CloakBrowser.
+
+        file_paths 为单元素列表 = 普通单稿件;
+        多元素列表 = 分P模式(串行追加,分P标题用文件名,任一P失败中止整稿)。
+        """
         log_dir = Path(BASE_DIR / "logs")
         log_dir.mkdir(parents=True, exist_ok=True)
+        multi_part = len(file_paths) > 1
+        if multi_part:
+            logger.info("[分P模式] 本稿件共 %d 个分P", len(file_paths))
 
         browser = await self.create_browser(headless=False)
         try:
@@ -653,12 +700,29 @@ class BilibiliPlatform(BasePlatform):
                         "Bilibili cookie expired, please re-login"
                     )
 
-                # 1. Upload video file
-                await self._upload_video_file(page, file_path)
+                # 1. Upload video file (P1)
+                await self._upload_video_file(page, file_paths[0])
 
                 # 2. Wait for upload to complete
                 await self._wait_upload_complete(page)
                 await asyncio.sleep(3)
+
+                # 1.5 分P模式:串行追加 P2..Pn
+                # (点「+添加分P」→ 传下一个文件 → 等全部 P 出现「上传完成」;
+                #  任一 P 失败 → raise 中止整稿。分P标题用文件名,即 B 站默认行为)
+                if multi_part:
+                    for part_index, extra_path in enumerate(file_paths[1:], start=2):
+                        part_name = Path(extra_path).name
+                        logger.info(
+                            "[分P] 追加第 %d/%d 个分P: %s",
+                            part_index, len(file_paths), part_name,
+                        )
+                        await self._click_add_part(page)
+                        await self._upload_video_file(page, extra_path)
+                        await self._wait_parts_complete(
+                            page, expected_parts=part_index
+                        )
+                        await asyncio.sleep(2)
 
                 # 2.5 等待页面就绪：标题输入框出现即代表表单已渲染完整。
                 # 用 placeholder 定位(禁用 class)，超时 4 小时。
@@ -675,6 +739,10 @@ class BilibiliPlatform(BasePlatform):
                 logger.info(
                     "[上传视频] 发布表单已渲染(标题输入框就绪)"
                 )
+
+                # 分P模式:引导弹窗可能延迟弹出,填表单前再防御一次
+                if multi_part:
+                    await BilibiliPlatform._dismiss_batch_dialog(page)
 
                 # Pre-form screenshot
                 await page.screenshot(
@@ -751,7 +819,7 @@ class BilibiliPlatform(BasePlatform):
                 logger.info("=" * 60)
                 logger.info("[发布调试] ===== 本次发布参数汇总 (dry_run=%s) =====", _PUBLISH_DRY_RUN)
                 logger.info("[发布调试] 标题(title)       : %s", title)
-                logger.info("[发布调试] 视频文件(file_path): %s", file_path)
+                logger.info("[发布调试] 视频文件(%d 个,分P=%s): %s", len(file_paths), multi_part, file_paths)
                 logger.info("[发布调试] 简介(desc)        : %s", desc[:100] if desc else "(无)")
                 logger.info("[发布调试] 标签(tags)        : %s (共 %d 个)", tags, len(tags))
                 logger.info("[发布调试] 保留系统标签(keep_system_tags): %s", bili_keep_system_tags)
@@ -951,6 +1019,89 @@ class BilibiliPlatform(BasePlatform):
                     logger.info("[上传视频] 上传状态检查: %s", exc)
             await asyncio.sleep(0.5)
         raise TimeoutError("视频上传超时(超过 4 小时):未检测到「上传完成」")
+
+    @staticmethod
+    async def _click_add_part(page):
+        """点击「+添加分P」入口,把主上传 input 切换为分P追加模式。
+
+        依据(2026-10 分P侦察):点「添加分P」后主 file input(multiple)
+        变为追加分P模式,再 set_input_files 即追加为下一P。
+        点击失败直接 raise(分P链路中断,继续走会污染当前稿件)。
+        """
+        btn = page.get_by_text("添加分P", exact=False).first
+        try:
+            await btn.wait_for(state="visible", timeout=10000)
+        except Exception as exc:
+            raise RuntimeError("未找到「添加分P」入口(页面结构可能变化)") from exc
+        try:
+            await btn.scroll_into_view_if_needed()
+            await btn.click(timeout=5000)
+            await asyncio.sleep(1.5)
+            logger.info("[分P] 已点击「添加分P」")
+        except Exception as exc:
+            raise RuntimeError(f"点击「添加分P」失败: {exc}") from exc
+        # 分P(批量上传)会触发「批量上传将生成多条动态」引导弹窗,
+        # 不关会拦截后续表单填写 —— 点「暂不设置」关掉
+        await BilibiliPlatform._dismiss_batch_dialog(page)
+
+    @staticmethod
+    async def _dismiss_batch_dialog(page):
+        """关闭「批量上传将生成多条动态」引导弹窗(batch-dialog),幂等。
+
+        DOM(2026-10 e2e 实测):.batch-dialog 容器,按钮「去试试」/「暂不设置」。
+        无弹窗时静默返回。
+        """
+        try:
+            btn = page.locator(
+                ".batch-dialog button:has-text('暂不设置'), "
+                ".batch-dialog span:has-text('暂不设置'), "
+                "button:has-text('暂不设置')"
+            ).first
+            if await btn.count() > 0 and await btn.is_visible():
+                await btn.click(timeout=3000)
+                await asyncio.sleep(1)
+                logger.info("[分P] 已关闭批量上传引导弹窗(暂不设置)")
+        except Exception as exc:
+            logger.info("[分P] 关闭引导弹窗异常(忽略): %s", exc)
+
+    @staticmethod
+    async def _wait_parts_complete(page, expected_parts: int):
+        """等待全部 expected_parts 个分P都出现「上传完成」文案。
+
+        任一分P出现「上传失败」→ raise 中止整稿(Q3 决策:不做跳过续传)。
+        """
+        done_text = page.get_by_text("上传完成", exact=True)
+        fail_text = page.get_by_text("上传失败", exact=True)
+        done = 0
+        for i in range(_UPLOAD_WAIT_POLLS):
+            try:
+                done = await done_text.count()
+                if done >= expected_parts:
+                    await asyncio.sleep(2)  # 等稳定
+                    logger.info(
+                        "[分P] 全部 %d 个分P上传完成 (累计 %.0f 秒)",
+                        expected_parts, i * 0.5,
+                    )
+                    return
+                if await fail_text.count() > 0:
+                    raise RuntimeError(
+                        f"分P上传失败:检测到「上传失败」,中止整稿"
+                        f"({done}/{expected_parts} 完成)"
+                    )
+                if i % 120 == 0 and i > 0:
+                    logger.info(
+                        "[分P] 上传中... %d/%d 完成 (%.0f 秒)",
+                        done, expected_parts, i * 0.5,
+                    )
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                if i % 120 == 0 and i > 0:
+                    logger.info("[分P] 上传状态检查: %s", exc)
+            await asyncio.sleep(0.5)
+        raise TimeoutError(
+            f"分P上传超时(超过 4 小时):{done}/{expected_parts} 完成"
+        )
 
     @staticmethod
     async def _fill_title(page, title: str):

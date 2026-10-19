@@ -128,7 +128,7 @@ def merge_config(common, platform_default, platform_ov, account_ov):
         # 批量发布补齐：与 PublishCenter mergeConfig / /postVideo 字段集对齐
         'category', 'biliRepostSource', 'biliKeepSystemTags', 'biliCollectionName', 'biliCollectionData',
         'biliTopicName', 'biliVisibility', 'biliCloseDanmaku', 'biliCloseComment',
-        'biliFeaturedComment', 'biliFansDynamic',
+        'biliFeaturedComment', 'biliFansDynamic', 'biliMultiPart',
         'weiboCategory', 'videoType', 'contentStatement', 'contentStatement2',
         'contentStatement2Optional', 'weiboCollectionName',
         'authorStatement', 'reprintUrl', 'compilation', 'compilationData',
@@ -498,6 +498,8 @@ def build_platform_kwargs(merged, common, account):
         'bili_close_comment': bool(merged.get('biliCloseComment', False)),
         'bili_featured_comment': bool(merged.get('biliFeaturedComment', False)),
         'bili_fans_dynamic': merged.get('biliFansDynamic', '') or '',
+        # B 站分P模式(多文件合并为 1 个分P稿件)
+        'bili_multi_part': bool(merged.get('biliMultiPart', False)),
         # 视频号合集(账号级)
         'channels_collection_name': merged.get('channelsCollectionName', '') or '',
         # 视频号位置(平台级,空=不显示位置)

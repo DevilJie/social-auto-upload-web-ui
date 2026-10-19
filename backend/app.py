@@ -1070,8 +1070,6 @@ def postVideo():
                 bili_close_comment=bool(data.get('biliCloseComment', False)),
                 bili_featured_comment=bool(data.get('biliFeaturedComment', False)),
                 bili_fans_dynamic=data.get('biliFansDynamic', ''),
-                # B 站分P模式:多文件合并为 1 个分P稿件(仅 B站消费)
-                bili_multi_part=bool(data.get('biliMultiPart', False)),
                 risk_warning=data.get('riskWarning', ''),
                 enable_cash_activity=data.get('enableCashActivity', False),
                 supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1246,8 +1244,6 @@ def postVideoBatch():
                 bili_close_comment=bool(data.get('biliCloseComment', False)),
                 bili_featured_comment=bool(data.get('biliFeaturedComment', False)),
                 bili_fans_dynamic=data.get('biliFansDynamic', ''),
-                # B 站分P模式:多文件合并为 1 个分P稿件(仅 B站消费)
-                bili_multi_part=bool(data.get('biliMultiPart', False)),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),
@@ -1301,8 +1297,6 @@ def postVideoBatch():
                 bili_close_comment=bool(data.get('biliCloseComment', False)),
                 bili_featured_comment=bool(data.get('biliFeaturedComment', False)),
                 bili_fans_dynamic=data.get('biliFansDynamic', ''),
-                # B 站分P模式:多文件合并为 1 个分P稿件(仅 B站消费)
-                bili_multi_part=bool(data.get('biliMultiPart', False)),
                     risk_warning=data.get('riskWarning', ''),
                     enable_cash_activity=data.get('enableCashActivity', False),
                     supplementary_declaration=data.get('supplementaryDeclaration', ''),

@@ -1731,7 +1731,7 @@ class ZhihuPlatform(BasePlatform):
             )
             await img_input.set_input_files(path)
             new_src = ""
-            deadline = loop.time() + 60
+            deadline = loop.time() + 90
             while loop.time() < deadline:
                 srcs = await page.evaluate(
                     """() => [...document.querySelectorAll(
@@ -1745,6 +1745,27 @@ class ZhihuPlatform(BasePlatform):
                     new_src = added[-1]
                     break
                 await asyncio.sleep(1.5)
+            if not new_src:
+                # 冷启动偶发超时(OSS 签名/首传慢),自动重试一次
+                logger.warning(
+                    "[文章][知乎] 图片上传超时,重试一次: %s",
+                    Path(path).name,
+                )
+                await img_input.set_input_files(path)
+                deadline2 = loop.time() + 90
+                while loop.time() < deadline2:
+                    srcs2 = await page.evaluate(
+                        """() => [...document.querySelectorAll(
+                            '.public-DraftEditor-content img')].map((im) => im.src)"""
+                    )
+                    added2 = [
+                        s for s in srcs2
+                        if s.startswith("http") and s not in before
+                    ]
+                    if added2:
+                        new_src = added2[-1]
+                        break
+                    await asyncio.sleep(1.5)
             if not new_src:
                 raise RuntimeError(
                     f"[文章][知乎] 图片上传超时({Path(path).name})"

@@ -448,15 +448,13 @@ function removePublishAccount(id) {
 }
 
 function selectAccount(account, group) {
-  selectedPlatform.value = group.key
+  // 点击账号 = 仅选中(查看/配置该账号),不切换勾选状态;
+  // 添加走「账号设置」弹窗,移除走账号卡片上的删除按钮(与图集页一致)
   selectedAccountId.value = account.id
-  if (publishAccountIds.has(account.id)) {
-    publishAccountIds.delete(account.id)
-  } else {
-    publishAccountIds.add(account.id)
-    expandedGroups.value.add(group.key)
-  }
-  hasChanges.value = true
+  selectedPlatform.value = group.key
+  // 互斥展开:只展开账号所属平台
+  expandedGroups.value.clear()
+  expandedGroups.value.add(group.key)
 }
 
 // ========== Account Dialog ==========

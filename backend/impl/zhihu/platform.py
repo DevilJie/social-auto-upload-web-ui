@@ -5,15 +5,23 @@
 
 登录地址：https://www.zhihu.com/settings/account
 视频发布地址：https://www.zhihu.com/upload-video?entry=navPanel
+文章发布地址：https://zhuanlan.zhihu.com/write
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import mimetypes
+import os
+import tempfile
 import threading
 import time
 from pathlib import Path
 from queue import Queue
+from urllib.parse import unquote, urlparse
+
+import requests
 
 from conf import BASE_DIR
 
@@ -38,6 +46,17 @@ ZHIHU_CREATOR_URL = "https://www.zhihu.com/creator"
 # 调试开关：True = 提交前只 dump 表单状态、不实际点击发布按钮。
 # 验证完表单内容后改回 False 即恢复正常发布。
 DEBUG_DRY_RUN_SUBMIT = False
+
+
+def _download_to_temp(url: str, filename: str) -> str:
+    """下载外链图片到临时文件(知乎编辑器图片通道只收本地文件路径)。"""
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    suffix = Path(filename).suffix or ".png"
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as f:
+        f.write(resp.content)
+    return path
 
 
 class ZhihuPlatform(BasePlatform):
@@ -652,7 +671,7 @@ class ZhihuPlatform(BasePlatform):
             finally:
                 if upload_success:
                     try:
-                        await context.storage_state(path=account_file)
+                        await context.storage_state(path=cookie_path)
                         logger.info("[上传视频] cookie 已更新")
                     except Exception:
                         pass
@@ -1508,6 +1527,337 @@ class ZhihuPlatform(BasePlatform):
         except Exception as e:
             logger.info(f"[DEBUG 表单状态] 抓取失败: {e}")
 
+    def publish_article(self, **kwargs) -> bool:
+        """发布文章到知乎(同步入口)。
+
+        kwargs:
+            title (*str*) -- 文章标题(≤100 字)
+            html (*str*) -- 正文 HTML(img src 为本地素材 URL,自动上传
+                知乎图床后替换)
+            account_file (*list[str]*) -- cookie 文件名列表
+            cover_path (*str*, optional) -- 显式封面图本地路径(无则不设,
+                知乎发表时封面可选)
+            is_draft (*bool*) -- True(默认)= 停在发布前一步(Draft.js 已
+                自动保存草稿);False = 点击「发布」真实发表
+            dry_run (*bool*) -- True = 同 is_draft(知乎编辑器自动存草稿,
+                dry-run 的验证载体就是草稿)
+
+        注: 统一发布入口会传入各平台通用字段(gzh_* 等),此处按需过滤。
+        """
+        allowed_keys = (
+            "title", "html", "account_file", "cover_path",
+            "is_draft", "dry_run",
+        )
+        filtered = {k: kwargs[k] for k in allowed_keys if k in kwargs}
+        if filtered.get("dry_run", False):
+            filtered["is_draft"] = True
+        asyncio.run(self._zhihu_publish_one_article(**filtered))
+        return True
+
+    async def _zhihu_publish_one_article(
+        self,
+        title: str,
+        html: str,
+        account_file: str,
+        cover_path: str = "",
+        is_draft: bool = True,
+        dry_run: bool = False,
+    ):
+        """单账号文章发布完整流程。
+
+        流程: 打开 write 页 → 标题 → 正文图片逐张上传知乎图床
+        (file input 通道,收集图床 URL 后清空编辑器) → 粘贴完整 HTML
+        → 封面(可选) → 发布/停草稿。
+        """
+        from services.article_html import (
+            extract_img_srcs,
+            replace_img_srcs,
+            sanitize_article_html,
+        )
+
+        logger.info("[文章][知乎] 开始单账号文章发布")
+        logger.info("[文章][知乎] 标题: %s", title)
+        logger.info("[文章][知乎] 正文 HTML 长度: %d", len(html))
+        logger.info("[文章][知乎] 模式: %s", "停草稿" if is_draft else "发表")
+
+        if not (title or "").strip():
+            raise RuntimeError("[文章][知乎] 标题不能为空")
+        if not html.strip():
+            raise RuntimeError("[文章][知乎] 正文不能为空")
+
+        browser = await self.create_browser(headless=False)
+        try:
+            cookie_path = str(Path(BASE_DIR / "cookiesFile" / account_file[0]))
+            context = await self.create_context(
+                browser, storage_state=cookie_path
+            )
+            try:
+                page = await context.new_page()
+                await page.goto(
+                    _ARTICLE_WRITE_URL,
+                    wait_until="domcontentloaded",
+                    timeout=40000,
+                )
+                await asyncio.sleep(8)
+
+                # 0. 关闭右侧「创作助手」AI 面板等遮挡(容错,点不到不管)
+                try:
+                    page.on("dialog", lambda d: asyncio.ensure_future(d.dismiss()))
+                except Exception:
+                    pass
+
+                # 1. 标题
+                logger.info("[文章][知乎] 填写标题(%d 字)", len(title))
+                title_box = page.locator("textarea.Input").first
+                await title_box.wait_for(state="visible", timeout=20000)
+                await title_box.fill(title[: _ARTICLE_TITLE_MAX])
+                await asyncio.sleep(0.5)
+
+                # 2. 正文图片 → 知乎图床 → 替换 src
+                clean_html = sanitize_article_html(html)
+                srcs = extract_img_srcs(clean_html)
+                if srcs:
+                    logger.info(
+                        "[文章][知乎] 正文含 %d 张图片,开始上传图床...", len(srcs)
+                    )
+                    local_paths = [
+                        self._resolve_image_local_path(src) for src in srcs
+                    ]
+                    cdn_urls = await self._upload_article_images_to_zhihu(
+                        page, local_paths
+                    )
+                    clean_html = replace_img_srcs(
+                        clean_html, dict(zip(srcs, cdn_urls))
+                    )
+                    logger.info("[文章][知乎] 图片已全部替换为知乎图床 URL")
+                else:
+                    logger.info("[文章][知乎] 正文无图片,跳过上传")
+
+                # 3. 粘贴正文
+                logger.info("[文章][知乎] 粘贴正文 HTML(%d 字符)...", len(clean_html))
+                await self._paste_zhihu_html(page, clean_html)
+
+                # 4. 封面(可选,失败不阻塞)
+                if cover_path and Path(str(cover_path)).exists():
+                    try:
+                        logger.info("[文章][知乎] 设置封面: %s", cover_path)
+                        await self._set_zhihu_cover(page, str(cover_path))
+                    except Exception as e:
+                        logger.warning("[文章][知乎] 封面设置失败(跳过): %s", e)
+
+                # 5. 发布 / 停草稿
+                if is_draft:
+                    # Draft.js 编辑器自动保存草稿(「刚刚 · 草稿」),不点发布
+                    logger.info(
+                        "[文章][知乎] 草稿模式: 编辑器已自动保存草稿,不点发布"
+                    )
+                    await asyncio.sleep(3)
+                else:
+                    await self._click_zhihu_publish(page)
+                    logger.info("[文章][知乎] 文章发表成功!")
+
+                # 保存 cookie
+                await context.storage_state(path=cookie_path)
+                logger.info("[文章][知乎] Cookie 状态已更新")
+                await asyncio.sleep(2)
+            finally:
+                await context.close()
+        finally:
+            await self.close_browser(browser, is_close_by_code=True)
+
+    # ------------------------------------------------------------------
+    # article helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_image_local_path(src: str) -> str:
+        """把正文 img src 解析为本地文件路径(上传知乎图床用)。
+
+        支持素材库 URL(/api/materials/file/<stored_path>)、本地绝对路径、
+        data: URL(写临时文件)、外链 http(s)(下载到临时文件)。
+        """
+        from storage import get_storage
+
+        if src.startswith("data:"):
+            head, _, b64 = src.partition(",")
+            mime = head[5:].split(";")[0] or "image/png"
+            ext = mimetypes.guess_extension(mime) or ".png"
+            fd, path = tempfile.mkstemp(suffix=ext)
+            with os.fdopen(fd, "wb") as f:
+                f.write(base64.b64decode(b64))
+            return path
+
+        parsed = urlparse(src)
+        marker = "/api/materials/file/"
+        stored = ""
+        if marker in src:
+            stored = unquote(src.split(marker, 1)[1].split("?")[0])
+        elif parsed.path and marker in parsed.path:
+            stored = unquote(parsed.path.split(marker, 1)[1])
+
+        if stored:
+            local = get_storage().get_local_path(stored)
+            if local and Path(local).exists():
+                return local
+            full_url = src if src.startswith("http") else (
+                f"http://127.0.0.1:5409{src}"
+            )
+            return _download_to_temp(full_url, stored.split("/")[-1])
+
+        if src.startswith(("http://", "https://")):
+            return _download_to_temp(src, Path(urlparse(src).path).name or "img.png")
+
+        p = Path(src)
+        if p.exists():
+            return str(p)
+        raise RuntimeError(f"[文章][知乎] 无法解析正文图片 src: {src}")
+
+    async def _upload_article_images_to_zhihu(self, page, local_paths):
+        """逐张通过编辑器图片通道上传本地图片,收集知乎图床 URL。
+
+        每张: set_input_files → 轮询编辑器出现新增 http src 的 img
+        (blob: 是上传中,http 才是完成)→ 记录 URL → Ctrl+A+Delete 清空
+        编辑器(为下一张腾光标;图已在图床,URL 仍有效)。
+        任一张超时/失败 → 抛异常终止。
+        """
+        focus = page.locator(".public-DraftEditor-content").first
+        img_input = page.locator(_ARTICLE_IMG_INPUT).first
+        urls = []
+        loop = asyncio.get_event_loop()
+        for i, path in enumerate(local_paths):
+            before = await page.evaluate(
+                """() => [...document.querySelectorAll(
+                    '.public-DraftEditor-content img')].map((im) => im.src)"""
+            )
+            await img_input.set_input_files(path)
+            new_src = ""
+            deadline = loop.time() + 60
+            while loop.time() < deadline:
+                srcs = await page.evaluate(
+                    """() => [...document.querySelectorAll(
+                        '.public-DraftEditor-content img')].map((im) => im.src)"""
+                )
+                added = [
+                    s for s in srcs
+                    if s.startswith("http") and s not in before
+                ]
+                if added:
+                    new_src = added[-1]
+                    break
+                await asyncio.sleep(1.5)
+            if not new_src:
+                raise RuntimeError(
+                    f"[文章][知乎] 图片上传超时({Path(path).name})"
+                )
+            urls.append(new_src)
+            logger.info(
+                "[文章][知乎] 图片 %d/%d 已上传图床: %s",
+                i + 1, len(local_paths), new_src[:80],
+            )
+            # 清空编辑器(全选 + 删除)
+            await focus.click()
+            await asyncio.sleep(0.3)
+            await page.keyboard.press("Control+a")
+            await asyncio.sleep(0.2)
+            await page.keyboard.press("Delete")
+            await asyncio.sleep(1)
+        return urls
+
+    @staticmethod
+    async def _paste_zhihu_html(page, html: str):
+        """粘贴 HTML 到 Draft.js 编辑器。
+
+        实测解析: h1-h2/strong/em/ul/blockquote 正确;img 必须是知乎
+        图床 URL(base64/外域 URL 会「图片导入失败」)。
+        粘贴后校验正文非空。
+        """
+        length = await page.evaluate(
+            """(html) => {
+                const ed = document.querySelector('.public-DraftEditor-content');
+                if (!ed) return 0;
+                ed.focus();
+                const dt = new DataTransfer();
+                dt.setData('text/html', html);
+                ed.dispatchEvent(new ClipboardEvent('paste', {
+                    bubbles: true, cancelable: true, clipboardData: dt,
+                }));
+                return ed.innerHTML.length;
+            }""",
+            html,
+        )
+        if not length or length < 20:
+            raise RuntimeError(
+                f"[文章][知乎] 正文粘贴后内容过短(length={length})"
+            )
+        await asyncio.sleep(3)
+        logger.info("[文章][知乎] 正文已粘贴(innerHTML %d 字符)", length)
+
+    @staticmethod
+    async def _set_zhihu_cover(page, cover_path: str):
+        """设置文章封面(发布设置区「添加文章封面」)。
+
+        DOM: 封面框点击后用 UploadPicture-input(accept=.jpeg,.jpg,.png)
+        上传;上传完成封面缩略图替换空态框。
+        """
+        cover_box = page.locator("text=添加文章封面").first
+        await cover_box.scroll_into_view_if_needed(timeout=10000)
+        cover_input = page.locator(
+            'input[type=file].UploadPicture-input, '
+            'input[type=file][accept=".jpeg, .jpg, .png"]'
+        ).first
+        await cover_input.set_input_files(cover_path)
+        await asyncio.sleep(5)
+        # 验证: 空态文案消失(被封面缩略图替换)
+        gone = await page.evaluate(
+            """() => {
+                const el = [...document.querySelectorAll('*')].find(
+                    (e) => (e.innerText || '').trim() === '添加文章封面'
+                    && e.children.length === 0);
+                return !el || el.getBoundingClientRect().width === 0;
+            }"""
+        )
+        if not gone:
+            logger.warning("[文章][知乎] 封面空态未消失,可能未设置成功")
+        else:
+            logger.info("[文章][知乎] 封面已设置")
+
+    @staticmethod
+    async def _click_zhihu_publish(page):
+        """点击「发布」按钮(文本恰为「发布」,区别于「发布设置」)并等跳转。
+
+        成功信号: URL 跳到文章页(zhuanlan.zhihu.com/p/<id>)。
+        """
+        btn = page.locator('button:has-text("发布")').first
+        # 精确过滤: 只点文本恰为「发布」的按钮
+        clicked = await page.evaluate(
+            """() => {
+                for (const b of document.querySelectorAll('button')) {
+                    if (b.getBoundingClientRect().width <= 0) continue;
+                    if ((b.innerText || '').trim() === '发布') {
+                        const opts = {
+                            bubbles: true, cancelable: true, view: window,
+                        };
+                        b.dispatchEvent(new MouseEvent('mousedown', opts));
+                        b.dispatchEvent(new MouseEvent('mouseup', opts));
+                        b.dispatchEvent(new MouseEvent('click', opts));
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        )
+        if not clicked:
+            raise RuntimeError("[文章][知乎] 「发布」按钮未找到")
+        logger.info("[文章][知乎] 已点击「发布」,等待跳转...")
+        deadline = asyncio.get_event_loop().time() + 60
+        while asyncio.get_event_loop().time() < deadline:
+            if "/p/" in (page.url or ""):
+                return
+            await asyncio.sleep(2)
+        raise RuntimeError(
+            f"[文章][知乎] 发布后 60s 未跳转文章页,当前: {page.url}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Calendar label parsing helpers (used by _set_schedule_time)
@@ -1560,3 +1910,25 @@ def _get_video_orientation(file_path: str) -> str:
     except Exception as e:
         logger.info(f"[发布参数] 查询视频方向失败: {e}")
         return ""
+
+# ==================================================================
+# publish_article — 文章发布(知乎专栏,zhuanlan.zhihu.com/write)
+# ==================================================================
+
+# 文章编辑页。DOM 结构(2026-10 侦察):
+#   - 标题: textarea.Input(placeholder「请输入标题（最多 100 个字）」)
+#   - 正文: .public-DraftEditor-content(Draft.js,非 ProseMirror)
+#   - 工具栏「图片」按钮的隐藏 file input: input[type=file][accept*="image"]
+#   - 发布设置区(页面底部): 添加封面/投稿至问题/创作声明/文章话题/
+#     定时发布/内容来源
+#   - 发布: 文本恰为「发布」的 button(区别于「发布设置」)
+# 实测结论:
+#   - 粘贴 text/html: h1-h2/strong/em/ul/blockquote 全部正确解析
+#   - 粘贴 base64 img → 「图片导入失败」;必须先传知乎图床
+#     (file input 上传 → pic-private.zhihu.com/v2-<hash> URL),粘贴
+#     带图床 URL 的 <img> 直接渲染
+#   - Draft.js 编辑器自动保存草稿(「刚刚 · 草稿」)
+_ARTICLE_WRITE_URL = "https://zhuanlan.zhihu.com/write"
+_ARTICLE_TITLE_MAX = 100
+_ARTICLE_IMG_INPUT = 'input[type=file][accept*="image"]'
+

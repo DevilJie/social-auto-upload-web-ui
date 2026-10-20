@@ -145,6 +145,14 @@
                 @config-changed="onChannelConfigChanged"
                 @publish-result="onPublishResult"
               />
+              <ZhihuArticlePanel
+                ref="zhihuPanelRef"
+                :account-id="selectedPlatform === 'zhihu' ? selectedAccountId : null"
+                :disabled="publishing"
+                v-show="selectedPlatform === 'zhihu'"
+                @config-changed="onChannelConfigChanged"
+                @publish-result="onPublishResult"
+              />
             </div>
 
             <!-- No account selected hint -->
@@ -243,6 +251,7 @@ import RichEditor from '@/components/article/RichEditor.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import WeixinGzhArticlePanel from '@/components/weixin_gzh/ArticlePublishPanel.vue'
+import ZhihuArticlePanel from '@/components/zhihu/ArticlePublishPanel.vue'
 import { useAutoSave } from '@/composables/useAutoSave'
 
 // ========== Stores & Config ==========
@@ -251,7 +260,7 @@ const appStore = useAppStore()
 appStore.loadAccountCheckMode()
 const route = useRoute()
 
-const ARTICLE_PLATFORM_KEYS = ['weixin_gzh']
+const ARTICLE_PLATFORM_KEYS = ['weixin_gzh', 'zhihu']
 const ARTICLE_PLATFORMS = platformList.filter(p => ARTICLE_PLATFORM_KEYS.includes(p.key))
 
 // ========== Left Sidebar State ==========
@@ -397,9 +406,10 @@ const { hasChanges, startAutoSaveTimer } = useAutoSave(() => saveDraft())
 
 // ========== Channel Panel Refs & Helpers ==========
 const weixinGzhPanelRef = ref(null)
+const zhihuPanelRef = ref(null)
 
 function getPanel(key) {
-  const map = { weixin_gzh: weixinGzhPanelRef }
+  const map = { weixin_gzh: weixinGzhPanelRef, zhihu: zhihuPanelRef }
   return map[key]?.value
 }
 
@@ -507,13 +517,15 @@ async function saveDraft() {
     return
   }
   try {
-    const panel = getPanel('weixin_gzh')
     const allPlatformConfigs = {}
     const panelAccountOverrides = {}
-    if (panel) {
-      const configs = panel.getConfigs()
-      allPlatformConfigs.weixin_gzh = configs.platformConfig
-      Object.assign(panelAccountOverrides, configs.accountOverrides)
+    for (const key of ARTICLE_PLATFORM_KEYS) {
+      const panel = getPanel(key)
+      if (panel) {
+        const configs = panel.getConfigs()
+        allPlatformConfigs[key] = configs.platformConfig
+        Object.assign(panelAccountOverrides, configs.accountOverrides)
+      }
     }
 
     const draftData = {
@@ -713,6 +725,10 @@ async function loadDraft(draftId) {
     const panel = getPanel('weixin_gzh')
     if (panel && dd.platformConfigs?.weixin_gzh) {
       panel.restoreConfigs(dd.platformConfigs.weixin_gzh, dd.panelAccountOverrides || {})
+    }
+    const zhPanel = getPanel('zhihu')
+    if (zhPanel && dd.platformConfigs?.zhihu) {
+      zhPanel.restoreConfigs(dd.platformConfigs.zhihu, dd.panelAccountOverrides || {})
     }
 
     ;(dd.publishAccountIds || []).forEach(id => publishAccountIds.add(id))

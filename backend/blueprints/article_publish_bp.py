@@ -39,6 +39,8 @@ DB_PATH = BASE_DIR / "db" / "database.db"
 ARTICLE_PLATFORM_MAP = {
     "weixin_gzh": 17,
     "微信公众号": 17,
+    "zhihu": 14,
+    "知乎": 14,
 }
 
 # 忽略字段:正文 HTML 单独接收,不进 account_configs 的通用拷贝

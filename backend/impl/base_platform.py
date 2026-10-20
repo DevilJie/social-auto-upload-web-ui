@@ -8,6 +8,7 @@ and implement the abstract methods. Browser entry points delegate to
 
 from __future__ import annotations
 
+import inspect
 import json
 import sqlite3
 import uuid
@@ -382,8 +383,10 @@ class BasePlatform(ABC):
             account_file -- cookie 文件名列表
             is_draft / dry_run -- 安全默认:草稿优先,不真发表
         """
+        cls = self.__class__
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not support article publishing"
+            f"{cls.__module__}.{cls.__name__} (loaded from "
+            f"{inspect.getfile(cls)}) does not support article publishing"
         )
 
     async def get_statistics(self, **kwargs) -> dict:

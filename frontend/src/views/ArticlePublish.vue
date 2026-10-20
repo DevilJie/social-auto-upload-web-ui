@@ -598,30 +598,6 @@ async function publishAll() {
     }
   }
 
-  // 直接发表 = 真实发表(不可逆),二次确认防误触;文案按所选平台动态生成
-  if (publishMode.value === 'publish') {
-    const selectedNames = [...new Set(
-      accountStore.accounts
-        .filter(a => publishAccountIds.has(a.id))
-        .map(a => a.platform)
-    )]
-    let msg =
-      `将向 ${publishAccountIds.size} 个账号（${selectedNames.join('、')}）` +
-      `直接发表《${articleTitle.value.trim()}》，发表后不可撤回。`
-    if (selectedNames.includes('微信公众号')) {
-      msg += '微信公众号将消耗当日群发次数，并需管理员/运营者微信扫码验证。'
-    }
-    try {
-      await ElMessageBox.confirm(msg, '确认直接发表', {
-        confirmButtonText: '确认发表',
-        cancelButtonText: '取消',
-        type: 'warning',
-      })
-    } catch {
-      return
-    }
-  }
-
   publishing.value = true
   publishProgress.value = 0
   publishResults.value = []

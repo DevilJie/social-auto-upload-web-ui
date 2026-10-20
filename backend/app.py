@@ -119,6 +119,10 @@ from blueprints.image_publish_bp import image_publish_bp  # noqa: E402
 app.register_blueprint(image_publish_bp)
 logger.info("[Startup] image_publish_bp registered OK")
 
+from blueprints.article_publish_bp import article_publish_bp  # noqa: E402
+app.register_blueprint(article_publish_bp)
+logger.info("[Startup] article_publish_bp registered OK")
+
 from blueprints.douyin_image_bp import douyin_image_bp  # noqa: E402
 app.register_blueprint(douyin_image_bp)
 logger.info("[Startup] douyin_image_bp registered OK")

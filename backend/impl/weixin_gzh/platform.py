@@ -15,13 +15,18 @@
 """
 
 import asyncio
+import base64
 import json
+import mimetypes
 import os
 import re
 import threading
 import time
 from pathlib import Path
 from queue import Queue
+from urllib.parse import unquote, urlparse
+
+import requests
 
 from util._logger import bind_account_name, get_channel_logger
 
@@ -75,6 +80,89 @@ _COOKIE_INVALID_URL_MARKERS = (
     "/cgi-bin/bizlogin",
     "/cgi-bin/loginpage",
 )
+
+# ---------------------------------------------------------------------------
+# 文章发布(2026-10 侦察实测方案)的页面注入 JS。
+# 正文编辑器是 ProseMirror: 粘贴 text/html 自动解析富文本节点;
+# 正文图片先经 filetransfer 上传拿 mmbiz.qpic.cn URL 再拼进 HTML。
+# ---------------------------------------------------------------------------
+
+# 批量上传正文图片。items: [{src,b64,name,mime}] → [{name,ok,cdn_url,ret,err_msg}]
+# 凭证从 window.wx.commonData.data 读(ticket/uin),token 从当前 URL 取。
+_ARTICLE_UPLOAD_JS = """async (items) => {
+  const d = (window.wx && window.wx.commonData && window.wx.commonData.data) || {};
+  const urlToken = new URLSearchParams(location.search).get('token') || d.t || '';
+  const out = [];
+  for (const it of items) {
+    const q = new URLSearchParams({
+      action: 'upload_material', f: 'json', scene: '8',
+      writetype: 'doublewrite', groupid: '1',
+      ticket_id: String(d.uin || ''), ticket: String(d.ticket || ''),
+      token: String(urlToken), lang: 'zh_CN',
+      svr_time: String(Math.floor(Date.now() / 1000)),
+    });
+    const bin = atob(it.b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const fd = new FormData();
+    fd.append('file', new Blob([arr], {type: it.mime || 'image/png'}), it.name);
+    try {
+      const resp = await fetch('/cgi-bin/filetransfer?' + q.toString(), {
+        method: 'POST', body: fd, credentials: 'include',
+      });
+      const body = await resp.json();
+      out.push({
+        name: it.name,
+        ok: !!(body && (body.cdn_url || body.content)),
+        cdn_url: (body && (body.cdn_url || body.content)) || '',
+        ret: body && body.base_resp ? body.base_resp.ret : -1,
+        err_msg: body && body.base_resp ? body.base_resp.err_msg : ('http ' + resp.status),
+      });
+    } catch (e) {
+      out.push({name: it.name, ok: false, cdn_url: '', ret: -1, err_msg: String(e)});
+    }
+  }
+  return out;
+}"""
+
+# 粘贴正文 HTML 到正文 ProseMirror(第二个可见实例;第一个是标题)。
+# 返回粘贴后 innerHTML 长度(调用方校验 >20 判成功)。
+_ARTICLE_PASTE_JS = """(html) => {
+  const pms = [...document.querySelectorAll('.ProseMirror')]
+    .filter((el) => el.getBoundingClientRect().height > 0);
+  const body = pms.length > 1 ? pms[1] : pms[0];
+  if (!body) return 0;
+  body.focus();
+  const dt = new DataTransfer();
+  dt.setData('text/html', html);
+  dt.setData('text/plain', 'article');
+  body.dispatchEvent(new ClipboardEvent('paste', {
+    bubbles: true, cancelable: true, clipboardData: dt,
+  }));
+  return body.innerHTML.length;
+}"""
+
+
+async def _first_visible_prosemirror(page, index: int = 0):
+    """返回第 *index* 个可见 .ProseMirror 的 Locator(0=标题, 1=正文)。
+
+    Playwright 没有原生「取第 N 个可见实例」,先用 JS 算出可见实例在
+    全部实例中的序号,再转 nth()。
+    """
+    idx = await page.evaluate(
+        """(want) => {
+            const vis = [...document.querySelectorAll('.ProseMirror')]
+              .filter((el) => el.getBoundingClientRect().height > 0)
+              .map((el) => [...document.querySelectorAll('.ProseMirror')].indexOf(el));
+            return vis[want] !== undefined ? vis[want] : -1;
+        }""",
+        index,
+    )
+    if idx < 0:
+        raise RuntimeError(
+            f"[发布文章] 可见 ProseMirror 实例不足(需要第 {index + 1} 个),编辑页未就绪"
+        )
+    return page.locator(".ProseMirror").nth(idx)
 
 
 class WeixinGzhPlatform(BasePlatform):
@@ -2338,3 +2426,960 @@ class WeixinGzhPlatform(BasePlatform):
                 return
             await asyncio.sleep(3)
         logger.warning("[发布图集] 图片上传等待超时(可能部分未完成),继续后续操作")
+
+    # ==================================================================
+    # publish_article — 文章发布(图文混排,HTML 正文)
+    # ==================================================================
+
+    # 文章编辑页(appmsg_edit_v2 type=77 新版图文编辑器, ProseMirror)。
+    # DOM 结构(2026-10 侦察):
+    #   - 标题: 第一个可见 .ProseMirror(隐藏 textarea#title 由编辑器同步)
+    #   - 作者: input#author.js_author
+    #   - 正文: 第二个可见 .ProseMirror(粘贴 text/html 自动解析富文本)
+    #   - 摘要: textarea#js_description(≤120 字,选填)
+    #   - 底部: 保存为草稿 / 预览 / 发表
+    # 图片方案: 页面内 fetch /cgi-bin/filetransfer?action=upload_material
+    #   (凭证在 window.wx.commonData.data 的 ticket/uin)→ 换 mmbiz.qpic.cn
+    #   URL → 整体 HTML 粘贴。
+    _ARTICLE_EDIT_PATH = (
+        "https://mp.weixin.qq.com/cgi-bin/appmsg"
+        "?t=media/appmsg_edit_v2&action=edit&isNew=1&type=77"
+        "&token={token}&lang=zh_CN"
+    )
+    _ARTICLE_TITLE_MAX = 64
+    _ARTICLE_DIGEST_MAX = 120
+    # 公众号正文单图上传上限 10MB(超出直接报错,避免发布中途失败)
+    _ARTICLE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+    def publish_article(self, **kwargs) -> bool:
+        """发布文章到公众号(同步入口)。
+
+        kwargs:
+            title (*str*) -- 文章标题(≤64 字)
+            html (*str*) -- 文章正文 HTML(img src 指向本地素材 URL,
+                发布时自动上传图片替换为微信 CDN URL)
+            account_file (*list[str]*) -- cookie 文件名列表
+            author (*str*, optional) -- 作者名
+            digest (*str*, optional) -- 摘要(≤120 字)
+            gzh_collection_name (*str*, optional) -- 合集名
+            gzh_claim_source (*str*, optional) -- 创作来源(文案)
+            gzh_original_url (*str*, optional) -- 原文链接
+            enableTimer (*bool*, optional) -- 定时发表
+            schedule_time_str (*str*, optional) -- 定时时间
+            is_draft (*bool*) -- True=保存为草稿(默认,安全),
+                False=直接发表(群发,订阅号每日 1 次)
+            dry_run (*bool*) -- True=完整走表单 + before_submit 截图 +
+                保存草稿(不群发);发表按钮永不触发
+        """
+        if kwargs.get("dry_run", False):
+            # dry-run 的验证载体 = 草稿箱(填完所有字段后保存草稿,不群发)
+            kwargs["is_draft"] = True
+        asyncio.run(self._upload_all_articles(**kwargs))
+        return True
+
+    async def _upload_all_articles(self, **kwargs):
+        """文章编排:**单层账号循环**(一账号一次发完一篇文章)。"""
+        logger.info("=" * 60)
+        logger.info("[发布文章] 开始微信公众号文章发布流程")
+        logger.info("=" * 60)
+
+        title = kwargs.get("title", "") or ""
+        html = kwargs.get("html", "") or ""
+        account_file = kwargs.get("account_file", []) or []
+        author = kwargs.get("author", "") or ""
+        digest = kwargs.get("digest", "") or ""
+        gzh_collection_name = kwargs.get("gzh_collection_name", "") or ""
+        gzh_claim_source = kwargs.get("gzh_claim_source", "") or ""
+        gzh_original_url = kwargs.get("gzh_original_url", "") or ""
+        cover_path = kwargs.get("cover_path", "") or ""
+        enable_timer = kwargs.get("enableTimer", False)
+        schedule_time_str = kwargs.get("schedule_time_str", "")
+        is_draft = kwargs.get("is_draft", True)
+
+        logger.info("[发布参数] 标题: %s", title)
+        logger.info("[发布参数] 正文 HTML 长度: %d", len(html))
+        logger.info("[发布参数] 作者: %s", author or "无")
+        logger.info("[发布参数] 摘要: %s", digest[:50] if digest else "无")
+        logger.info("[发布参数] 账号数量: %d", len(account_file))
+        logger.info("[发布参数] 合集: %s", gzh_collection_name or "无")
+        logger.info("[发布参数] 创作来源: %s", gzh_claim_source or "无")
+        logger.info("[发布参数] 原文链接: %s", gzh_original_url or "无")
+        logger.info(
+            "[发布参数] 显式封面: %s",
+            cover_path or "无(自动抓正文首图)",
+        )
+        logger.info("[发布参数] 模式: %s", "保存草稿" if is_draft else "发表")
+
+        if not (title or "").strip():
+            raise RuntimeError("[发布文章] 标题不能为空")
+        if not html.strip():
+            raise RuntimeError("[发布文章] 正文不能为空")
+
+        account_paths = [str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file]
+        for cookie_index, cookie_path in enumerate(account_paths):
+            cookie_name = Path(cookie_path).name
+            nick = get_account_name_by_cookie_file(cookie_name)
+            with bind_account_name(nick or "-"):
+                logger.info(
+                    "[发布进度] 发布到第 %d/%d 个账号 (%s)",
+                    cookie_index + 1, len(account_paths), nick or "未知",
+                )
+                await self._upload_one_article(
+                    title=title,
+                    html=html,
+                    account_file=cookie_path,
+                    author=author,
+                    digest=digest,
+                    gzh_collection_name=gzh_collection_name,
+                    gzh_claim_source=gzh_claim_source,
+                    gzh_original_url=gzh_original_url,
+                    cover_path=cover_path,
+                    enable_timer=enable_timer,
+                    schedule_time_str=schedule_time_str,
+                    is_draft=is_draft,
+                )
+
+        logger.info("=" * 60)
+        logger.info("[发布文章] 文章发布流程完成!")
+        logger.info("=" * 60)
+
+    async def _upload_one_article(
+        self,
+        title: str,
+        html: str,
+        account_file: str,
+        author: str = "",
+        digest: str = "",
+        gzh_collection_name: str = "",
+        gzh_claim_source: str = "",
+        gzh_original_url: str = "",
+        cover_path: str = "",
+        enable_timer: bool = False,
+        schedule_time_str: str = "",
+        is_draft: bool = True,
+    ):
+        """单账号文章发布完整流程。
+
+        流程(与视频/图集同为 appmsg_edit_v2 框架,但直接进 type=77 编辑页):
+          1. 解析 token → 打开文章编辑页
+          2. 读上传凭证(window.wx.commonData.data)
+          3. 正文图片逐张上传 filetransfer → 换 CDN URL(侦察实测方案)
+          4. 标题(ProseMirror 逐字) → 作者 → 正文粘贴 → 摘要
+          5. 合集/创作来源(复用视频阶段② helpers) → 原文链接
+          6. before_submit 全页截图(dry-run 验证证据)
+          7. 保存草稿(安全默认) / 发表
+        """
+        from services.article_html import (
+            extract_img_srcs,
+            replace_img_srcs,
+            sanitize_article_html,
+        )
+
+        logger.info("[发布文章] 开始单账号文章发布")
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(
+                browser,
+                storage_state=account_file,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/127.0.4324.150 Safari/537.36"
+                ),
+            )
+            try:
+                page = await context.new_page()
+
+                # 1. token + 编辑页
+                token = await self._resolve_token(page)
+                if not token:
+                    raise RuntimeError("[发布文章] 未能获取 token,cookie 可能已失效")
+                logger.info("[发布文章] 获取到 token: %s", token)
+                edit_url = self._ARTICLE_EDIT_PATH.format(token=token)
+                logger.info("[发布文章] 打开文章编辑页: %s", edit_url)
+                await page.goto(
+                    edit_url, wait_until="domcontentloaded", timeout=40000
+                )
+                await asyncio.sleep(6)
+
+                # 0. 关教育弹窗(「支持添加话题卡片」等,遮挡输入)
+                await self._dismiss_education_dialog(page)
+
+                # 2. 上传凭证
+                creds = await self._get_upload_credentials(page)
+                if not creds.get("ticket"):
+                    logger.warning(
+                        "[发布文章] 未读到上传凭证(ticket),图片上传可能失败"
+                    )
+
+                # 3. 正文图片 → 微信 CDN
+                clean_html = sanitize_article_html(html)
+                srcs = extract_img_srcs(clean_html)
+                if srcs:
+                    logger.info("[发布文章] 正文含 %d 张图片,开始上传...", len(srcs))
+                    mapping = await self._upload_article_images(page, srcs)
+                    clean_html = replace_img_srcs(clean_html, mapping)
+                    logger.info("[发布文章] 图片全部替换为微信 CDN URL")
+                else:
+                    logger.info("[发布文章] 正文无图片,跳过上传")
+
+                # 4. 标题 → 作者 → 正文 → 摘要
+                logger.info("[发布文章] 填写标题: %s", title)
+                await self._fill_article_title(page, title)
+                if author:
+                    logger.info("[发布文章] 填写作者: %s", author)
+                    await page.locator("input#author.js_author").first.fill(
+                        author[:30]
+                    )
+                logger.info("[发布文章] 粘贴正文 HTML(%d 字符)...", len(clean_html))
+                await self._paste_article_html(page, clean_html)
+                if digest:
+                    logger.info("[发布文章] 填写摘要(%d 字)", len(digest))
+                    await self._fill_article_digest(page, digest)
+
+                # 4.5 封面:
+                #     a) 显式封面(cover_path,前端 4 尺寸封面卡上传) →
+                #        scene=1 上传进公众号图片库 → 「从图片库选择」→ 裁剪确认
+                #     b) 未设置 → 自动抓正文首图(「从正文选择」)
+                #     发表强校验必须有封面,两者必须成功其一。
+                cover_set = False
+                if cover_path and Path(str(cover_path)).exists():
+                    try:
+                        logger.info("[发布文章] 使用显式封面: %s", cover_path)
+                        await self._set_article_cover_from_library(
+                            page, str(cover_path)
+                        )
+                        cover_set = True
+                    except Exception as e:
+                        logger.warning(
+                            "[发布文章] 显式封面设置失败,回退正文首图: %s", e
+                        )
+                if not cover_set:
+                    try:
+                        logger.info("[发布文章] 从正文首图设置封面...")
+                        await self._set_article_cover_from_body(page)
+                        cover_set = True
+                    except Exception as e:
+                        msg = str(e)
+                        if "正文无图" in msg and not is_draft:
+                            raise RuntimeError(
+                                "[发布文章] 发表模式要求封面,但未设置封面且正文没有图片。"
+                                "请在封面区上传封面,或正文中至少插入一张图片。"
+                            )
+                        logger.warning("[发布文章] 封面设置失败(跳过): %s", e)
+
+                # 5. 设置区(可选,失败不阻塞——均为选填项)
+                if gzh_collection_name:
+                    try:
+                        logger.info("[发布文章] 选择合集: %s", gzh_collection_name)
+                        await self._set_collection(page, gzh_collection_name)
+                    except Exception as e:
+                        logger.warning("[发布文章] 合集设置失败(跳过): %s", e)
+                if gzh_claim_source:
+                    try:
+                        logger.info("[发布文章] 设置创作来源: %s", gzh_claim_source)
+                        await self._set_claim_source(page, gzh_claim_source)
+                    except Exception as e:
+                        logger.warning("[发布文章] 创作来源设置失败(跳过): %s", e)
+                if gzh_original_url:
+                    try:
+                        logger.info("[发布文章] 设置原文链接: %s", gzh_original_url)
+                        await self._set_original_url(page, gzh_original_url)
+                    except Exception as e:
+                        logger.warning("[发布文章] 原文链接设置失败(跳过): %s", e)
+
+                # 6. before_submit 截图(skill 6.3 验证证据)
+                shot_dir = Path(BASE_DIR) / "screenshots"
+                shot_dir.mkdir(parents=True, exist_ok=True)
+                shot_path = shot_dir / "weixin_gzh_article_before_submit.png"
+                try:
+                    await page.screenshot(path=str(shot_path), full_page=True)
+                    logger.info("[发布文章] before_submit 截图: %s", shot_path)
+                except Exception as e:
+                    logger.warning("[发布文章] 截图失败(非致命): %s", e)
+
+                # 7. 保存草稿 / 发表
+                if is_draft:
+                    logger.info("[发布文章] 保存为草稿(不群发)...")
+                    await self._save_article_draft(page)
+                    logger.info("[发布文章] 草稿已保存!")
+                else:
+                    if enable_timer and schedule_time_str:
+                        publish_dt = self._build_publish_datetime(schedule_time_str, 1)
+                        if publish_dt and not (
+                            isinstance(publish_dt, int) and publish_dt == 0
+                        ):
+                            logger.info("[发布文章] 定时发表: %s", publish_dt)
+                            await self._publish_scheduled(page, publish_dt)
+                        else:
+                            logger.warning(
+                                "[发布文章] 定时时间解析失败,改为立即发表"
+                            )
+                            await self._publish_article_immediate(page)
+                    else:
+                        logger.info("[发布文章] 立即发表...")
+                        await self._publish_article_immediate(page)
+                    logger.info("[发布文章] 文章发表成功!")
+
+                # 保存 cookie
+                await context.storage_state(path=account_file)
+                logger.info("[发布文章] Cookie 状态已更新")
+                await asyncio.sleep(2)
+            finally:
+                await context.close()
+        finally:
+            await self.close_browser(browser, is_close_by_code=True)
+
+    # ------------------------------------------------------------------
+    # article helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _get_upload_credentials(page) -> dict:
+        """读正文图片上传凭证(window.wx.commonData.data)。
+
+        实测(2026-10): ticket/uin/t(=token) 都在 commonData.data 里;
+        filetransfer 接口带 ticket+uin+token 即可直传(侦察返回 ret=0)。
+        """
+        try:
+            return await page.evaluate(
+                """() => {
+                    try {
+                        const d = (window.wx && window.wx.commonData &&
+                                   window.wx.commonData.data) || {};
+                        return {
+                            ticket: d.ticket || '',
+                            uin: d.uin || '',
+                            token: d.t || '',
+                        };
+                    } catch (e) { return {ticket: '', uin: '', token: ''}; }
+                }"""
+            )
+        except Exception as e:
+            logger.warning("[发布文章] 读取上传凭证失败: %s", e)
+            return {"ticket": "", "uin": "", "token": ""}
+
+    async def _upload_article_images(
+        self, page, srcs: list[str]
+    ) -> dict[str, str]:
+        """把正文里的本地图片逐张上传到微信,返回 {原src: cdn_url}。
+
+        上传走编辑器同款接口(页面内 fetch,自动带 cookie/referer):
+          POST /cgi-bin/filetransfer?action=upload_material&f=json
+               &scene=8&writetype=doublewrite&groupid=1&ticket_id=<uin>
+               &ticket=<ticket>&token=<token>&lang=zh_CN&svr_time=<ts>
+        任一张失败 → 抛异常终止发布(正文图片缺失等于内容损坏,不可静默)。
+        """
+        items = []
+        for src in srcs:
+            data, name, mime = self._resolve_image_bytes(src)
+            if len(data) > self._ARTICLE_IMAGE_MAX_BYTES:
+                raise RuntimeError(
+                    f"[发布文章] 正文图片超过 10MB 上限: {name}"
+                    f"({len(data) / 1024 / 1024:.1f}MB)"
+                )
+            items.append({
+                "src": src,
+                "b64": base64.b64encode(data).decode(),
+                "name": name,
+                "mime": mime,
+            })
+
+        results = await page.evaluate(_ARTICLE_UPLOAD_JS, items)
+        mapping: dict[str, str] = {}
+        for it, ret in zip(items, results):
+            if not ret.get("ok") or not ret.get("cdn_url"):
+                raise RuntimeError(
+                    f"[发布文章] 图片上传失败({ret.get('name')}): "
+                    f"ret={ret.get('ret')} {ret.get('err_msg')}"
+                )
+            mapping[it["src"]] = ret["cdn_url"]
+            logger.info(
+                "[发布文章] 图片已上传: %s → %s", ret.get("name"),
+                ret["cdn_url"][:60],
+            )
+        return mapping
+
+    @staticmethod
+    def _resolve_image_bytes(src: str) -> tuple[bytes, str, str]:
+        """把 img src 解析为 (bytes, filename, mime)。
+
+        支持三种形态(与前端编辑器输出约定一致):
+          1. data: URL(base64 内联,粘贴产生)
+          2. 素材库 URL(/api/materials/file/<stored_path>,前端插图统一入口)
+          3. 本地绝对路径(dry-run 脚本直传场景)
+        外链 http(s) 图片: 仅当 path 命中素材库路由时读本地,
+        否则下载(编辑器无法访问 localhost,必须转存)。
+        """
+        from storage import get_storage
+
+        if src.startswith("data:"):
+            head, _, b64 = src.partition(",")
+            mime = head[5:].split(";")[0] or "image/png"
+            ext = mimetypes.guess_extension(mime) or ".png"
+            return base64.b64decode(b64), f"inline{ext}", mime
+
+        parsed = urlparse(src)
+        marker = "/api/materials/file/"
+        stored = ""
+        if marker in src:
+            stored = unquote(src.split(marker, 1)[1].split("?")[0])
+        elif parsed.path and marker in parsed.path:
+            stored = unquote(parsed.path.split(marker, 1)[1])
+
+        if stored:
+            local = get_storage().get_local_path(stored)
+            if local and Path(local).exists():
+                data = Path(local).read_bytes()
+                name = Path(local).name
+                mime = mimetypes.guess_type(name)[0] or "image/png"
+                return data, name, mime
+            # S3 等远端存储: 本地无文件时退回 URL 下载
+            full_url = src if src.startswith("http") else (
+                f"http://127.0.0.1:5409{src}"
+            )
+            resp = requests.get(full_url, timeout=30)
+            resp.raise_for_status()
+            name = stored.split("/")[-1] or "image.png"
+            mime = resp.headers.get("content-type") or "image/png"
+            return resp.content, name, mime
+
+        if src.startswith(("http://", "https://")):
+            resp = requests.get(src, timeout=30)
+            resp.raise_for_status()
+            name = Path(urlparse(src).path).name or "image.png"
+            mime = resp.headers.get("content-type") or "image/png"
+            return resp.content, name, mime
+
+        # 本地路径
+        p = Path(src)
+        if p.exists():
+            data = p.read_bytes()
+            mime = mimetypes.guess_type(p.name)[0] or "image/png"
+            return data, p.name, mime
+        raise RuntimeError(f"[发布文章] 无法解析正文图片 src: {src}")
+
+    @staticmethod
+    async def _set_article_cover_from_library(page, cover_path: str):
+        """用显式封面图设置封面(前端 4 尺寸封面卡上传的图)。
+
+        流程(2026-10 实测):
+          1. 读本地封面文件 → 页面内 filetransfer **scene=1** 上传
+             (scene=1 进公众号图片库,与正文图 scene=8 不同;ret=0 返回 cdn_url)
+          2. ``#js_cover_null .js_imagedialog`` 打开「从图片库选择」
+             (.weui-desktop-dialog_img-picker,缩略图 .weui-desktop-img-picker__img-thumb)
+          3. 按 cdn_url 前缀匹配点击刚上传的缩略图
+          4. 「下一步」→ 裁剪(2.35:1/1:1)→「确认」→ 验证封面预览出现
+        """
+        cover_file = Path(cover_path)
+        data, name, mime = WeixinGzhPlatform._resolve_image_bytes(str(cover_file))
+        if len(data) > WeixinGzhPlatform._ARTICLE_IMAGE_MAX_BYTES:
+            raise RuntimeError(f"[封面] 封面图超过 10MB 上限: {name}")
+        b64 = base64.b64encode(data).decode()
+
+        # 1. scene=1 上传进图片库
+        upload = await page.evaluate(
+            """async (payload) => {
+                const d = (window.wx && window.wx.commonData &&
+                           window.wx.commonData.data) || {};
+                const urlToken =
+                  new URLSearchParams(location.search).get('token') || d.t || '';
+                const q = new URLSearchParams({
+                    action: 'upload_material', f: 'json', scene: '1',
+                    writetype: 'doublewrite', groupid: '1',
+                    ticket_id: String(d.uin || ''), ticket: String(d.ticket || ''),
+                    token: String(urlToken), lang: 'zh_CN',
+                    svr_time: String(Math.floor(Date.now() / 1000)),
+                });
+                const bin = atob(payload.b64);
+                const arr = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                const fd = new FormData();
+                fd.append('file', new Blob([arr], {type: payload.mime}),
+                          payload.name);
+                const resp = await fetch('/cgi-bin/filetransfer?' + q.toString(), {
+                    method: 'POST', body: fd, credentials: 'include',
+                });
+                return await resp.json();
+            }""",
+            {"b64": b64, "name": name, "mime": mime},
+        )
+        cdn_url = (upload or {}).get("cdn_url") or ""
+        if not cdn_url:
+            raise RuntimeError(
+                f"[封面] 封面图上传图片库失败: "
+                f"ret={(upload or {}).get('base_resp', {}).get('ret')}"
+            )
+        # cdn 指纹 = URL 倒数第二段(mmbiz hash,缩略图与 cdn_url 同 hash 不同尺寸段)
+        # 结构: https://mmbiz.qpic.cn/<type>/<hash>/<size>?wx_fmt=xx
+        cdn_fingerprint = (cdn_url.split("/")[-2])[:48]
+        logger.info("[封面] 封面图已上传图片库: %s", cdn_url[:70])
+
+        # 2. 打开「从图片库选择」
+        opened = await page.evaluate(
+            """() => {
+                const el = document.querySelector(
+                    '#js_cover_null .js_imagedialog');
+                if (!el) return false;
+                const opts = {
+                    bubbles: true, cancelable: true, view: window,
+                };
+                el.dispatchEvent(new MouseEvent('mousedown', opts));
+                el.dispatchEvent(new MouseEvent('mouseup', opts));
+                el.dispatchEvent(new MouseEvent('click', opts));
+                return true;
+            }"""
+        )
+        if not opened:
+            raise RuntimeError("[封面] 未找到「从图片库选择」入口")
+        await asyncio.sleep(4)
+
+        # 3. 按 cdn 指纹匹配点击刚上传的缩略图
+        picked = await page.evaluate(
+            """(fp) => {
+                const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 30 && r.height > 30;
+                };
+                let target = null;
+                for (const el of document.querySelectorAll(
+                    '.weui-desktop-img-picker__img-thumb')) {
+                    if (!vis(el)) continue;
+                    const bg = el.style.backgroundImage || '';
+                    const m = bg.match(/url\\("?([^")]+)"?\\)/);
+                    const u = m ? m[1] : (el.src || '');
+                    if (!u) continue;
+                    // mmbiz URL 倒数第二段是 hash(与上传返回的 cdn_url 同 hash)
+                    const segs = u.split('?')[0].split('/');
+                    const hash = segs.length >= 2 ? segs[segs.length - 2] : '';
+                    if (hash && hash.startsWith(fp)) {
+                        target = el;
+                        break;
+                    }
+                }
+                if (!target) return 'not-found';
+                const clickTarget =
+                    target.closest('li, .weui-desktop-img-picker__item') || target;
+                const opts = {
+                    bubbles: true, cancelable: true, view: window,
+                };
+                clickTarget.dispatchEvent(new MouseEvent('mousedown', opts));
+                clickTarget.dispatchEvent(new MouseEvent('mouseup', opts));
+                clickTarget.dispatchEvent(new MouseEvent('click', opts));
+                return 'clicked';
+            }""",
+            cdn_fingerprint,
+        )
+        if picked != "clicked":
+            raise RuntimeError("[封面] 图片库中未匹配到刚上传的封面图")
+        logger.info("[封面] 已选中图片库中的封面图")
+        await asyncio.sleep(1.5)
+
+        # 4. 下一步(等 disabled 消失,按文案精确定位)
+        next_ok = False
+        deadline = asyncio.get_event_loop().time() + 10
+        while asyncio.get_event_loop().time() < deadline:
+            clicked = await page.evaluate(
+                """() => {
+                    for (const b of document.querySelectorAll(
+                        'button.weui-desktop-btn_primary')) {
+                        if (b.getBoundingClientRect().width <= 0) continue;
+                        if ((b.innerText || '').trim() !== '下一步') continue;
+                        if (b.className.includes('weui-desktop-btn_disabled')) {
+                            return 'disabled';
+                        }
+                        const opts = {
+                            bubbles: true, cancelable: true, view: window,
+                        };
+                        b.dispatchEvent(new MouseEvent('mousedown', opts));
+                        b.dispatchEvent(new MouseEvent('mouseup', opts));
+                        b.dispatchEvent(new MouseEvent('click', opts));
+                        return 'clicked';
+                    }
+                    return 'not-found';
+                }"""
+            )
+            if clicked == "clicked":
+                next_ok = True
+                break
+            await asyncio.sleep(1)
+        if not next_ok:
+            raise RuntimeError("[封面] 图片库「下一步」按钮始终不可点")
+        await asyncio.sleep(4)
+
+        # 5. 确认裁剪(默认框)
+        confirmed = await page.evaluate(
+            """() => {
+                for (const b of document.querySelectorAll('button')) {
+                    if (b.getBoundingClientRect().width <= 0) continue;
+                    if ((b.innerText || '').trim() === '确认') {
+                        const opts = {
+                            bubbles: true, cancelable: true, view: window,
+                        };
+                        b.dispatchEvent(new MouseEvent('mousedown', opts));
+                        b.dispatchEvent(new MouseEvent('mouseup', opts));
+                        b.dispatchEvent(new MouseEvent('click', opts));
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        )
+        if not confirmed:
+            raise RuntimeError("[封面] 裁剪「确认」按钮未找到")
+        await asyncio.sleep(4)
+
+        # 6. 验证封面预览出现
+        deadline = asyncio.get_event_loop().time() + 10
+        while asyncio.get_event_loop().time() < deadline:
+            ok = await page.evaluate(
+                """() => {
+                    const p = document.querySelector(
+                        '#js_cover_area .js_cover_preview_new');
+                    return !!p && !!(p.style.backgroundImage || '').trim();
+                }"""
+            )
+            if ok:
+                logger.info("[封面] 封面已设置(显式封面图)")
+                return
+            await asyncio.sleep(1)
+        raise RuntimeError("[封面] 封面预览未出现,设置可能失败")
+
+    @staticmethod
+    async def _set_article_cover_from_body(page):
+        """从正文第一张图设置封面(发表强校验必须有封面)。
+
+        2026-10 实测 DOM(全部 JS 事件派发,菜单项 visibility:hidden
+        但有布局尺寸,HTMLElement.click()/Playwright click 会被
+        not-visible 拦截,必须 dispatchEvent):
+
+        1. ``#js_cover_null .js_selectCoverFromContent``(无封面态菜单
+           「从正文选择」) → 打开 .weui-desktop-dialog_img-picker
+        2. ``.appmsg_content_img_list .appmsg_content_img_item div``
+           (缩略图是 background-image 的 span,不是 <img>) → 选中
+        3. 「下一步」(未选图时 weui-desktop-btn_disabled,轮询等其可用)
+        4. 裁剪界面(2.35:1 消息列表 / 1:1 转发卡片) → 「确认」
+        5. 验证: 封面预览 js_cover_preview_new 的 background-image 出现
+
+        正文无图(面板无缩略图) → 抛「正文无图」异常,由上层区分
+        草稿(warning 跳过)/发表(报错提示)。
+        """
+
+        async def _js_click(selector: str, timeout_s: float = 10) -> bool:
+            deadline = asyncio.get_event_loop().time() + timeout_s
+            while asyncio.get_event_loop().time() < deadline:
+                hit = await page.evaluate(
+                    """(sel) => {
+                        const el = document.querySelector(sel);
+                        if (!el) return false;
+                        const opts = {
+                            bubbles: true, cancelable: true, view: window,
+                        };
+                        el.dispatchEvent(new MouseEvent('mousedown', opts));
+                        el.dispatchEvent(new MouseEvent('mouseup', opts));
+                        el.dispatchEvent(new MouseEvent('click', opts));
+                        return true;
+                    }""",
+                    selector,
+                )
+                if hit:
+                    return True
+                await asyncio.sleep(1)
+            return False
+
+        # 1. 打开「从正文选择」面板
+        opened = await _js_click(
+            "#js_cover_null .js_selectCoverFromContent", timeout_s=10
+        )
+        if not opened:
+            raise RuntimeError("[封面] 未找到「从正文选择」入口")
+        logger.info("[封面] 已打开正文图片选择面板")
+
+        # 2. 等面板渲染 + 找第一张缩略图
+        thumb_ok = False
+        deadline = asyncio.get_event_loop().time() + 15
+        while asyncio.get_event_loop().time() < deadline:
+            thumb_ok = await page.evaluate(
+                """() => !!document.querySelector(
+                    '.appmsg_content_img_list .appmsg_content_img_item')"""
+            )
+            if thumb_ok:
+                break
+            await asyncio.sleep(1)
+        if not thumb_ok:
+            raise RuntimeError("[封面] 正文无图,无法自动设置封面")
+
+        picked = await page.evaluate(
+            """() => {
+                const item = document.querySelector(
+                    '.appmsg_content_img_list .appmsg_content_img_item');
+                const target = item.querySelector('div') || item;
+                const opts = {
+                    bubbles: true, cancelable: true, view: window,
+                };
+                target.dispatchEvent(new MouseEvent('mousedown', opts));
+                target.dispatchEvent(new MouseEvent('mouseup', opts));
+                target.dispatchEvent(new MouseEvent('click', opts));
+                return true;
+            }"""
+        )
+        if not picked:
+            raise RuntimeError("[封面] 正文图片缩略图点击失败")
+        await asyncio.sleep(1.5)
+        logger.info("[封面] 已选中正文第一张图")
+
+        # 3. 下一步(未选图时 disabled,上面已选应立即可点;按文案精确定位)
+        next_ok = False
+        deadline = asyncio.get_event_loop().time() + 10
+        while asyncio.get_event_loop().time() < deadline:
+            clicked = await page.evaluate(
+                """() => {
+                    for (const b of document.querySelectorAll(
+                        'button.weui-desktop-btn_primary')) {
+                        if (b.getBoundingClientRect().width <= 0) continue;
+                        if ((b.innerText || '').trim() !== '下一步') continue;
+                        if (b.className.includes('weui-desktop-btn_disabled')) {
+                            return 'disabled';
+                        }
+                        const opts = {
+                            bubbles: true, cancelable: true, view: window,
+                        };
+                        b.dispatchEvent(new MouseEvent('mousedown', opts));
+                        b.dispatchEvent(new MouseEvent('mouseup', opts));
+                        b.dispatchEvent(new MouseEvent('click', opts));
+                        return 'clicked';
+                    }
+                    return 'not-found';
+                }"""
+            )
+            if clicked == "clicked":
+                next_ok = True
+                break
+            await asyncio.sleep(1)
+        if not next_ok:
+            raise RuntimeError("[封面] 「下一步」按钮始终不可点")
+        await asyncio.sleep(4)
+        logger.info("[封面] 进入裁剪界面")
+
+        # 4. 确认裁剪(默认框)
+        confirmed = await page.evaluate(
+            """() => {
+                for (const b of document.querySelectorAll('button')) {
+                    if (b.getBoundingClientRect().width <= 0) continue;
+                    if ((b.innerText || '').trim() === '确认') {
+                        const opts = {
+                            bubbles: true, cancelable: true, view: window,
+                        };
+                        b.dispatchEvent(new MouseEvent('mousedown', opts));
+                        b.dispatchEvent(new MouseEvent('mouseup', opts));
+                        b.dispatchEvent(new MouseEvent('click', opts));
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        )
+        if not confirmed:
+            raise RuntimeError("[封面] 裁剪「确认」按钮未找到")
+        await asyncio.sleep(4)
+
+        # 5. 验证封面预览出现(background-image 有值)
+        deadline = asyncio.get_event_loop().time() + 10
+        while asyncio.get_event_loop().time() < deadline:
+            ok = await page.evaluate(
+                """() => {
+                    const p = document.querySelector(
+                        '#js_cover_area .js_cover_preview_new');
+                    return !!p && !!(p.style.backgroundImage || '').trim();
+                }"""
+            )
+            if ok:
+                logger.info("[封面] 封面已设置(正文首图)")
+                return
+            await asyncio.sleep(1)
+        raise RuntimeError("[封面] 封面预览未出现,设置可能失败")
+
+    @staticmethod
+    async def _fill_article_digest(page, digest: str):
+        """文章摘要(textarea#js_description,≤120 字)。
+
+        方案(fill + 事件链补发):
+          - fill() 完整设值并触发 input —— 保证 textarea.value 完整不丢字
+            (逐字输入实测 delay=25ms 丢字符,32 字只进 12 字);
+          - 公众号字数计数器/组件状态监听键盘事件链,fill 后手动补
+            input/change/keyup/blur 让组件刷新(实测 fill 后计数停在 0/120);
+          - 最后 input_value() 读回校验。
+        """
+        text = (digest or "").strip()[: WeixinGzhPlatform._ARTICLE_DIGEST_MAX]
+        if not text:
+            return
+        box = page.locator("textarea#js_description").first
+        await box.wait_for(state="visible", timeout=10000)
+        await box.fill(text)
+        await page.evaluate(
+            """(text) => {
+                const ta = document.querySelector('#js_description');
+                if (!ta) return;
+                ta.value = text;
+                ta.dispatchEvent(new Event('input', {bubbles: true}));
+                ta.dispatchEvent(new Event('change', {bubbles: true}));
+                ta.dispatchEvent(new KeyboardEvent('keyup', {bubbles: true, key: 'a'}));
+                ta.blur();
+            }""",
+            text,
+        )
+        await asyncio.sleep(0.5)
+        saved = ""
+        try:
+            saved = await box.input_value()
+        except Exception:
+            pass
+        if saved.strip() != text:
+            raise RuntimeError(
+                f"[发布文章] 摘要写入校验失败(期望 {len(text)} 字,实际 "
+                f"{len(saved.strip())} 字)"
+            )
+        logger.info("[发布文章] 摘要已填写(%d 字, fill+事件链)", len(text))
+
+    @staticmethod
+    async def _fill_article_title(page, title: str):
+        """文章标题: 第一个可见 .ProseMirror(标题编辑器),逐字输入。
+
+        隐藏 textarea#title 由编辑器双向同步,不直接操作。
+        press_sequentially 前先 click 聚焦(标题在正文上方独立编辑器)。
+        """
+        text = (title or "").strip()[: WeixinGzhPlatform._ARTICLE_TITLE_MAX]
+        title_pm = await _first_visible_prosemirror(page, index=0)
+        await title_pm.click()
+        await asyncio.sleep(0.3)
+        await title_pm.press_sequentially(text, delay=30)
+        await asyncio.sleep(0.5)
+        logger.info("[发布文章] 标题已填写(%d 字)", len(text))
+
+    @staticmethod
+    async def _paste_article_html(page, html: str):
+        """正文粘贴: 往第二个可见 .ProseMirror dispatch paste(text/html)。
+
+        ProseMirror 会把 HTML 解析为内部节点(2026-10 实测 h1/p/strong/
+        ul/img 全部正确;img 带微信 CDN URL 时直接渲染并自动补 data-ratio)。
+        粘贴后校验正文非空,失败抛异常。
+        """
+        length = await page.evaluate(_ARTICLE_PASTE_JS, html)
+        if not length or length < 20:
+            raise RuntimeError(
+                f"[发布文章] 正文粘贴后内容过短(length={length}),粘贴失败"
+            )
+        await asyncio.sleep(2)
+        logger.info("[发布文章] 正文已粘贴(innerHTML %d 字符)", length)
+
+    @staticmethod
+    async def _set_original_url(page, url: str):
+        """设置原文链接(设置区「原文链接 未添加」入口)。
+
+        入口行文案「原文链接」,点击后显示 input.js_url,填完点「确定」。
+        选择器未知部分用文案兜底,失败抛异常由上层跳过。
+        """
+        # 1. 点入口(设置区行内「原文链接」文案)
+        entry = page.locator("text=原文链接").first
+        await entry.click()
+        await asyncio.sleep(1.5)
+        # 2. 填 URL(input.js_url,点击入口后可见)
+        url_input = page.locator("input.js_url").first
+        await url_input.wait_for(state="visible", timeout=8000)
+        await url_input.fill((url or "").strip()[:200])
+        await asyncio.sleep(0.5)
+        # 3. 确认(弹窗 primary「确定」;部分版本自动保存无弹窗,容错)
+        try:
+            await WeixinGzhPlatform._click_dialog_primary(page, "确定", timeout_s=6)
+        except Exception:
+            pass
+        logger.info("[发布文章] 原文链接已填写")
+
+    @staticmethod
+    async def _save_article_draft(page):
+        """点「保存为草稿」,成功信号 = URL 出现 appmsgid=(侦察实测)。"""
+        btn = page.get_by_text("保存为草稿", exact=True).first
+        await btn.click()
+        deadline = asyncio.get_event_loop().time() + 30
+        while asyncio.get_event_loop().time() < deadline:
+            if "appmsgid=" in (page.url or ""):
+                return
+            await asyncio.sleep(1)
+        # URL 没变也可能已保存(容错:页面出现「保存成功」提示也算)
+        toast = await page.evaluate(
+            """() => !!document.querySelector('.weui-desktop-toast, .js_save_result')"""
+        )
+        if toast:
+            return
+        raise RuntimeError("[发布文章] 保存草稿超时(URL 未出现 appmsgid)")
+
+    @staticmethod
+    async def _publish_article_immediate(page):
+        """文章立即发表。
+
+        与视频版 _publish_immediate 的区别:
+          - 文章页「发表」是底部操作条按钮(文案「发表」);
+          - 群发需管理员扫码(「微信验证」二维码弹窗),扫码通过后跳首页;
+          - 成功判定用文章版独立等待逻辑,**超时抛异常如实报失败**
+            (视频版 _wait_for_home 超时只 warning 的约定不适用于文章,
+            2026-10-20 实测: 未扫码超时后误报「发布成功」)。
+        """
+        btn = page.get_by_text("发表", exact=True).first
+        await btn.wait_for(state="visible", timeout=15000)
+        await btn.click()
+        logger.info("[发布文章] 已点击「发表」,等待发表弹窗...")
+        await asyncio.sleep(2)
+        # 弹窗内「发表」(摘要为空/无封面时此处会先弹补全提示,由用户在有头
+        # 浏览器里人工处理 —— 代码只负责点弹窗主按钮)
+        await WeixinGzhPlatform._click_dialog_primary(page, "发表", timeout_s=30)
+        logger.info("[发布文章] 已点击弹窗「发表」,等待确认...")
+        await asyncio.sleep(2)
+        await WeixinGzhPlatform._click_dialog_primary(page, "继续发表", timeout_s=15)
+        logger.info(
+            "[发布文章] 已确认发表。如平台弹出扫码确认,请在浏览器窗口扫码"
+        )
+        await WeixinGzhPlatform._wait_article_publish_done(page, timeout_s=900)
+
+    @staticmethod
+    async def _wait_article_publish_done(page, timeout_s: int = 900):
+        """文章发表成功等待(fail-fast 版)。
+
+        成功信号:
+          1. URL 跳转首页(/cgi-bin/home?...token=) —— 扫码验证通过后跳转;
+          2. 「已发送操作申请」弹窗(部分号的管理员验证策略,申请已提交)。
+
+        超时(**默认 15 分钟,给用户留扫码时间**)→ 抛异常如实报失败,
+        避免「没扫码也报成功」的误报(2026-10-20 实测教训)。
+        """
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                url = page.url or ""
+                if "/cgi-bin/home" in url and "token=" in url:
+                    logger.info("[发布文章] 已跳转首页,文章发表成功")
+                    return
+                # 「已发送操作申请」弹窗(管理员验证策略)
+                applied = await page.evaluate(
+                    """() => {
+                        const els = [...document.querySelectorAll(
+                            '.weui-desktop-dialog__title, .page_msg h4')];
+                        for (const el of els) {
+                            const t = (el.innerText || '').trim();
+                            if (t.includes('已发送操作申请')) return true;
+                        }
+                        return false;
+                    }"""
+                )
+                if applied:
+                    logger.info(
+                        "[发布文章] 检测到「已发送操作申请」(管理员验证策略),"
+                        "申请已提交视为成功"
+                    )
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+        raise RuntimeError(
+            f"[发布文章] 发表后 {timeout_s}s 内未完成扫码验证/未跳转首页,"
+            "文章未群发(可能仍在草稿箱,可重新发表)"
+        )

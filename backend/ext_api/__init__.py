@@ -1027,6 +1027,10 @@ def _active_draft_view(draft_data):
 def _extract_draft_title(draft_data):
     """从草稿数据中提取标题（第一个非空的平台标题）"""
     draft_data = _active_draft_view(draft_data)
+    # 文章草稿: 标题在 commonConfig.articleTitle(视频/图集在 platformConfigs.*.title)
+    article_title = (draft_data.get('commonConfig') or {}).get('articleTitle')
+    if article_title and str(article_title).strip():
+        return str(article_title).strip()[:100]
     pc = draft_data.get('platformConfigs', {})
     for key in ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'channels',
                 'baijiahao', 'tiktok', 'youtube', 'iqiyi', 'tencent_video']:

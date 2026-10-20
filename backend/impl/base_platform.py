@@ -372,6 +372,20 @@ class BasePlatform(ABC):
             f"{self.__class__.__name__} does not support image publishing"
         )
 
+    async def publish_article(self, **kwargs) -> bool:
+        """Publish an article (title + rich-text HTML body) (default: not supported).
+
+        文章发布约定(kwargs 与视频/图集风格一致):
+            title      -- 文章标题
+            html       -- 正文 HTML(img src 为本地素材 URL,实现方负责
+                          上传图片并替换为平台 CDN URL)
+            account_file -- cookie 文件名列表
+            is_draft / dry_run -- 安全默认:草稿优先,不真发表
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support article publishing"
+        )
+
     async def get_statistics(self, **kwargs) -> dict:
         """Fetch account statistics (default: not supported)."""
         raise NotImplementedError(

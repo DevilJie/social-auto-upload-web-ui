@@ -120,7 +120,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   HomeFilled, User, Picture, Upload,
   Clock, Setting, Expand, Fold, UserFilled, Document, Notebook, ChatDotRound,
-  Sunny, Moon, Coffee, Promotion
+  Sunny, Moon, Coffee, Promotion, EditPen
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 
@@ -137,6 +137,7 @@ const navItems = [
   { path: '/material-management', icon: Picture, title: '素材管理' },
   { path: '/publish-center', icon: Upload, title: '视频发布' },
   { path: '/image-publish', icon: Picture, title: '图集发布' },
+  { path: '/article-publish', icon: EditPen, title: '文章发布' },
   { path: '/drafts', icon: Document, title: '草稿箱' },
   { path: '/publish-history', icon: Clock, title: '发布历史' },
   { path: '/changelog', icon: Notebook, title: '更新日志' },

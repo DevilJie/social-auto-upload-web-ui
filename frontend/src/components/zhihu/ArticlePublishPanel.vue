@@ -69,6 +69,9 @@ const { hasAccountOverride, resetOverride, publicApi } = useChannelForm(
         emit('publish-result', { accountName, status: 'fail', message: e.message || '发布失败' })
       }
     },
+    // 文章标题/正文在公共区校验;面板无 title 字段,
+    // 必须覆盖默认校验(否则必报「标题不能为空」)
+    validateFn: () => ({ valid: true, errors: [] }),
   },
 )
 

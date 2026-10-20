@@ -780,27 +780,31 @@ startAutoSaveTimer()
 
 .article-publish {
   display: flex;
-  height: 100vh;
+  height: 100%;
+  gap: 0;
   overflow: hidden;
 }
 
 .publish-main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  background: $bg-elevated;
   overflow: hidden;
 }
 
 .main-body {
+  flex: 1;
   display: flex;
   gap: 16px;
-  padding: 16px;
+  padding: 0 16px;
   overflow: hidden;
-  flex: 1;
 }
 
 .main-form-col {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -810,7 +814,9 @@ startAutoSaveTimer()
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 12px;
+  padding: 14px 4px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba($overlay-rgb, 0.06);
 
   .header-left {
     display: flex;
@@ -819,21 +825,25 @@ startAutoSaveTimer()
   }
 
   .page-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: #303133;
+    font-size: 20px;
+    font-weight: 800;
+    color: $popper-text;
+    letter-spacing: -0.02em;
   }
 
   .platform-tag {
     font-size: 12px;
-    padding: 2px 10px;
-    border-radius: 10px;
+    font-weight: 600;
+    padding: 5px 16px;
+    border-radius: 20px;
   }
 
   .header-right {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .publish-mode-radio {
@@ -854,7 +864,15 @@ startAutoSaveTimer()
 .main-content {
   flex: 1;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 16px 4px 16px 0;
+
+  &::-webkit-scrollbar {
+    width: 5px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba($brand-start, 0.12);
+    border-radius: 3px;
+  }
 }
 
 .config-section {
@@ -926,17 +944,32 @@ startAutoSaveTimer()
 }
 
 .no-platform-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  color: $text-muted;
   text-align: center;
-  padding: 48px 0;
-  color: #909399;
+  border: 2px dashed rgba($brand-start, 0.12);
+  border-radius: 16px;
+  margin: 24px 0;
 
   .hint-icon {
-    margin-bottom: 12px;
+    opacity: 0.2;
+    margin-bottom: 16px;
+  }
+
+  p {
+    font-size: 15px;
+    margin: 4px 0;
+    font-weight: 500;
   }
 
   .hint-sub {
-    font-size: 12px;
-    margin-top: 4px;
+    font-size: 13px;
+    color: $text-muted;
+    font-weight: 400;
   }
 }
 

@@ -7,12 +7,14 @@
     <div class="setting-card" style="grid-column: 1 / -1">
       <div class="setting-label">知乎文章说明</div>
       <div class="setting-hint">
-        标题(≤100 字)、正文图文、封面使用左侧公共配置。发布后自动投稿至你的知乎专栏;
-        「直接发表」会点击知乎编辑器的「发布」按钮真实发表,「存草稿箱」停在发布前一步
-        (知乎编辑器会自动保存草稿)。
+        标题(≤100 字)、正文图文、封面使用左侧公共配置。封面会自动上传并经
+        知乎裁剪(2.35:1 / 1:1)设置;正文图片自动上传知乎图床。
       </div>
       <div class="setting-hint">
-        投稿至问题 / 创作声明 / 文章话题 / 定时发布等高级设置暂未开放,可在知乎草稿箱中人工补充。
+        当前账号的知乎编辑器为精简版发布设置(仅封面/定时发布),
+        投稿至问题/创作声明/文章话题/内容来源等内容设置该账号不可用;
+        「定时发布」的日历时间控件暂未支持自动化,如需定时请发表后在
+        知乎文章管理中调整。
       </div>
     </div>
   </div>
@@ -32,8 +34,10 @@ const emit = defineEmits(['config-changed', 'publish-result'])
 
 const accountStore = useAccountStore()
 
-// 知乎文章平台字段(v1: 无专属字段,保留结构供后续扩展投稿/声明/话题)
-const ZHIHU_ARTICLE_DEFAULTS = {}
+// 知乎文章平台字段
+const ZHIHU_ARTICLE_DEFAULTS = {
+  scheduleTime: '',
+}
 
 const { hasAccountOverride, resetOverride, publicApi } = useChannelForm(
   ZHIHU_ARTICLE_DEFAULTS,
@@ -55,6 +59,7 @@ const { hasAccountOverride, resetOverride, publicApi } = useChannelForm(
             articleTitle: commonData.articleTitle,
             articleHtml: commonData.articleHtml,
             coverStoredPath: extra?.coverStoredPath || '',
+            scheduleTime: merged.scheduleTime || '',
             dryRun: extra?.dryRun ?? true,
             isDraft: extra?.isDraft ?? true,
           },
@@ -71,7 +76,17 @@ const { hasAccountOverride, resetOverride, publicApi } = useChannelForm(
     },
     // 文章标题/正文在公共区校验;面板无 title 字段,
     // 必须覆盖默认校验(否则必报「标题不能为空」)
-    validateFn: () => ({ valid: true, errors: [] }),
+    validateFn: (accountId, merged) => {
+      const errors = []
+      if (merged.scheduleTime) {
+        const t = new Date(merged.scheduleTime.replace(/-/g, '/')).getTime()
+        const diffMin = (t - Date.now()) / 60000
+        if (Number.isNaN(diffMin)) errors.push('定时时间格式无效')
+        else if (diffMin < 30) errors.push('定时时间需晚于当前 30 分钟以上')
+        else if (diffMin > 48 * 60) errors.push('定时时间不能超过 48 小时')
+      }
+      return { valid: errors.length === 0, errors }
+    },
   },
 )
 

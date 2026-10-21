@@ -1546,7 +1546,7 @@ class ZhihuPlatform(BasePlatform):
         """
         allowed_keys = (
             "title", "html", "account_file", "cover_path",
-            "is_draft", "dry_run",
+            "is_draft", "dry_run", "schedule_time_str",
         )
         filtered = {k: kwargs[k] for k in allowed_keys if k in kwargs}
         if filtered.get("dry_run", False):
@@ -1562,6 +1562,7 @@ class ZhihuPlatform(BasePlatform):
         cover_path: str = "",
         is_draft: bool = True,
         dry_run: bool = False,
+        schedule_time_str: str = "",
     ):
         """单账号文章发布完整流程。
 
@@ -1644,6 +1645,15 @@ class ZhihuPlatform(BasePlatform):
                         await self._set_zhihu_cover(page, str(cover_path))
                     except Exception as e:
                         logger.warning("[文章][知乎] 封面设置失败(跳过): %s", e)
+
+                # 4.6 定时发布(可选,仅直接发表模式;知乎约束未来 30 分钟~48 小时)
+                if not is_draft and schedule_time_str:
+                    try:
+                        await self._set_zhihu_schedule(page, schedule_time_str)
+                    except Exception as e:
+                        logger.warning(
+                            "[文章][知乎] 定时设置失败(将立即发表): %s", e
+                        )
 
                 # 5. 发布 / 停草稿
                 if is_draft:
@@ -1812,6 +1822,102 @@ class ZhihuPlatform(BasePlatform):
             )
         await asyncio.sleep(3)
         logger.info("[文章][知乎] 正文已粘贴(innerHTML %d 字符)", length)
+
+    @staticmethod
+    async def _set_zhihu_schedule(page, schedule_time_str: str):
+        """设置定时发布(「开启定时发布」弹窗: 日期/时/分 三个输入 + 确认)。
+
+        知乎约束: 可选时间为未来 30 分钟 ~ 48 小时。
+        DOM(2026-10 实测): 点定时 checkbox(css-1i5t6yb) 弹出「开启定时发布」
+        弹窗,内含日期(yyyy-MM-dd)/时(HH)/分(MM) 三个 input,React 受控
+        (需原生 value setter + input/change 事件),「确认」提交。
+        """
+        from datetime import datetime, timedelta
+
+        dt = datetime.strptime(schedule_time_str.strip(), "%Y-%m-%d %H:%M:%S")
+        diff = dt - datetime.now()
+        if not timedelta(minutes=30) <= diff <= timedelta(hours=48):
+            raise RuntimeError(
+                "[文章][知乎] 定时时间需为未来 30 分钟 ~ 48 小时内"
+            )
+
+        # 1. 点定时开关 → 弹窗
+        opened = await page.evaluate(
+            """() => {
+                const cb = document.querySelector(
+                    'input[type=checkbox].css-1i5t6yb')
+                  || document.querySelector(
+                    '[class*=setting] input[type=checkbox]');
+                if (!cb) return false;
+                cb.click();
+                return true;
+            }"""
+        )
+        if not opened:
+            raise RuntimeError("[文章][知乎] 未找到定时发布开关")
+        await asyncio.sleep(2.5)
+
+        # 2. 填日期/时/分(React 原生 value setter + 事件)
+        #    定位: 弹窗 input 不易从标题向上找(层级深),改用值特征——
+        #    日期 input 值形如 yyyy-MM-dd,同容器内另有 2 个短值 input(时/分)
+        result = await page.evaluate(
+            """(parts) => {
+                const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                };
+                const dateInput = [...document.querySelectorAll('input')]
+                    .find((el) => vis(el)
+                        && /^\\d{4}-\\d{2}-\\d{2}$/.test(el.value || ''));
+                if (!dateInput) return 'no-date-input';
+                // 同容器内的全部可见 input(按 DOM 顺序: 日期/时/分)
+                let holder = dateInput.parentElement;
+                let inputs = [];
+                for (let d = 0; d < 5 && holder; d++) {
+                    inputs = [...holder.querySelectorAll('input')].filter(vis);
+                    if (inputs.length >= 3) break;
+                    holder = holder.parentElement;
+                }
+                if (inputs.length < 3) return 'no-time-inputs';
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value').set;
+                const setVal = (el, v) => {
+                    setter.call(el, v);
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                };
+                setVal(inputs[0], parts.date);
+                setVal(inputs[1], parts.hour);
+                setVal(inputs[2], parts.minute);
+                return 'set';
+            }""",
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "hour": dt.strftime("%H"),
+                "minute": dt.strftime("%M"),
+            },
+        )
+        if result != "set":
+            raise RuntimeError(f"[文章][知乎] 定时弹窗输入失败: {result}")
+        await asyncio.sleep(1)
+
+        # 3. 点「确认」
+        confirmed = await page.evaluate(
+            """() => {
+                for (const b of document.querySelectorAll('button')) {
+                    if (b.getBoundingClientRect().width <= 0) continue;
+                    if ((b.innerText || '').trim() === '确认') {
+                        b.click();
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        )
+        if not confirmed:
+            raise RuntimeError("[文章][知乎] 定时弹窗「确认」未找到")
+        await asyncio.sleep(2)
+        logger.info("[文章][知乎] 定时发布已设置: %s", schedule_time_str)
 
     @staticmethod
     async def _set_zhihu_cover(page, cover_path: str):

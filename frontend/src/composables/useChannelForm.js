@@ -70,20 +70,27 @@ export function useChannelForm(defaults, { props, emit }, { publishFn, validateF
         }
       }
     } else {
+      const existing = accountOverrides[props.accountId] || {}
       const diff = {}
       for (const key of Object.keys(form)) {
         const cur = form[key]
         const fallback = platformConfig[key]
+        const overridden = key in existing && hasValues(existing[key])
         if (typeof cur === 'object' && cur !== null) {
           if (JSON.stringify(cur) !== JSON.stringify(fallback)) {
             diff[key] = Array.isArray(cur) ? [...cur] : { ...cur }
+          } else if (overridden) {
+            // 曾被覆盖、现已恢复默认: 显式写回空值,避免旧覆盖值复活
+            // (如取消勾选 bool / 清空数组后,旧 true/数组残留在覆盖里)
+            diff[key] = Array.isArray(cur) ? [] : { ...cur }
           }
         } else if (cur !== fallback) {
+          diff[key] = cur
+        } else if (overridden) {
           diff[key] = cur
         }
       }
       if (Object.entries(diff).some(([, v]) => hasValues(v))) {
-        const existing = accountOverrides[props.accountId] || {}
         accountOverrides[props.accountId] = { ...existing, ...diff }
       } else {
         delete accountOverrides[props.accountId]

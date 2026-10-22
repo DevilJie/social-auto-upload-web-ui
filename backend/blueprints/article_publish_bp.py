@@ -187,6 +187,13 @@ def publish_article():
 
         schedule_time = config.get("scheduleTime", "") or ""
         cover_stored = config.get("coverStoredPath", "") or ""
+        # 知乎文章设置: 创作声明/投稿至问题/话题/内容来源
+        raw_topics = config.get("topics", []) or []
+        if isinstance(raw_topics, str):
+            raw_topics = [
+                t.strip() for t in raw_topics.replace("，", ",").split(",")
+                if t.strip()
+            ]
         publish_kwargs = dict(
                 title=title,
                 html=html,
@@ -197,6 +204,14 @@ def publish_article():
                 gzh_claim_source=config.get("gzhClaimSource", "") or "",
                 gzh_original_url=config.get("gzhOriginalUrl", "") or "",
                 cover_path=resolve_material_path(cover_stored) if cover_stored else "",
+                creation_statement=config.get("creationStatement", "") or "",
+                target_question=config.get("targetQuestion", "") or "",
+                topics=raw_topics,
+                content_source=config.get("contentSource", "") or "",
+                source_self_shot=bool(config.get("sourceSelfShot", False)),
+                shot_time=config.get("shotTime", "") or "",
+                shot_province=config.get("shotProvince", "") or "",
+                shot_city=config.get("shotCity", "") or "",
                 enableTimer=bool(schedule_time) and not is_draft,
                 schedule_time_str=schedule_time,
                 is_draft=is_draft,

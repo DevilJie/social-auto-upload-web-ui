@@ -3353,6 +3353,10 @@ class WeixinGzhPlatform(BasePlatform):
         """
         deadline = asyncio.get_event_loop().time() + timeout_s
         while asyncio.get_event_loop().time() < deadline:
+            # 用户在扫码过程中直接关闭浏览器 → 立即判失败
+            # (此前 except Exception: pass 会吞掉关闭异常,空转满 15 分钟
+            #  才报超时,任务一直卡「发布中」,2026-10-21 实测)
+            raise_if_page_closed(page, action="发布文章")
             try:
                 url = page.url or ""
                 if "/cgi-bin/home" in url and "token=" in url:
@@ -3376,7 +3380,15 @@ class WeixinGzhPlatform(BasePlatform):
                         "申请已提交视为成功"
                     )
                     return
-            except Exception:
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                # 关闭瞬间的 Playwright 异常(page.is_closed() 尚未翻 true)
+                if "closed" in str(exc).lower():
+                    raise RuntimeError(
+                        "[发布文章] 浏览器已被关闭,扫码验证中断,"
+                        "文章未群发(判定为失败)"
+                    ) from exc
                 pass
             await asyncio.sleep(2)
         raise RuntimeError(

@@ -1537,16 +1537,36 @@ class ZhihuPlatform(BasePlatform):
             account_file (*list[str]*) -- cookie 文件名列表
             cover_path (*str*, optional) -- 显式封面图本地路径(无则不设,
                 知乎发表时封面可选)
+            creation_statement (*str*, optional) -- 创作声明(默认「无声明」
+                不设置;可选: 包含剧透/包含医疗建议/虚构创作/包含理财内容/
+                包含 AI 辅助创作，作者对内容负责)
+            target_question (*str*, optional) -- 投稿至问题(问题关键词,
+                弹窗内搜索后选第一条结果;最多 1 个)
+            topics (*list[str]*, optional) -- 文章话题名列表(搜索联想后
+                逐个选中,≤5 个)
+            content_source (*str*, optional) -- 内容来源(官方网站/新闻报道/
+                电视媒体/纸质媒体)
+            source_self_shot (*bool*, optional) -- 内容来源弹窗「图片/视频
+                为自行拍摄」开关(开启需同时提供 shot_province/shot_city)
+            shot_time (*str*, optional) -- 拍摄时间(YYYY-MM-DD,空=今天)
+            shot_province (*str*, optional) -- 拍摄省份(需与知乎选项一致,
+                如: 北京/浙江省/海外地区)
+            shot_city (*str*, optional) -- 拍摄城市(按省联动)
             is_draft (*bool*) -- True(默认)= 停在发布前一步(Draft.js 已
                 自动保存草稿);False = 点击「发布」真实发表
             dry_run (*bool*) -- True = 同 is_draft(知乎编辑器自动存草稿,
                 dry-run 的验证载体就是草稿)
+            schedule_time_str (*str*, optional) -- 定时发布时间(仅直接
+                发表模式生效)
 
         注: 统一发布入口会传入各平台通用字段(gzh_* 等),此处按需过滤。
         """
         allowed_keys = (
             "title", "html", "account_file", "cover_path",
             "is_draft", "dry_run", "schedule_time_str",
+            "creation_statement", "target_question", "topics",
+            "content_source", "source_self_shot",
+            "shot_time", "shot_province", "shot_city",
         )
         filtered = {k: kwargs[k] for k in allowed_keys if k in kwargs}
         if filtered.get("dry_run", False):
@@ -1563,12 +1583,21 @@ class ZhihuPlatform(BasePlatform):
         is_draft: bool = True,
         dry_run: bool = False,
         schedule_time_str: str = "",
+        creation_statement: str = "",
+        target_question: str = "",
+        topics: list | None = None,
+        content_source: str = "",
+        source_self_shot: bool = False,
+        shot_time: str = "",
+        shot_province: str = "",
+        shot_city: str = "",
     ):
         """单账号文章发布完整流程。
 
         流程: 打开 write 页 → 标题 → 正文图片逐张上传知乎图床
         (file input 通道,收集图床 URL 后清空编辑器) → 粘贴完整 HTML
-        → 封面(可选) → 发布/停草稿。
+        → 封面(可选) → 创作声明 → 文章话题 → 投稿至问题 → 内容来源
+        → 定时发布(仅直接发表) → 发布/停草稿。
         """
         from services.article_html import (
             extract_img_srcs,
@@ -1580,6 +1609,12 @@ class ZhihuPlatform(BasePlatform):
         logger.info("[文章][知乎] 标题: %s", title)
         logger.info("[文章][知乎] 正文 HTML 长度: %d", len(html))
         logger.info("[文章][知乎] 模式: %s", "停草稿" if is_draft else "发表")
+        logger.info(
+            "[文章][知乎] 设置: 声明=%s 话题=%s 投稿=%s 来源=%s 自拍=%s",
+            creation_statement or "无声明", topics or [],
+            target_question or "不投稿", content_source or "不标注",
+            source_self_shot,
+        )
 
         if not (title or "").strip():
             raise RuntimeError("[文章][知乎] 标题不能为空")
@@ -1646,10 +1681,61 @@ class ZhihuPlatform(BasePlatform):
                     except Exception as e:
                         logger.warning("[文章][知乎] 封面设置失败(跳过): %s", e)
 
+                # 4.1 创作声明(默认无声明不设置;失败不阻塞)
+                if creation_statement and creation_statement != "无声明":
+                    try:
+                        await self._set_zhihu_declaration(
+                            page, creation_statement
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "[文章][知乎] 创作声明设置失败(跳过): %s", e
+                        )
+
+                # 4.2 文章话题(搜索联想逐个选中;失败不阻塞)
+                clean_topics = [
+                    t.strip() for t in (topics or [])
+                    if isinstance(t, str) and t.strip()
+                ][:5]
+                if clean_topics:
+                    try:
+                        await self._set_zhihu_topics(page, clean_topics)
+                    except Exception as e:
+                        logger.warning(
+                            "[文章][知乎] 文章话题设置失败(跳过): %s", e
+                        )
+
+                # 4.3 投稿至问题(弹窗搜索选第一条;失败不阻塞)
+                if target_question and target_question.strip():
+                    try:
+                        await self._set_zhihu_target_question(
+                            page, target_question.strip()
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "[文章][知乎] 投稿至问题设置失败(跳过): %s", e
+                        )
+
+                # 4.4 内容来源(弹窗: 来源下拉 + 自行拍摄子表单;失败不阻塞)
+                if content_source or source_self_shot:
+                    try:
+                        await self._set_zhihu_content_source(
+                            page, content_source, bool(source_self_shot),
+                            shot_time=str(shot_time or ""),
+                            shot_province=str(shot_province or ""),
+                            shot_city=str(shot_city or ""),
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "[文章][知乎] 内容来源设置失败(跳过): %s", e
+                        )
+
                 # 4.6 定时发布(可选,仅直接发表模式;知乎约束未来 30 分钟~48 小时)
+                scheduled = False
                 if not is_draft and schedule_time_str:
                     try:
                         await self._set_zhihu_schedule(page, schedule_time_str)
+                        scheduled = True
                     except Exception as e:
                         logger.warning(
                             "[文章][知乎] 定时设置失败(将立即发表): %s", e
@@ -1663,7 +1749,9 @@ class ZhihuPlatform(BasePlatform):
                     )
                     await asyncio.sleep(3)
                 else:
-                    await self._click_zhihu_publish(page)
+                    await self._click_zhihu_publish(
+                        page, is_scheduled=scheduled
+                    )
                     logger.info("[文章][知乎] 文章发表成功!")
 
                 # 保存 cookie
@@ -1824,6 +1912,560 @@ class ZhihuPlatform(BasePlatform):
         logger.info("[文章][知乎] 正文已粘贴(innerHTML %d 字符)", length)
 
     @staticmethod
+    async def _find_settings_row(page, label_text: str) -> str | None:
+        """按 label 文本定位发布设置区的一行,返回唯一绝对 xpath。
+
+        知乎设置行结构: label(css-1yj4uzm,如「创作声明」) + 控件区同容器。
+        label innerText 帮助图标无文本,用 startsWith + 长度过滤;再向上爬到
+        同时包含 label 与控件(button/input)的容器。xpath 含全路径索引,
+        保证唯一(相对序号如 //div[2] 会匹配全页同级元素)。
+        """
+        return await page.evaluate(
+            """(labelText) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
+              // 只搜 <label>: 正文文本可能恰好含「创作声明」等字样,
+              // 全元素搜索会误匹配编辑器里的 <em>/<span>
+              const label = [...document.querySelectorAll('label')]
+                .filter(vis)
+                .find((e) => {
+                  const t = clean(e.innerText).trim();
+                  return t.startsWith(labelText) && t.length <= labelText.length + 2;
+                });
+              if (!label) return null;
+              let row = label;
+              for (let d = 0; d < 4 && row; d++) {
+                const t = clean(row.innerText).trim();
+                if (t.length > labelText.length && row.querySelector(
+                    'button, input, [contenteditable]')) {
+                  break;
+                }
+                row = row.parentElement;
+              }
+              if (!row) return null;
+              const abs = [];
+              let el = row;
+              while (el && el.nodeType === 1 && el.tagName !== 'HTML') {
+                let idx = 1;
+                let sib = el;
+                while ((sib = sib.previousElementSibling)) {
+                  if (sib.tagName === el.tagName) idx++;
+                }
+                abs.unshift(`${el.tagName.toLowerCase()}[${idx}]`);
+                el = el.parentElement;
+              }
+              // abs 自 body 起完整链,直接拼 //
+              return '//' + abs.join('/');
+            }""",
+            label_text,
+        )
+
+    @staticmethod
+    async def _select_zhihu_listbox_option(page, value: str, fragments=()):
+        """在当前打开的 Select-list(listbox)中选中选项。
+
+        知乎下拉选项: div[role=listbox] > button[role=option]。
+        匹配顺序: 精确文本 → 逐个片段子串(处理逗号/空格差异,如
+        「包含 AI 辅助创作，作者对内容负责」DOM 里逗号渲染成空格)。
+        """
+        candidates = [value, *(f for f in fragments if f)]
+        for text in candidates:
+            loc = page.locator(
+                'div[role="listbox"] button[role="option"]',
+                has_text=text,
+            ).first
+            try:
+                await loc.wait_for(state="visible", timeout=4000)
+                await loc.click(timeout=4000)
+                await asyncio.sleep(1)
+                return
+            except Exception:
+                continue
+        raise RuntimeError(f"下拉选项未找到: {value}")
+
+    @staticmethod
+    async def _wait_modal_closed(page, timeout_s: int = 15):
+        """等待 Modal 关闭(知乎弹窗用完必须关,否则遮罩拦截后续点击)。"""
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            open_ = await page.evaluate(
+                """() => {
+                  const m = document.querySelector('.Modal-inner');
+                  if (!m) return false;
+                  const r = m.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0;
+                }"""
+            )
+            if not open_:
+                return
+            await asyncio.sleep(0.8)
+        # 超时兜底 Escape
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(1)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _set_zhihu_declaration(page, declaration: str):
+        """创作声明下拉(2026-10 DOM 实测)。
+
+        行结构: label「创作声明」+ button[role=combobox](Select-button,
+        文本为当前值);点开后 portal 渲染 div.Select-list[role=listbox] >
+        button.Select-option[role=option]。选项: 包含剧透/包含医疗建议/
+        虚构创作/包含理财内容/包含 AI 辅助创作，作者对内容负责/无声明。
+        """
+        row_xpath = await ZhihuPlatform._find_settings_row(page, "创作声明")
+        if not row_xpath:
+            raise RuntimeError("未找到创作声明行")
+        trigger = page.locator(f"xpath={row_xpath}").locator(
+            'button[role="combobox"]'
+        ).first
+        await trigger.wait_for(state="visible", timeout=10000)
+        current = ((await trigger.inner_text()) or "").strip()
+        if current == declaration:
+            logger.info(
+                "[文章][知乎] 创作声明已是目标值: %s", declaration
+            )
+            return
+        await trigger.click()
+        await asyncio.sleep(1.5)
+        await ZhihuPlatform._select_zhihu_listbox_option(
+            page, declaration, fragments=("AI 辅助创作", declaration[:6])
+        )
+        # 校验触发器文本已变更
+        new_text = ((await trigger.inner_text()) or "").strip()
+        if declaration[:6] not in new_text:
+            raise RuntimeError(
+                f"创作声明设置未生效(触发器仍为: {new_text})"
+            )
+        logger.info("[文章][知乎] 创作声明已设置: %s", declaration)
+
+    @staticmethod
+    async def _set_zhihu_topics(page, topics: list):
+        """文章话题(2026-10 DOM 实测)。
+
+        交互: 行内「搜索话题...」输入框(aria-label=搜索话题)逐字输入 →
+        联想浮层(无 input 的最小可见容器,内含 button 选项)→ 点与话题
+        名一致的选项 → chip 进入行内。输入框不存在时先点「添加话题」。
+        联想浮层点完不关会挡输入,每轮补 Escape。
+        """
+        for topic in topics:
+            tinput = page.locator('input[aria-label="搜索话题"]').first
+            if not await tinput.is_visible():
+                add_btn = page.locator(
+                    'button:has-text("添加话题")'
+                ).first
+                await add_btn.scroll_into_view_if_needed(timeout=10000)
+                await add_btn.click(timeout=8000)
+                await asyncio.sleep(1.5)
+                tinput = page.locator('input[aria-label="搜索话题"]').first
+            await tinput.wait_for(state="visible", timeout=10000)
+            await tinput.click()
+            await tinput.fill("")
+            await tinput.press_sequentially(topic, delay=150)
+            await asyncio.sleep(2.5)
+
+            # 在联想浮层里点精确匹配项(容器无 input、高度受限、含关键词)
+            clicked = await page.evaluate(
+                """(topic) => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const cands = [...document.querySelectorAll('div, ul')]
+                    .filter(vis)
+                    .filter((el) => (el.innerText || '').includes(topic)
+                      && !el.querySelector('input, textarea')
+                      && el.getBoundingClientRect().height < 400
+                      && el.getBoundingClientRect().height > 20);
+                  const leaf = cands.filter(
+                    (el) => !cands.some((o) => o !== el && el.contains(o)));
+                  for (const el of leaf) {
+                    const btns = [...el.querySelectorAll('button')].filter(vis);
+                    const exact = btns.find(
+                      (b) => (b.innerText || '').trim() === topic);
+                    const target = exact || btns[0];
+                    if (target) {
+                      target.click();
+                      return (target.innerText || '').trim();
+                    }
+                  }
+                  return null;
+                }""",
+                topic,
+            )
+            if not clicked:
+                raise RuntimeError(f"话题联想无结果: {topic}")
+            logger.info(
+                "[文章][知乎] 话题「%s」已选中联想项「%s」", topic, clicked
+            )
+            await asyncio.sleep(2)
+
+            # 校验 chip 进入行内(label 的父容器文本含话题名)
+            # 只搜 <label>: 正文可能含「文章话题」字样,全元素搜索会误匹配
+            ok = await page.evaluate(
+                """(topic) => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const clean = (s) => (s || '')
+                    .replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
+                  const label = [...document.querySelectorAll('label')].find(
+                    (e) => vis(e)
+                      && clean(e.innerText).trim().startsWith('文章话题')
+                      && clean(e.innerText).trim().length <= 6);
+                  if (!label) return false;
+                  const holder = label.parentElement;
+                  return !!holder
+                    && clean(holder.innerText).includes(topic);
+                }""",
+                topic,
+            )
+            if not ok:
+                raise RuntimeError(f"话题 chip 未出现: {topic}")
+            # 关掉可能仍开的联想浮层
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.8)
+            except Exception:
+                pass
+        logger.info("[文章][知乎] 文章话题已全部设置(%d 个)", len(topics))
+
+    @staticmethod
+    async def _set_zhihu_target_question(page, keyword: str):
+        """投稿至问题弹窗(2026-10 DOM 实测)。
+
+        交互: 行内 combobox(未选时显示「未选择」)→ Modal-inner:
+        搜索框(placeholder 含「查找问题」)→ Enter → 结果行 button
+        「选择」(选中后变「已选择」,计数「已选择 1 个」)→ 底部「确定」。
+        最多选 1 个,选第一条结果。
+        """
+        row_xpath = await ZhihuPlatform._find_settings_row(page, "投稿至问题")
+        if not row_xpath:
+            raise RuntimeError("未找到投稿至问题行")
+        trigger = page.locator(f"xpath={row_xpath}").locator(
+            'button[role="combobox"]'
+        ).first
+        await trigger.scroll_into_view_if_needed(timeout=10000)
+        await trigger.click()
+        await asyncio.sleep(2)
+
+        search = page.locator(
+            '.Modal-inner input[placeholder*="查找问题"]'
+        ).first
+        await search.wait_for(state="visible", timeout=10000)
+        await search.fill(keyword)
+        await asyncio.sleep(0.5)
+        await search.press("Enter")
+        await asyncio.sleep(3)
+
+        choose = page.locator(
+            '.Modal-inner button', has_text="选择"
+        ).first
+        try:
+            await choose.wait_for(state="visible", timeout=15000)
+        except Exception:
+            raise RuntimeError(f"投稿搜索无结果: {keyword}")
+        await choose.click()
+        await asyncio.sleep(1.5)
+
+        # 校验已选中(计数「已选择 1 个」)
+        chosen = await page.evaluate(
+            """() => {
+              const el = [...document.querySelectorAll('*')].find(
+                (e) => /最多选择/.test(e.innerText || '')
+                  && (e.innerText || '').length < 40
+                  && e.getBoundingClientRect().height > 0);
+              return el ? el.innerText.trim() : '';
+            }"""
+        )
+        if "已选择 1" not in chosen:
+            raise RuntimeError(f"投稿问题未选中(计数: {chosen})")
+
+        ok_btn = page.locator('.Modal-inner button', has_text="确定").first
+        await ok_btn.click()
+        await ZhihuPlatform._wait_modal_closed(page)
+        logger.info(
+            "[文章][知乎] 投稿至问题已设置(关键词「%s」第一条)", keyword
+        )
+
+    @staticmethod
+    async def _set_zhihu_content_source(
+        page,
+        source: str,
+        self_shot: bool,
+        shot_time: str = "",
+        shot_province: str = "",
+        shot_city: str = "",
+    ):
+        """内容来源弹窗(2026-10 DOM 实测)。
+
+        行入口: 「添加来源」按钮(已设置过则变「修改」)。弹窗内:
+        - 「内容信息来源」combobox(选项: 官方网站/新闻报道/电视媒体/
+          纸质媒体)
+        - 「图片/视频为自行拍摄」Switch → 开启后出现 3 个必填子字段:
+          拍摄时间(日历,含「今天」按钮)/ 省份(Select,35 项)/
+          城市(按省联动的 Select)
+        - 「确认添加」(必填项未填全时 disabled/提交报红)
+        """
+        entry = page.locator('button:has-text("添加来源")').first
+        # 「修改」文案太通用,仅当「添加来源」不存在(已设置过来源)时
+        # 才退回行内「修改」按钮
+        try:
+            await entry.scroll_into_view_if_needed(timeout=8000)
+            await entry.click(timeout=8000)
+        except Exception:
+            row_xpath = await ZhihuPlatform._find_settings_row(
+                page, "内容来源"
+            )
+            if not row_xpath:
+                raise RuntimeError("未找到内容来源行")
+            modify = page.locator(f"xpath={row_xpath}").locator(
+                'button:has-text("修改")'
+            ).first
+            await modify.click(timeout=8000)
+        await asyncio.sleep(2)
+
+        if source:
+            trig = page.locator(
+                '.Modal-inner button[role="combobox"]'
+            ).first
+            await trig.wait_for(state="visible", timeout=10000)
+            await trig.click()
+            await asyncio.sleep(1.5)
+            await ZhihuPlatform._select_zhihu_listbox_option(page, source)
+
+        if self_shot:
+            if not shot_province or not shot_city:
+                raise RuntimeError(
+                    "自行拍摄需提供拍摄省份和城市"
+                )
+            switched = await page.evaluate(
+                """() => {
+                  const sw = document.querySelector(
+                    '.Modal-inner label.Switch input.Switch-input');
+                  if (!sw) return null;
+                  if (!sw.checked) { sw.click(); }
+                  return sw.checked;
+                }"""
+            )
+            if switched is None:
+                raise RuntimeError("未找到自行拍摄开关")
+            if not switched:
+                raise RuntimeError("自行拍摄开关未开启")
+            await asyncio.sleep(1.5)
+
+            # 拍摄时间(日历): 未指定则点「今天」;指定日期则翻月选日
+            await ZhihuPlatform._pick_shot_date(
+                page, shot_time
+            )
+
+            # 省份(modal 内第 2 个 combobox)
+            prov_trig = page.locator(
+                '.Modal-inner button[role="combobox"]'
+            ).nth(1)
+            await prov_trig.wait_for(state="visible", timeout=10000)
+            await prov_trig.click()
+            await asyncio.sleep(1.5)
+            await ZhihuPlatform._select_zhihu_listbox_option(
+                page, shot_province,
+                fragments=(shot_province, shot_province.rstrip("市")),
+            )
+            await asyncio.sleep(1)
+
+            # 城市(modal 内第 3 个 combobox,按省联动)
+            city_trig = page.locator(
+                '.Modal-inner button[role="combobox"]'
+            ).nth(2)
+            await city_trig.wait_for(state="visible", timeout=10000)
+            await city_trig.click()
+            await asyncio.sleep(1.5)
+            await ZhihuPlatform._select_zhihu_listbox_option(
+                page, shot_city,
+                fragments=(shot_city, shot_city.rstrip("市"), shot_city[:2]),
+            )
+            await asyncio.sleep(0.5)
+
+        conf = page.locator(
+            '.Modal-inner button:has-text("确认添加")'
+        ).first
+        await conf.wait_for(state="visible", timeout=10000)
+        if await conf.is_disabled():
+            raise RuntimeError("确认添加按钮 disabled(必填项未填全)")
+        await conf.click()
+        await ZhihuPlatform._wait_modal_closed(page)
+        # 弹窗若因校验未关,如实报错(行状态未生效)
+        still_open = await page.evaluate(
+            """() => {
+              const m = document.querySelector('.Modal-inner');
+              if (!m) return false;
+              const r = m.getBoundingClientRect();
+              return r.width > 0 && r.height > 0;
+            }"""
+        )
+        if still_open:
+            raise RuntimeError("内容来源弹窗未关闭(表单校验未通过)")
+
+        # 校验行状态(只搜 <label>,避免误匹配正文文本)
+        row_text = await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
+              const label = [...document.querySelectorAll('label')].find(
+                (e) => vis(e)
+                  && clean(e.innerText).trim().startsWith('内容来源')
+                  && clean(e.innerText).trim().length <= 6);
+              if (!label) return '';
+              let row = label;
+              for (let d = 0; d < 3 && row; d++) {
+                row = row.parentElement;
+                if (row && clean(row.innerText).includes('来源于')) {
+                  return clean(row.innerText).trim();
+                }
+              }
+              return '';
+            }"""
+        )
+        if source and "来源于" not in row_text:
+            raise RuntimeError(f"内容来源设置未生效(行文本: {row_text})")
+        logger.info(
+            "[文章][知乎] 内容来源已设置: %s(自行拍摄=%s %s %s %s)",
+            source or "无", self_shot, shot_time or "", shot_province,
+            shot_city,
+        )
+
+    @staticmethod
+    async def _pick_shot_date(page, shot_time: str):
+        """拍摄时间日历(2026-10 DOM 实测: Calendar 组件 + bottomTool「今天」)。
+
+        空串/今天 → 点 Calendar-todayButton,未生效再点 .is-today 日期格;
+        其他日期 → 翻月后点当日格。触发器选中后文本变为日期(不再含
+        「选择拍摄时间」),以该特征轮询确认,避免用 has-text 重定位
+        (选完后失配会超时)。
+        """
+        from datetime import datetime as _dt
+
+        trig = page.locator(
+            '.Modal-inner button:has-text("选择拍摄时间")'
+        ).first
+        await trig.wait_for(state="visible", timeout=10000)
+        await trig.click()
+        await asyncio.sleep(1.5)
+
+        want_today = not shot_time or shot_time.startswith(
+            _dt.now().strftime("%Y-%m-%d")
+        )
+        if want_today:
+            strategies = (
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const btn = [...document.querySelectorAll(
+                    '.Calendar-todayButton')].filter(vis)[0];
+                  if (btn) { btn.click(); return 'todayButton'; }
+                  return null;
+                }""",
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  for (const s of ['.Calendar .is-today', '.is-today']) {
+                    const el = [...document.querySelectorAll(s)]
+                      .filter(vis)[0];
+                    if (el) { el.click(); return s; }
+                  }
+                  return null;
+                }""",
+            )
+            picked = None
+            for strategy in strategies:
+                picked = await page.evaluate(strategy)
+                # 轮询触发器: 「选择拍摄时间」占位消失 = 选中
+                deadline = asyncio.get_event_loop().time() + 6
+                while asyncio.get_event_loop().time() < deadline:
+                    still = await page.evaluate(
+                        """() => {
+                          const vis = (el) => {
+                            const r = el.getBoundingClientRect();
+                            return r.width > 0 && r.height > 0;
+                          };
+                          return [...document.querySelectorAll(
+                              '.Modal-inner button')]
+                            .some((b) => vis(b)
+                              && (b.innerText || '').trim()
+                                .startsWith('选择拍摄时间'));
+                        }"""
+                    )
+                    if not still:
+                        logger.info(
+                            "[文章][知乎] 拍摄时间已选今天(%s)",
+                            picked,
+                        )
+                        return
+                    await asyncio.sleep(0.8)
+        else:
+            dt = _dt.strptime(shot_time.strip(), "%Y-%m-%d")
+            # 翻到目标年月(Calendar-topTool 组件)
+            for _ in range(24):
+                tool_text = await page.evaluate(
+                    """() => {
+                      const el = document.querySelector('.Calendar-topToolDate');
+                      return el ? el.textContent.trim() : '';
+                    }"""
+                )
+                if tool_text and (
+                    str(dt.year) in tool_text
+                    and f"{dt.month}月" in tool_text
+                ):
+                    break
+                nxt = await page.evaluate(
+                    """() => {
+                      const b = document.querySelector(
+                        '.Calendar-topToolButton--nextMonth');
+                      if (b) { b.click(); return true; }
+                      return false;
+                    }"""
+                )
+                if not nxt:
+                    break
+                await asyncio.sleep(0.5)
+            day = page.locator(
+                'td.Calendar-day:not(.is-disabled):not(.is-not-this-month)',
+                has_text=str(dt.day),
+            ).first
+            await day.click(timeout=5000)
+            await asyncio.sleep(1)
+
+        # 终验: 占位文本已消失
+        still = await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              return [...document.querySelectorAll('.Modal-inner button')]
+                .some((b) => vis(b)
+                  && (b.innerText || '').trim()
+                    .startsWith('选择拍摄时间'));
+            }"""
+        )
+        if still:
+            raise RuntimeError("拍摄时间未选中")
+
+    @staticmethod
     async def _set_zhihu_schedule(page, schedule_time_str: str):
         """设置定时发布(「开启定时发布」弹窗: 日期/时/分 三个输入 + 确认)。
 
@@ -1842,19 +2484,41 @@ class ZhihuPlatform(BasePlatform):
             )
 
         # 1. 点定时开关 → 弹窗
+        #    定位: 「定时发布」行内 checkbox(2026-10 实测 class css-1i5t6yb
+        #    为随机串,优先按行锚点找,随机 class 兜底)
         opened = await page.evaluate(
             """() => {
-                const cb = document.querySelector(
-                    'input[type=checkbox].css-1i5t6yb')
-                  || document.querySelector(
-                    '[class*=setting] input[type=checkbox]');
-                if (!cb) return false;
-                cb.click();
-                return true;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              // 按行锚点: label「定时发布」向上找含 checkbox 的容器
+              const label = [...document.querySelectorAll('label, div')]
+                .filter(vis)
+                .find((e) => {
+                  const t = clean(e.innerText).trim();
+                  return t.startsWith('定时发布') && t.length <= 6;
+                });
+              let el = label;
+              for (let d = 0; d < 4 && el; d++) {
+                const cb = el.querySelector('input[type=checkbox]');
+                if (cb) { cb.click(); return 'row'; }
+                el = el.parentElement;
+              }
+              // 兜底: 全页第一个定时类 checkbox(随机 class)
+              const cb = document.querySelector(
+                'input[type=checkbox].css-1i5t6yb')
+                || document.querySelector(
+                  '[class*=setting] input[type=checkbox]');
+              if (cb) { cb.click(); return 'fallback'; }
+              return false;
             }"""
         )
         if not opened:
             raise RuntimeError("[文章][知乎] 未找到定时发布开关")
+        logger.info("[文章][知乎] 定时开关已点击(%s)", opened)
         await asyncio.sleep(2.5)
 
         # 2. 填日期/时/分(React 原生 value setter + 事件)
@@ -1923,8 +2587,9 @@ class ZhihuPlatform(BasePlatform):
     async def _set_zhihu_cover(page, cover_path: str):
         """设置文章封面(发布设置区「添加文章封面」)。
 
-        DOM: 封面框点击后用 UploadPicture-input(accept=.jpeg,.jpg,.png)
-        上传;上传完成封面缩略图替换空态框。
+        DOM(2026-10 实测,WriteCoverV2): 封面框点击后用
+        UploadPicture-input(accept=.jpeg,.jpg,.png)上传;上传完成
+        出现 img[alt="封面图"](pic-private 图床 URL)+ 更换/删除按钮。
         """
         cover_box = page.locator("text=添加文章封面").first
         await cover_box.scroll_into_view_if_needed(timeout=10000)
@@ -1934,56 +2599,138 @@ class ZhihuPlatform(BasePlatform):
         ).first
         await cover_input.set_input_files(cover_path)
         await asyncio.sleep(5)
-        # 验证: 空态文案消失(被封面缩略图替换)
-        gone = await page.evaluate(
+        # 验证: img[alt=封面图] 出现且带图床 src
+        ok = await page.evaluate(
             """() => {
-                const el = [...document.querySelectorAll('*')].find(
-                    (e) => (e.innerText || '').trim() === '添加文章封面'
-                    && e.children.length === 0);
-                return !el || el.getBoundingClientRect().width === 0;
+              const img = document.querySelector('img[alt="封面图"]');
+              return !!img && !!(img.src || '').startsWith('http');
             }"""
         )
-        if not gone:
-            logger.warning("[文章][知乎] 封面空态未消失,可能未设置成功")
+        if not ok:
+            logger.warning("[文章][知乎] 封面图未检测到,可能未设置成功")
         else:
             logger.info("[文章][知乎] 封面已设置")
 
     @staticmethod
-    async def _click_zhihu_publish(page):
-        """点击「发布」按钮(文本恰为「发布」,区别于「发布设置」)并等跳转。
+    async def _click_zhihu_publish(page, is_scheduled: bool = False):
+        """点击「发布」并监听 publish API 响应判定结果。
 
-        成功信号: URL 跳到文章页(zhuanlan.zhihu.com/p/<id>)。
+        成功判定(唯一依据): ``POST /api/v4/content/publish`` 响应
+        ``code == 0``。不能用 URL 判定——编辑页 URL 本身就是
+        ``/p/<id>/edit``,含 "/p/"。
+        失败: code != 0 → raise toast_message
+        (如 2015 = 账号触发风控,需安全验证)。
         """
-        btn = page.locator('button:has-text("发布")').first
-        # 精确过滤: 只点文本恰为「发布」的按钮
-        clicked = await page.evaluate(
-            """() => {
-                for (const b of document.querySelectorAll('button')) {
-                    if (b.getBoundingClientRect().width <= 0) continue;
-                    if ((b.innerText || '').trim() === '发布') {
-                        const opts = {
-                            bubbles: true, cancelable: true, view: window,
-                        };
-                        b.dispatchEvent(new MouseEvent('mousedown', opts));
-                        b.dispatchEvent(new MouseEvent('mouseup', opts));
-                        b.dispatchEvent(new MouseEvent('click', opts));
-                        return true;
+        candidates = ["定时发布", "发布"] if is_scheduled else ["发布"]
+
+        # 等发布按钮可用(标题/正文同步完成后才 enable)
+        deadline = asyncio.get_event_loop().time() + 10
+        btn_ready = False
+        while asyncio.get_event_loop().time() < deadline:
+            state = await page.evaluate(
+                """(candidates) => {
+                  for (const want of candidates) {
+                    for (const b of document.querySelectorAll('button')) {
+                      if (b.getBoundingClientRect().width <= 0) continue;
+                      if ((b.innerText || '').trim() === want) {
+                        return {found: true, disabled: b.disabled};
+                      }
                     }
-                }
-                return false;
-            }"""
-        )
+                  }
+                  return {found: false, disabled: null};
+                }""",
+                candidates,
+            )
+            if state["found"] and not state["disabled"]:
+                btn_ready = True
+                break
+            await asyncio.sleep(1)
+        if not btn_ready:
+            raise RuntimeError(
+                "[文章][知乎] 「发布」按钮不可用(标题/正文未就绪)"
+            )
+
+        # 点击 + 监听 publish API(点击在 expect_response 上下文内)
+        try:
+            async with page.expect_response(
+                lambda r: "/api/v4/content/publish" in r.url
+                          and r.request.method == "POST",
+                timeout=60000,
+            ) as resp_info:
+                clicked = await page.evaluate(
+                    """(candidates) => {
+                        for (const want of candidates) {
+                          for (const b of document.querySelectorAll(
+                              'button')) {
+                            if (b.getBoundingClientRect().width <= 0) {
+                              continue;
+                            }
+                            if ((b.innerText || '').trim() === want) {
+                              const opts = {
+                                  bubbles: true, cancelable: true,
+                                  view: window,
+                              };
+                              b.dispatchEvent(new PointerEvent(
+                                  'pointerdown', opts));
+                              b.dispatchEvent(new MouseEvent(
+                                  'mousedown', opts));
+                              b.dispatchEvent(new PointerEvent(
+                                  'pointerup', opts));
+                              b.dispatchEvent(new MouseEvent(
+                                  'mouseup', opts));
+                              b.dispatchEvent(new MouseEvent(
+                                  'click', opts));
+                              return want;
+                            }
+                          }
+                        }
+                        return null;
+                    }""",
+                    candidates,
+                )
+            response = await resp_info.value
+        except Exception as exc:
+            logger.info(f"[文章][知乎] 等待发布 API 响应超时: {exc}")
+            raise RuntimeError(
+                f"[文章][知乎] 点击「发布」失败或无 API 响应: {exc}"
+            )
         if not clicked:
             raise RuntimeError("[文章][知乎] 「发布」按钮未找到")
-        logger.info("[文章][知乎] 已点击「发布」,等待跳转...")
-        deadline = asyncio.get_event_loop().time() + 60
-        while asyncio.get_event_loop().time() < deadline:
-            if "/p/" in (page.url or ""):
-                return
-            await asyncio.sleep(2)
-        raise RuntimeError(
-            f"[文章][知乎] 发布后 60s 未跳转文章页,当前: {page.url}"
+
+        try:
+            data = await response.json()
+        except Exception as exc:
+            logger.info(f"[文章][知乎] 发布响应解析失败: {exc}")
+            raise RuntimeError("[文章][知乎] 发布响应解析失败")
+
+        code = data.get("code")
+        msg = (
+            data.get("toast_message")
+            or data.get("message")
+            or "发布失败"
         )
+        if code == 0:
+            logger.info("[文章][知乎] ✓ 发布成功 (code=0)")
+            # 等编辑页跳转到文章页(软校验,超时仅警告)
+            deadline = asyncio.get_event_loop().time() + 30
+            while asyncio.get_event_loop().time() < deadline:
+                if "/edit" not in (page.url or ""):
+                    break
+                await asyncio.sleep(2)
+            if "/edit" in (page.url or ""):
+                logger.warning(
+                    "[文章][知乎] 发布 API 成功但 30s 未跳转文章页: %s",
+                    page.url,
+                )
+            return
+
+        # 失败如实抛出(bp 层会记录到 publish_details.error_message)
+        if code == 2015 or "安全验证" in msg or "异常" in msg:
+            raise RuntimeError(
+                f"知乎风控拦截发表: {msg}(code={code})"
+                "——请在浏览器登录知乎完成安全验证后重试"
+            )
+        raise RuntimeError(f"知乎文章发表失败 code={code} message={msg}")
 
 
 # ---------------------------------------------------------------------------

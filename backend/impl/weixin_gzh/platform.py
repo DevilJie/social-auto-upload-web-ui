@@ -777,7 +777,7 @@ class WeixinGzhPlatform(BasePlatform):
           <p class="tips_global">视频上传成功，你可以继续编辑其它信息保存提交</p>
 
         上传过程中有进度 DOM(剩余时间/速度/已上传百分比),打印进度的旁证日志。
-        失败信号:「转码失败」。
+        失败信号:「创建文件失败」「上传失败」「转码失败」。
 
         **可见性是关键**: 公众号页面初始 DOM 里就常驻「视频上传成功」「转码失败」
         两段模板文案(包在 ``display:none`` 的 mask/tips 容器里),只有对应状态触发
@@ -808,24 +808,27 @@ class WeixinGzhPlatform(BasePlatform):
                     return
             except Exception:
                 pass
-            # 失败信号: 文本「转码失败」且其 mask 容器可见
+            # 创建文件失败显示在上传行内，不一定在转码 mask 中。
+            # 仅匹配可见失败文案，忽略页面常驻的隐藏状态模板。
             try:
                 fail_visible = await page.evaluate(
                     """() => {
-                        const masks = document.querySelectorAll(
-                            '.weui-desktop-mask_status, .weui-desktop-mask_msg'
-                        );
-                        for (const m of masks) {
-                            if (m.offsetParent === null) continue;
-                            if ((m.textContent || '').indexOf('转码失败') !== -1) {
-                                return true;
+                        const failures = ['创建文件失败', '上传失败', '转码失败'];
+                        for (const el of document.querySelectorAll('*')) {
+                            if (el.offsetParent === null || el.children.length !== 0) continue;
+                            const text = el.textContent || '';
+                            for (const failure of failures) {
+                                if (text.includes(failure)) return failure;
                             }
                         }
-                        return false;
+                        return '';
                     }"""
                 )
                 if fail_visible:
-                    raise RuntimeError("[阶段①] 视频转码失败,无法继续")
+                    raise RuntimeError(
+                        f"[阶段①] 公众号提示：{fail_visible}。视频尚未上传成功，"
+                        "未执行后续封面、标题和正文/标签填写。"
+                    )
             except RuntimeError:
                 raise
             except Exception:

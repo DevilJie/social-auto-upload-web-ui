@@ -223,6 +223,8 @@
       ref="coverEditorRef"
       :cover-primary="editorSource.coverPrimary"
       :cover-secondary="editorSource.coverSecondary"
+      :all-ratios="ARTICLE_COVER_RATIOS"
+      :covers-by-ratio="coversByRatio"
       @cover-saved="onCoverSaved"
     />
   </div>
@@ -366,6 +368,18 @@ function openCoverEditor(orientation) {
   coverEditOrientation.value = orientation
   coverEditorRef.value?.open(orientation)
 }
+
+// 文章封面 4 尺寸(横 4:3/16:9 + 竖 3:4/9:16):
+// 一次上传即可填满全部,缺失的按默认裁剪自动补齐
+const ARTICLE_COVER_RATIOS = ['4:3', '16:9', '3:4', '9:16']
+
+/** 供弹窗按比例回填已有封面 */
+const coversByRatio = computed(() => ({
+  '4:3': coverLandscape.value,
+  '16:9': coverLandscape169.value,
+  '3:4': coverPortrait.value,
+  '9:16': coverPortrait916.value,
+}))
 
 function onCoverSaved({ orientation, ratio, cover }) {
   const isLandscape = orientation === 'landscape'

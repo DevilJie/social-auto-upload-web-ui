@@ -15,7 +15,7 @@
         <div class="crop-area">
           <div v-if="!currentImageSrc" class="crop-empty">
             <el-icon :size="32"><Picture /></el-icon>
-            <span>选择右侧时间轴帧、上传图片或从素材库选取</span>
+            <span>{{ fillAllMode ? '上传一张图片，其余尺寸自动裁剪填充' : '选择右侧时间轴帧、上传图片或从素材库选取' }}</span>
           </div>
           <div
             v-else
@@ -45,6 +45,9 @@
               :class="['ratio-tab', { active: activeTab === r }]"
               @click="switchTab(r)"
             >{{ r }}</button>
+          </div>
+          <div v-if="fillAllMode" class="sidebar-hint">
+            只需上传 1 张，其余尺寸将按默认裁剪自动填充
           </div>
         </div>
 
@@ -81,7 +84,7 @@
       <div class="dialog-footer">
         <el-button @click="visible = false">取消</el-button>
         <el-button type="primary" @click="confirmCrop">
-          <el-icon><Check /></el-icon> 确认裁剪
+          <el-icon><Check /></el-icon> {{ fillAllMode ? '确认并填充其余尺寸' : '确认裁剪' }}
         </el-button>
       </div>
     </template>
@@ -107,6 +110,12 @@ const props = defineProps({
   coverPrimary: { type: Object, default: null },
   // 次尺寸封面（横版=16:9，竖版=9:16）
   coverSecondary: { type: Object, default: null },
+  // 文章发布「一次上传填满全部尺寸」模式：传入 4 个比例，
+  // 弹窗一次管理全部，缺失的比例用已有图片自动居中裁剪补齐。
+  // 不传（视频发布）则沿用「每个比例都必须手动设置」的原逻辑。
+  allRatios: { type: Array, default: () => [] },
+  // allRatios 模式下按比例回填已有封面：{ '4:3': cover, '16:9': cover, ... }
+  coversByRatio: { type: Object, default: null },
 })
 
 const emit = defineEmits(['coverSaved'])
@@ -115,9 +124,19 @@ const visible = ref(false)
 // 当前编辑方向（由 open(orientation) 同步设置，不依赖 props 异步更新，避免切换横竖版时 ratio 错乱）
 const activeOrientation = ref('landscape')
 
-// 根据方向决定两个尺寸 tab
+// 文章「一次上传填满」模式：4 个比例由同一个弹窗管理
+const fillAllMode = computed(() => props.allRatios.length > 0)
+
+// 比例 → 方向（决定裁剪目标边长：横版定宽 1920 / 竖版定高 1920）
+function orientationForRatio(ratio) {
+  return ratio === '3:4' || ratio === '9:16' ? 'portrait' : 'landscape'
+}
+
+// 根据方向决定尺寸 tab（一次上传模式下直接用全部比例）
 const ratioTabs = computed(() =>
-  activeOrientation.value === 'portrait' ? ['3:4', '9:16'] : ['4:3', '16:9']
+  fillAllMode.value
+    ? props.allRatios
+    : activeOrientation.value === 'portrait' ? ['3:4', '9:16'] : ['4:3', '16:9']
 )
 // 主尺寸对应的 ratio（第一个 tab）
 const primaryRatio = computed(() => ratioTabs.value[0])
@@ -185,7 +204,9 @@ function open(orientation) {
   ratioTabs.value.forEach((r) => {
     panels[r] = { imageSrc: '', img: null, zoom: 1, offset: { x: 0, y: 0 }, displayScale: 1, cropRect: { x: 0, y: 0, w: 0, h: 0 } }
   })
-  activeTab.value = primaryRatio.value
+  activeTab.value = fillAllMode.value
+    ? (ratioTabs.value.find((r) => orientationForRatio(r) === activeOrientation.value) || primaryRatio.value)
+    : primaryRatio.value
   visible.value = true
   loadFrames()
   // 等 canvas 挂载后，为已有 cover 的面板加载图片
@@ -245,6 +266,7 @@ function stopPolling() {
 
 // 当前 ratio 对应的封面 prop（用于打开时回填已有封面）
 function coverForTab(ratio) {
+  if (fillAllMode.value) return props.coversByRatio?.[ratio] || null
   return ratio === secondaryRatio.value ? props.coverSecondary : props.coverPrimary
 }
 
@@ -410,8 +432,9 @@ async function cropAndUploadPanel(ratio) {
   const p = panels[ratio]
   if (!p || !p.img) return null
   const [rw, rh] = ratio.split(':').map(Number)
+  const orientation = orientationForRatio(ratio)
   let targetW, targetH
-  if (activeOrientation.value === 'portrait') {
+  if (orientation === 'portrait') {
     targetH = 1920
     targetW = Math.round(1920 * rw / rh)
   } else {
@@ -437,20 +460,41 @@ async function cropAndUploadPanel(ratio) {
   const blob = await new Promise(resolve => offscreen.toBlob(resolve, 'image/jpeg', 0.92))
   if (!blob) return null
   const formData = new FormData()
-  formData.append('file', blob, `cover_${activeOrientation.value}_${ratio.replace(':', 'x')}_${Date.now()}.jpg`)
+  formData.append('file', blob, `cover_${orientation}_${ratio.replace(':', 'x')}_${Date.now()}.jpg`)
   const resp = await materialsApi.coversUpload(formData)
   if (resp.code !== 200) return null
   const d = resp.data
   return { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
 }
 
+// 用第一张已有图片补齐所有空面板（居中裁剪 = 默认裁剪）
+// 直接复用已加载的 Image 实例，避免 blob:/跨域重新加载
+function fillMissingPanels() {
+  const source = ratioTabs.value.find((r) => panels[r]?.img)
+  if (!source) return false
+  for (const r of ratioTabs.value) {
+    const p = panels[r]
+    if (!p || p.img) continue
+    p.imageSrc = panels[source].imageSrc
+    p.img = panels[source].img
+    initPanelCropRect(r, p.img)
+  }
+  return true
+}
+
 async function confirmCrop() {
-  // 校验：两个尺寸面板都必须选了图片
+  // 文章「一次上传填满」模式：只需 1 张，其余尺寸自动裁剪补齐
   const missing = ratioTabs.value.filter((r) => !panels[r] || !panels[r].img)
   if (missing.length > 0) {
-    ElMessage.warning(`请先为 ${missing.join('、')} 尺寸选择图片`)
-    if (missing[0]) switchTab(missing[0])
-    return
+    if (!fillAllMode.value) {
+      ElMessage.warning(`请先为 ${missing.join('、')} 尺寸选择图片`)
+      switchTab(missing[0])
+      return
+    }
+    if (!fillMissingPanels()) {
+      ElMessage.warning('请先上传一张封面图片')
+      return
+    }
   }
   // 逐个裁剪上传（裁剪前先把该面板重画到 canvas，确保 canvas 内容匹配）
   try {
@@ -464,9 +508,13 @@ async function confirmCrop() {
         ElMessage.error(`${r} 封面保存失败`)
         return
       }
-      emit('coverSaved', { orientation: activeOrientation.value, ratio: r, cover: coverData })
+      emit('coverSaved', {
+        orientation: orientationForRatio(r),
+        ratio: r,
+        cover: coverData,
+      })
     }
-    ElMessage.success('封面设置成功')
+    ElMessage.success(fillAllMode.value ? '封面设置成功，其余尺寸已自动裁剪填充' : '封面设置成功')
     visible.value = false
   } catch {
     ElMessage.error('封面上传失败')

@@ -31,6 +31,7 @@ from .._utils import (
     scrape_bilibili_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import pause_after_input, wait_for_manual_publish
 
 BILIBILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
 BILIBILI_MANAGE_URL = "https://member.bilibili.com/platform/upload-manager/article"
@@ -662,15 +663,18 @@ class BilibiliPlatform(BasePlatform):
 
                 # 3. Fill title
                 await self._fill_title(page, title)
+                await pause_after_input()
 
                 # 4. Set category
                 await self._set_category(page, category)
 
                 # 5. Fill tags(按需先清空系统生成的标签)
                 await self._fill_tags(page, tags, clear_existing=not bili_keep_system_tags)
+                await pause_after_input()
 
                 # 6. Fill description
                 await self._fill_desc(page, desc)
+                await pause_after_input()
 
                 # 7. Set cover/thumbnail
                 await self._set_thumbnail(page, thumbnail_path)
@@ -734,103 +738,9 @@ class BilibiliPlatform(BasePlatform):
                         logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
                     except Exception:
                         pass
-                    return
+                    raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
-                # 10. Submit
-                logger.info("[上传视频] submitting video")
-                await page.evaluate(
-                    "window.scrollTo(0, document.body.scrollHeight)"
-                )
-                await asyncio.sleep(1)
-
-                submitted = False
-                for attempt in range(10):
-                    try:
-                        submit_span = page.locator("span.submit-add")
-                        if await submit_span.count() > 0:
-                            await submit_span.first.scroll_into_view_if_needed()
-                            await submit_span.first.click()
-                            logger.info("[上传视频] clicked submit button")
-                        else:
-                            logger.info(
-                                f"[上传视频] submit button not found, "
-                                f"retry {attempt + 1}/10"
-                            )
-                            await asyncio.sleep(3)
-                            continue
-
-                        # 点击后 1s 即开始检测（原 3s+2s 粒度太粗，成功页已
-                        # 出来还要等好几秒才判定）；轮询 1s 一次，总时长不变
-                        await asyncio.sleep(1)
-                        for _ in range(30):
-                            await asyncio.sleep(1)
-                            btn_exists = (
-                                await page.locator("span.submit-add").count()
-                                > 0
-                            )
-                            if not btn_exists:
-                                logger.info(
-                                    "[上传视频] submit success "
-                                    "(button disappeared)"
-                                )
-                                submitted = True
-                                break
-                            if (
-                                page.url != BILIBILI_UPLOAD_URL
-                                and "/platform/upload/" not in page.url
-                            ):
-                                logger.info(
-                                    f"[上传视频] submit success, "
-                                    f"redirected to: {page.url}"
-                                )
-                                submitted = True
-                                break
-
-                        if submitted:
-                            break
-
-                        logger.info(
-                            f"[上传视频] page unchanged after click, "
-                            f"retry {attempt + 1}/10"
-                        )
-                        await page.screenshot(
-                            path=str(
-                                log_dir / f"bilibili_submit_{attempt}.png"
-                            ),
-                            full_page=True,
-                        )
-                    except Exception as exc:
-                        logger.info(
-                            f"[上传视频] submit retry {attempt + 1}/10: {exc}"
-                        )
-                        await page.screenshot(
-                            path=str(
-                                log_dir / f"bilibili_submit_{attempt}.png"
-                            ),
-                            full_page=True,
-                        )
-                        await asyncio.sleep(2)
-
-                if not submitted:
-                    logger.info(
-                        "[上传视频] could not confirm submission, "
-                        "but it may have succeeded"
-                    )
-
-                if submitted:
-                    # 已看到跳转/按钮消失 = 投稿受理成功，不再固定等 10s
-                    # （成功页都出来了还干等，用户体感「判定慢」），2s 稳定后截图
-                    logger.info("[上传视频] submitted, settling 2s")
-                    await asyncio.sleep(2)
-                    try:
-                        await page.screenshot(
-                            path=str(
-                                log_dir / "bilibili_after_submit.png"
-                            ),
-                            full_page=True,
-                        )
-                    except Exception:
-                        pass
+                await wait_for_manual_publish(page, 'bilibili')
 
                 upload_success = True
             finally:

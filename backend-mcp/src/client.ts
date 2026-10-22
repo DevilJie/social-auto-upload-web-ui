@@ -139,7 +139,7 @@ export class BackendClient {
   }
 
   async post<T = any>(path: string, data?: any, timeout?: number): Promise<ApiResponse<T>> {
-    const config = timeout ? { timeout } : undefined;
+    const config = timeout !== undefined ? { timeout } : undefined;
     const response: AxiosResponse<ApiResponse<T>> = await this.http.post(path, data, config);
     return response.data;
   }

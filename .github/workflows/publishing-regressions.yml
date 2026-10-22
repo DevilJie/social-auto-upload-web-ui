@@ -1,0 +1,41 @@
+name: Publishing regressions
+on:
+  pull_request:
+  push:
+    branches: [fix/publishing-review-and-retry]
+permissions:
+  contents: read
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      SAU_DATA_DIR: ${{ github.workspace }}/.test-data
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - run: python -m pytest backend/tests/test_manual_review.py backend/tests/test_manual_review_queue.py backend/tests/test_youtube_declaration_validation.py backend/tests/test_youtube_upload_entry.py backend/tests/test_publish_tag_limits.py backend/tests/test_weixin_upload_failure.py backend/tests/test_task_queue_writes.py -q
+      - run: node backend/tests/manual_review_listener.cjs
+      - run: node --test frontend/tests/publishPreferences.test.mjs
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm ci --no-audit --no-fund
+        working-directory: backend-mcp
+      - run: npm run build
+        working-directory: backend-mcp
+      - run: npx vitest run tests/client.test.ts tests/tools/publish.test.ts tests/manual-review.test.ts
+        working-directory: backend-mcp

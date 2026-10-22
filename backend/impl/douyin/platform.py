@@ -29,6 +29,7 @@ from .._utils import (
     scrape_user_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import pause_after_input, wait_for_manual_publish
 
 logger = get_channel_logger("douyin")
 
@@ -696,28 +697,9 @@ class DouyinPlatform(BasePlatform):
                         logger.info("[发布调试] 检测到浏览器已关闭,流程结束")
                     except Exception:
                         pass
-                    return
+                    raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
-                # Click publish and wait for redirect
-                logger.info("[发布] 正在点击发布按钮...")
-                while True:
-                    raise_if_page_closed(page)
-                    try:
-                        publish_button = page.get_by_role(
-                            "button", name="发布", exact=True
-                        )
-                        if await publish_button.count():
-                            await publish_button.click()
-                        await page.wait_for_url(
-                            "https://creator.douyin.com/creator-micro/content/manage**",
-                            timeout=3000,
-                        )
-                        logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
-                        break
-                    except Exception:
-                        # Maybe a cover selection is required
-                        await self._handle_auto_video_cover(page)
-                        await asyncio.sleep(0.5)
+                await wait_for_manual_publish(page, 'douyin')
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)
@@ -786,6 +768,7 @@ class DouyinPlatform(BasePlatform):
         title_input = description_section.locator('input[type="text"]').first
         await title_input.wait_for(state="visible", timeout=10000)
         await title_input.fill(title[:30])
+        await pause_after_input()
 
         description_editor = description_section.locator(
             '.zone-container[contenteditable="true"]'
@@ -796,6 +779,7 @@ class DouyinPlatform(BasePlatform):
         # 只输入一次,不要重复输入
         clean_description = (description or "").rstrip()
         await clear_and_type(page, clean_description)
+        await pause_after_input()
 
         await page.keyboard.press("Space")
         # 修：标签循环用单空格分隔，首 tag 前明确加一个空格
@@ -808,6 +792,7 @@ class DouyinPlatform(BasePlatform):
             await page.keyboard.press("Space")
             # 修：移动光标到内容末尾，避免下次插入位置错乱
             await page.keyboard.press("End")
+        await pause_after_input()
 
     # ------------------------------------------------------------------
     # Helper: set schedule time
@@ -1290,6 +1275,7 @@ class DouyinPlatform(BasePlatform):
                 await title_input.click()
                 await title_input.fill('')
                 await page.keyboard.type(title[:20])
+                await pause_after_input()
 
                 # 逐字输入描述，一次性注入标签
                 logger.info("[填写简介] 开始填写简介与标签...")
@@ -1302,11 +1288,13 @@ class DouyinPlatform(BasePlatform):
                 await page.keyboard.press("Delete")
 
                 await page.keyboard.type(desc[:1000])
+                await pause_after_input()
                 await asyncio.sleep(0.2)
 
                 for tag in tags:
                     await page.keyboard.insert_text(" #" + tag)
                     await page.keyboard.press("Space")
+                await pause_after_input()
                 await asyncio.sleep(0.3)
 
                 # Set cover if provided
@@ -1352,41 +1340,15 @@ class DouyinPlatform(BasePlatform):
                 logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
-                    # Click publish button
-                    # 使用稳定的文本匹配：精确匹配"发布"按钮，排除"暂存离开"
-                    logger.info("[发布] 正在点击发布按钮...")
-                    publish_btn = page.get_by_role("button", name="发布", exact=True)
-                    await publish_btn.wait_for(state="visible", timeout=10000)
-                    await publish_btn.click()
-                    logger.info("[发布] 发布按钮已点击, 等待页面跳转...")
-
-                    # 等待页面跳转 - 跳转到 manage 页面才是发布成功
-                    try:
-                        await page.wait_for_url(
-                            "https://creator.douyin.com/creator-micro/content/manage*",
-                            timeout=60000
-                        )
-                        logger.info("[发布] 图集发布成功! 已跳转到管理页面")
-                        result = True
-                    except Exception:
-                        # 检查当前URL
-                        current_url = page.url
-                        if "content/manage" in current_url:
-                            logger.info("[发布] 图集发布成功! 已在管理页面")
-                            result = True
-                        else:
-                            logger.warning("[发布] 图集发布可能失败 - 当前URL: %s", current_url)
-                            result = False
+                    await wait_for_manual_publish(page, 'douyin')
+                    result = True
 
                     # Save cookie state
                     await context.storage_state(path=account_file)
                     logger.info("[发布] Cookie状态已更新")
                 else:
                     # Dry run mode - simulate publish
-                    logger.info("=" * 40)
-                    logger.info("[发布] [演练模式] 模拟点击发布! 发布成功!")
-                    logger.info("=" * 40)
-                    result = True
+                    raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
             finally:
                 await context.close()

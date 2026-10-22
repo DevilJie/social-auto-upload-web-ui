@@ -22,6 +22,7 @@ from .._utils import (
 
 from util._logger import bind_account_name, get_channel_logger
 from ..base_platform import BasePlatform
+from .._manual_review import pause_after_input, wait_for_manual_publish
 
 logger = get_channel_logger("xiaohongshu")
 
@@ -728,10 +729,13 @@ async def _publish_single_image(
             # Fill title, description, tags
             logger.info("[填写标题] 开始填写标题、简介与标签...")
             await _fill_title(page, title)
+            await pause_after_input()
             await _fill_desc(page, desc)
+            await pause_after_input()
 
             await page.keyboard.press("Space")
             await _fill_tags(page, tags)
+            await pause_after_input()
 
             # Set original declaration (原创声明)
             if is_original:
@@ -756,22 +760,12 @@ async def _publish_single_image(
             if not dry_run:
                 # Click publish
                 btn_text = "定时发布" if is_scheduled else "发布"
-                logger.info("[发布] 正在点击发布按钮...")
+                logger.info("[人工验收] 请在平台页面亲自点击发布")
                 await _click_publish_button(page, btn_text)
 
-                # Wait for page navigation after click
-                current_url = page.url
-                await asyncio.sleep(3)
-                new_url = page.url
-                logger.info("[发布] 页面URL变化: %s -> %s", current_url, new_url)
-
-                if "success" in new_url.lower() or "publish/publish" not in new_url:
-                    logger.info("[发布] 图集发布成功: %s", title)
-                else:
-                    logger.error("[发布] 页面未跳转到成功页: %s", new_url)
-                    return False
+                logger.info("[人工验收] 图集发布结果已确认: %s", title)
             else:
-                logger.info("[发布] [演练模式] 图集发布演练完成: %s", title)
+                raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
             # Save cookies
             await context.storage_state(path=account_file)
@@ -912,8 +906,11 @@ async def _upload_video_content(
     # --- Fill title (20 char limit) ---
     logger.info("[填写标题] 开始填写标题、简介与标签...")
     await _fill_title(page, title)
+    await pause_after_input()
     await _fill_desc(page, desc)
+    await pause_after_input()
     await _fill_tags(page, tags)
+    await pause_after_input()
     logger.info("[填写标题] 标题: %s", title)
 
     # --- Set cover / thumbnail ---
@@ -973,40 +970,14 @@ async def _upload_video_content(
 
     if _PUBLISH_DRY_RUN:
         logger.warning("[发布调试] DRY_RUN 已开启 —— 跳过实际点击发布,流程到此结束(不发布)")
-        return True
+        raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
     # --- Click publish ---
     btn_text = "定时发布" if publish_strategy == _PUBLISH_STRATEGY_SCHEDULED else "发布"
-    logger.info("[发布] 正在点击发布按钮...")
+    logger.info("[人工验收] 请在平台页面亲自点击发布")
     await _click_publish_button(page, btn_text)
 
-    # --- 判定发布成功:持续轮询等待页面出现「发布成功」文案(不限时) ---
-    # 小红书发布时可能弹出验证弹窗要求用户扫码确认,等待时长不可预估,
-    # 故不设超时,一直等到出现成功信号为止(浏览器为有头模式,用户可看到现场)。
-    # 成功信号(满足其一): ① 页面出现「发布成功」文案 ② URL 离开 /publish/publish 编辑页。
-    logger.info("[发布] 等待页面出现「发布成功」提示(如弹出验证请扫码确认,将持续等待)...")
-    success = False
-    wait_seconds = 0
-    while True:
-        await asyncio.sleep(1)
-        wait_seconds += 1
-        # 1. 主判定:页面出现「发布成功」文案
-        try:
-            if await page.get_by_text("发布成功").count() > 0:
-                success = True
-                break
-        except Exception:
-            pass  # 页面跳转瞬间 DOM 可能 detach,下一轮再试
-        # 2. 兜底判定:URL 已离开发布编辑页(或跳到 success 页)
-        new_url = page.url
-        if "success" in new_url.lower() or "publish/publish" not in new_url:
-            success = True
-            logger.info("[发布] 页面已跳转(未等到「发布成功」文案): %s", new_url)
-            break
-        if wait_seconds % 30 == 0:
-            logger.info("[发布] 已等待 %d 秒,继续等待(可能正在等待人工验证)...", wait_seconds)
-
-    logger.info("[发布] 视频发布成功! 页面URL: %s", page.url)
+    logger.info("[人工验收] 视频发布结果已确认")
     return True
 
 
@@ -1015,52 +986,8 @@ async def _upload_video_content(
 # ======================================================================
 
 async def _click_publish_button(page, btn_text: str) -> None:
-    """Click the publish button. Playwright locators pierce shadow DOM by default."""
-    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    await asyncio.sleep(1)
-
-    # xhs-publish-btn uses CLOSED shadow DOM.  CDP's getFlattenedDocument
-    # with pierce=True returns ALL nodes including those inside closed
-    # shadow trees — unlike DOM.querySelector which cannot search inside
-    # closed shadow DOM.
-    cdp = await page.context.new_cdp_session(page)
-    try:
-        await cdp.send("DOM.enable")
-        flattened = await cdp.send("DOM.getFlattenedDocument", {
-            "depth": -1,
-            "pierce": True,
-        })
-        btn_node_id = 0
-        for node in flattened.get("nodes", []):
-            if node.get("localName") != "button":
-                continue
-            attrs = node.get("attributes") or []
-            # attrs is [key, val, key, val, ...]
-            for i in range(0, len(attrs), 2):
-                if attrs[i] == "class" and "bg-red" in (attrs[i + 1] or ""):
-                    btn_node_id = node["nodeId"]
-                    break
-            if btn_node_id:
-                break
-
-        if not btn_node_id:
-            logger.error("[发布] CDP: 在扁平化DOM中未找到发布按钮")
-            return
-
-        await cdp.send("DOM.scrollIntoViewIfNeeded", {"nodeId": btn_node_id})
-        box_model = await cdp.send("DOM.getBoxModel", {"nodeId": btn_node_id})
-        if not box_model or "model" not in box_model:
-            logger.error("[发布] CDP: 无法获取发布按钮的盒子模型")
-            return
-        quad = box_model["model"]["content"]
-        # content quad: [x1,y1, x2,y2, x3,y3, x4,y4]
-        x = (quad[0] + quad[4]) / 2
-        y = (quad[1] + quad[5]) / 2
-        logger.info("[发布] CDP: 在 (%.0f, %.0f) 处点击发布按钮", x, y)
-        await page.mouse.click(x, y)
-        logger.info("[发布] 已通过CDP扁平化DOM点击发布按钮")
-    finally:
-        await cdp.detach()
+    # Both video and image flows stop here; no CDP or mouse submission.
+    await wait_for_manual_publish(page, 'xiaohongshu')
 
 
 async def _fill_title(page, title: str) -> None:
@@ -1515,7 +1442,7 @@ async def _set_content_declaration(
 
     严格遵循禁用 class/data-v 定位原则,全程用可见文案 + placeholder 定位。
     """
-    if not ai_content:
+    if not ai_content or ai_content == '无需声明':
         return
 
     logger.info("[内容声明] 设置内容类型声明: %s", ai_content)

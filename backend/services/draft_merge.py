@@ -175,6 +175,13 @@ def merge_config(common, platform_default, platform_ov, account_ov):
     }
 
 
+def _declaration_missing(config, field):
+    # YouTube 的“否”是合法布尔值，不能用 truthiness 判断是否已选择。
+    if field == 'alteredContent':
+        return not isinstance(config.get(field), bool)
+    return not config.get(field)
+
+
 def validate_draft_for_publish(draft):
     """dry-run 校验视频草稿。返回错误消息列表。"""
     errors = []
@@ -222,6 +229,8 @@ def validate_draft_for_publish(draft):
 
         merged = merge_config(common, platform_default, platform_overrides.get(platform), account_ov)
 
+        merged['tags'] = limit_platform_tags(platform, merged)
+
         # 标题
         if not merged.get('title') or not str(merged['title']).strip():
             errors.append(f'账号 {account_id}({platform}) 缺标题')
@@ -231,7 +240,7 @@ def validate_draft_for_publish(draft):
         if decl_field:
             if isinstance(decl_field, list):
                 # YouTube: 多个字段
-                missing = [f for f in decl_field if not merged.get(f)]
+                missing = [f for f in decl_field if _declaration_missing(merged, f)]
                 if missing:
                     errors.append(f'账号 {account_id}({platform}) 缺 {"+".join(missing)}')
             else:
@@ -286,7 +295,7 @@ def validate_image_draft_for_publish(draft):
     decl_field = _IMAGE_DECLARATION_PLATFORMS.get(platform)
     if decl_field:
         if isinstance(decl_field, list):
-            missing = [f for f in decl_field if not config.get(f)]
+            missing = [f for f in decl_field if _declaration_missing(config, f)]
             if missing:
                 errors.append(f'图集草稿({platform}) 缺 {"+".join(missing)}')
         else:
@@ -316,6 +325,17 @@ def _resolve_stored_path(material):
         except Exception:
             return stored
     return ''
+
+
+def limit_platform_tags(platform, config):
+    """Keep tag order; reserve slots for existing description topics and activities."""
+    limit = {'douyin': 5, 'kuaishou': 4}.get(platform, 10)
+    if platform in ('douyin', 'xiaohongshu'):
+        pattern = DOUYIN_HASHTAG_RE if platform == 'douyin' else XHS_HASHTAG_RE
+        limit -= len(pattern.findall(config.get('description') or ''))
+    if platform == 'douyin':
+        limit -= len(config.get('activityId') or [])
+    return (config.get('tags') or [])[:max(0, limit)]
 
 
 def build_platform_kwargs(merged, common, account):
@@ -394,7 +414,7 @@ def build_platform_kwargs(merged, common, account):
     return {
         'title': merged.get('title', '') or '',
         'desc': merged.get('description', '') or '',
-        'tags': merged.get('tags') or [],
+        'tags': limit_platform_tags(platform_key, merged),
         'activities': merged.get('activityId') or [],
         'files': [selected_video] if selected_video else [],
         'account_file': [account.file_path] if account and getattr(account, 'file_path', None) else [],

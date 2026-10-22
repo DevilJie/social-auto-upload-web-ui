@@ -89,6 +89,7 @@ export const PLATFORMS = {
     creatorUrl: 'https://creator.xiaohongshu.com/',
     settingsFields: [
       { key: 'aiContent', label: '内容类型声明', type: 'select', required: true, placeholder: '添加内容类型声明', options: [
+        { label: '无需声明', value: '无需声明' },
         { label: '虚构演绎，仅供娱乐', value: '虚构演绎，仅供娱乐' },
         { label: '笔记含AI合成内容', value: '笔记含AI合成内容' },
         { label: '内容包含营销广告', value: '内容包含营销广告' },
@@ -887,6 +888,14 @@ export const PLATFORMS = {
     defaultSettings: { title: '', description: '', creationDeclaration: '', dayuRepostUrl: '', category: '', scheduleTime: '', tags: [] },
   },
   // 注: jd (id=20) 已合并到 jingmai (id=19) — 同一个产品 dr.jd.com/jm/
+}
+
+// 使用各平台已有的“无需声明/标注”选项作为新表单默认值。
+for (const platform of Object.values(PLATFORMS)) {
+  for (const field of platform.settingsFields || []) {
+    const none = field.options?.find(o => typeof o.value === 'string' && o.value.includes('无需'))
+    if (none) platform.defaultSettings[field.key] = field.type === 'multiSelect' ? [none.value] : none.value
+  }
 }
 
 // 派生数据

@@ -1543,7 +1543,7 @@ class ZhihuPlatform(BasePlatform):
             target_question (*str*, optional) -- 投稿至问题(问题关键词,
                 弹窗内搜索后选第一条结果;最多 1 个)
             topics (*list[str]*, optional) -- 文章话题名列表(搜索联想后
-                逐个选中,≤5 个)
+                逐个选中,≤3 个;平台 2026-10-23 实测上限 3)
             content_source (*str*, optional) -- 内容来源(官方网站/新闻报道/
                 电视媒体/纸质媒体)
             source_self_shot (*bool*, optional) -- 内容来源弹窗「图片/视频
@@ -1693,10 +1693,11 @@ class ZhihuPlatform(BasePlatform):
                         )
 
                 # 4.2 文章话题(搜索联想逐个选中;失败不阻塞)
+                # 平台上限(2026-10-23 实测): 最多 3 个(加满后「添加话题」消失)
                 clean_topics = [
                     t.strip() for t in (topics or [])
                     if isinstance(t, str) and t.strip()
-                ][:5]
+                ][:_ARTICLE_TOPIC_MAX]
                 if clean_topics:
                     try:
                         await self._set_zhihu_topics(page, clean_topics)
@@ -2060,6 +2061,14 @@ class ZhihuPlatform(BasePlatform):
                 add_btn = page.locator(
                     'button:has-text("添加话题")'
                 ).first
+                # 平台上限联动(2026-10-23 实测): 加满 3 个后「添加话题」消失
+                if not await add_btn.is_visible():
+                    logger.warning(
+                        "[文章][知乎] 文章话题已达平台上限(最多 %d 个), "
+                        "剩余话题跳过: %s",
+                        _ARTICLE_TOPIC_MAX, topic,
+                    )
+                    break
                 await add_btn.scroll_into_view_if_needed(timeout=10000)
                 await add_btn.click(timeout=8000)
                 await asyncio.sleep(1.5)
@@ -2242,9 +2251,16 @@ class ZhihuPlatform(BasePlatform):
             await ZhihuPlatform._select_zhihu_listbox_option(page, source)
 
         if self_shot:
+            # 平台联动(2026-10-23 实测): 自行拍摄开启时「内容信息来源」必选
+            # (未选时「确认添加」disabled); 拍摄时间/省份/城市 三项必填,
+            # 留空点确认会报「*当前填写有误，请修改后重试」。
+            if not source:
+                raise RuntimeError(
+                    "自行拍摄需先选择「内容信息来源」(平台必选)"
+                )
             if not shot_province or not shot_city:
                 raise RuntimeError(
-                    "自行拍摄需提供拍摄省份和城市"
+                    "自行拍摄需提供拍摄省份和城市(平台必填)"
                 )
             switched = await page.evaluate(
                 """() => {
@@ -2466,13 +2482,268 @@ class ZhihuPlatform(BasePlatform):
             raise RuntimeError("拍摄时间未选中")
 
     @staticmethod
-    async def _set_zhihu_schedule(page, schedule_time_str: str):
-        """设置定时发布(「开启定时发布」弹窗: 日期/时/分 三个输入 + 确认)。
+    async def _zhihu_modal_text(page) -> str:
+        """返回当前可见 .Modal-inner 的文本(无弹窗返回空串)。"""
+        return await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const m = [...document.querySelectorAll('.Modal-inner')]
+                .filter(vis)[0];
+              return m ? clean(m.innerText) : '';
+            }"""
+        )
 
-        知乎约束: 可选时间为未来 30 分钟 ~ 48 小时。
-        DOM(2026-10 实测): 点定时 checkbox(css-1i5t6yb) 弹出「开启定时发布」
-        弹窗,内含日期(yyyy-MM-dd)/时(HH)/分(MM) 三个 input,React 受控
-        (需原生 value setter + input/change 事件),「确认」提交。
+    @staticmethod
+    async def _zhihu_modal_click(page, text: str) -> bool:
+        """点击当前可见弹窗内文本恰为 *text* 的按钮。"""
+        return bool(await page.evaluate(
+            """(want) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const m = [...document.querySelectorAll('.Modal-inner')]
+                .filter(vis)[0];
+              if (!m) return false;
+              const b = [...m.querySelectorAll('button')].filter(vis)
+                .find((x) => (x.innerText || '').trim() === want);
+              if (!b) return false;
+              b.click();
+              return true;
+            }""",
+            text,
+        ))
+
+    @staticmethod
+    async def _click_zhihu_schedule_checkbox(page) -> bool:
+        """点「定时发布」行内的 checkbox 开关。"""
+        return bool(await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
+              const label = [...document.querySelectorAll('label')].filter(vis)
+                .find((e) => clean(e.innerText).trim().startsWith('定时发布')
+                  && clean(e.innerText).trim().length <= 6);
+              let el = label;
+              for (let d = 0; d < 4 && el; d++) {
+                const cb = el.querySelector('input[type=checkbox]');
+                if (cb) { cb.click(); return true; }
+                el = el.parentElement;
+              }
+              return false;
+            }"""
+        ))
+
+    @staticmethod
+    async def _open_zhihu_schedule_dialog(page):
+        """打开「开启定时发布」弹窗。
+
+        联动处理(2026-10-23 实测): 已设置过定时发布时, 点行内 checkbox 会先弹
+        「取消定时发布」确认框(我再想想/确定)。此时点「确定」取消旧定时, 再点
+        一次 checkbox 才会进入「开启定时发布」弹窗。
+        """
+        for _ in range(3):
+            if not await ZhihuPlatform._click_zhihu_schedule_checkbox(page):
+                raise RuntimeError("[文章][知乎] 未找到定时发布开关")
+            await asyncio.sleep(2.5)
+            text = await ZhihuPlatform._zhihu_modal_text(page)
+            if "开启定时发布" in text:
+                await ZhihuPlatform._ensure_schedule_switch_on(page)
+                return
+            if "取消定时发布" in text:
+                # 已存在定时 → 取消旧的, 重新打开
+                await ZhihuPlatform._zhihu_modal_click(page, "确定")
+                await asyncio.sleep(2)
+                continue
+            raise RuntimeError(
+                f"[文章][知乎] 定时发布弹窗未出现(text={text[:80]})"
+            )
+        raise RuntimeError("[文章][知乎] 无法打开定时发布弹窗(反复处于取消确认态)")
+
+    @staticmethod
+    async def _ensure_schedule_switch_on(page):
+        """确保「开启定时发布」弹窗顶部的定时开关为开启态。"""
+        await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const m = [...document.querySelectorAll('.Modal-inner')]
+                .filter(vis)[0];
+              if (!m) return;
+              const sw = [...m.querySelectorAll(
+                  'input[type=checkbox]')].filter(vis)[0];
+              if (sw && !sw.checked) sw.click();
+            }"""
+        )
+        await asyncio.sleep(1.5)
+
+    @staticmethod
+    async def _zhihu_schedule_date(page) -> str:
+        """读定时弹窗日期按钮当前文本(yyyy-MM-dd)。"""
+        return await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const m = [...document.querySelectorAll('.Modal-inner')]
+                .filter(vis)[0];
+              if (!m) return '';
+              const b = [...m.querySelectorAll('button')].filter(vis)
+                .find((x) => /^\\d{4}-\\d{2}-\\d{2}$/
+                  .test(clean(x.innerText)));
+              return b ? clean(b.innerText) : '';
+            }"""
+        )
+
+    @staticmethod
+    async def _pick_zhihu_schedule_date(page, dt) -> None:
+        """在定时弹窗内用 DatePicker 日历选目标日期(含翻月/禁用日过滤)。"""
+        target = dt.strftime("%Y-%m-%d")
+        if (await ZhihuPlatform._zhihu_schedule_date(page)) == target:
+            return
+        opened = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const m = [...document.querySelectorAll('.Modal-inner')]
+                .filter(vis)[0];
+              if (!m) return false;
+              const b = [...m.querySelectorAll('button')].filter(vis)
+                .find((x) => /^\\d{4}-\\d{2}-\\d{2}$/
+                  .test(clean(x.innerText)));
+              if (!b) return false;
+              b.click();
+              return true;
+            }"""
+        )
+        if not opened:
+            raise RuntimeError("[文章][知乎] 定时弹窗未找到日期按钮")
+        await asyncio.sleep(2)
+
+        # 翻到目标年月(日历标题形如「2026 年 10 月」)
+        for _ in range(24):
+            top = await page.evaluate(
+                """() => {
+                  const el = document.querySelector('.Calendar-topToolDate');
+                  return el ? (el.textContent || '') : '';
+                }"""
+            )
+            nums = re.findall(r"\d+", top or "")
+            if len(nums) >= 2 and int(nums[0]) == dt.year and int(nums[1]) == dt.month:
+                break
+            moved = await page.evaluate(
+                """() => {
+                  const b = document.querySelector(
+                    '.Calendar-topToolButton--nextMonth');
+                  if (b) { b.click(); return true; }
+                  return false;
+                }"""
+            )
+            if not moved:
+                break
+            await asyncio.sleep(0.8)
+
+        picked = await page.evaluate(
+            """(day) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const cands = [...document.querySelectorAll('.Calendar-day')]
+                .filter(vis)
+                .filter((d) => {
+                  const cls = d.className || '';
+                  return !cls.includes('is-not-this-month')
+                    && !cls.includes('is-disabled');
+                });
+              const t = cands.find(
+                (d) => (d.innerText || '').trim() === day);
+              if (!t) return false;
+              t.click();
+              return true;
+            }""",
+            str(dt.day),
+        )
+        if not picked:
+            raise RuntimeError(
+                f"[文章][知乎] 日历中未找到可选日期 {target}"
+                "(平台仅允许未来 30 分钟~48 小时)"
+            )
+        await asyncio.sleep(1.5)
+        got = await ZhihuPlatform._zhihu_schedule_date(page)
+        if got != target:
+            raise RuntimeError(
+                f"[文章][知乎] 定时日期设置未生效(期望 {target}, 实际 {got})"
+            )
+
+    @staticmethod
+    async def _pick_zhihu_schedule_time_part(page, index: int, value: str) -> None:
+        """设置定时弹窗「时」(index=0)/「分」(index=1) Select。
+
+        2026-10-23 实测: 时/分 是 button[role=combobox], 文本为两位数字,
+        点开后 listbox 选项 00-23 / 00-59。
+        """
+        clicked = await page.evaluate(
+            """(idx) => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const m = [...document.querySelectorAll('.Modal-inner')]
+                .filter(vis)[0];
+              if (!m) return false;
+              const combos = [...m.querySelectorAll('button')].filter(vis)
+                .filter((x) => x.getAttribute('role') === 'combobox'
+                  && /^\\d{1,2}$/.test((x.innerText || '').trim()));
+              if (combos.length <= idx) return false;
+              combos[idx].click();
+              return true;
+            }""",
+            index,
+        )
+        if not clicked:
+            raise RuntimeError(f"[文章][知乎] 定时弹窗未找到时/分下拉(index={index})")
+        await asyncio.sleep(1.2)
+        picked = await page.evaluate(
+            """(want) => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const opts = [...document.querySelectorAll('[role=option]')]
+                .filter(vis);
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              let target = opts.find((o) => clean(o.innerText) === want);
+              if (!target) {
+                const wantNum = String(parseInt(want, 10));
+                target = opts.find(
+                  (o) => String(parseInt(clean(o.innerText), 10)) === wantNum);
+              }
+              if (!target) return false;
+              target.click();
+              return true;
+            }""",
+            value,
+        )
+        if not picked:
+            raise RuntimeError(f"[文章][知乎] 定时选项未找到: {value}")
+        await asyncio.sleep(1)
+
+    @staticmethod
+    async def _set_zhihu_schedule(page, schedule_time_str: str):
+        """设置定时发布(2026-10-23 改版后的真实 DOM 实测实现)。
+
+        平台约束: 可选时间为未来 30 分钟 ~ 48 小时。
+
+        弹窗结构(实测):
+          - 日期: ``button.DatePicker-Button`` 文本 ``yyyy-MM-dd``, 点开为
+            ``.Calendar`` 日历(未来 30min~48h 之外的日期为 is-disabled);
+          - 时: ``button[role=combobox]`` 文本两位数字, 选项 00-23;
+          - 分: 第二个 ``button[role=combobox]``, 选项 00-59;
+          - ``确认`` / ``取消``; 确认后行文本变为「定时发布\n<日期 时:分>」。
+        已设置过定时后再次点行内开关会先弹「取消定时发布」确认框, 由
+        ``_open_zhihu_schedule_dialog`` 处理。
         """
         from datetime import datetime, timedelta
 
@@ -2483,105 +2754,43 @@ class ZhihuPlatform(BasePlatform):
                 "[文章][知乎] 定时时间需为未来 30 分钟 ~ 48 小时内"
             )
 
-        # 1. 点定时开关 → 弹窗
-        #    定位: 「定时发布」行内 checkbox(2026-10 实测 class css-1i5t6yb
-        #    为随机串,优先按行锚点找,随机 class 兜底)
-        opened = await page.evaluate(
-            """() => {
-              const clean = (s) => (s || '')
-                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
-              const vis = (el) => {
-                const r = el.getBoundingClientRect();
-                return r.width > 0 && r.height > 0;
-              };
-              // 按行锚点: label「定时发布」向上找含 checkbox 的容器
-              const label = [...document.querySelectorAll('label, div')]
-                .filter(vis)
-                .find((e) => {
-                  const t = clean(e.innerText).trim();
-                  return t.startsWith('定时发布') && t.length <= 6;
-                });
-              let el = label;
-              for (let d = 0; d < 4 && el; d++) {
-                const cb = el.querySelector('input[type=checkbox]');
-                if (cb) { cb.click(); return 'row'; }
-                el = el.parentElement;
-              }
-              // 兜底: 全页第一个定时类 checkbox(随机 class)
-              const cb = document.querySelector(
-                'input[type=checkbox].css-1i5t6yb')
-                || document.querySelector(
-                  '[class*=setting] input[type=checkbox]');
-              if (cb) { cb.click(); return 'fallback'; }
-              return false;
-            }"""
+        await ZhihuPlatform._open_zhihu_schedule_dialog(page)
+        await ZhihuPlatform._pick_zhihu_schedule_date(page, dt)
+        await ZhihuPlatform._pick_zhihu_schedule_time_part(
+            page, 0, f"{dt.hour:02d}"
         )
-        if not opened:
-            raise RuntimeError("[文章][知乎] 未找到定时发布开关")
-        logger.info("[文章][知乎] 定时开关已点击(%s)", opened)
+        await ZhihuPlatform._pick_zhihu_schedule_time_part(
+            page, 1, f"{dt.minute:02d}"
+        )
+        if not await ZhihuPlatform._zhihu_modal_click(page, "确认"):
+            raise RuntimeError("[文章][知乎] 定时弹窗「确认」未找到")
         await asyncio.sleep(2.5)
 
-        # 2. 填日期/时/分(React 原生 value setter + 事件)
-        #    定位: 弹窗 input 不易从标题向上找(层级深),改用值特征——
-        #    日期 input 值形如 yyyy-MM-dd,同容器内另有 2 个短值 input(时/分)
-        result = await page.evaluate(
-            """(parts) => {
-                const vis = (el) => {
-                    const r = el.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                };
-                const dateInput = [...document.querySelectorAll('input')]
-                    .find((el) => vis(el)
-                        && /^\\d{4}-\\d{2}-\\d{2}$/.test(el.value || ''));
-                if (!dateInput) return 'no-date-input';
-                // 同容器内的全部可见 input(按 DOM 顺序: 日期/时/分)
-                let holder = dateInput.parentElement;
-                let inputs = [];
-                for (let d = 0; d < 5 && holder; d++) {
-                    inputs = [...holder.querySelectorAll('input')].filter(vis);
-                    if (inputs.length >= 3) break;
-                    holder = holder.parentElement;
-                }
-                if (inputs.length < 3) return 'no-time-inputs';
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value').set;
-                const setVal = (el, v) => {
-                    setter.call(el, v);
-                    el.dispatchEvent(new Event('input', {bubbles: true}));
-                    el.dispatchEvent(new Event('change', {bubbles: true}));
-                };
-                setVal(inputs[0], parts.date);
-                setVal(inputs[1], parts.hour);
-                setVal(inputs[2], parts.minute);
-                return 'set';
-            }""",
-            {
-                "date": dt.strftime("%Y-%m-%d"),
-                "hour": dt.strftime("%H"),
-                "minute": dt.strftime("%M"),
-            },
-        )
-        if result != "set":
-            raise RuntimeError(f"[文章][知乎] 定时弹窗输入失败: {result}")
-        await asyncio.sleep(1)
-
-        # 3. 点「确认」
-        confirmed = await page.evaluate(
+        # 回读: 弹窗关闭 + 行文本含目标日期
+        if await ZhihuPlatform._zhihu_modal_text(page):
+            raise RuntimeError("[文章][知乎] 定时弹窗确认后未关闭")
+        row_text = await page.evaluate(
             """() => {
-                for (const b of document.querySelectorAll('button')) {
-                    if (b.getBoundingClientRect().width <= 0) continue;
-                    if ((b.innerText || '').trim() === '确认') {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const label = [...document.querySelectorAll('label')].filter(vis)
+                .find((e) => clean(e.innerText).trim().startsWith('定时发布'));
+              if (!label) return '';
+              let row = label.parentElement;
+              for (let d = 0; d < 4 && row; d++) {
+                if (row.querySelector('input, button')) break;
+                row = row.parentElement;
+              }
+              return row ? clean(row.innerText) : '';
             }"""
         )
-        if not confirmed:
-            raise RuntimeError("[文章][知乎] 定时弹窗「确认」未找到")
-        await asyncio.sleep(2)
-        logger.info("[文章][知乎] 定时发布已设置: %s", schedule_time_str)
+        want = dt.strftime("%Y-%m-%d %H:%M")
+        if want not in row_text:
+            raise RuntimeError(
+                f"[文章][知乎] 定时发布未生效(行文本: {row_text or '空'})"
+            )
+        logger.info("[文章][知乎] 定时发布已设置(回读确认): %s", want)
 
     @staticmethod
     async def _set_zhihu_cover(page, cover_path: str):
@@ -2805,4 +3014,6 @@ def _get_video_orientation(file_path: str) -> str:
 _ARTICLE_WRITE_URL = "https://zhuanlan.zhihu.com/write"
 _ARTICLE_TITLE_MAX = 100
 _ARTICLE_IMG_INPUT = 'input[type=file][accept*="image"]'
+# 文章话题上限(2026-10-23 真实浏览器实测: 加满 3 个后「添加话题」按钮消失)
+_ARTICLE_TOPIC_MAX = 3
 

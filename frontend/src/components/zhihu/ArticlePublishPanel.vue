@@ -20,7 +20,7 @@
 
     <div class="setting-card">
       <div class="setting-label">文章话题</div>
-      <div class="setting-hint">可选。最多 5 个,输入后回车添加,发布时按名称搜索联想选中</div>
+      <div class="setting-hint">可选。最多 3 个(平台上限,2026-10 实测),输入后回车添加,发布时按名称搜索联想选中</div>
       <el-select
         v-model="form.topics"
         multiple filterable allow-create default-first-option
@@ -35,7 +35,7 @@
 
     <div class="setting-card">
       <div class="setting-label">内容来源</div>
-      <div class="setting-hint">可选。发布新闻类内容需标注信息来源</div>
+      <div class="setting-hint">可选。发布新闻类内容需标注信息来源;勾选「自行拍摄」时此项为平台必选</div>
       <el-select v-model="form.contentSource" placeholder="选择具体的信息来源（可选）" :disabled="disabled" clearable style="width: 100%;">
         <el-option v-for="opt in sourceOptions" :key="opt" :label="opt" :value="opt" />
       </el-select>
@@ -43,7 +43,9 @@
         图片/视频为自行拍摄
       </el-checkbox>
       <template v-if="form.sourceSelfShot">
-        <div class="setting-hint" style="margin-top: 8px;">自行拍摄需补齐拍摄时间与地点(知乎必填)</div>
+        <div class="setting-hint" style="margin-top: 8px;">
+          知乎联动:自行拍摄开启后 拍摄时间/省份/城市 均为平台必填,且必须先选「内容来源」
+        </div>
         <el-date-picker
           v-model="form.shotTime"
           type="date"
@@ -57,8 +59,9 @@
           <el-select v-model="form.shotProvince" placeholder="省份" :disabled="disabled" filterable allow-create style="width: 50%;">
             <el-option v-for="p in provinceOptions" :key="p" :label="p" :value="p" />
           </el-select>
-          <el-input v-model="form.shotCity" placeholder="城市,如: 杭州" :disabled="disabled" maxlength="20" style="width: 50%;" />
+          <el-input v-model="form.shotCity" placeholder="城市,如: 杭州市" :disabled="disabled" maxlength="20" style="width: 50%;" />
         </div>
+        <div class="setting-hint" style="margin-top: 4px;">城市为知乎按省联动的下拉选项,填平台城市名(如 杭州市/杭州 均可,后端会匹配)</div>
       </template>
     </div>
 
@@ -82,6 +85,13 @@
         标题(≤100 字)、正文图文、封面使用左侧公共配置。封面自动上传知乎图床;
         正文图片自动上传知乎图床。创作声明/话题/投稿至问题/内容来源发布时
         自动在知乎编辑器「发布设置」区完成。
+      </div>
+    </div>
+    <div class="setting-card setting-card--full">
+      <div class="setting-label">封面建议</div>
+      <div class="setting-hint">
+        平台推荐 3:2，建议 1080×720（或更高）。
+        发布时后端会自动按平台比例居中裁剪封面；未设置封面时按平台默认取正文首图。
       </div>
     </div>
   </div>
@@ -191,7 +201,13 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
         else if (diffMin < 30) errors.push('定时时间需晚于当前 30 分钟以上')
         else if (diffMin > 48 * 60) errors.push('定时时间不能超过 48 小时')
       }
-      if ((merged.topics || []).length > 5) errors.push('文章话题最多 5 个')
+      if ((merged.topics || []).length > 3) errors.push('文章话题最多 3 个（平台上限）')
+      // 平台联动(2026-10-23 实测): 自行拍摄开启时 内容信息来源 必选,
+      // 拍摄时间/省份/城市 为必填(*), 留空点确认会报「当前填写有误」
+      if (merged.sourceSelfShot && !merged.contentSource) {
+        errors.push('勾选「自行拍摄」时需先选择内容来源(平台必选)')
+      }
+      if (merged.sourceSelfShot && !merged.shotTime) errors.push('自行拍摄需选择拍摄时间')
       if (merged.sourceSelfShot && !merged.shotProvince) errors.push('自行拍摄需选择拍摄省份')
       if (merged.sourceSelfShot && !merged.shotCity) errors.push('自行拍摄需填写拍摄城市')
       return { valid: errors.length === 0, errors }
@@ -201,9 +217,16 @@ const { form, hasAccountOverride, resetOverride, publicApi } = useChannelForm(
 
 defineExpose(publicApi)
 
-// 取消自行拍摄时清空子字段(知乎必填项只在开关开启时有意义)
+// 联动(与平台一致): 开启自行拍摄时自动补「拍摄时间=今天」(平台必填),
+// 取消时清空子字段(必填项只在开关开启时有意义)
 watch(() => form.sourceSelfShot, (v) => {
-  if (!v) {
+  if (v) {
+    if (!form.shotTime) {
+      const d = new Date()
+      const pad = (n) => String(n).padStart(2, '0')
+      form.shotTime = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    }
+  } else {
     form.shotTime = ''
     form.shotProvince = ''
     form.shotCity = ''

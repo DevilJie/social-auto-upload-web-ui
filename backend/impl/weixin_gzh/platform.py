@@ -2491,6 +2491,15 @@ class WeixinGzhPlatform(BasePlatform):
         gzh_collection_name = kwargs.get("gzh_collection_name", "") or ""
         gzh_claim_source = kwargs.get("gzh_claim_source", "") or ""
         gzh_original_url = kwargs.get("gzh_original_url", "") or ""
+        # 2026-10-23 新增可移植设置(全部选填;失败仅告警)
+        gzh_original = bool(kwargs.get("gzh_original", False))
+        gzh_original_type = kwargs.get("gzh_original_type", "") or "文字原创"
+        gzh_original_author = kwargs.get("gzh_original_author", "") or ""
+        gzh_quick_reprint = kwargs.get("gzh_quick_reprint", True)
+        gzh_comments_enabled = kwargs.get("gzh_comments_enabled", None)
+        gzh_comment_permission = kwargs.get("gzh_comment_permission", "") or ""
+        gzh_comment_auto_select = kwargs.get("gzh_comment_auto_select", None)
+        gzh_platform_recommend = kwargs.get("gzh_platform_recommend", None)
         cover_path = kwargs.get("cover_path", "") or ""
         enable_timer = kwargs.get("enableTimer", False)
         schedule_time_str = kwargs.get("schedule_time_str", "")
@@ -2504,6 +2513,13 @@ class WeixinGzhPlatform(BasePlatform):
         logger.info("[发布参数] 合集: %s", gzh_collection_name or "无")
         logger.info("[发布参数] 创作来源: %s", gzh_claim_source or "无")
         logger.info("[发布参数] 原文链接: %s", gzh_original_url or "无")
+        logger.info(
+            "[发布参数] 原创声明: %s | 留言: %s | 平台推荐: %s",
+            f"{gzh_original_type}(作者={gzh_original_author or author or '文章作者'}"
+            f",快捷转载={gzh_quick_reprint})" if gzh_original else "不声明",
+            "跟随默认" if gzh_comments_enabled is None else gzh_comments_enabled,
+            "跟随默认" if gzh_platform_recommend is None else gzh_platform_recommend,
+        )
         logger.info(
             "[发布参数] 显式封面: %s",
             cover_path or "无(自动抓正文首图)",
@@ -2537,6 +2553,14 @@ class WeixinGzhPlatform(BasePlatform):
                     enable_timer=enable_timer,
                     schedule_time_str=schedule_time_str,
                     is_draft=is_draft,
+                    gzh_original=gzh_original,
+                    gzh_original_type=gzh_original_type,
+                    gzh_original_author=gzh_original_author,
+                    gzh_quick_reprint=gzh_quick_reprint,
+                    gzh_comments_enabled=gzh_comments_enabled,
+                    gzh_comment_permission=gzh_comment_permission,
+                    gzh_comment_auto_select=gzh_comment_auto_select,
+                    gzh_platform_recommend=gzh_platform_recommend,
                 )
 
         logger.info("=" * 60)
@@ -2557,6 +2581,14 @@ class WeixinGzhPlatform(BasePlatform):
         enable_timer: bool = False,
         schedule_time_str: str = "",
         is_draft: bool = True,
+        gzh_original: bool = False,
+        gzh_original_type: str = "文字原创",
+        gzh_original_author: str = "",
+        gzh_quick_reprint: bool = True,
+        gzh_comments_enabled: bool | None = None,
+        gzh_comment_permission: str = "",
+        gzh_comment_auto_select: bool | None = None,
+        gzh_platform_recommend: bool | None = None,
     ):
         """单账号文章发布完整流程。
 
@@ -2687,6 +2719,38 @@ class WeixinGzhPlatform(BasePlatform):
                         await self._set_original_url(page, gzh_original_url)
                     except Exception as e:
                         logger.warning("[发布文章] 原文链接设置失败(跳过): %s", e)
+                # 5.1 留言(选填;平台默认: 开启+所有人+自动精选)
+                if (
+                    gzh_comments_enabled is not None
+                    or gzh_comment_permission
+                    or gzh_comment_auto_select is not None
+                ):
+                    try:
+                        logger.info(
+                            "[发布文章] 设置留言: 开关=%s 谁可留言=%s 自动精选=%s",
+                            gzh_comments_enabled, gzh_comment_permission or "默认",
+                            gzh_comment_auto_select,
+                        )
+                        await self._set_article_comments(
+                            page,
+                            enabled=gzh_comments_enabled,
+                            permission=gzh_comment_permission,
+                            auto_select=gzh_comment_auto_select,
+                        )
+                    except Exception as e:
+                        logger.warning("[发布文章] 留言设置失败(跳过): %s", e)
+                # 5.2 平台推荐(选填;平台默认「已开启」)
+                if gzh_platform_recommend is not None:
+                    try:
+                        logger.info(
+                            "[发布文章] 设置平台推荐: %s",
+                            "开启" if gzh_platform_recommend else "不开启",
+                        )
+                        await self._set_article_platform_recommend(
+                            page, bool(gzh_platform_recommend)
+                        )
+                    except Exception as e:
+                        logger.warning("[发布文章] 平台推荐设置失败(跳过): %s", e)
 
                 # 6. before_submit 截图(skill 6.3 验证证据)
                 shot_dir = Path(BASE_DIR) / "screenshots"
@@ -2703,7 +2767,54 @@ class WeixinGzhPlatform(BasePlatform):
                     logger.info("[发布文章] 保存为草稿(不群发)...")
                     await self._save_article_draft(page)
                     logger.info("[发布文章] 草稿已保存!")
+                    # 7.1 原创声明放在草稿保存之后重试: 平台对原创声明可能要求
+                    #     管理员微信扫码验证(2026-10-23 实测: 点确定后会话被作废、
+                    #     页面跳登录页), 会话失效也不影响已保存的草稿。
+                    if gzh_original:
+                        try:
+                            logger.info(
+                                "[发布文章] 设置原创声明: %s (作者=%s)",
+                                gzh_original_type,
+                                gzh_original_author or author or "文章作者",
+                            )
+                            await self._set_article_original(
+                                page,
+                                original_type=gzh_original_type,
+                                author=gzh_original_author or author,
+                                quick_reprint=bool(gzh_quick_reprint),
+                            )
+                            await asyncio.sleep(2)
+                            if not await self._is_gzh_logged_in(page):
+                                raise RuntimeError(
+                                    "平台要求管理员扫码验证,会话已失效"
+                                )
+                            logger.info("[发布文章] 原创声明已设置,重新保存草稿...")
+                            await self._save_article_draft(page)
+                            logger.info("[发布文章] 原创声明后的草稿已保存!")
+                        except Exception as e:
+                            logger.warning(
+                                "[发布文章] 原创声明设置失败(跳过; 平台可能要求"
+                                "管理员扫码验证): %s", e,
+                            )
                 else:
+                    if gzh_original:
+                        try:
+                            logger.info(
+                                "[发布文章] 设置原创声明: %s (作者=%s)",
+                                gzh_original_type,
+                                gzh_original_author or author or "文章作者",
+                            )
+                            await self._set_article_original(
+                                page,
+                                original_type=gzh_original_type,
+                                author=gzh_original_author or author,
+                                quick_reprint=bool(gzh_quick_reprint),
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "[发布文章] 原创声明设置失败(跳过; 平台可能要求"
+                                "管理员扫码验证): %s", e,
+                            )
                     if enable_timer and schedule_time_str:
                         publish_dt = self._build_publish_datetime(schedule_time_str, 1)
                         if publish_dt and not (
@@ -3294,6 +3405,430 @@ class WeixinGzhPlatform(BasePlatform):
         except Exception:
             pass
         logger.info("[发布文章] 原文链接已填写")
+
+    # ------------------------------------------------------------------
+    # 2026-10-23 新增设置项: 原创声明 / 留言 / 平台推荐
+    # (真实浏览器枚举: type=77 编辑页「文章设置」区)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _is_gzh_logged_in(page) -> bool:
+        """判断当前页面是否仍处于公众号登录态(URL 带 token 且非登录页)。"""
+        try:
+            url = page.url or ""
+        except Exception:
+            return False
+        if any(m in url for m in _COOKIE_INVALID_URL_MARKERS):
+            return False
+        return "token=" in url
+
+    @staticmethod
+    async def _gzh_dialog_text(page) -> str:
+        """返回当前可见 weui-desktop-dialog 的文本(无弹窗返回空串)。"""
+        return await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                const st = getComputedStyle(el);
+                return r.width > 0 && r.height > 0
+                  && st.visibility !== 'hidden' && st.display !== 'none';
+              };
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const d = [...document.querySelectorAll('.weui-desktop-dialog')]
+                .filter(vis)[0];
+              return d ? clean(d.innerText) : '';
+            }"""
+        )
+
+    @staticmethod
+    async def _wait_gzh_dialog(page, timeout_s: float = 15) -> bool:
+        deadline = asyncio.get_event_loop().time() + timeout_s
+        while asyncio.get_event_loop().time() < deadline:
+            if await WeixinGzhPlatform._gzh_dialog_text(page):
+                return True
+            await asyncio.sleep(0.5)
+        return False
+
+    @staticmethod
+    async def _click_gzh_dialog_button(page, text: str) -> bool:
+        """点当前弹窗内文本含 *text* 的按钮(优先 primary)。"""
+        return bool(await page.evaluate(
+            """(want) => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const d = [...document.querySelectorAll('.weui-desktop-dialog')]
+                .filter(vis)[0];
+              if (!d) return false;
+              const btns = [...d.querySelectorAll('button')].filter(vis);
+              const primary = btns.find((b) => (b.className || '')
+                .includes('weui-desktop-btn_primary')
+                && (b.innerText || '').trim().indexOf(want) !== -1);
+              const any = btns.find(
+                (b) => (b.innerText || '').trim().indexOf(want) !== -1);
+              const target = primary || any;
+              if (!target) return false;
+              target.click();
+              return true;
+            }""",
+            text,
+        ))
+
+    @staticmethod
+    async def _set_article_comments(
+        page,
+        enabled: bool | None = True,
+        permission: str = "",
+        auto_select: bool | None = True,
+    ):
+        """留言设置(2026-10-23 实测 DOM)。
+
+        入口: 设置区「留言」行(``.js_interaction_cell``) → 弹窗:
+          - 留言开关 (checkbox, 默认开启)
+          - 谁可以留言 (radio: 所有人/已关注的人/已关注7天及以上的人, 默认所有人)
+          - 自动精选留言 (checkbox, 默认开启)
+          - 确定 / 取消
+        任一步失败抛异常, 由上层 warning+跳过(选填项)。
+        """
+        opened = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const cell = document.querySelector('.js_interaction_cell');
+              if (!cell || !vis(cell)) return false;
+              cell.click();
+              return true;
+            }"""
+        )
+        if not opened:
+            raise RuntimeError("未找到留言设置行(.js_interaction_cell)")
+        if not await WeixinGzhPlatform._wait_gzh_dialog(page, 15):
+            raise RuntimeError("留言设置弹窗未出现")
+        await asyncio.sleep(1)
+
+        changed = await page.evaluate(
+            """(args) => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const d = [...document.querySelectorAll('.weui-desktop-dialog')]
+                .filter(vis)[0];
+              if (!d) return null;
+              const log = [];
+              // 找到文本为 text 的节点, 向上找最近的 checkbox
+              const findCheckbox = (text) => {
+                const nodes = [...d.querySelectorAll('label, div, span')]
+                  .filter((el) => clean(el.innerText) === text);
+                for (const n of nodes) {
+                  let el = n;
+                  for (let k = 0; k < 4 && el; k++) {
+                    const cb = el.querySelector('input[type=checkbox]');
+                    if (cb) return cb;
+                    el = el.parentElement;
+                  }
+                }
+                return null;
+              };
+              // 兜底: 按弹窗内 checkbox 顺序(实测: [0]=留言开关, [1]=自动精选留言)
+              const checks = [...d.querySelectorAll('input[type=checkbox]')]
+                .filter(vis);
+              if (args.enabled !== null && args.enabled !== undefined) {
+                const cb = findCheckbox('留言开关') || checks[0];
+                if (cb && cb.checked !== args.enabled) {
+                  cb.click();
+                  log.push('留言开关=' + args.enabled);
+                }
+              }
+              if (args.permission) {
+                const radios = [...d.querySelectorAll('input[type=radio]')];
+                for (const r of radios) {
+                  const label = clean((r.closest('label')
+                    || r.parentElement || {}).innerText || '');
+                  if (label.includes(args.permission)) {
+                    if (!r.checked) { r.click(); log.push('谁可留言=' + label); }
+                    break;
+                  }
+                }
+              }
+              if (args.autoSelect !== null && args.autoSelect !== undefined) {
+                const cb = findCheckbox('自动精选留言')
+                  || checks[checks.length - 1];
+                if (cb && cb.checked !== args.autoSelect) {
+                  cb.click();
+                  log.push('自动精选=' + args.autoSelect);
+                }
+              }
+              return log;
+            }""",
+            {
+                "enabled": enabled,
+                "permission": permission or "",
+                "autoSelect": auto_select,
+            },
+        )
+        if changed is None:
+            raise RuntimeError("留言设置弹窗内容读取失败")
+        await asyncio.sleep(1)
+        if not await WeixinGzhPlatform._click_gzh_dialog_button(page, "确定"):
+            raise RuntimeError("留言弹窗未找到「确定」")
+        await asyncio.sleep(2)
+        if await WeixinGzhPlatform._gzh_dialog_text(page):
+            raise RuntimeError("留言弹窗未关闭(校验未通过)")
+        logger.info("[发布文章] 留言已设置(%s)", "、".join(changed or ["跟随默认"]))
+
+    @staticmethod
+    async def _set_article_platform_recommend(page, enabled: bool):
+        """平台推荐开关(2026-10-23 实测: hover 弹出 popover, click 无效)。
+
+        入口: 设置区「平台推荐 已开启」行(.not_recommend_checkbox_label)。
+        popover 选项: 开启(内容有可能被推荐至看一看或其他推荐场景) /
+        不开启(内容不会被推荐,但不影响用户收到推送)。
+        """
+        trigger = page.locator(".not_recommend_checkbox_label").first
+        await trigger.scroll_into_view_if_needed(timeout=10000)
+        await trigger.hover()
+        await asyncio.sleep(1.5)
+
+        async def _pick() -> str:
+            return await page.evaluate(
+                """(want) => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const clean = (s) => (s || '')
+                    .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+                  const pops = [...document.querySelectorAll('.popover')]
+                    .filter(vis).filter((p) => clean(p.innerText)
+                      .includes('内容不会被推荐'));
+                  if (!pops.length) return 'no-popover';
+                  const pop = pops[0];
+                  const radios = [...pop.querySelectorAll(
+                    'input[type=radio]')];
+                  for (const r of radios) {
+                    const label = clean((r.closest('label')
+                      || r.parentElement || {}).innerText || '');
+                    const isOn = label.includes('开启')
+                      && !label.includes('不开启');
+                    const isOff = label.includes('不开启');
+                    if ((want && isOn) || (!want && isOff)) {
+                      if (!r.checked) { r.click(); return 'clicked'; }
+                      return 'already';
+                    }
+                  }
+                  return 'no-radio';
+                }""",
+                bool(enabled),
+            )
+
+        result = await _pick()
+        if result in ("no-popover", "no-radio"):
+            # 兜底: 点击触发器(hover 未生效时)
+            await trigger.click()
+            await asyncio.sleep(1.5)
+            result = await _pick()
+        if result not in ("clicked", "already"):
+            raise RuntimeError(f"平台推荐 popover 设置失败: {result}")
+        await asyncio.sleep(1)
+        logger.info(
+            "[发布文章] 平台推荐已设置: %s",
+            "开启" if enabled else "不开启",
+        )
+        # 收起 popover, 避免遮挡后续操作
+        try:
+            await page.mouse.move(5, 5)
+            await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _set_article_original(
+        page,
+        original_type: str = "文字原创",
+        author: str = "",
+        quick_reprint: bool = True,
+    ):
+        """原创声明(2026-10-23 实测 DOM)。
+
+        入口: 设置区「原创 …未声明」行(``.js_original_apply_cell``) → 弹窗:
+          - 声明类型 radio: 文字原创(value=0)/漫画原创(value=1, 条件: 字数<300
+            且图片≥4张)/无需声明(-1)
+          - 作者 input(必填 ≤8 字; **会自动带入文章作者**, 为空需补填)
+          - 白名单搜索(选填, 本实现不设置)
+          - 快捷转载 switch(默认开启=所有账号可转载此文)
+          - 必须勾选《微信公众平台原创声明及相关功能使用协议》
+          - 确定 / 取消
+        !!! 重要: 平台对原创声明可能要求管理员微信扫码验证。2026-10-23 实测
+        点「确定」后公众号会话被作废、页面跳登录页。上层按「warning+跳过」处理,
+        并先保存草稿, 保证内容不丢。
+        """
+        opened = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const cell = document.querySelector('.js_original_apply_cell');
+              if (!cell || !vis(cell)) return false;
+              cell.click();
+              return true;
+            }"""
+        )
+        if not opened:
+            raise RuntimeError("未找到原创声明行(.js_original_apply_cell)")
+        if not await WeixinGzhPlatform._wait_gzh_dialog(page, 20):
+            raise RuntimeError("原创声明弹窗未出现")
+        await asyncio.sleep(1)
+
+        # 1. 声明类型
+        picked = await page.evaluate(
+            """(want) => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const d = [...document.querySelectorAll('.weui-desktop-dialog')]
+                .filter(vis)[0];
+              if (!d) return 'no-dialog';
+              const radios = [...d.querySelectorAll('input[type=radio]')];
+              const labelOf = (r) => clean((r.closest('label')
+                || r.parentElement || {}).innerText || '');
+              const target = radios.find((r) => labelOf(r).startsWith(want));
+              if (!target) return 'no-radio';
+              if (!target.checked) target.click();
+              return 'ok';
+            }""",
+            original_type,
+        )
+        if picked != "ok":
+            raise RuntimeError(f"原创声明类型未找到: {original_type}")
+
+        # 2. 作者(自动带入文章作者; 空则补填, 平台要求 ≤8 字)
+        author_text = (author or "").strip()
+        if author_text:
+            try:
+                ainput = page.locator(
+                    '.weui-desktop-dialog input[placeholder="请输入作者"]'
+                ).first
+                cur = (await ainput.input_value()) or ""
+                if not cur.strip():
+                    await ainput.click()
+                    await ainput.fill(author_text[:8])
+                    await page.evaluate(
+                        """() => {
+                          const vis = (el) => el
+                            .getBoundingClientRect().width > 0;
+                          const d = [...document.querySelectorAll(
+                            '.weui-desktop-dialog')].filter(vis)[0];
+                          const el = d && d.querySelector(
+                            'input[placeholder="请输入作者"]');
+                          if (!el) return;
+                          el.dispatchEvent(new Event('input', {bubbles: true}));
+                          el.dispatchEvent(new Event('change', {bubbles: true}));
+                          el.blur();
+                        }"""
+                    )
+                    await asyncio.sleep(0.8)
+            except Exception as exc:
+                logger.warning("[发布文章] 原创作者填写失败(继续): %s", exc)
+
+        # 3. 快捷转载 + 4. 协议勾选
+        flags = await page.evaluate(
+            """(want) => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const d = [...document.querySelectorAll('.weui-desktop-dialog')]
+                .filter(vis)[0];
+              if (!d) return null;
+              const out = {reprint: null, agree: false};
+              const checks = [...d.querySelectorAll('input[type=checkbox]')];
+              // 实测(2026-10-23)弹窗 checkbox 顺序: [0]=隐藏, [1]=快捷转载,
+              // [2]=《原创声明及相关功能使用协议》; 先按文案匹配, 否则按顺序兜底
+              let reprintCb = null;
+              let agreeCb = null;
+              for (const cb of checks) {
+                // label 文本可能为空, 用最近的容器文本判断
+                let holder = cb.closest('label') || cb.parentElement;
+                let text = clean((holder || {}).innerText || '');
+                for (let k = 0; k < 2 && !text && holder; k++) {
+                  holder = holder.parentElement;
+                  text = clean((holder || {}).innerText || '');
+                }
+                if (text.includes('快捷转载')) reprintCb = cb;
+                if (text.includes('同意')) agreeCb = cb;
+              }
+              if (!reprintCb && checks.length > 1) reprintCb = checks[1];
+              if (!agreeCb) agreeCb = checks[checks.length - 1];
+              if (reprintCb) {
+                if (reprintCb.checked !== want) reprintCb.click();
+                out.reprint = reprintCb.checked;
+              }
+              if (agreeCb) {
+                if (!agreeCb.checked) agreeCb.click();
+                out.agree = true;
+              }
+              return out;
+            }""",
+            bool(quick_reprint),
+        )
+        if flags is None:
+            raise RuntimeError("原创声明弹窗控件读取失败")
+        await asyncio.sleep(1)
+
+        # 5. 校验: 协议必须已勾选(平台校验), 作者不得为空
+        precheck = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const d = [...document.querySelectorAll('.weui-desktop-dialog')]
+                .filter(vis)[0];
+              if (!d) return null;
+              const checks = [...d.querySelectorAll('input[type=checkbox]')];
+              let agreed = false;
+              for (const cb of checks) {
+                let holder = cb.closest('label') || cb.parentElement;
+                let text = clean((holder || {}).innerText || '');
+                for (let k = 0; k < 2 && !text && holder; k++) {
+                  holder = holder.parentElement;
+                  text = clean((holder || {}).innerText || '');
+                }
+                if (text.includes('同意') && cb.checked) agreed = true;
+              }
+              const ai = d.querySelector('input[placeholder="请输入作者"]');
+              return {agreed, author: ai ? (ai.value || '').trim() : ''};
+            }"""
+        )
+        if not precheck or not precheck.get("agreed"):
+            raise RuntimeError("原创声明协议未勾选成功")
+        if not precheck.get("author"):
+            raise RuntimeError("原创声明作者为空(平台必填,≤8 字)")
+
+        # 6. 确定
+        if not await WeixinGzhPlatform._click_gzh_dialog_button(page, "确定"):
+            raise RuntimeError("原创声明弹窗未找到「确定」")
+        # 平台可能弹扫码验证/跳登录页, 给 60s 处理
+        deadline = asyncio.get_event_loop().time() + 60
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(2)
+            if not await WeixinGzhPlatform._gzh_dialog_text(page):
+                break
+            if not await WeixinGzhPlatform._is_gzh_logged_in(page):
+                break
+        if not await WeixinGzhPlatform._is_gzh_logged_in(page):
+            raise RuntimeError(
+                "原创声明提交后平台要求管理员扫码验证(会话失效)"
+            )
+        if await WeixinGzhPlatform._gzh_dialog_text(page):
+            raise RuntimeError("原创声明弹窗未关闭(可能校验未通过)")
+        # 回读: 原创行状态应不再是「未声明」
+        row_text = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const clean = (s) => (s || '')
+                .replace(/[\\u200B-\\u200D\\uFEFF]/g, '').trim();
+              const cell = document.querySelector('.js_original_apply_cell');
+              return cell && vis(cell) ? clean(cell.innerText) : '';
+            }"""
+        )
+        if "未声明" in (row_text or ""):
+            raise RuntimeError("原创声明未生效(行状态仍为未声明)")
+        logger.info("[发布文章] 原创声明已设置: %s", row_text[:60])
 
     @staticmethod
     async def _save_article_draft(page):

@@ -24,6 +24,7 @@ from flask import Blueprint, jsonify, request
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from conf import BASE_DIR
+from services.article_cover import prepare_article_cover
 from storage import resolve_material_path
 from util._logger import get_channel_logger
 
@@ -41,6 +42,16 @@ ARTICLE_PLATFORM_MAP = {
     "微信公众号": 17,
     "zhihu": 14,
     "知乎": 14,
+    "baijiahao": 6,
+    "百家号": 6,
+    "csdn": 15,
+    "CSDN": 15,
+    "weibo": 11,
+    "微博": 11,
+    "dayu": 21,
+    "大鱼号": 21,
+    "toutiao": 13,
+    "今日头条": 13,
 }
 
 # 忽略字段:正文 HTML 单独接收,不进 account_configs 的通用拷贝
@@ -187,6 +198,9 @@ def publish_article():
 
         schedule_time = config.get("scheduleTime", "") or ""
         cover_stored = config.get("coverStoredPath", "") or ""
+        # 按平台封面规格裁剪(比例/尺寸)，平台只做展示裁剪兜底
+        cover_local = resolve_material_path(cover_stored) if cover_stored else ""
+        cover_local = prepare_article_cover(cover_local, platform_key)
         # 知乎文章设置: 创作声明/投稿至问题/话题/内容来源
         raw_topics = config.get("topics", []) or []
         if isinstance(raw_topics, str):
@@ -199,12 +213,42 @@ def publish_article():
                 html=html,
                 account_file=[config.get("filePath")],
                 author=config.get("articleAuthor", "") or "",
-                digest=digest,
+                digest=config.get("digest", "") or digest,
                 gzh_collection_name=config.get("gzhCollectionName", "") or "",
                 gzh_claim_source=config.get("gzhClaimSource", "") or "",
                 gzh_original_url=config.get("gzhOriginalUrl", "") or "",
-                cover_path=resolve_material_path(cover_stored) if cover_stored else "",
+                # 公众号原创声明/留言/平台推荐(2026-10-23 审计补齐)
+                gzh_original=bool(config.get("gzhOriginal", False)),
+                gzh_original_type=(
+                    config.get("gzhOriginalType", "") or "文字原创"
+                ),
+                gzh_original_author=(
+                    config.get("gzhOriginalAuthor", "") or ""
+                ),
+                gzh_quick_reprint=bool(
+                    config.get("gzhQuickReprint", True)
+                ),
+                gzh_comments_enabled=config.get(
+                    "gzhCommentsEnabled", None
+                ),
+                gzh_comment_permission=(
+                    config.get("gzhCommentPermission", "") or ""
+                ),
+                gzh_comment_auto_select=config.get(
+                    "gzhCommentAutoSelect", None
+                ),
+                gzh_platform_recommend=config.get(
+                    "gzhPlatformRecommend", None
+                ),
+                cover_path=cover_local,
                 creation_statement=config.get("creationStatement", "") or "",
+                source_declaration=bool(
+                    config.get("sourceDeclaration", False)
+                ),
+                # 百家号: 来源说明联动(时间/地点) + 智能创作「自动生成播客」
+                source_time=config.get("sourceTime", "") or "",
+                source_location=config.get("sourceLocation", "") or "",
+                podcast=bool(config.get("podcast", True)),
                 target_question=config.get("targetQuestion", "") or "",
                 topics=raw_topics,
                 content_source=config.get("contentSource", "") or "",
@@ -212,6 +256,53 @@ def publish_article():
                 shot_time=config.get("shotTime", "") or "",
                 shot_province=config.get("shotProvince", "") or "",
                 shot_city=config.get("shotCity", "") or "",
+                tags=config.get("tags", []) or [],
+                category=config.get("category", "") or "",
+                article_type=config.get("articleType", "") or "原创",
+                # CSDN: 可见范围 / 原文链接 / 转载授权 / GitCode 备份
+                read_type=config.get("readType", "") or "public",
+                original_link=config.get("originalLink", "") or "",
+                authorized_status=bool(
+                    config.get("authorizedStatus", False)
+                ),
+                sync_git_code=bool(config.get("syncGitCode", False)),
+                weibo_topics=config.get("weiboTopics", []) or [],
+                weibo_statement=(
+                    config.get("weiboStatement", "") or ""
+                ),
+                # 微博发布弹窗设置: 微博正文/发布范围/原创声明/
+                # 关注@头条文章/仅粉丝阅读全文
+                weibo_text=config.get("weiboText", "") or "",
+                weibo_rank=config.get("weiboRank", "") or "",
+                weibo_is_original=bool(
+                    config.get("weiboIsOriginal", False)
+                ),
+                weibo_follow_official=bool(
+                    config.get("weiboFollowOfficial", True)
+                ),
+                weibo_follow_to_read=config.get(
+                    "weiboFollowToRead", None
+                ),
+                dayu_source_remark=(
+                    config.get("dayuSourceRemark", "") or ""
+                ),
+                dayu_original_url=(
+                    config.get("dayuOriginalUrl", "") or ""
+                ),
+                first_publish=bool(config.get("firstPublish", False)),
+                ad_revenue=config.get("adRevenue", None),
+                publish_micro_headline=config.get(
+                    "publishMicroHeadline", None
+                ),
+                cover_mode=config.get("coverMode", "") or "",
+                # 头条: 授权平台自动维权 / 添加位置 / 添加合集
+                auto_rights=config.get("autoRights"),
+                location=config.get("location", "") or "",
+                collection_name=config.get("collectionName", "") or "",
+                # 头条「作品声明」/ 百家号旧字段名
+                creation_declaration=(
+                    config.get("creationDeclaration", "") or ""
+                ),
                 enableTimer=bool(schedule_time) and not is_draft,
                 schedule_time_str=schedule_time,
                 is_draft=is_draft,

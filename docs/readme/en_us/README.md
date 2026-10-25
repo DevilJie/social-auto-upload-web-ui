@@ -252,6 +252,6 @@ This project is built on top of an open-source project. Many thanks to the origi
 
 ## 📄 License
 
-[MIT License](../../../LICENSE)
+[Apache License 2.0](../../../LICENSE)
 
 This project is for learning and personal use only. Users assume all risks and responsibilities arising from automated operations, and must comply with the relevant terms of service of each platform.

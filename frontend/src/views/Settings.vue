@@ -1,10 +1,17 @@
 <template>
   <div class="settings-page" v-loading="loading">
-    <h1 class="page-title">系统设置</h1>
+    <div class="page-title-row">
+      <h1 class="page-title">系统设置</h1>
+      <el-tooltip content="重新查看新手引导" placement="top">
+        <button class="guide-replay-btn" type="button" @click="restartGuide">
+          <el-icon><Guide /></el-icon>
+        </button>
+      </el-tooltip>
+    </div>
     <p class="page-subtitle">配置应用偏好</p>
 
     <!-- 代理设置 -->
-    <div class="settings-card">
+    <div class="settings-card" data-tour="card-proxy">
       <h3 class="card-title">
         <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         网络代理
@@ -32,7 +39,7 @@
     </div>
 
     <!-- 发布设置 -->
-    <div class="settings-card">
+    <div class="settings-card" data-tour="card-publish">
       <h3 class="card-title">
         <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
         发布设置
@@ -70,7 +77,7 @@
           <span class="setting-desc">选择账号 Cookie 有效性的检测时机。两个机制互斥，只能生效一个</span>
         </div>
         <div class="setting-control">
-          <el-select v-model="settings.accountCheckMode" style="width: 220px">
+          <el-select v-model="settings.accountCheckMode" data-tour="check-mode" style="width: 220px">
             <el-option label="发布前检测（默认）" value="pre-publish" />
             <el-option label="项目启动时后台检测" value="startup" />
           </el-select>
@@ -94,7 +101,7 @@
           <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
           渠道黑名单
         </h3>
-        <el-button type="primary" @click="openBlacklistDialog">
+        <el-button type="primary" data-tour="blacklist-add" @click="openBlacklistDialog">
           <el-icon><Plus /></el-icon> 添加渠道
         </el-button>
       </div>
@@ -137,7 +144,7 @@
           <span class="setting-desc">选择素材文件的存储方式，S3 兼容存储支持 MinIO、阿里云 OSS、AWS S3 等</span>
         </div>
         <div class="setting-control">
-          <el-radio-group v-model="settings.storage.type">
+          <el-radio-group v-model="settings.storage.type" data-tour="storage-type">
             <el-radio value="local">本地存储</el-radio>
             <el-radio value="s3">S3 兼容存储</el-radio>
           </el-radio-group>
@@ -330,18 +337,28 @@
       :disabled-keys="appStore.disabledPlatforms"
       @confirm="onBlacklistConfirm"
     />
+
+    <!-- 页面新手引导（teleport 到 body） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="settingsGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Plus, Close, Warning } from '@element-plus/icons-vue'
+import { ChatDotRound, Plus, Close, Warning, Guide } from '@element-plus/icons-vue'
 import { settingsApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import { http } from '@/utils/request'
 import { useAppStore } from '@/stores/app'
 import PlatformBlacklistDialog from '@/components/PlatformBlacklistDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { settingsGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const appStore = useAppStore()
 
@@ -575,9 +592,18 @@ const handleSave = async () => {
   }
 }
 
+// ===== 页面新手引导 =====
+const tourRef = ref(null)
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.settings)
+const restartGuide = () => tourRef.value?.start()
+
 onMounted(() => {
   fetchSettings()
   fetchSystemInfo()
+  // 首次进入自动播放页面引导
+  if (!isGuideDone(GUIDE_KEYS.settings)) {
+    setTimeout(() => tourRef.value?.start(), 600)
+  }
 })
 </script>
 
@@ -598,6 +624,34 @@ onMounted(() => {
     font-size: 14px;
     color: $text-secondary;
     margin: 0 0 $spacing-lg 0;
+  }
+
+  // 页头标题 + 新手引导重看入口
+  .page-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .guide-replay-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px dashed rgba($overlay-rgb, 0.28);
+    background: transparent;
+    color: $text-muted;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all $transition-fast;
+
+    &:hover {
+      color: $brand-start;
+      border-color: rgba($brand-start, 0.5);
+      background: rgba($brand-start, 0.08);
+    }
   }
 
   .settings-card {

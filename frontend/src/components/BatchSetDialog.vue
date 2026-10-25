@@ -2,12 +2,24 @@
   <el-dialog
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    :title="title"
     width="720px"
     top="8vh"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    @opened="onOpened"
   >
-    <el-form label-position="top">
+    <template #header>
+      <div class="bsd-dialog-header">
+        <span class="bsd-dialog-title">{{ title }}</span>
+        <el-tooltip content="重新查看引导" placement="top">
+          <button class="bsd-guide-btn" type="button" @click="startGuide">
+            <el-icon><Guide /></el-icon>
+            新手引导
+          </button>
+        </el-tooltip>
+      </div>
+    </template>
+    <el-form label-position="top" data-tour="bs-fields">
       <el-form-item label="标题">
         <el-input
           v-model="formTitle"
@@ -77,7 +89,7 @@
         />
       </el-form-item>
       <el-form-item label="渠道">
-        <div class="channel-grid">
+        <div class="channel-grid" data-tour="bs-platforms">
           <div
             v-for="p in platforms"
             :key="p.key"
@@ -115,6 +127,7 @@
       </el-button>
       <el-button
         type="primary"
+        data-tour="bs-apply"
         :disabled="checkedCount === 0"
         title="覆盖全部字段，留空字段清空原值（仅当前视频）"
         @click="handleApply('full')"
@@ -132,12 +145,23 @@
       </el-button>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，首次打开自动播放） -->
+  <GuideTour
+    ref="bsdTourRef"
+    :steps="batchSetGuideSteps"
+    @finish="onGuideDone"
+    @skip="onGuideDone"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Guide } from '@element-plus/icons-vue'
 import { DECLARATION_BATCH_OPTIONS } from '@/config/platforms'
+import GuideTour from '@/components/GuideTour.vue'
+import { batchSetGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const MAX_TAGS = 10
 
@@ -166,6 +190,21 @@ const checkedKeys = ref(new Set())
 
 const checkedCount = computed(() => checkedKeys.value.size)
 
+// ========== 弹窗新手引导 ==========
+const bsdTourRef = ref(null)
+
+const startGuide = () => bsdTourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，之后打开弹窗不再自动播放
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.batchSet)
+
+// @opened：弹窗打开动画结束后再启动引导，保证高亮定位准确
+function onOpened() {
+  if (!isGuideDone(GUIDE_KEYS.batchSet)) {
+    setTimeout(() => bsdTourRef.value?.start(), 150)
+  }
+}
+
 watch(() => props.modelValue, (open) => {
   if (open) {
     formTitle.value = ''
@@ -178,6 +217,9 @@ watch(() => props.modelValue, (open) => {
     checkedKeys.value = new Set(
       props.platforms.filter(p => p.count > 0).map(p => p.key)
     )
+  } else {
+    // 保险：弹窗关闭时结束可能还开着的引导
+    bsdTourRef.value?.stop()
   }
 })
 
@@ -232,6 +274,41 @@ function handleApply(mode = 'full', scope = 'current') {
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
+
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中）：
+// 标题 + 新手引导入口，padding-right 给右上角关闭按钮留位
+.bsd-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.bsd-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.bsd-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .channel-grid {
   display: grid;

@@ -1,18 +1,26 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="编辑封面"
     width="960px"
     class="cover-editor-dialog"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     @closed="onClosed"
     append-to-body
   >
+    <template #header>
+      <div class="ce-dialog-header">
+        <span class="ce-dialog-title">编辑封面</span>
+        <el-tooltip content="引导" placement="top">
+          <button class="ce-guide-help" type="button" @click="startGuide">?</button>
+        </el-tooltip>
+      </div>
+    </template>
 
     <div class="cover-editor-body">
       <!-- 左侧：裁剪画布（主体） -->
       <div class="editor-crop">
-        <div class="crop-area">
+        <div class="crop-area" data-tour="ce-canvas">
           <div v-if="!currentImageSrc" class="crop-empty">
             <el-icon :size="32"><Picture /></el-icon>
             <span>{{ fillAllMode ? '上传一张图片，其余尺寸自动裁剪填充' : '选择右侧时间轴帧、上传图片或从素材库选取' }}</span>
@@ -38,7 +46,7 @@
         <!-- 尺寸 tab -->
         <div class="sidebar-block">
           <div class="sidebar-label">封面尺寸</div>
-          <div class="ratio-tabs">
+          <div class="ratio-tabs" data-tour="ce-ratio-tabs">
             <button
               v-for="r in ratioTabs"
               :key="r"
@@ -52,7 +60,7 @@
         </div>
 
         <!-- Timeline -->
-        <div class="sidebar-block" v-if="frames.length > 0">
+        <div class="sidebar-block" data-tour="ce-timeline" v-if="frames.length > 0">
           <div class="sidebar-label">
             视频时间轴
             <span class="sidebar-hint">拖动选帧</span>
@@ -63,7 +71,7 @@
         <!-- 图片来源 -->
         <div class="sidebar-block">
           <div class="sidebar-label">图片来源</div>
-          <div class="editor-actions">
+          <div class="editor-actions" data-tour="ce-upload">
             <button class="action-btn action-upload" @click="triggerLocalUpload">
               <el-icon :size="16"><Upload /></el-icon>
               <span>上传图片</span>
@@ -89,10 +97,13 @@
       </div>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，仅标题栏「?」按钮按需查看） -->
+  <GuideTour ref="ceTourRef" :steps="coverEditorGuideSteps" />
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload, Picture, PictureFilled, Check } from '@element-plus/icons-vue'
 import { materialsApi } from '@/api/materials'
@@ -100,6 +111,8 @@ import { getFileUrl } from '@/utils/storage'
 import { frameApi } from '@/api/frame'
 import VideoTimeline from './VideoTimeline.vue'
 import MaterialSelectDialog from './MaterialSelectDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { coverEditorGuideSteps } from '@/config/guides'
 
 const props = defineProps({
   videoLandscape: { type: Object, default: null },
@@ -529,6 +542,15 @@ function onClosed() {
   Object.keys(panels).forEach((k) => delete panels[k])
 }
 
+// ========== 弹窗新手引导（仅按需查看：标题栏「?」按钮触发） ==========
+const ceTourRef = ref(null)
+const startGuide = () => ceTourRef.value?.start()
+
+// 保险：弹窗关闭时结束可能还开着的引导
+watch(visible, (v) => {
+  if (!v) ceTourRef.value?.stop()
+})
+
 defineExpose({ open })
 </script>
 
@@ -573,6 +595,40 @@ defineExpose({ open })
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中）：
+// 标题 + 引导入口，padding-right 给右上角关闭按钮留位
+.ce-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.ce-dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.ce-guide-help {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .cover-editor-body {
   display: flex;

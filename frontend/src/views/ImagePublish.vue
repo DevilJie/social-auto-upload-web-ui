@@ -32,7 +32,12 @@
             {{ currentPlatformConfig.name }} · 个性化设置
           </span>
         </div>
-        <div class="header-right">
+        <div class="header-right" data-tour="header-tools">
+          <el-tooltip content="重新查看新手引导" placement="bottom">
+            <el-button class="header-btn guide-entry-btn" @click="startGuide">
+              <el-icon><Guide /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-button :icon="Document" @click="saveDraft" class="header-btn">
             {{ currentDraftId ? '更新草稿' : '保存草稿' }}
           </el-button>
@@ -75,7 +80,7 @@
           </div>
 
           <!-- 封面图片 -->
-          <div class="cover-section">
+          <div class="cover-section" data-tour="cover-section">
             <ImageCoverUpload
               v-model="currentEditTarget.coverImage"
               label="封面图片"
@@ -84,7 +89,7 @@
           </div>
 
           <!-- Image Upload Section -->
-          <div class="media-section">
+          <div class="media-section" data-tour="media-section">
             <ImageUploader
               ref="imageUploaderRef"
               v-model="currentEditTarget.images"
@@ -100,7 +105,7 @@
         <div class="divider"></div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-        <div class="config-section" v-show="selectedPlatform && publishAccountIds.size > 0">
+        <div class="config-section" data-tour="platform-panel" v-show="selectedPlatform && publishAccountIds.size > 0">
           <div class="section-bar">
             <div class="bar" :style="{ background: currentPlatformConfig?.color }"></div>
             <span class="section-label">
@@ -231,6 +236,14 @@
 
     <!-- ========== DIALOGS ========== -->
 
+    <!-- 新手引导（首次进入自动播放，可随时点右上角重看） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="imageGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
+
     <!-- Account Selection Dialog -->
     <AccountSelectDialog
       v-model="accountDialogVisible"
@@ -289,7 +302,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Upload, Picture, PictureFilled,
-  Document, FullScreen, MagicStick, Setting, Promotion, UserFilled
+  Document, FullScreen, MagicStick, Setting, Promotion, UserFilled, Guide
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
@@ -321,6 +334,8 @@ import WeiboImagePublishPanel from '@/components/weibo/ImagePublishPanel.vue'
 import AlipayImagePublishPanel from '@/components/alipay/ImagePublishPanel.vue'
 import WeixinGzhImagePublishPanel from '@/components/weixin_gzh/ImagePublishPanel.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { imageGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 // ========== Stores & Config ==========
 const accountStore = useAccountStore()
@@ -566,6 +581,11 @@ function onBatchSetApply(checkedKeys, payload) {
 const imageUploaderRef = ref(null)
 const materialSelectDialogRef = ref(null)
 const imagePreviewDialogRef = ref(null)
+
+// ========== 新手引导 ==========
+const tourRef = ref(null)
+const startGuide = () => tourRef.value?.start()
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.image)
 
 // Batch publish state
 const publishing = ref(false)
@@ -1096,6 +1116,11 @@ watch(commonConfig, () => { hasChanges.value = true }, { deep: true })
 onMounted(async () => {
   startAutoSaveTimer()
 
+  // 首次进入自动播放新手引导（600ms 延时等待渲染稳定）
+  if (!isGuideDone(GUIDE_KEYS.image)) {
+    setTimeout(() => startGuide(), 600)
+  }
+
   if (accountStore.accounts.length === 0) {
     try {
       const res = await accountApi.getAccounts()
@@ -1213,6 +1238,21 @@ onMounted(async () => {
       @media (max-width: 1280px) {
         padding: 6px 12px !important;
         font-size: 12px !important;
+      }
+    }
+
+    // 新手引导重看入口：虚线幽灵小按钮，辅助入口不与主操作抢视觉
+    .guide-entry-btn {
+      background: transparent;
+      border: 1px dashed rgba($overlay-rgb, 0.28);
+      box-shadow: none;
+      color: $text-secondary;
+      padding: 8px !important;
+
+      &:hover {
+        background: rgba($brand-start, 0.08);
+        border-color: rgba($brand-start, 0.5);
+        color: $brand-start;
       }
     }
 

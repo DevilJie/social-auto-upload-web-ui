@@ -33,7 +33,10 @@
             {{ currentPlatformConfig.name }} · 个性化设置
           </span>
         </div>
-        <div class="header-right">
+        <div class="header-right" data-tour="header-tools">
+          <el-tooltip content="重新查看新手引导" placement="bottom">
+            <el-button :icon="Guide" class="header-btn guide-entry-btn" @click="startGuide" />
+          </el-tooltip>
           <el-button :icon="Document" @click="saveDraft" class="header-btn">
             {{ currentDraftId ? '更新草稿' : '保存草稿' }}
           </el-button>
@@ -87,7 +90,7 @@
           <!-- Cover Section -->
           <div class="media-section cover-section">
             <div class="section-label">封面</div>
-            <div class="cover-grid">
+            <div class="cover-grid" data-tour="cover-grid">
               <CoverCard
                 label="竖版封面"
                 :ratios="['3:4', '9:16']"
@@ -130,7 +133,7 @@
         <div class="divider"></div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-        <div v-if="currentPlatformConfig && publishAccountIds.size > 0" class="config-section">
+        <div v-if="currentPlatformConfig && publishAccountIds.size > 0" class="config-section" data-tour="platform-settings">
           <div class="section-bar">
             <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
             <span class="section-label">
@@ -671,6 +674,7 @@
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
                   v-if="!field.visibleWhen || form[field.visibleWhen.key] === field.visibleWhen.value"
+                  :data-tour="'field-' + field.key"
                   :class="['setting-card', { 'setting-card--full-row': field.fullRow }]"
                   :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
                 >
@@ -986,12 +990,20 @@
       :init-selected="form.channelsDrama"
       @confirm="onChannelsDramaPickerConfirm"
     />
+
+    <!-- 新手引导（首次进入自动播放，可随时点右上角「?」重看） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="publishGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
-import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus } from '@element-plus/icons-vue'
+import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus, Guide } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -1001,10 +1013,12 @@ import { http } from '@/utils/request'
 import { accountApi } from '@/api/account'
 import { platformList, getPlatformByKey, platformKeyToId, platformNameToKey } from '@/config/platforms'
 import { validateVideoForPlatform, validateTitleForPlatform, validateDescForPlatform, countCharsWithEmoji } from '@/config/videoLimits'
+import { publishGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
 import BatchSetDialog from '@/components/BatchSetDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
@@ -1048,6 +1062,14 @@ appStore.loadAccountCheckMode()
 appStore.loadAutoSaveSettings()
 const route = useRoute()
 const router = useRouter()
+
+// ========== 新手引导 ==========
+const tourRef = ref(null)
+
+const startGuide = () => tourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，不再自动弹出
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.publish)
 
 // ========== Left Sidebar State ==========
 const expandedGroups = ref(new Set())
@@ -3012,6 +3034,11 @@ onMounted(async () => {
     restoreDraft(Number(draftId))
   }
   startAutoSaveTimer()
+
+  // 首次进入自动播放新手引导（稍等页面渲染稳定后再启动）
+  if (!isGuideDone(GUIDE_KEYS.publish)) {
+    setTimeout(() => tourRef.value?.start(), 600)
+  }
 })
 
 // ========== 批量发布：逐视频校验 + 提交 ==========
@@ -3559,6 +3586,22 @@ function formatSize(bytes) {
     gap: 12px;
     flex-wrap: wrap;
     justify-content: flex-end;
+
+    // 新手引导入口：图标幽灵按钮，辅助属性不与主操作抢视觉
+    .guide-entry-btn {
+      background: transparent;
+      border: 1px dashed rgba($overlay-rgb, 0.28);
+      box-shadow: none;
+      color: $text-secondary;
+      padding: 8px 9px;
+
+      &:hover {
+        background: rgba($brand-start, 0.08);
+        border-color: rgba($brand-start, 0.5);
+        color: $brand-start;
+        box-shadow: none;
+      }
+    }
 
     .header-btn {
       // el-button 默认 padding 8px 15px / font-size 14px / height 32px

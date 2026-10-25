@@ -1,16 +1,28 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="批量设置标签"
     width="900px"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     class="batch-tag-dialog"
     @update:model-value="$emit('update:modelValue', $event)"
     @open="onOpen"
+    @opened="onOpened"
   >
+    <template #header>
+      <div class="batch-dialog-header">
+        <span class="batch-dialog-title">批量设置标签</span>
+        <el-tooltip content="重新查看引导" placement="top">
+          <button class="batch-guide-btn" type="button" @click="startGuide">
+            <el-icon><Guide /></el-icon>
+            新手引导
+          </button>
+        </el-tooltip>
+      </div>
+    </template>
     <div class="batch-dialog-body">
       <!-- 左侧:账号网格 -->
-      <div class="batch-section batch-accounts">
+      <div class="batch-section batch-accounts" data-tour="batch-accounts">
         <div class="batch-section-header">
           <span class="batch-section-title">选择账号</span>
           <span class="batch-section-count">已选 {{ selectedAccountIds.size }} / {{ accounts.length }}</span>
@@ -42,7 +54,7 @@
       </div>
 
       <!-- 右侧:标签区 -->
-      <div class="batch-section batch-tags">
+      <div class="batch-section batch-tags" data-tour="batch-tags">
         <div class="batch-section-header">
           <span class="batch-section-title">选择标签</span>
           <span class="batch-section-count">已选 {{ selectedTagIds.size }}</span>
@@ -94,6 +106,7 @@
           <el-button @click="$emit('update:modelValue', false)">取消</el-button>
           <el-button
             type="primary"
+            data-tour="batch-apply"
             :disabled="selectedAccountIds.size === 0"
             :loading="submitting"
             @click="handleApply"
@@ -104,15 +117,25 @@
       </div>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，首次打开自动播放） -->
+  <GuideTour
+    ref="batchTourRef"
+    :steps="batchTagGuideSteps"
+    @finish="onGuideDone"
+    @skip="onGuideDone"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Close } from '@element-plus/icons-vue'
+import { Check, Close, Guide } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { accountApi } from '@/api/account'
 import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
+import GuideTour from '@/components/GuideTour.vue'
+import { batchTagGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true }
@@ -246,11 +269,28 @@ function onOpen() {
   keyword.value = ''
 }
 
+// ========== 弹窗新手引导 ==========
+const batchTourRef = ref(null)
+
+const startGuide = () => batchTourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，之后打开弹窗不再自动播放
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.batchTag)
+
+// @opened：弹窗打开动画结束后再启动引导，保证高亮定位准确
+function onOpened() {
+  if (!isGuideDone(GUIDE_KEYS.batchTag)) {
+    setTimeout(() => batchTourRef.value?.start(), 150)
+  }
+}
+
 watch(() => props.modelValue, (v) => {
   if (!v) {
     selectedAccountIds.value = new Set()
     selectedTagIds.value = new Set()
     keyword.value = ''
+    // 保险：弹窗关闭时结束可能还开着的引导
+    batchTourRef.value?.stop()
   }
 })
 </script>
@@ -258,10 +298,46 @@ watch(() => props.modelValue, (v) => {
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中）：
+// 标题 + 新手引导入口，padding-right 给右上角关闭按钮留位
+.batch-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.batch-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.batch-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
+
 .batch-tag-dialog {
   :deep(.el-dialog__body) {
     padding: 16px 20px;
   }
+}
 
   .batch-dialog-body {
     display: flex;
@@ -522,5 +598,4 @@ watch(() => props.modelValue, (v) => {
       gap: 8px;
     }
   }
-}
 </style>

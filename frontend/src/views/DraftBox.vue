@@ -1,8 +1,15 @@
 <template>
   <div class="draft-box">
     <div class="draft-header">
-      <h2>草稿箱</h2>
-      <el-tabs v-model="activeTab" class="draft-tabs">
+      <div class="draft-header-top">
+        <h2>草稿箱</h2>
+        <el-tooltip content="重新查看新手引导" placement="top">
+          <button class="guide-replay-btn" type="button" @click="restartGuide">
+            <el-icon><Guide /></el-icon>
+          </button>
+        </el-tooltip>
+      </div>
+      <el-tabs v-model="activeTab" class="draft-tabs" data-tour="draft-tabs">
         <el-tab-pane label="视频草稿" name="video">
           <span class="draft-count">{{ videoDrafts.length }} 个草稿</span>
         </el-tab-pane>
@@ -16,7 +23,7 @@
     </div>
 
     <!-- Batch operations toolbar -->
-    <div class="draft-toolbar" :class="{ 'is-active': selectMode }">
+    <div class="draft-toolbar" data-tour="draft-toolbar" :class="{ 'is-active': selectMode }">
       <el-button
         v-if="!selectMode"
         size="default"
@@ -82,9 +89,10 @@
 
       <div v-else class="draft-grid">
         <div
-          v-for="draft in videoDrafts"
+          v-for="(draft, i) in videoDrafts"
           :key="draft.id"
           class="draft-card"
+          :data-tour="i === 0 ? 'draft-card' : undefined"
           :class="{
             'is-selected': selection.has(draft.id),
             'select-mode': selectMode,
@@ -136,7 +144,7 @@
           </div>
 
           <div class="card-actions">
-            <button class="action-btn action-edit" @click.stop="editVideoDraft(draft.id)">
+            <button class="action-btn action-edit" :data-tour="i === 0 ? 'card-edit' : undefined" @click.stop="editVideoDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
             <button class="action-btn action-delete" @click.stop="confirmDelete(draft.id, 'video')">
@@ -165,9 +173,10 @@
 
       <div v-else class="draft-grid">
         <div
-          v-for="draft in imageDrafts"
+          v-for="(draft, i) in imageDrafts"
           :key="draft.id"
           class="draft-card"
+          :data-tour="i === 0 ? 'draft-card' : undefined"
           :class="{
             'is-selected': selection.has(draft.id),
             'select-mode': selectMode,
@@ -215,7 +224,7 @@
           </div>
 
           <div class="card-actions">
-            <button class="action-btn action-edit" @click.stop="editImageDraft(draft.id)">
+            <button class="action-btn action-edit" :data-tour="i === 0 ? 'card-edit' : undefined" @click.stop="editImageDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
             <button class="action-btn action-delete" @click.stop="confirmDelete(draft.id, 'image')">
@@ -236,9 +245,10 @@
 
       <div v-else class="draft-grid">
         <div
-          v-for="draft in articleDrafts"
+          v-for="(draft, i) in articleDrafts"
           :key="draft.id"
           class="draft-card"
+          :data-tour="i === 0 ? 'draft-card' : undefined"
         >
           <div class="card-cover">
             <img
@@ -273,7 +283,7 @@
           </div>
 
           <div class="card-actions">
-            <button class="action-btn action-edit" @click.stop="editArticleDraft(draft.id)">
+            <button class="action-btn action-edit" :data-tour="i === 0 ? 'card-edit' : undefined" @click.stop="editArticleDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
             <button class="action-btn action-delete" @click.stop="confirmDelete(draft.id, 'article')">
@@ -283,6 +293,14 @@
         </div>
       </div>
     </template>
+
+    <!-- 页面新手引导（teleport 到 body） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="draftGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
   </div>
 </template>
 
@@ -290,13 +308,15 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Picture, Edit, Delete, Check, Select, Promotion, Close, EditPen } from '@element-plus/icons-vue'
+import { Picture, Edit, Delete, Check, Select, Promotion, Close, EditPen, Guide } from '@element-plus/icons-vue'
 import { draftApi } from '@/api/draft'
 import { imagePublishApi } from '@/api/imagePublish'
 import { articlePublishApi } from '@/api/articlePublish'
 import { getPlatformByKey } from '@/config/platforms'
 import { getFileUrl } from '@/utils/storage'
 import BatchDraftPublishDialog from '@/components/BatchDraftPublishDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { draftGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const router = useRouter()
 const activeTab = ref('video')
@@ -434,7 +454,18 @@ async function loadAllDrafts() {
   }
 }
 
-onMounted(loadAllDrafts)
+// ===== 新手引导 =====
+const tourRef = ref(null)
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.draft)
+const restartGuide = () => tourRef.value?.start()
+
+onMounted(() => {
+  loadAllDrafts()
+  // 首次进入自动播放页面引导（与 loadAllDrafts 同时启动，数据到达前后引导都能兜底定位）
+  if (!isGuideDone(GUIDE_KEYS.draft)) {
+    setTimeout(() => tourRef.value?.start(), 600)
+  }
+})
 
 // ===== Batch operations =====
 
@@ -604,6 +635,34 @@ async function onDialogConfirm(confirmedIds) {
     font-size: 20px;
     font-weight: 600;
     color: $text-primary;
+  }
+}
+
+// 页头标题 + 新手引导重看入口
+.draft-header-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide-replay-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
   }
 }
 

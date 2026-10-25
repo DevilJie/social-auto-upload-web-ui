@@ -1,5 +1,5 @@
 <template>
-  <div class="rich-editor" :class="{ 'is-disabled': disabled }">
+  <div class="rich-editor" :class="{ 'is-disabled': disabled }" data-tour="rich-editor">
     <!-- ===== Toolbar ===== -->
     <div class="re-toolbar" v-if="!disabled">
       <div class="re-group">

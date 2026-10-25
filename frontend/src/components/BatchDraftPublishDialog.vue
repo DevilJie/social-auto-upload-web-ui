@@ -1,16 +1,25 @@
 <template>
   <el-dialog
     :model-value="visible"
-    title="草稿批量发布预览"
     width="640px"
     @update:model-value="$emit('update:visible', $event)"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
   >
+    <template #header>
+      <div class="bdp-dialog-header">
+        <span class="bdp-dialog-title">草稿批量发布预览</span>
+        <el-tooltip content="引导" placement="top">
+          <button class="bdp-guide-btn" type="button" @click="startGuide">?</button>
+        </el-tooltip>
+      </div>
+    </template>
     <div v-if="drafts.length === 0" class="empty">未选中任何草稿</div>
     <div v-else>
       <el-table
         :data="tableData"
         :max-height="400"
+        data-tour="bdp-table"
       >
         <el-table-column width="50">
           <template #header>
@@ -49,6 +58,7 @@
       <el-button @click="$emit('update:visible', false)">取消</el-button>
       <el-button
         type="primary"
+        data-tour="bdp-confirm"
         :disabled="selectedIds.length === 0"
         :loading="submitting"
         @click="onConfirm"
@@ -57,10 +67,18 @@
       </el-button>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body；流程中弹窗，仅标题栏「?」按钮按需查看，不自动播放） -->
+  <GuideTour
+    ref="tourRef"
+    :steps="draftBatchGuideSteps"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { draftBatchGuideSteps } from '@/config/guides'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -69,6 +87,10 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:visible', 'confirm'])
+
+// ===== 弹窗新手引导（按需查看：标题栏「?」按钮触发，不自动播放） =====
+const tourRef = ref(null)
+const startGuide = () => tourRef.value?.start()
 
 const submitting = ref(false)
 const selectedIds = ref([])
@@ -102,6 +124,9 @@ watch(
       selectedIds.value = tableData.value
         .filter((r) => r.status === 'ok')
         .map((r) => r.id)
+    } else {
+      // 保险：弹窗关闭时结束可能还开着的引导
+      tourRef.value?.stop()
     }
   },
   { immediate: true }
@@ -138,6 +163,42 @@ defineExpose({ resetSubmitting })
 </script>
 
 <style scoped>
+/* 自定义 header：标题 + 引导入口（padding-right 给右上角关闭按钮留位） */
+.bdp-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.bdp-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.bdp-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px dashed rgba(144, 147, 153, 0.6);
+  border-radius: 50%;
+  background: transparent;
+  color: #909399;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.bdp-guide-btn:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+
 .empty {
   text-align: center;
   color: #909399;

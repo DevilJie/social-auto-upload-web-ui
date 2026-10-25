@@ -32,7 +32,12 @@
               </span>
             </div>
             <div class="header-right">
-              <el-button :icon="Document" @click="saveDraft" class="header-btn">
+              <el-tooltip content="重新查看新手引导" placement="bottom">
+                <el-button class="header-btn guide-entry-btn" @click="startGuide">
+                  <el-icon><Guide /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <el-button :icon="Document" @click="saveDraft" data-tour="btn-save-draft" class="header-btn">
                 {{ currentDraftId ? '更新草稿' : '保存草稿' }}
               </el-button>
               <el-tooltip placement="top">
@@ -64,7 +69,7 @@
                 <span class="hint">所有账号共享</span>
               </div>
 
-              <div class="title-row">
+              <div class="title-row" data-tour="title-input">
                 <el-input
                   v-model="articleTitle"
                   placeholder="请输入文章标题(必填)"
@@ -102,8 +107,11 @@
                 <div class="bar purple"></div>
                 <span class="section-label">封面</span>
                 <span class="hint">可选。设置了封面则发布时使用,否则自动抓取正文第一张图</span>
+                <span v-if="currentCoverRecommend" class="cover-recommend">
+                  推荐比例 {{ currentCoverRecommend }}
+                </span>
               </div>
-              <div class="cover-grid">
+              <div class="cover-grid" data-tour="cover-grid">
                 <CoverCard
                   label="横版封面"
                   :ratios="['4:3', '16:9']"
@@ -127,14 +135,17 @@
             <div class="divider"></div>
 
             <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-            <div class="config-section" v-show="selectedPlatform && publishAccountIds.size > 0">
+            <div class="config-section" data-tour="platform-settings" v-show="selectedPlatform && publishAccountIds.size > 0">
               <div class="section-bar">
                 <div class="bar" :style="{ background: currentPlatformConfig?.color }"></div>
                 <span class="section-label">
                   {{ currentPlatformConfig?.name }}
                   {{ selectedAccountId ? '· ' + getAccountDisplayName(selectedAccountId) : '· 默认设置' }}
                 </span>
-                <span class="hint">{{ selectedAccountId ? '仅对该账号生效' : '对该分组所有未自定义的账号生效' }}</span>
+                <span class="hint">{{ selectedAccountId ? '账号级覆盖 · 仅对该账号生效' : '渠道共有设置 · 对本平台所有未自定义的账号生效' }}</span>
+                <span v-if="currentCoverRecommend" class="cover-recommend">
+                  封面推荐 {{ currentCoverRecommend }}
+                </span>
               </div>
 
               <WeixinGzhArticlePanel
@@ -150,6 +161,46 @@
                 :account-id="selectedPlatform === 'zhihu' ? selectedAccountId : null"
                 :disabled="publishing"
                 v-show="selectedPlatform === 'zhihu'"
+                @config-changed="onChannelConfigChanged"
+                @publish-result="onPublishResult"
+              />
+              <BaijiahaoArticlePanel
+                ref="baijiahaoPanelRef"
+                :account-id="selectedPlatform === 'baijiahao' ? selectedAccountId : null"
+                :disabled="publishing"
+                v-show="selectedPlatform === 'baijiahao'"
+                @config-changed="onChannelConfigChanged"
+                @publish-result="onPublishResult"
+              />
+              <CsdnArticlePanel
+                ref="csdnPanelRef"
+                :account-id="selectedPlatform === 'csdn' ? selectedAccountId : null"
+                :disabled="publishing"
+                v-show="selectedPlatform === 'csdn'"
+                @config-changed="onChannelConfigChanged"
+                @publish-result="onPublishResult"
+              />
+              <WeiboArticlePanel
+                ref="weiboPanelRef"
+                :account-id="selectedPlatform === 'weibo' ? selectedAccountId : null"
+                :disabled="publishing"
+                v-show="selectedPlatform === 'weibo'"
+                @config-changed="onChannelConfigChanged"
+                @publish-result="onPublishResult"
+              />
+              <DayuArticlePanel
+                ref="dayuPanelRef"
+                :account-id="selectedPlatform === 'dayu' ? selectedAccountId : null"
+                :disabled="publishing"
+                v-show="selectedPlatform === 'dayu'"
+                @config-changed="onChannelConfigChanged"
+                @publish-result="onPublishResult"
+              />
+              <ToutiaoArticlePanel
+                ref="toutiaoPanelRef"
+                :account-id="selectedPlatform === 'toutiao' ? selectedAccountId : null"
+                :disabled="publishing"
+                v-show="selectedPlatform === 'toutiao'"
                 @config-changed="onChannelConfigChanged"
                 @publish-result="onPublishResult"
               />
@@ -193,6 +244,15 @@
     </main>
 
     <!-- ========== DIALOGS ========== -->
+
+    <!-- 新手引导（首次进入自动播放，可随时点右上角重看） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="articleGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
+
     <AccountSelectDialog
       v-model="accountDialogVisible"
       :platforms="ARTICLE_PLATFORMS"
@@ -233,7 +293,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import {
-  Document, Promotion, UserFilled, QuestionFilled,
+  Document, Promotion, UserFilled, QuestionFilled, Guide,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
@@ -242,7 +302,7 @@ import { useAppStore } from '@/stores/app'
 import { articlePublishApi } from '@/api/articlePublish'
 import { accountApi } from '@/api/account'
 import { getFileUrl } from '@/utils/storage'
-import { platformList, getPlatformByKey } from '@/config/platforms'
+import { platformList, getPlatformByKey, platformNameToKey } from '@/config/platforms'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
@@ -254,6 +314,13 @@ import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import WeixinGzhArticlePanel from '@/components/weixin_gzh/ArticlePublishPanel.vue'
 import ZhihuArticlePanel from '@/components/zhihu/ArticlePublishPanel.vue'
+import BaijiahaoArticlePanel from '@/components/baijiahao/ArticlePublishPanel.vue'
+import CsdnArticlePanel from '@/components/csdn/ArticlePublishPanel.vue'
+import WeiboArticlePanel from '@/components/weibo/ArticlePublishPanel.vue'
+import DayuArticlePanel from '@/components/dayu/ArticlePublishPanel.vue'
+import ToutiaoArticlePanel from '@/components/toutiao/ArticlePublishPanel.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { articleGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 import { useAutoSave } from '@/composables/useAutoSave'
 
 // ========== Stores & Config ==========
@@ -262,7 +329,7 @@ const appStore = useAppStore()
 appStore.loadAccountCheckMode()
 const route = useRoute()
 
-const ARTICLE_PLATFORM_KEYS = ['weixin_gzh', 'zhihu']
+const ARTICLE_PLATFORM_KEYS = ['weixin_gzh', 'zhihu', 'baijiahao', 'csdn', 'weibo', 'dayu', 'toutiao']
 const ARTICLE_PLATFORMS = platformList.filter(p => ARTICLE_PLATFORM_KEYS.includes(p.key))
 
 // ========== Left Sidebar State ==========
@@ -295,6 +362,22 @@ const totalCount = computed(() => {
 const currentPlatformConfig = computed(() =>
   selectedPlatform.value ? getPlatformByKey(selectedPlatform.value) : null
 )
+
+// 各平台文章封面推荐比例(与后端 services/article_cover.py COVER_SPECS 一致)
+const ARTICLE_COVER_RECOMMEND = {
+  weixin_gzh: '2.35:1（900×383）',
+  zhihu: '3:2（1080×720）',
+  baijiahao: '4:3（800×600）',
+  csdn: '16:9（960×540）',
+  weibo: '16:9（1000×563）',
+  dayu: '16:9（1280×720）',
+  toutiao: '16:9（1200×675）',
+}
+const currentCoverRecommend = computed(() => {
+  const key = selectedPlatform.value
+  if (!key) return ''
+  return ARTICLE_COVER_RECOMMEND[key] || ''
+})
 
 // ========== Article Content ==========
 const articleTitle = ref('')
@@ -421,9 +504,22 @@ const { hasChanges, startAutoSaveTimer } = useAutoSave(() => saveDraft())
 // ========== Channel Panel Refs & Helpers ==========
 const weixinGzhPanelRef = ref(null)
 const zhihuPanelRef = ref(null)
+const baijiahaoPanelRef = ref(null)
+const csdnPanelRef = ref(null)
+const weiboPanelRef = ref(null)
+const dayuPanelRef = ref(null)
+const toutiaoPanelRef = ref(null)
 
 function getPanel(key) {
-  const map = { weixin_gzh: weixinGzhPanelRef, zhihu: zhihuPanelRef }
+  const map = {
+    weixin_gzh: weixinGzhPanelRef,
+    zhihu: zhihuPanelRef,
+    baijiahao: baijiahaoPanelRef,
+    csdn: csdnPanelRef,
+    weibo: weiboPanelRef,
+    dayu: dayuPanelRef,
+    toutiao: toutiaoPanelRef,
+  }
   return map[key]?.value
 }
 
@@ -441,7 +537,12 @@ function onPublishResult({ accountName, status, message }) {
 }
 
 function hasAccountOverride(accountId) {
-  const panel = getPanel('weixin_gzh')
+  // 各平台面板各自维护账号级覆盖：按账号所属平台查询对应面板
+  const account = accountStore.accounts.find(a => a.id === accountId)
+  const key = account
+    ? platformNameToKey[account.platform]
+    : selectedPlatform.value
+  const panel = key ? getPanel(key) : null
   return !!(panel && panel.hasAccountOverride(accountId))
 }
 
@@ -449,6 +550,10 @@ function hasAccountOverride(accountId) {
 const publishAccountIds = reactive(new Set())
 
 function toggleGroup(key) {
+  // 点击平台分组 = 选中该平台的「渠道默认设置」(对本平台所有未自定义的账号生效)，
+  // 同时清空账号级选择；点击具体账号才进入账号级覆盖配置。
+  selectedPlatform.value = key
+  selectedAccountId.value = null
   if (expandedGroups.value.has(key)) {
     expandedGroups.value.delete(key)
   } else {
@@ -728,6 +833,26 @@ async function loadDraft(draftId) {
     if (zhPanel && dd.platformConfigs?.zhihu) {
       zhPanel.restoreConfigs(dd.platformConfigs.zhihu, dd.panelAccountOverrides || {})
     }
+    const bjhPanel = getPanel('baijiahao')
+    if (bjhPanel && dd.platformConfigs?.baijiahao) {
+      bjhPanel.restoreConfigs(dd.platformConfigs.baijiahao, dd.panelAccountOverrides || {})
+    }
+    const csdnPanel = getPanel('csdn')
+    if (csdnPanel && dd.platformConfigs?.csdn) {
+      csdnPanel.restoreConfigs(dd.platformConfigs.csdn, dd.panelAccountOverrides || {})
+    }
+    const weiboPanel = getPanel('weibo')
+    if (weiboPanel && dd.platformConfigs?.weibo) {
+      weiboPanel.restoreConfigs(dd.platformConfigs.weibo, dd.panelAccountOverrides || {})
+    }
+    const dayuPanel = getPanel('dayu')
+    if (dayuPanel && dd.platformConfigs?.dayu) {
+      dayuPanel.restoreConfigs(dd.platformConfigs.dayu, dd.panelAccountOverrides || {})
+    }
+    const toutiaoPanel = getPanel('toutiao')
+    if (toutiaoPanel && dd.platformConfigs?.toutiao) {
+      toutiaoPanel.restoreConfigs(dd.platformConfigs.toutiao, dd.panelAccountOverrides || {})
+    }
 
     ;(dd.publishAccountIds || []).forEach(id => publishAccountIds.add(id))
     if (dd.selectedPlatform) selectedPlatform.value = dd.selectedPlatform
@@ -739,6 +864,11 @@ async function loadDraft(draftId) {
     ElMessage.error('载入草稿失败')
   }
 }
+
+// ========== 新手引导 ==========
+const tourRef = ref(null)
+const startGuide = () => tourRef.value?.start()
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.article)
 
 // ========== Init ==========
 onMounted(async () => {
@@ -764,6 +894,11 @@ onMounted(async () => {
   // 从草稿箱跳转载入(账号树就绪后再恢复,勾选状态才能匹配渲染)
   if (route.query.draft_id) {
     await loadDraft(route.query.draft_id)
+  }
+
+  // 首次进入自动播放新手引导(延时 600ms 等布局稳定,可随时点右上角按钮重看)
+  if (!isGuideDone(GUIDE_KEYS.article)) {
+    setTimeout(() => startGuide(), 600)
   }
 })
 
@@ -844,6 +979,21 @@ startAutoSaveTimer()
     justify-content: flex-end;
   }
 
+  // 新手引导重看入口：虚线幽灵小按钮，辅助入口不与主操作抢视觉
+  .guide-entry-btn {
+    background: transparent;
+    border: 1px dashed rgba($overlay-rgb, 0.28);
+    box-shadow: none;
+    color: $text-secondary;
+    padding: 8px !important;
+
+    &:hover {
+      background: rgba($brand-start, 0.08);
+      border-color: rgba($brand-start, 0.5);
+      color: $brand-start;
+    }
+  }
+
   .publish-mode-radio {
     margin-right: 4px;
 
@@ -903,6 +1053,17 @@ startAutoSaveTimer()
   .hint {
     font-size: 12px;
     color: #909399;
+  }
+
+  .cover-recommend {
+    margin-left: auto;
+    font-size: 12px;
+    color: #7c6af2;
+    background: rgba(124, 106, 242, 0.12);
+    border: 1px solid rgba(124, 106, 242, 0.35);
+    border-radius: 4px;
+    padding: 1px 8px;
+    white-space: nowrap;
   }
 }
 

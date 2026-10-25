@@ -1,12 +1,24 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="选择账号"
     width="80%"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     class="account-select-dialog"
     @update:model-value="$emit('update:modelValue', $event)"
+    @opened="onOpened"
   >
+    <template #header>
+      <div class="asd-dialog-header">
+        <span class="asd-dialog-title">选择账号</span>
+        <el-tooltip content="重新查看引导" placement="top">
+          <button class="asd-guide-btn" type="button" @click="startGuide">
+            <el-icon><Guide /></el-icon>
+            新手引导
+          </button>
+        </el-tooltip>
+      </div>
+    </template>
     <div class="account-dialog-body">
       <!-- 左:渠道筛选 -->
       <div class="account-section platform-section">
@@ -14,7 +26,7 @@
           <span class="account-section-title">渠道筛选</span>
           <span class="account-section-count">已选 {{ selectedPlatformNames.size }}</span>
         </div>
-        <div class="platform-list">
+        <div class="platform-list" data-tour="asd-platform-list">
           <label
             v-for="p in platforms"
             :key="p.key"
@@ -43,7 +55,7 @@
             {{ isAllSelected ? '取消全选' : '一键全选' }}
           </el-button>
         </div>
-        <div class="account-grid">
+        <div class="account-grid" data-tour="asd-account-grid">
           <div
             v-for="account in filteredAccounts"
             :key="account.id"
@@ -98,7 +110,7 @@
           />
         </div>
 
-        <div class="tag-list">
+        <div class="tag-list" data-tour="asd-tag-list">
           <div
             v-for="tag in filteredTags"
             :key="tag.id"
@@ -122,20 +134,30 @@
         <span class="selected-count">已选择 {{ tempSelectedAccounts.length }} 个账号</span>
         <div class="dialog-footer-btns">
           <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-          <el-button type="primary" @click="confirmSelection">确认设置</el-button>
+          <el-button type="primary" data-tour="asd-confirm" @click="confirmSelection">确认设置</el-button>
         </div>
       </div>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，首次打开自动播放） -->
+  <GuideTour
+    ref="asdTourRef"
+    :steps="accountSelectGuideSteps"
+    @finish="onGuideDone"
+    @skip="onGuideDone"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { Check } from '@element-plus/icons-vue'
+import { Check, Guide } from '@element-plus/icons-vue'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
 import { accountApi } from '@/api/account'
 import { getDefaultAvatar, proxyAvatar } from '@/utils/avatar'
+import GuideTour from '@/components/GuideTour.vue'
+import { accountSelectGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -234,6 +256,21 @@ function confirmSelection() {
   emit('update:modelValue', false)
 }
 
+// ========== 弹窗新手引导 ==========
+const asdTourRef = ref(null)
+
+const startGuide = () => asdTourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，之后打开弹窗不再自动播放
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.accountSelect)
+
+// @opened：弹窗打开动画结束后再启动引导，保证高亮定位准确
+function onOpened() {
+  if (!isGuideDone(GUIDE_KEYS.accountSelect)) {
+    setTimeout(() => asdTourRef.value?.start(), 150)
+  }
+}
+
 watch(() => props.modelValue, async (visible) => {
   if (visible) {
     tempSelectedAccounts.value = [...props.publishAccountIds]
@@ -250,12 +287,50 @@ watch(() => props.modelValue, async (visible) => {
         console.error('加载账号失败:', e)
       }
     }
+  } else {
+    // 保险：弹窗关闭时结束可能还开着的引导
+    asdTourRef.value?.stop()
   }
 })
 </script>
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
+
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中）：
+// 标题 + 新手引导入口，padding-right 给右上角关闭按钮留位
+.asd-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.asd-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.asd-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .account-select-dialog {
   :deep(.el-dialog__body) {

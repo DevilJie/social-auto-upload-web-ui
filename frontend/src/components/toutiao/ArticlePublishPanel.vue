@@ -56,25 +56,27 @@
 
     <div class="setting-card">
       <div class="setting-label">添加位置</div>
-      <div class="setting-hint">可选。选择平台内置城市(如「北京」「上海」),可提升同城推荐</div>
-      <el-input
+      <div class="setting-hint">可选。选择平台内置城市(如「北京」「上海」),可提升同城推荐;支持输入过滤</div>
+      <el-select
         v-model="form.location"
         placeholder="留空则不添加位置"
-        maxlength="20"
+        filterable
         :disabled="disabled"
         clearable
-      />
+        style="width: 100%;"
+      >
+        <el-option v-for="city in cityOptions" :key="city" :label="city" :value="city" />
+      </el-select>
     </div>
 
     <div class="setting-card">
       <div class="setting-label">添加至合集</div>
-      <div class="setting-hint">可选。填写已存在的合集名称,自动化在「添加合集」弹窗中选择同名合集</div>
-      <el-input
+      <div class="setting-hint">可选。输入关键词回车搜索你的头条合集(与平台「添加合集」弹窗同源),选中后自动化在弹窗中选择同名合集</div>
+      <CompilationSelect
         v-model="form.collectionName"
-        placeholder="留空则不加入合集"
-        maxlength="50"
+        :account-id="accountId"
+        platform="toutiao"
         :disabled="disabled"
-        clearable
       />
     </div>
 
@@ -117,6 +119,8 @@
 import { useAccountStore } from '@/stores/account'
 import { articlePublishApi } from '@/api/articlePublish'
 import { useChannelForm } from '@/composables/useChannelForm'
+import CompilationSelect from '@/components/alipay/CompilationSelect.vue'
+import { CHINA_CITIES } from '@/config/china-cities'
 
 const props = defineProps({
   accountId: { type: [Number, Object], default: null },
@@ -126,6 +130,9 @@ const props = defineProps({
 const emit = defineEmits(['config-changed', 'publish-result'])
 
 const accountStore = useAccountStore()
+
+// 平台内置城市候选(可搜索本地过滤;自动化在平台下拉中按名称精确匹配)
+const cityOptions = CHINA_CITIES
 
 // 今日头条文章平台字段(与后端 publish_article kwargs 一一对应)
 const TOUTIAO_ARTICLE_DEFAULTS = {

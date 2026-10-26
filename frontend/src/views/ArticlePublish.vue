@@ -35,6 +35,7 @@
               <el-tooltip content="重新查看新手引导" placement="bottom">
                 <el-button class="header-btn guide-entry-btn" @click="startGuide">
                   <el-icon><Guide /></el-icon>
+                  新手引导
                 </el-button>
               </el-tooltip>
               <el-button :icon="Document" @click="saveDraft" data-tour="btn-save-draft" class="header-btn">
@@ -979,13 +980,13 @@ startAutoSaveTimer()
     justify-content: flex-end;
   }
 
-  // 新手引导重看入口：虚线幽灵小按钮，辅助入口不与主操作抢视觉
+  // 新手引导重看入口：虚线幽灵按钮，辅助入口不与主操作抢视觉
   .guide-entry-btn {
     background: transparent;
     border: 1px dashed rgba($overlay-rgb, 0.28);
     box-shadow: none;
     color: $text-secondary;
-    padding: 8px !important;
+    padding: 8px 14px !important;
 
     &:hover {
       background: rgba($brand-start, 0.08);

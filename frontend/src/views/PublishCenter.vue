@@ -35,7 +35,10 @@
         </div>
         <div class="header-right" data-tour="header-tools">
           <el-tooltip content="重新查看新手引导" placement="bottom">
-            <el-button :icon="Guide" class="header-btn guide-entry-btn" @click="startGuide" />
+            <el-button class="header-btn guide-entry-btn" @click="startGuide">
+              <el-icon><Guide /></el-icon>
+              新手引导
+            </el-button>
           </el-tooltip>
           <el-button :icon="Document" @click="saveDraft" class="header-btn">
             {{ currentDraftId ? '更新草稿' : '保存草稿' }}
@@ -3587,13 +3590,13 @@ function formatSize(bytes) {
     flex-wrap: wrap;
     justify-content: flex-end;
 
-    // 新手引导入口：图标幽灵按钮，辅助属性不与主操作抢视觉
+    // 新手引导入口：虚线幽灵按钮，辅助属性不与主操作抢视觉
     .guide-entry-btn {
       background: transparent;
       border: 1px dashed rgba($overlay-rgb, 0.28);
       box-shadow: none;
       color: $text-secondary;
-      padding: 8px 9px;
+      padding: 8px 14px;
 
       &:hover {
         background: rgba($brand-start, 0.08);

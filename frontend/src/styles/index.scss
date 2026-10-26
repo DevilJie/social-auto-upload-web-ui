@@ -370,6 +370,22 @@ body {
   border-color: $popper-border !important;
 }
 
+// Tooltip 修正：
+// EP 2.9 的 tooltip popper 类名只有 .el-popper.is-dark（旧版 el-tooltip__popper 已移除），
+// 因此上一条 :not 排除规则实际会误命中 tooltip，把气泡背景锁死为 $popper-bg；
+// 而文字色走 EP 默认 var(--el-bg-color)，在本项目变量下两主题均错位（暗色黑字/亮色白字）。
+// 这里用 body 前缀 + !important 夺回控制权，气泡改回正常语义变量，跟随主题自动正确。
+body .el-popper.is-dark {
+  background: var(--el-bg-color-overlay) !important;
+  color: var(--el-text-color-primary) !important;
+  border: 1px solid var(--el-border-color) !important;
+
+  > .el-popper__arrow::before {
+    background: var(--el-bg-color-overlay) !important;
+    border: 1px solid var(--el-border-color) !important;
+  }
+}
+
 // Autocomplete
 .el-autocomplete-suggestion {
   background-color: $popper-bg !important;

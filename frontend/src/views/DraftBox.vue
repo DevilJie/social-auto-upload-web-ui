@@ -6,6 +6,7 @@
         <el-tooltip content="重新查看新手引导" placement="top">
           <button class="guide-replay-btn" type="button" @click="restartGuide">
             <el-icon><Guide /></el-icon>
+            新手引导
           </button>
         </el-tooltip>
       </div>
@@ -649,14 +650,15 @@ async function onDialogConfirm(confirmedIds) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  gap: 4px;
   height: 28px;
+  padding: 0 12px;
   border: 1px dashed rgba($overlay-rgb, 0.28);
   background: transparent;
   color: $text-muted;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: all $transition-fast;
 
   &:hover {

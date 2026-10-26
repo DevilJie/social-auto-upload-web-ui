@@ -1718,7 +1718,15 @@ class CsdnPlatform(BasePlatform):
 
     @staticmethod
     async def _csdn_add_tags(page, tags: list):
-        """添加文章标签: 打开标签抽屉 → 输入 + Enter → 校验隐藏域。"""
+        """添加文章标签: 打开标签抽屉 → 输入 → 点选联想精确项。
+
+        注意(2026-10-26 实测): 仅 Enter 激活会把标签写入隐藏域
+        input[name=tags], 但不进编辑器 JS state —— 保存后标签丢失,
+        平台自动补默认标签。必须点击联想下拉中的精确项(真实 DOM
+        交互)才真正生效; 无联想项时 Enter 作为自定义标签兜底。
+        """
+        import re as _re
+
         trigger = page.locator(".mark_selection button.tag__btn-tag").first
         await trigger.scroll_into_view_if_needed(timeout=10000)
         await trigger.click(timeout=15000)
@@ -1736,8 +1744,25 @@ class CsdnPlatform(BasePlatform):
             await tag_input.click()
             await tag_input.fill("")
             await tag_input.press_sequentially(tag, delay=100)
-            await asyncio.sleep(2.0)  # 等联想词接口
-            await page.keyboard.press("Enter")
+            await asyncio.sleep(2.5)  # 等联想词接口
+            option = page.locator(
+                '.el_mcm-autocomplete-suggestion__list > li[role=option]'
+            ).filter(
+                has_text=_re.compile(rf"^{_re.escape(tag)}$")
+            ).first
+            picked = False
+            if await option.count():
+                try:
+                    await option.click(timeout=5000)
+                    picked = True
+                    logger.info(f"[文章][CSDN] 已点选联想标签: {tag}")
+                except Exception as exc:
+                    logger.warning(
+                        f"[文章][CSDN] 点选联想项失败({tag}), 回车兜底: {exc}"
+                    )
+            if not picked:
+                # 无精确联想项 → Enter 添加自定义标签
+                await page.keyboard.press("Enter")
             await asyncio.sleep(1.0)
         actual = await page.evaluate(
             """() => {

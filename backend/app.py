@@ -135,6 +135,10 @@ from blueprints.toutiao_bp import toutiao_bp  # noqa: E402
 app.register_blueprint(toutiao_bp)
 logger.info("[Startup] toutiao_bp registered OK")
 
+from blueprints.csdn_bp import csdn_bp  # noqa: E402
+app.register_blueprint(csdn_bp)
+logger.info("[Startup] csdn_bp registered OK")
+
 from blueprints.vivo_bp import vivo_bp  # noqa: E402
 app.register_blueprint(vivo_bp)
 logger.info("[Startup] vivo_bp registered OK")

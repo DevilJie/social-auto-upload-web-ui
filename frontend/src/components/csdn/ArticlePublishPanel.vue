@@ -6,18 +6,26 @@
 
     <div class="setting-card">
       <div class="setting-label">文章标签（必填）</div>
-      <div class="setting-hint">CSDN 发表必填，最多 6 个。输入后回车添加</div>
-      <el-select
-        v-model="form.tags"
-        multiple filterable allow-create default-first-option
-        :multiple-limit="6"
-        :reserve-keyword="false"
-        placeholder="输入标签后回车，如: Python"
-        :disabled="disabled"
-        style="width: 100%;"
-      >
-        <el-option v-for="t in form.tags" :key="t" :label="t" :value="t" />
-      </el-select>
+      <div class="setting-hint">CSDN 发表必填，最多 6 个。搜索平台联想标签后点选添加（支持自定义标签回车）</div>
+      <div v-if="form.tags.length" class="tag-chips">
+        <el-tag
+          v-for="t in form.tags"
+          :key="t"
+          closable
+          :disable-transitions="true"
+          @close="removeTag(t)"
+        >
+          {{ t }}
+        </el-tag>
+      </div>
+      <RemoteSearchSelect
+        v-model="pendingTag"
+        :fetcher="tagFetcher"
+        search-mode="backend"
+        placeholder="搜索并添加标签"
+        search-placeholder="输入关键词，停顿 2 秒自动联想"
+        @change="onTagPicked"
+      />
     </div>
 
     <div class="setting-card">
@@ -145,10 +153,12 @@
 </template>
 
 <script setup>
-import { watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useAccountStore } from '@/stores/account'
 import { articlePublishApi } from '@/api/articlePublish'
+import { csdnApi } from '@/api/csdn'
 import { useChannelForm } from '@/composables/useChannelForm'
+import RemoteSearchSelect from '@/components/common/RemoteSearchSelect.vue'
 
 const props = defineProps({
   accountId: { type: [Number, Object], default: null },
@@ -158,6 +168,34 @@ const props = defineProps({
 const emit = defineEmits(['config-changed', 'publish-result'])
 
 const accountStore = useAccountStore()
+
+// ===== 文章标签: 复用全局 RemoteSearchSelect(平台联想标签) =====
+// fetcher 契约: (keyword) => Promise<{ list }> ; 后端返回字符串数组 → 映射为 {name}
+const pendingTag = ref('')
+
+const tagFetcher = async (keyword) => {
+  const resp = await csdnApi.searchTags(props.accountId, keyword || '')
+  const list = (resp.code === 200 ? resp.data?.list : []) || []
+  return { list: list.map(name => ({ name })) }
+}
+
+// 选中 → 加入标签(去重, ≤6), 清空搜索框可连续添加
+function onTagPicked(item) {
+  const name = item?.name || ''
+  pendingTag.value = ''
+  if (!name || form.tags.includes(name)) return
+  if (form.tags.length >= 6) return
+  form.tags.push(name)
+}
+
+function removeTag(t) {
+  form.tags = form.tags.filter(x => x !== t)
+}
+
+// 切换账号清空联想缓存
+watch(() => props.accountId, () => {
+  pendingTag.value = ''
+})
 
 // CSDN 文章平台字段（对应 CSDN 编辑器「发文设置」区）
 const CSDN_ARTICLE_DEFAULTS = {
@@ -279,6 +317,14 @@ defineExpose(publicApi)
 
 .setting-card--full {
   grid-column: 1 / -1;
+}
+
+// 已选标签 chips
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .setting-label {

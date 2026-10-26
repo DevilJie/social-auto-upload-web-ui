@@ -1790,6 +1790,7 @@ class BaijiahaoPlatform(BasePlatform):
             )
 
         # 兜底: 打开弹窗直接确定(正文有图时自动选中正文首图)
+        logger.info("[文章][百家号][封面] 兜底: 打开封面弹窗选正文首图")
         pos = await page.evaluate(
             """() => {
               const vis = (el) => {
@@ -1810,48 +1811,40 @@ class BaijiahaoPlatform(BasePlatform):
             return
         await page.mouse.click(pos["x"], pos["y"])
         await asyncio.sleep(3)
-        clicked = await page.evaluate(
+        # 兜底弹窗「确定」也用 trusted click(平台不受理 JS 合成点击)
+        btn = await page.evaluate(
             """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
               const m = [...document.querySelectorAll('.cheetah-modal')]
-                .filter((e) => e.getBoundingClientRect().width > 0)[0];
-              if (!m) return false;
+                .filter(vis)[0];
+              if (!m) return null;
               for (const b of m.querySelectorAll('button')) {
+                if (!vis(b)) continue;
                 if ((b.innerText || '').includes('确定') && !b.disabled) {
-                  b.click(); return true;
+                  const r = b.getBoundingClientRect();
+                  return {x: r.x + r.width / 2, y: r.y + r.height / 2};
                 }
               }
-              return false;
+              return null;
             }"""
         )
-        if not clicked:
+        if not btn:
             logger.warning(
-                "[文章][百家号] 封面弹窗确定不可用(正文无图?),封面跳过"
+                "[文章][百家号][封面] 兜底弹窗「确定」不可用(正文无图?),封面跳过"
             )
-            # 关闭弹窗
-            try:
-                await page.evaluate(
-                    """() => {
-                      const m = [...document.querySelectorAll(
-                          '.cheetah-modal')]
-                        .filter((e) => e.getBoundingClientRect().width > 0)[0];
-                      if (!m) return;
-                      for (const b of m.querySelectorAll('button')) {
-                        if ((b.innerText || '').trim() === '取消') {
-                          b.click(); return;
-                        }
-                      }
-                    }"""
-                )
-            except Exception:
-                pass
+            await BaijiahaoPlatform._close_cover_modal(page)
             return
+        await page.mouse.click(btn["x"], btn["y"])
         await asyncio.sleep(3)
         logger.info("[文章][百家号] 封面已设置(正文首图)")
 
     @staticmethod
     async def _set_cover_layout(page, layout_text: str) -> bool:
-        """切换封面布局(「单图」/「三图」radio)。"""
-        return await page.evaluate(
+        """切换封面布局(「单图」/「三图」radio, locator trusted click)。"""
+        marked = await page.evaluate(
             """(text) => {
               const vis = (el) => {
                 const r = el.getBoundingClientRect();
@@ -1861,12 +1854,19 @@ class BaijiahaoPlatform(BasePlatform):
                 .filter(vis)
                 .filter((e) => (e.innerText || '').trim() === text);
               if (!lbs.length) return false;
-              lbs[0].scrollIntoView({block: 'center'});
-              lbs[0].click();
+              lbs[0].id = '__bjh_layout_label';
               return true;
             }""",
             layout_text,
         )
+        if not marked:
+            return False
+        try:
+            await page.locator('#__bjh_layout_label').click(timeout=8000)
+        except Exception:
+            return False
+        await asyncio.sleep(1)
+        return True
 
     @staticmethod
     async def _count_cover_imgs(page) -> int:
@@ -1910,16 +1910,25 @@ class BaijiahaoPlatform(BasePlatform):
                   && e.getBoundingClientRect().height < 60);
               if (!els.length) return null;
               const el = els[Math.min(idx, els.length - 1)];
-              el.scrollIntoView({block: 'center'});
-              const r = el.getBoundingClientRect();
-              return {x: r.x + r.width / 2, y: r.y + r.height / 2,
-                      total: els.length};
+              el.id = '__bjh_slot_entry';
+              return {total: els.length};
             }""",
             slot_index,
         )
         if not pos:
+            logger.warning(
+                "[文章][百家号] 未找到第 %d 个「选择封面」槽位", slot_index
+            )
             return False
-        await page.mouse.click(pos["x"], pos["y"])
+        logger.info(
+            "[文章][百家号][封面] 点击槽位 %d (共 %d 个)…",
+            slot_index, pos["total"],
+        )
+        try:
+            await page.locator('#__bjh_slot_entry').click(timeout=10000)
+        except Exception as e:
+            logger.warning("[文章][百家号][封面] 点击槽位失败: %s", e)
+            return False
         await asyncio.sleep(2.5)
         # 只对「当前可见」的封面弹窗操作(历史弹窗节点会残留在 DOM)
         marked = await page.evaluate(
@@ -1936,44 +1945,76 @@ class BaijiahaoPlatform(BasePlatform):
             }"""
         )
         if not marked:
-            logger.warning("[文章][百家号] 封面上传弹窗未出现")
+            logger.warning("[文章][百家号][封面] 封面上传弹窗未出现")
             await BaijiahaoPlatform._close_cover_modal(page)
             return False
+        logger.info("[文章][百家号][封面] 弹窗已打开,定位 file input…")
         finp = page.locator('#__bjh_cover_modal input[type=file]').first
         try:
             await finp.wait_for(state="attached", timeout=10000)
+            logger.info("[文章][百家号][封面] file input 就绪,上传 %s", local_path)
             await finp.set_input_files(local_path)
         except Exception as e:
-            logger.warning("[文章][百家号] 封面 file input 上传失败: %s", e)
+            logger.warning("[文章][百家号][封面] file input 上传失败: %s", e)
             await BaijiahaoPlatform._close_cover_modal(page)
             return False
         # 等「确定」可用(上传完成 + 图片可裁)
         loop = asyncio.get_event_loop()
         deadline = loop.time() + 30
         ready = False
+        last_tick = 0.0
         while loop.time() < deadline:
             raise_if_page_closed(page, action="文章发布")
-            ready = await page.evaluate(
-                """() => {
-                  const vis = (el) => {
-                    const r = el.getBoundingClientRect();
-                    return r.width > 0 && r.height > 0;
-                  };
-                  const m = document.getElementById('__bjh_cover_modal');
-                  if (!m || !vis(m)) return false;
-                  return [...m.querySelectorAll('button')].some(
-                    (b) => (b.innerText || '').includes('确定')
-                      && !b.disabled && vis(b));
-                }"""
-            )
+            try:
+                # 平台页面偶发卡死会让 evaluate 永久挂起(2026-10-26 实测
+                # 29s 无日志静默), 包 wait_for 让卡死 15s 内显式报错
+                ready = await asyncio.wait_for(
+                    page.evaluate(
+                        """() => {
+                          const vis = (el) => {
+                            const r = el.getBoundingClientRect();
+                            return r.width > 0 && r.height > 0;
+                          };
+                          const m =
+                            document.getElementById('__bjh_cover_modal');
+                          if (!m || !vis(m)) return false;
+                          return [...m.querySelectorAll('button')].some(
+                            (b) => (b.innerText || '').includes('确定')
+                              && !b.disabled && vis(b));
+                        }"""
+                    ),
+                    timeout=15,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[文章][百家号][封面] 弹窗状态查询 15s 无响应(平台页面卡死?), 终止等待"
+                )
+                raise RuntimeError(
+                    "[文章][百家号] 封面弹窗无响应(平台页面卡死), 请重试发布"
+                )
             if ready:
                 break
+            now = loop.time()
+            if now - last_tick >= 10:
+                last_tick = now
+                logger.info(
+                    "[文章][百家号][封面] 等待「确定」可用中…(已等 %.0fs/30s)",
+                    now - (deadline - 30),
+                )
             await asyncio.sleep(1.5)
         if not ready:
-            logger.warning("[文章][百家号] 封面「确定」一直不可用")
+            logger.warning("[文章][百家号][封面] 封面「确定」30s 未可用(上传可能未生效)")
             await BaijiahaoPlatform._close_cover_modal(page)
             return False
-        ok = await page.evaluate(
+        # 平台选图瞬间就点亮「确定」, 但「裁剪处理中」未完成时点击会被
+        # 平台静默忽略(2026-10-26 实测) — 稳定 3s 后再点
+        await asyncio.sleep(3)
+        logger.info("[文章][百家号][封面] 「确定」已可用,点击提交…")
+        # 平台(cheetah UI)不受理 evaluate 里的 JS 合成 click; 裸坐标
+        # mouse.click 又会因 scrollIntoView 后页面滚动/重排而落空
+        # (2026-10-26 实测弹窗不关、封面不落槽) — 标记按钮 id 后用
+        # Playwright locator.click(自带滚动/等待/命中检查)最稳
+        marked = await page.evaluate(
             """() => {
               const vis = (el) => {
                 const r = el.getBoundingClientRect();
@@ -1984,20 +2025,71 @@ class BaijiahaoPlatform(BasePlatform):
               for (const b of m.querySelectorAll('button')) {
                 if (!vis(b)) continue;
                 if ((b.innerText || '').includes('确定') && !b.disabled) {
-                  b.click(); return true;
+                  b.id = '__bjh_confirm_btn';
+                  return true;
                 }
               }
               return false;
             }"""
         )
-        await asyncio.sleep(3)
+        if not marked:
+            logger.warning("[文章][百家号][封面] 未定位到「确定」按钮")
+            await BaijiahaoPlatform._close_cover_modal(page)
+            return False
+        try:
+            await page.locator('#__bjh_confirm_btn').click(timeout=15000)
+        except Exception as e:
+            logger.warning("[文章][百家号][封面] 点击「确定」失败: %s", e)
+            await BaijiahaoPlatform._close_cover_modal(page)
+            return False
+        logger.info("[文章][百家号][封面] 已点击确定,验证落槽…")
+
+        async def _verify_settled(budget_s: int):
+            """轮询: 弹窗关闭 + 封面落槽。返回 (settled, filled)。"""
+            loop = asyncio.get_event_loop()
+            deadline = loop.time() + budget_s
+            filled = 0
+            while loop.time() < deadline:
+                raise_if_page_closed(page, action="文章发布")
+                await asyncio.sleep(2)
+                modal_open = await page.evaluate(
+                    """() => {
+                      const vis = (el) => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                      };
+                      return [...document.querySelectorAll('.cheetah-modal')]
+                        .some(vis);
+                    }"""
+                )
+                filled = await BaijiahaoPlatform._count_cover_imgs(page)
+                if not modal_open:
+                    return filled >= 1, filled
+            return False, filled
+
+        ok, filled = await _verify_settled(20)
+        if not ok:
+            # 首次点击落在「裁剪处理中」被平台忽略 → 补点一次
+            logger.info(
+                "[文章][百家号][封面] 首次确定未生效(已填 %d),补点一次…", filled
+            )
+            try:
+                await page.locator('#__bjh_confirm_btn').click(timeout=10000)
+            except Exception as e:
+                logger.warning("[文章][百家号][封面] 补点失败: %s", e)
+            ok, filled = await _verify_settled(20)
+        if not ok:
+            logger.warning(
+                "[文章][百家号][封面] 确定后弹窗未关闭或封面未落槽(已填 %d)",
+                filled,
+            )
         return bool(ok)
 
     @staticmethod
     async def _close_cover_modal(page):
-        """关闭封面弹窗(点取消)。"""
+        """关闭封面弹窗(点取消, locator trusted click)。"""
         try:
-            await page.evaluate(
+            marked = await page.evaluate(
                 """() => {
                   const vis = (el) => {
                     const r = el.getBoundingClientRect();
@@ -2005,14 +2097,19 @@ class BaijiahaoPlatform(BasePlatform):
                   };
                   const m = [...document.querySelectorAll('.cheetah-modal')]
                     .filter(vis)[0];
-                  if (!m) return;
+                  if (!m) return false;
                   for (const b of m.querySelectorAll('button')) {
+                    if (!vis(b)) continue;
                     if ((b.innerText || '').trim() === '取消') {
-                      b.click(); return;
+                      b.id = '__bjh_cancel_btn';
+                      return true;
                     }
                   }
+                  return false;
                 }"""
             )
+            if marked:
+                await page.locator('#__bjh_cancel_btn').click(timeout=5000)
             await asyncio.sleep(1)
         except Exception:
             pass

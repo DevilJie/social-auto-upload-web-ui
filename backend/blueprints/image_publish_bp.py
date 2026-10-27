@@ -238,8 +238,8 @@ def publish_images():
             err = "无图片或缺平台/cookie 配置，跳过实际发布"
             logger.info(f"[image_publish] {err}")
             success = True
-    except Exception as e:
-        logger.error(f"发布失败: {e}")
+    except (Exception, asyncio.CancelledError) as e:
+        logger.error(f"发布失败或人工取消: {e}")
         err = str(e)
         success = False
 
@@ -564,8 +564,8 @@ def execute_publish():
         else:
             result = publish_fn(**publish_kwargs)
         success = bool(result)
-    except Exception as e:
-        logger.error(f"执行发布失败: {e}")
+    except (Exception, asyncio.CancelledError) as e:
+        logger.error(f"执行发布失败或人工取消: {e}")
         err = str(e)
         success = False
 

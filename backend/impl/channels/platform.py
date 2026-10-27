@@ -31,6 +31,7 @@ from .._utils import (
     scrape_tencent_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import pause_after_input, wait_for_manual_publish
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1198,7 +1199,10 @@ async def _dismiss_i_know_dialog(page) -> bool:
 
 
 async def _submit_publish(page, is_draft: bool = False) -> None:
-    """Click the publish (or save-draft) button and wait for navigation."""
+    """Manual publication; automatic draft saving remains supported."""
+    if not is_draft:
+        await wait_for_manual_publish(page, 'channels')
+        return
     while True:
         raise_if_page_closed(page)
         try:
@@ -1210,22 +1214,6 @@ async def _submit_publish(page, is_draft: bool = False) -> None:
                     await draft_button.click()
                 await page.wait_for_url("**/post/list**", timeout=30000)
                 logger.info("[发布] draft saved successfully")
-            else:
-                publish_button = page.locator(
-                    'div.form-btns button:has-text("发表")'
-                )
-                if await publish_button.count():
-                    await publish_button.click()
-                    # 视频号偶尔弹出「我知道了」提醒框,先关掉再等跳转
-                    if await _dismiss_i_know_dialog(page):
-                        # 弹窗关掉后,需要再次点击「发表」才能真正提交
-                        publish_button = page.locator(
-                            'div.form-btns button:has-text("发表")'
-                        )
-                        if await publish_button.count():
-                            await publish_button.click()
-                await page.wait_for_url(TENCENT_MANAGE_URL, timeout=30000)
-                logger.info("[发布] video published successfully")
             break
         except Exception as exc:
             current_url = page.url
@@ -1667,7 +1655,7 @@ class ChannelsPlatform(BasePlatform):
                         # 有头模式发布(便于观察);不开 humanize(no_viewport=True 与
                         # 拟人化鼠标轨迹冲突,会抛 "Viewport size not available")
                         browser = await self.create_browser(headless=False)
-                        keep_browser_open = False  # DRY_RUN 模拟发布成功后保留浏览器窗口
+                        keep_browser_open = False  # 演练时保留浏览器供人工检查，不计为发布成功
                         try:
                             context = await self.create_context(
                                 browser, storage_state=cookie_path
@@ -1690,7 +1678,9 @@ class ChannelsPlatform(BasePlatform):
                             # title → 短标题输入框（_set_short_title，稍后填）
                             # 正文/描述区 → desc + tags
                             await _fill_description(page, desc)
+                            await pause_after_input()
                             await _fill_title_and_tags(page, title, tags)
+                            await pause_after_input()
                             await _apply_collection(page, channels_collection_name)
                             await _apply_location(page, channels_location_name)
                             await _apply_activity(page, channels_activity_name, channels_activity_id)
@@ -1729,6 +1719,7 @@ class ChannelsPlatform(BasePlatform):
 
                             # Set short title
                             await _set_short_title(page, title)
+                            await pause_after_input()
 
                             # 调试:输出本次发布的全部参数
                             logger.info("=" * 60)
@@ -1758,14 +1749,11 @@ class ChannelsPlatform(BasePlatform):
                             logger.info("=" * 60)
 
                             if _PUBLISH_DRY_RUN:
-                                # 模拟发布成功: 不真实点击「发表」,打成功日志即算发布完成;
-                                # 浏览器停留在发布界面(不自动关窗),人工检查表单后手动关闭。
-                                # 立即 return 让任务记为成功,不阻塞等关窗(避免和 watchdog
-                                # 竞争把「手动关窗」误判为取消失败)。
-                                logger.info("[发布] ✅ DRY_RUN 模拟发布成功(未真实点击「发表」)")
+                                # 演练不实际发布，也不能记为发布成功。
+                                logger.info("[发布] DRY_RUN 未发布")
                                 logger.info("[发布] DRY_RUN: 浏览器停留在发布界面,请人工检查表单后手动关闭窗口")
                                 keep_browser_open = True
-                                return
+                                raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
                             # Submit
                             await _submit_publish(page, is_draft)

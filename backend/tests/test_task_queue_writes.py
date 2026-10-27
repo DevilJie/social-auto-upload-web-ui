@@ -80,6 +80,23 @@ class TestTaskQueueWrites(unittest.TestCase):
         t = self.PublishTask(batch_id='abc-123')
         self.assertEqual(t.batch_id, 'abc-123')
 
+    def test_history_preserves_platform_settings_for_retry(self):
+        import json
+        from ext_api.task_queue import TaskQueue
+        task = self.PublishTask(batch_id='retry-settings', platform='YouTube',
+            title='retry title', tags=['first'],
+            video_landscape={'id': 'v', 'stored_path': 'video.mp4'},
+            form_snapshot={'alteredContent': False, 'audience': 'not_kids',
+                           'creationDeclaration': '内容无需标注', 'tags': ['stale']})
+        TaskQueue()._insert_db(task)
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            row = conn.execute('SELECT account_configs FROM publish_details WHERE id=?', (task.id,)).fetchone()
+        cfg = json.loads(row[0])
+        self.assertIs(cfg['alteredContent'], False)
+        self.assertEqual(cfg['audience'], 'not_kids')
+        self.assertEqual(cfg['tags'], ['first'])
+        self.assertEqual(cfg['videoLandscape']['stored_path'], 'video.mp4')
+
     def test_to_dict_includes_batch_id(self):
         t = self.PublishTask(batch_id='abc-123', title='t', platform='抖音')
         d = t.to_dict()

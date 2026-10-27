@@ -54,3 +54,20 @@ AGENTS.md
 
 # ZCode 工具配置
 .zcode/
+
+# Local credentials, databases, browser traces and test state
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.har
+*.trace.zip
+.pytest_cache/
+.coverage
+htmlcov/
+test-results/
+playwright-report/
+.codex-backups/
+.test-data/

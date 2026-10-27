@@ -1484,6 +1484,7 @@ def batch_publish_drafts():
                         payload=payload,
                         # 草稿批量发布:失败立即标记 FAILED,不重试(用户需求)
                         max_retries=0,
+                        form_snapshot=merged,
                     )
                     try:
                         task_queue.add_task(task)
@@ -1647,6 +1648,9 @@ def videos_batch_publish():
                     account_ov,
                 )
 
+                from services.draft_merge import limit_platform_tags
+                merged['tags'] = limit_platform_tags(account_platform, merged)
+
                 # 逐账号补充校验（标题/描述长度、视频时长/大小）
                 acc_errs = _validate_batch_account(account_platform, merged)
                 if acc_errs:
@@ -1710,6 +1714,7 @@ def videos_batch_publish():
                     # 本次批量发布间隔（分钟）；worker 优先取该值再回退全局设置
                     batch_interval_minutes=batch_interval_minutes,
                 )
+                task.form_snapshot = merged
                 try:
                     # 发布链调度：链头视频立即入队；后续视频只写库（details=pending）
                     # 并暂存到 TaskQueue，等前驱视频完成后按间隔排程入队。

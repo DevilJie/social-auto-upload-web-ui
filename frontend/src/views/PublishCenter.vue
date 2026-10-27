@@ -189,7 +189,7 @@
             :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
           >
             <div class="setting-label" :style="{ color: currentPlatformConfig.color }">标签</div>
-            <div class="setting-hint">{{ selectedPlatform === 'douyin' ? '官方活动 + 标签最多 5 个，按回车确认' : selectedPlatform === 'kuaishou' ? '输入标签内容，按回车确认（最多 4 个）' : '输入标签内容，按回车确认' }}</div>
+            <div class="setting-hint">最多 10 个；发布时快手取前 4 个、抖音取前 5 个（活动及正文话题占用名额）</div>
               <el-input
                 v-model="tagInput"
                 placeholder="输入标签内容，按回车添加"
@@ -1005,6 +1005,8 @@
 </template>
 
 <script setup>
+import { historyApi } from '@/api/v2'
+import { historyVideoSnapshot, limitTags } from '@/utils/publishPreferences'
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus, Guide } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1455,6 +1457,12 @@ const DEFAULT_PLATFORM_CONFIGS = {
   dayu: { title: '', description: '', creationDeclaration: '', dayuRepostUrl: '', category: '', scheduleTime: '', tags: [] },
 }
 
+for (const p of platformList) {
+  for (const [key, value] of Object.entries(p.defaultSettings || {})) {
+    if (typeof value === 'string' && value.includes('无需')) DEFAULT_PLATFORM_CONFIGS[p.key][key] = value
+  }
+}
+
 const platformConfigs = reactive(JSON.parse(JSON.stringify(DEFAULT_PLATFORM_CONFIGS)))
 
 const accountOverrides = reactive({})
@@ -1872,20 +1880,9 @@ function addTag() {
     ElMessage.warning('标签已存在')
     return
   }
-  if (selectedPlatform.value === 'douyin') {
-    const ac = form.activityId?.length || 0
-    const tc = form.tags?.length || 0
-    if (ac + tc >= 5) {
-      ElMessage.warning('官方活动 + 标签最多 5 个')
-      return
-    }
-  }
-  if (selectedPlatform.value === 'kuaishou') {
-    const tc = form.tags?.length || 0
-    if (tc >= 4) {
-      ElMessage.warning('快手标签最多 4 个')
-      return
-    }
+  if (form.tags.length >= 10) {
+    ElMessage.warning('标签最多 10 个')
+    return
   }
   form.tags.push(tag)
   tagInput.value = ''
@@ -1896,16 +1893,16 @@ function removeTag(index) {
 }
 
 // 自动提取描述中的 #xxx 到标签数组,并从描述中清除 #xxx 字样
-// maxTags 反应式跟随 selectedPlatform:抖音 5 个(活动+标签总数),其他平台不限
+// 编辑时最多 10 个；提交时按各平台及活动占用名额截取。
 // 但 description 在切平台/账号时会被覆盖(form 重置),所以挂个 watch 即可
 useAutoExtractHashtags({
   form,
   descKey: 'description',
   tagKey: 'tags',
-  // 抖音活动+标签总数 ≤ 5;快手标签 ≤ 4;其他平台不限
-  maxTags: selectedPlatform.value === 'douyin' ? 5 : (selectedPlatform.value === 'kuaishou' ? 4 : undefined),
-  // 抖音:活动数也算占用,需要预留位置;其他平台不预留
-  getReservedTagCount: () => (selectedPlatform.value === 'douyin' ? (form.activityId?.length || 0) : 0),
+  // 输入统一上限，平台截取由提交校验及后端执行。
+  maxTags: 10,
+  // 活动占位在提交时计算。
+  getReservedTagCount: () => 0,
 })
 
 // ========== Douyin-specific Methods ==========
@@ -3032,6 +3029,18 @@ onMounted(async () => {
   publishAccountIds.clear()
   filteredIds.forEach(id => publishAccountIds.add(id))
 
+  if (route.query.retryBatch && route.query.retryItem) {
+    try {
+      const res = await historyApi.getBatch(route.query.retryBatch)
+      const snapshot = historyVideoSnapshot(res.data, route.query.retryItem, accountStore.accounts, DEFAULT_PLATFORM_CONFIGS, platformNameToKey)
+      videoQueue.value = [snapshot]
+      currentVideoIndex.value = 0
+      applyVideoSnapshot(snapshot)
+      ElMessage.success('已恢复失败视频，仅选择该失败账号。请检查配置后重新提交；定时已清空。')
+    } catch (e) {
+      ElMessage.error(e.message || '失败记录恢复失败')
+    }
+  }
   const draftId = route.query.draft
   if (draftId) {
     restoreDraft(Number(draftId))
@@ -3050,7 +3059,9 @@ function resolveAccountConfigFor(state, platformKey, accountId) {
   const accountOv = state.accountOverrides?.[accountId] || null
   const platformOv = state.platformOverrides?.[platformKey] || null
   const platformDefault = state.platformConfigs?.[platformKey] || null
-  return mergeConfig(state.commonConfig || {}, platformDefault, platformOv, accountOv)
+  const merged = mergeConfig(state.commonConfig || {}, platformDefault, platformOv, accountOv)
+  merged.tags = limitTags(platformKey, merged, countDescriptionHashtags(merged.description))
+  return merged
 }
 
 const _DECLARATION_PLATFORMS = {

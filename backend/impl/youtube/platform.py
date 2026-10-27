@@ -26,6 +26,7 @@ from conf import BASE_DIR
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import clear_input, get_account_name_by_cookie_file, parse_schedule_time, scrape_youtube_profile
 from ..base_platform import BasePlatform
+from .._manual_review import pause_after_input, wait_for_manual_publish
 
 YOUTUBE_STUDIO_URL = "https://studio.youtube.com"
 
@@ -461,8 +462,10 @@ class YoutubePlatform(BasePlatform):
 
             # ---- Step 4: Fill details ----
             await self._clear_and_type(page, "#title-textarea #textbox", title[:100])
+            await pause_after_input()
             if desc:
                 await self._clear_and_type(page, "#description-textarea #textbox", desc)
+                await pause_after_input()
 
             # Set thumbnail
             if thumbnail_path and os.path.exists(thumbnail_path):
@@ -513,6 +516,7 @@ class YoutubePlatform(BasePlatform):
                             logger.info(_msg(f"[填写标签] 标签 '{tag}' 失败: {exc}"))
                 except Exception as exc:
                     logger.info(_msg(f"[填写标签] 未找到标签输入框: {exc}"))
+                await pause_after_input()
 
             # ---- Step 5-7: Click Next 3 times (video elements, checks, visibility) ----
             for step_name in ("video elements", "checks", "visibility"):
@@ -527,12 +531,8 @@ class YoutubePlatform(BasePlatform):
 
             await asyncio.sleep(1)
 
-            # ---- Step 9: Click Done ----
-            logger.info(_msg("[发布] 点击完成按钮..."))
-            done_btn = page.locator("#done-button").first
-            await done_btn.wait_for(state="visible", timeout=10000)
-            await done_btn.click()
-            await asyncio.sleep(5)
+            # Final submission belongs to the user, including scheduled videos.
+            await wait_for_manual_publish(page, 'youtube')
 
             logger.info(_msg("[发布] 视频发布成功!"))
 
@@ -592,21 +592,74 @@ class YoutubePlatform(BasePlatform):
             logger.info(_msg(f"[单选项] {label} 设置失败: {exc}"))
 
     async def _open_upload_dialog(self, page):
-        """Click the upload button on YouTube Studio home page."""
+        """Open Studio's dialog and verify the actual (normally hidden) input."""
         logger.info(_msg("[上传视频] 正在打开上传对话框..."))
-        await asyncio.sleep(5)  # wait for Polymer rendering
+        from urllib.parse import urlsplit
 
-        upload_btn = page.locator(
-            '#upload-icon, [aria-label="Upload videos"], '
-            'ytcp-icon-button[aria-label="Upload videos"]'
-        ).first
-        await upload_btn.wait_for(state="visible", timeout=20000)
-        await upload_btn.click(force=True)
-        logger.info(_msg("[上传视频] 已点击上传按钮"))
+        file_input = page.locator('input[name="Filedata"]').first
 
-        file_picker = page.locator("#select-files-button, ytcp-uploads-file-picker").first
-        await file_picker.wait_for(state="visible", timeout=15000)
-        logger.info(_msg("[上传视频] 上传对话框已打开"))
+        async def input_ready(timeout):
+            await file_input.wait_for(state="attached", timeout=timeout)
+
+        try:
+            # An already-open dialog needs no click. The input itself is hidden.
+            await input_ready(1000)
+            return
+        except Exception:
+            pass
+
+        if urlsplit(page.url).hostname == 'accounts.google.com':
+            raise RuntimeError('YouTube 登录状态已失效或需要验证，请重新登录账号')
+
+        try:
+            # :visible prevents .first from selecting a hidden duplicate icon.
+            upload_btn = page.locator(
+                '#upload-icon:visible, [aria-label="Upload videos"]:visible, '
+                '[aria-label="上传视频"]:visible, [aria-label="上傳影片"]:visible'
+            ).first
+            await upload_btn.wait_for(state='visible', timeout=15000)
+            await upload_btn.click(timeout=5000)
+            await input_ready(20000)
+            return
+        except Exception:
+            pass
+
+        try:
+            # Studio can expose upload only inside the Create menu.
+            # Recheck first: a slow first click may already have opened it.
+            if await file_input.count():
+                return
+            create_btn = page.locator(
+                '#create-icon:visible, #create-button:visible, '
+                '[aria-label="Create"]:visible, [aria-label="创建"]:visible, '
+                '[aria-label="建立"]:visible'
+            ).first
+            await create_btn.wait_for(state='visible', timeout=10000)
+            await create_btn.click(timeout=5000)
+            menu_upload = page.get_by_text(
+                re.compile(r'^(Upload videos|上传视频|上傳影片)$')
+            ).filter(visible=True).first
+            await menu_upload.wait_for(state='visible', timeout=10000)
+            await menu_upload.click(timeout=5000)
+            await input_ready(30000)
+            return
+        except Exception:
+            pass
+
+        # Preserve evidence rather than reporting an opaque selector timeout.
+        location = urlsplit(page.url)
+        diagnostic = Path(BASE_DIR) / 'logs' / ('youtube-upload-entry-' + uuid.uuid4().hex[:10] + '.png')
+        try:
+            diagnostic.parent.mkdir(parents=True, exist_ok=True)
+            await page.screenshot(path=str(diagnostic), full_page=True)
+            evidence = f'；截图：{diagnostic}'
+        except Exception:
+            evidence = '；未能保存页面截图'
+        raise RuntimeError(
+            'YouTube 上传入口未就绪，尚未选择视频文件。'
+            f'当前页面：{location.hostname}{location.path}；'
+            f'请检查登录验证、频道初始化或页面加载情况{evidence}'
+        )
 
     async def _set_visibility(self, page, publish_date):
         """Set video visibility — PUBLIC or scheduled."""

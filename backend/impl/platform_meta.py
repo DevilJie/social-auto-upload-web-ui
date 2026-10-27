@@ -32,7 +32,7 @@ PLATFORM_META: dict[str, dict] = {
         "creator_url": "https://creator.xiaohongshu.com/",
         "fields": [
             {"key": "aiContent", "label": "内容类型声明", "type": "select", "required": True, "options": _opt(
-                "虚构演绎，仅供娱乐", "笔记含AI合成内容", "内容包含营销广告", "内容来源声明")},
+                "无需声明", "虚构演绎，仅供娱乐", "笔记含AI合成内容", "内容包含营销广告", "内容来源声明")},
             {"key": "xhsSourceType", "label": "内容来源类型", "type": "radio", "visible_when": {"key": "aiContent", "value": "内容来源声明"},
              "options": [{"label": "自主拍摄", "value": "self"}, {"label": "来源转载", "value": "repost"}]},
             {"key": "xhsShootLocation", "label": "拍摄地点", "type": "poiSelect", "visible_when": {"key": "xhsSourceType", "value": "self"}},
@@ -376,6 +376,14 @@ DEFAULT_CONFIGS: dict[str, dict] = {
     "jingmai": {"title": "", "description": "", "jdRelatedType": "", "jdProducts": [], "jdNovel": "", "jdNovelData": None, "jdDeclaration": "", "scheduleTime": "", "tags": []},
     "dayu": {"title": "", "description": "", "creationDeclaration": "", "dayuRepostUrl": "", "category": "", "scheduleTime": "", "tags": []},
 }
+
+
+for _key, _meta in PLATFORM_META.items():
+    for _field in _meta.get('fields', []):
+        _none = next((o['value'] for o in _field.get('options', [])
+                      if isinstance(o.get('value'), str) and '无需' in o['value']), None)
+        if _none is not None and _key in DEFAULT_CONFIGS:
+            DEFAULT_CONFIGS[_key][_field['key']] = [_none] if _field.get('type') == 'multiSelect' else _none
 
 
 def get_platform_meta(platform_key: str) -> dict:

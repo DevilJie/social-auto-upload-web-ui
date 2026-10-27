@@ -597,7 +597,7 @@ export function registerPublishTools(server: McpServer, client: BackendClient): 
         const response = await client.post('/api/image-publish/publish', {
           image_ids: params.image_ids,
           account_configs: builtConfigs,
-        }, 600000);
+        }, 0); // 人工验收可能超过十分钟，不因请求超时让客户端重复发布。
 
         return {
           content: [{

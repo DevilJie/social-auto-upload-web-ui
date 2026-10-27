@@ -254,7 +254,7 @@ def test_validate_draft_portrait_without_portrait_cover(monkeypatch):
 
 
 def test_validate_draft_douyin_activity_tags_cap(monkeypatch):
-    """抖音活动+标签 > 5 → 报错。"""
+    """抖音活动占用名额，标签自动截取，允许提交。"""
     _user_info_lookup_patch(monkeypatch, [FakeAccount(1, 'douyin', '/cookies/d1')])
     draft = _video_draft({
         'commonConfig': {'videoLandscape': None, 'videoPortrait': {'id': 'v'},
@@ -269,7 +269,7 @@ def test_validate_draft_douyin_activity_tags_cap(monkeypatch):
         'publishAccountIds': [1],
     })
     errs = validate_draft_for_publish(draft)
-    assert any('5' in e or '活动' in e or '标签' in e for e in errs)
+    assert not any('话题' in e for e in errs)
 
 
 def test_validate_draft_happy_path(monkeypatch):

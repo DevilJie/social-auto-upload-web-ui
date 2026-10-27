@@ -28,6 +28,7 @@ from .._utils import (
     scrape_user_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import pause_after_input, wait_for_manual_publish
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -532,12 +533,14 @@ class KuaishouPlatform(BasePlatform):
                 await page.keyboard.press("Control+KeyA")
                 await page.keyboard.press("Delete")
                 await page.keyboard.type(full_desc[:500])
+                await pause_after_input()
                 # 标签输入(打字机 + 等下拉 + 选 _active_ 高亮项 + 空格兜底)
                 # 图集路径已定位 #work-description-edit,传 element 让 helper 用
                 # press_sequentially 自动 focus + 触发 React onChange(最稳)。
                 await self._input_tags(
                     page, tags or [], max_n=_KS_MAX_TAGS, element=desc_editor
                 )
+                await pause_after_input()
                 await asyncio.sleep(0.5)
 
                 logger.info("[填写简介] 简介填写完成. 封面=%s, 音乐ID=%s", cover_path, music_id)
@@ -572,24 +575,12 @@ class KuaishouPlatform(BasePlatform):
                 logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
-                    logger.info("[发布] 正在点击发布按钮...")
-                    publish_btn = page.get_by_text("发布", exact=True)
-                    await publish_btn.first.click()
-                    await page.wait_for_url(
-                        "**/article/manage/video?status=2&from=publish**",
-                        timeout=60000,
-                    )
+                    await wait_for_manual_publish(page, 'kuaishou')
                     logger.info("[发布] 图集发布成功!")
                     await context.storage_state(path=account_file)
                     logger.info("[发布] Cookie状态已更新")
                 else:
-                    logger.info("=" * 40)
-                    logger.info("[发布] [演练模式] 模拟点击发布! 发布成功!")
-                    logger.info("=" * 40)
-                    # dry_run 模式保留浏览器窗口，方便核对表单填写结果
-                    logger.info(
-                        "[发布] dry_run=True, 保留浏览器窗口供核对表单 (不关闭 context/browser)"
-                    )
+                    raise RuntimeError('演练模式未实际发布，不计为发布成功')
             finally:
                 if not dry_run:
                     await context.close()
@@ -782,6 +773,7 @@ class KuaishouPlatform(BasePlatform):
             # 清空后输入(跨平台:Mac 用 Cmd+A,其他用 Ctrl+A)
             # 描述为空时不再回落标题：描述就保持为空
             await clear_and_type(page, desc)
+            await pause_after_input()
             await page.keyboard.press("Enter")
             logger.info("[填写简介] 简介填写完成")
 
@@ -790,6 +782,7 @@ class KuaishouPlatform(BasePlatform):
             # _input_tags 内部用 page.keyboard.type(delay=150),要求描述框已聚焦
             # (前面 614 行的 click 已经把焦点带过来了)。
             await self._input_tags(page, tags, max_n=_KS_MAX_TAGS)
+            await pause_after_input()
 
 
             # ------ Wait for upload to complete (no timeout — wait indefinitely) ------
@@ -836,29 +829,7 @@ class KuaishouPlatform(BasePlatform):
                 await self._set_schedule_time(page, publish_date)
                 logger.info("[定时发布] 定时发布设置完成")
 
-            # ------ Click publish ------
-            logger.info("[发布] 正在点击发布按钮...")
-            while True:
-                # 注：浏览器被用户关闭时, watchdog 会 cancel 当前 task,
-                # CancelledError 不被 except Exception 捕获, 循环自然终止;
-                # 页面级守卫做兜底(watchdog 在 CloakBrowser 下未必可靠)。
-                raise_if_page_closed(page)
-                try:
-                    publish_btn = page.get_by_text("发布", exact=True)
-                    if await publish_btn.count() > 0:
-                        await publish_btn.click()
-
-                    await asyncio.sleep(1)
-                    confirm_btn = page.get_by_text("确认发布")
-                    if await confirm_btn.count() > 0:
-                        await confirm_btn.click()
-
-                    await page.wait_for_url(_KS_MANAGE_URL_PATTERN, timeout=5000)
-                    logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
-                    break
-                except Exception as exc:
-                    logger.info("[发布] 发布重试: %s", exc)
-                    await asyncio.sleep(1)
+            await wait_for_manual_publish(page, 'kuaishou')
 
             upload_success = True
         finally:

@@ -202,6 +202,7 @@ class PublishTask:
     account_id: int = 0
     detail_id: str = ''            # publish_details.id
     payload: dict = field(default_factory=dict)
+    form_snapshot: dict = field(default_factory=dict)
 
     # 本次批量发布的视频间隔（分钟）。仅本次批量生效，覆盖全局
     # settings.batchTaskInterval；None/0 表示不等待，立即开始下一个任务。
@@ -254,6 +255,7 @@ def _build_account_configs(task: 'PublishTask') -> dict:
     """构造写入 publish_details.account_configs 的 dict。
     含全 per-platform form 字段，让历史卡片能完整还原发布时的内容。"""
     return {
+        **task.form_snapshot,
         'title': task.title,
         'description': task.description,
         'tags': task.tags,
@@ -506,7 +508,9 @@ class TaskQueue:
 
             cancelled_by_user = False
             try:
-                await self._execute(task)
+                result = await self._execute(task)
+                if result is False:
+                    raise RuntimeError('平台未确认发布成功，请检查平台页面和日志')
                 task.status = TaskStatus.SUCCESS
             except asyncio.CancelledError:
                 logger.info(

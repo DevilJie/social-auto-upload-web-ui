@@ -77,6 +77,8 @@
                 <span v-if="selectedItem.duration" class="meta-time">耗时 {{ formatDuration(selectedItem.duration) }}</span>
               </div>
             </div>
+            <el-button v-if="selectedItem.status === 'failed' && batch.type === 'video' && selectedAccount"
+              type="primary" size="small" @click="retryFailedVideo">重新发布</el-button>
             <el-button
               v-if="isActiveStatus(selectedItem.status)"
               type="danger"
@@ -287,6 +289,10 @@ async function copyBatchId() {
   } catch (e) {
     ElMessage.error('复制失败')
   }
+}
+
+function retryFailedVideo() {
+  router.push({ path: '/publish-center', query: { retryBatch: batch.value.id, retryItem: selectedItem.value.id } })
 }
 
 function goBack() {

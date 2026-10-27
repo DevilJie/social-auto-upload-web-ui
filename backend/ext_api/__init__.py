@@ -752,6 +752,15 @@ def get_settings():
             "manualReview": "false",
         }
         defaults.update(settings)
+        # manualReview 归一化为小写字符串 'true'/'false'
+        # （历史上可能存过 'True'/'False'/布尔，大小写不一致会让前端下拉无法匹配）
+        if 'manualReview' in defaults:
+            defaults['manualReview'] = (
+                'true' if str(defaults['manualReview']).strip().lower()
+                in ('1', 'true', 'yes') else 'false'
+            )
+        else:
+            defaults['manualReview'] = 'false'
         # 转换布尔值类型
         for key in ['autoFillTitle', 'autoSaveDraft']:
             if key in defaults:

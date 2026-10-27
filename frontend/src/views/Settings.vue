@@ -544,7 +544,11 @@ const fetchSettings = async () => {
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
       if (res.data.batchTaskInterval !== undefined) settings.batchTaskInterval = res.data.batchTaskInterval
-      if (res.data.manualReview !== undefined) settings.manualReview = String(res.data.manualReview)
+      if (res.data.manualReview !== undefined) {
+        // 归一化：兼容历史存过的 'True'/'False'/布尔值，统一为下拉的 'true'/'false'
+        const mr = res.data.manualReview
+        settings.manualReview = (mr === true || String(mr).trim().toLowerCase() === 'true') ? 'true' : 'false'
+      }
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }

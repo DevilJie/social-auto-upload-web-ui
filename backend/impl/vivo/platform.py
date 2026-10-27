@@ -31,6 +31,7 @@ from .._utils import (
     scrape_vivo_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("vivo")
 
@@ -551,28 +552,34 @@ class VivoPlatform(BasePlatform):
                     return
 
                 # 10. 提交
-                logger.info("[提交] 正在点击提交按钮...")
-                submit_btn = page.locator(
-                    '.btns button.el-button--primary:has-text("提交")'
-                )
-                if not await submit_btn.count():
-                    submit_btn = page.get_by_role("button", name="提交", exact=True)
-                await submit_btn.click()
+                if manual_review_enabled('vivo', 'video'):
+                    # 人工验收：保留页面，用户亲自点「提交」，程序不再点击。
+                    # 成功判定沿用自动分支：跳转离开 uploads 页
+                    # （is_success_url('vivo') 同款反向规则）。
+                    await wait_for_manual_publish(page, 'vivo')
+                else:
+                    logger.info("[提交] 正在点击提交按钮...")
+                    submit_btn = page.locator(
+                        '.btns button.el-button--primary:has-text("提交")'
+                    )
+                    if not await submit_btn.count():
+                        submit_btn = page.get_by_role("button", name="提交", exact=True)
+                    await submit_btn.click()
 
-                # 11. 等待跳转(成功判断:URL 离开 uploads 页)
-                logger.info("[提交] 等待页面跳转判断发布结果...")
-                success = False
-                wait_start = asyncio.get_event_loop().time()
-                while (asyncio.get_event_loop().time() - wait_start) < 60:
-                    current_url = page.url
-                    if "content/uploads" not in current_url and "#/uploads" not in current_url:
-                        success = True
-                        logger.info("[提交] 发布成功! 页面跳转到: %s", current_url)
-                        break
-                    await asyncio.sleep(1)
+                    # 11. 等待跳转(成功判断:URL 离开 uploads 页)
+                    logger.info("[提交] 等待页面跳转判断发布结果...")
+                    success = False
+                    wait_start = asyncio.get_event_loop().time()
+                    while (asyncio.get_event_loop().time() - wait_start) < 60:
+                        current_url = page.url
+                        if "content/uploads" not in current_url and "#/uploads" not in current_url:
+                            success = True
+                            logger.info("[提交] 发布成功! 页面跳转到: %s", current_url)
+                            break
+                        await asyncio.sleep(1)
 
-                if not success:
-                    logger.warning("[提交] 提交后未检测到页面跳转,可能发布失败")
+                    if not success:
+                        logger.warning("[提交] 提交后未检测到页面跳转,可能发布失败")
 
                 # 12. 回写 cookie
                 await context.storage_state(path=account_file)

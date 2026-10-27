@@ -20,6 +20,7 @@ from util._logger import bind_account_name, get_channel_logger
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import clear_and_type, get_account_name_by_cookie_file, parse_schedule_time, save_login_result
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("tencent_video")
 
@@ -616,7 +617,13 @@ class TencentVideoPlatform(BasePlatform):
                     await self._set_schedule_time(page, publish_date)
 
                 # Step 7: Click publish
-                await self._click_publish(page)
+                if manual_review_enabled('tencent_video', 'video'):
+                    # 人工验收：保留页面，用户亲自点击发布，程序不再点击。
+                    # 成功判定沿用自动分支口径：页面出现「提交成功/
+                    # 发布成功/投稿成功」成功文案（平台专属 + 通用列表）。
+                    await wait_for_manual_publish(page, 'tencent_video')
+                else:
+                    await self._click_publish(page)
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)

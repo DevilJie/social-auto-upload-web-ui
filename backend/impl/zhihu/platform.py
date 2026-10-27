@@ -36,6 +36,7 @@ from .._utils import (
     scrape_zhihu_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("zhihu")
 
@@ -644,7 +645,17 @@ class ZhihuPlatform(BasePlatform):
                     pass
 
                 # 10. 点击发布按钮（监听 /api/v4/content/publish 响应判断结果）
-                submitted, submit_msg = await self._click_submit(page, is_scheduled)
+                if manual_review_enabled('zhihu', 'video'):
+                    # 人工验收：保留页面，由用户亲自点击发布，程序不再点击。
+                    # 成功判定复用自动提交口径：publish API 响应 code==0。
+                    _arm, _api_ok = self._arm_publish_api_check(page)
+                    _arm()
+                    await wait_for_manual_publish(
+                        page, 'zhihu', success_check=_api_ok
+                    )
+                    submitted, submit_msg = True, "人工验收: 用户已亲自发布"
+                else:
+                    submitted, submit_msg = await self._click_submit(page, is_scheduled)
                 if submitted:
                     logger.info(f"[上传视频] ✓ 发布成功: {submit_msg}")
                     try:
@@ -1450,6 +1461,37 @@ class ZhihuPlatform(BasePlatform):
         raise RuntimeError(f"知乎发布失败 code={code} message={msg}")
 
     @staticmethod
+    def _arm_publish_api_check(page):
+        """人工验收用：提前挂 publish API 响应监听，返回 (arm, success_check)。
+
+        wait_for_manual_publish 的 success_check 在用户点击发布之后才被
+        轮询调用，届时响应早已返回，必须在等待开始前注册监听把判定
+        结果记下来。判定口径与自动提交/自动发表完全一致：POST
+        /api/v4/content/publish 响应 ``code == 0`` 才算成功（视频与
+        文章发布走同一 API）。success_check 只读记录，绝不做任何点击。
+        """
+        state = {"code": None}
+
+        async def _on_response(response):
+            try:
+                if (
+                    "/api/v4/content/publish" in response.url
+                    and response.request.method == "POST"
+                ):
+                    data = await response.json()
+                    state["code"] = data.get("code")
+            except Exception:
+                pass
+
+        def arm():
+            page.on("response", _on_response)
+
+        async def success_check(_page):
+            return state["code"] == 0
+
+        return arm, success_check
+
+    @staticmethod
     async def _dump_form_state(page):
         """调试用：把上传表单当前所有字段值打到日志，便于人工核对。
 
@@ -1749,6 +1791,16 @@ class ZhihuPlatform(BasePlatform):
                         "[文章][知乎] 草稿模式: 编辑器已自动保存草稿,不点发布"
                     )
                     await asyncio.sleep(3)
+                elif manual_review_enabled('zhihu', 'article'):
+                    # 人工验收：保留页面，由用户亲自点「发布」，程序不再点击。
+                    # 成功判定复用自动发表口径：publish API 响应 code==0
+                    # （不能用 URL 判定——编辑页 URL 本身就是 /p/<id>/edit）。
+                    _arm, _api_ok = self._arm_publish_api_check(page)
+                    _arm()
+                    await wait_for_manual_publish(
+                        page, 'zhihu', success_check=_api_ok
+                    )
+                    logger.info("[文章][知乎] 文章发表成功!")
                 else:
                     await self._click_zhihu_publish(
                         page, is_scheduled=scheduled

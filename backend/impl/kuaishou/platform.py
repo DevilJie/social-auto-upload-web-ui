@@ -579,7 +579,7 @@ class KuaishouPlatform(BasePlatform):
                 logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
-                    if manual_review_enabled():
+                    if manual_review_enabled('kuaishou', 'image'):
                         await wait_for_manual_publish(page, 'kuaishou')
                     else:
                         # 自动提交（默认）：点击发布按钮并等待跳转
@@ -844,7 +844,7 @@ class KuaishouPlatform(BasePlatform):
                 logger.info("[定时发布] 定时发布设置完成")
 
             # ------ Click publish ------
-            if manual_review_enabled():
+            if manual_review_enabled('kuaishou', 'video'):
                 await wait_for_manual_publish(page, 'kuaishou')
             else:
                 # 自动提交（默认）：点击发布/确认发布并等待跳转

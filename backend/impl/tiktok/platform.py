@@ -25,6 +25,7 @@ from .._utils import (
     scrape_user_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 from util._logger import bind_account_name, get_channel_logger
 
@@ -494,7 +495,13 @@ class TiktokPlatform(BasePlatform):
                 logger.info("[上传视频] [step 10] skipped (no schedule)")
 
             # 11. Click publish and wait for success
-            await self._click_publish(page)
+            if manual_review_enabled('tiktok', 'video'):
+                # 人工验收：保留页面，用户亲自点「发布/预约发布」及
+                # 版权确认弹窗，程序不再点击。成功判定沿用自动分支：
+                # 跳转 /tiktokstudio/content（is_success_url('tiktok')）。
+                await wait_for_manual_publish(page, 'tiktok')
+            else:
+                await self._click_publish(page)
 
             # 12. Log video ID
             video_id = await self._get_last_video_id(page)

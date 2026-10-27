@@ -67,9 +67,11 @@ class UploadEntryTests(unittest.IsolatedAsyncioTestCase):
         self.page.screenshot.assert_awaited_once()
         self.file.set_input_files.assert_not_called()
 
-    def test_final_automatic_done_click_is_removed(self):
+    def test_auto_submit_keeps_manual_review_gate(self):
+        # b783b29 之后自动提交分支恢复 done_btn.click()，但必须与人工验收互斥：
+        # manual_review_enabled gate + wait_for_manual_publish 缺一不可。
         text = SOURCE.read_text(encoding='utf-8')
-        self.assertNotIn('await done_btn.click()', text)
+        self.assertIn('manual_review_enabled', text)
         self.assertIn("await wait_for_manual_publish(page, 'youtube')", text)
 
 

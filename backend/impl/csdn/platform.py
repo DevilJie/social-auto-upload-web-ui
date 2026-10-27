@@ -29,6 +29,7 @@ from .._utils import (
     scrape_csdn_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("csdn")
 
@@ -609,7 +610,14 @@ class CsdnPlatform(BasePlatform):
                     pass
 
                 # 8. 点击发布按钮（页面跳转即成功）
-                submitted = await self._click_submit(page)
+                if manual_review_enabled('csdn', 'video'):
+                    # 人工验收：保留页面，由用户亲自点「发布」，程序不再点击。
+                    # 成功判定沿用自动分支：跳转离开 videoUpload 页
+                    # （is_success_url('csdn') 同款反向规则）。
+                    await wait_for_manual_publish(page, 'csdn')
+                    submitted = True
+                else:
+                    submitted = await self._click_submit(page)
                 if submitted:
                     logger.info("[上传视频] ✓ 发布成功")
                     try:
@@ -1348,6 +1356,42 @@ class CsdnPlatform(BasePlatform):
                         "[文章][CSDN] ✓ 草稿已保存 article_id=%s",
                         (data or {}).get("article_id"),
                     )
+                elif manual_review_enabled('csdn', 'article'):
+                    # 人工验收：保留页面，用户亲自点「发布博客」或
+                    # 「定时发布」，程序不再点击。成功判定沿用自动分支
+                    # 唯一判据：postedit/saveArticle(status=0 发表) 响应
+                    # code===200（禁 URL 判定），与 _csdn_wait_save_response
+                    # 口径一致。
+                    import json as _json
+
+                    save_state = {"ok": False}
+
+                    async def _on_publish_save(resp):
+                        try:
+                            if CSDN_ARTICLE_SAVE_API not in resp.url:
+                                return
+                            if resp.request.method != "POST":
+                                return
+                            post = _json.loads(resp.request.post_data or "{}")
+                            if int(
+                                post.get("status", -1)
+                            ) != CSDN_ARTICLE_STATUS_PUBLISH:
+                                return
+                            data = await resp.json()
+                            if data.get("code") == 200:
+                                save_state["ok"] = True
+                        except Exception:
+                            pass
+
+                    page.on("response", _on_publish_save)
+
+                    async def _article_published(_page) -> bool:
+                        return save_state["ok"]
+
+                    await wait_for_manual_publish(
+                        page, 'csdn', success_check=_article_published
+                    )
+                    logger.info("[文章][CSDN] ✓ 文章发表成功(人工验收)")
                 elif schedule_time_str:
                     data = None
                     try:

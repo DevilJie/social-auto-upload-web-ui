@@ -28,6 +28,7 @@ from .._utils import (
     save_login_result,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("jingmai")
 
@@ -340,6 +341,9 @@ class JdPlatform(BasePlatform):
                             link_items=link_items,
                             jd_novel=jd_novel,
                             jd_declaration=jd_declaration,
+                            manual_review_key=str(
+                                kwargs.get("_manual_review_key") or "jd"
+                            ),
                         )
 
             logger.info("=" * 60)
@@ -360,6 +364,7 @@ class JdPlatform(BasePlatform):
         link_items: list = None,
         jd_novel: str = "",
         jd_declaration: str = "",
+        manual_review_key: str = "jd",
     ) -> None:
         """上传单个视频到一个京东账号。失败时 raise(异常传到 publish_video → app.py)。"""
         from . import _jd_link_ops as link_ops
@@ -452,8 +457,16 @@ class JdPlatform(BasePlatform):
                     except Exception:
                         pass
                 else:
-                    await self._click_publish()
-                    await self._check_publish_success()
+                    if manual_review_enabled(manual_review_key, 'video'):
+                        # 人工验收：发布按钮在 iframe 内，由用户亲自点击，
+                        # 程序不再点击。manual_review_key 供 jingmai 复用本
+                        # 实现时用自己的渠道 key 查矩阵（渠道×发布类型）。
+                        # 成功判定沿用自动分支：URL 跳出 publish-video 页
+                        # 或成功 toast（is_success_url('jd') 同款反向规则）。
+                        await wait_for_manual_publish(page, 'jd')
+                    else:
+                        await self._click_publish()
+                        await self._check_publish_success()
             finally:
                 try:
                     await context.close()

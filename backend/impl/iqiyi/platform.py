@@ -17,6 +17,7 @@ from util._logger import bind_account_name, get_channel_logger
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import clear_and_type, get_account_name_by_cookie_file, parse_schedule_time, raise_if_page_closed, save_login_result
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("iqiyi")
 
@@ -577,7 +578,14 @@ class IqiyiPlatform(BasePlatform):
                     await self._set_schedule_time(page, publish_date)
 
                 # Step 10: Click publish / submit
-                publish_ok = await self._click_publish(page)
+                if manual_review_enabled('iqiyi', 'video'):
+                    # 人工验收：保留页面，用户亲自点发布，程序不再点击。
+                    # 成功判定沿用自动分支口径：页面出现「发布成功/已发布/
+                    # 提交成功/发布完成」成功文案（平台专属 + 通用列表）。
+                    await wait_for_manual_publish(page, 'iqiyi')
+                    publish_ok = True
+                else:
+                    publish_ok = await self._click_publish(page)
 
                 # Save updated cookie state regardless
                 await context.storage_state(path=account_file)

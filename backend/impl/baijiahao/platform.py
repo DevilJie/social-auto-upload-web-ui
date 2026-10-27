@@ -19,6 +19,7 @@ from queue import Queue
 from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
@@ -628,9 +629,14 @@ class BaijiahaoPlatform(BasePlatform):
                 logger.info("[设置声明] 创作声明设置完成")
 
                 # Publish (immediate or scheduled)
-                logger.info("[发布] 正在点击发布按钮...")
-                await self._publish_video(page, publish_date)
-                await page.wait_for_timeout(2000)
+                if manual_review_enabled('baijiahao', 'video'):
+                    # 人工验收：保留表单，等待用户亲自点击平台发布按钮
+                    # (成功判定 = URL 白名单 /builder/rc/clue)
+                    await wait_for_manual_publish(page, 'baijiahao')
+                else:
+                    logger.info("[发布] 正在点击发布按钮...")
+                    await self._publish_video(page, publish_date)
+                    await page.wait_for_timeout(2000)
 
                 # Handle captcha if present
                 captcha_dialog = page.locator(
@@ -1377,9 +1383,43 @@ class BaijiahaoPlatform(BasePlatform):
                 if is_draft:
                     await self._save_article_draft(page)
                 else:
-                    await self._publish_article_now(
-                        page, scheduled=scheduled
-                    )
+                    if manual_review_enabled('baijiahao', 'article'):
+                        # 人工验收：保留表单，等待用户亲自点击「发布」；
+                        # 成功判定与自动分支一致(发布接口 errno/code==0)
+                        publish_results = []
+
+                        async def _on_publish_response(resp):
+                            try:
+                                if (
+                                    "/pcui/article/publish" in resp.url
+                                    and resp.request.method == "POST"
+                                ):
+                                    publish_results.append(
+                                        await resp.json()
+                                    )
+                            except Exception:
+                                pass
+
+                        async def _manual_article_success(_page):
+                            if not publish_results:
+                                return False
+                            body = publish_results[-1]
+                            if not isinstance(body, dict):
+                                return False
+                            return (
+                                body.get("errno") == 0
+                                or body.get("code") == 0
+                            )
+
+                        page.on("response", _on_publish_response)
+                        await wait_for_manual_publish(
+                            page, 'baijiahao',
+                            success_check=_manual_article_success,
+                        )
+                    else:
+                        await self._publish_article_now(
+                            page, scheduled=scheduled
+                        )
 
                 await context.storage_state(path=cookie_path)
                 logger.info("[文章][百家号] Cookie 状态已更新")

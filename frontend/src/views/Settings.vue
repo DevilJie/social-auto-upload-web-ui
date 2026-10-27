@@ -96,14 +96,57 @@
       <div class="setting-row">
         <div class="setting-info">
           <span class="setting-label">发布提交方式</span>
-          <span class="setting-desc">影响 抖音/小红书/视频号/快手/B站/YouTube 视频发布：「自动提交发布」由程序自动点击平台发布按钮（默认）；「人工验收」填写完成后保留浏览器，由你核对并亲自点击平台发布按钮，关闭页面视为取消</span>
+          <span class="setting-desc">按「渠道 × 发布类型」逐格控制。开启 = 人工验收：填写完成后保留浏览器，由你核对并亲自点击平台发布按钮，关闭页面视为取消；关闭 = 自动提交发布（默认）。设置保存后对下一个发布任务立即生效</span>
         </div>
-        <div class="setting-control">
-          <el-select v-model="settings.manualReview" style="width: 220px">
-            <el-option label="自动提交发布（默认）" value="false" />
-            <el-option label="人工验收（我亲自点击发布）" value="true" />
-          </el-select>
-        </div>
+      </div>
+      <div class="manual-review-matrix">
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th class="col-platform">渠道</th>
+              <th class="col-type">
+                <span>视频</span>
+                <el-tooltip content="视频发布页" placement="top">
+                  <el-icon class="col-type-help"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </th>
+              <th class="col-type">
+                <span>图文</span>
+                <el-tooltip content="图文发布页" placement="top">
+                  <el-icon class="col-type-help"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </th>
+              <th class="col-type">
+                <span>文章</span>
+                <el-tooltip content="文章发布页" placement="top">
+                  <el-icon class="col-type-help"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in platformList" :key="p.key">
+              <td class="col-platform">
+                <div class="platform-cell">
+                  <img :src="p.logo" :alt="p.name" class="platform-logo" />
+                  <span class="platform-name">{{ p.name }}</span>
+                </div>
+              </td>
+              <td class="col-type">
+                <el-switch v-if="supportsManualReview(p.key, 'video')" v-model="settings.manualReviewMatrix[p.key].video" />
+                <span v-else class="cell-na">—</span>
+              </td>
+              <td class="col-type">
+                <el-switch v-if="supportsManualReview(p.key, 'image')" v-model="settings.manualReviewMatrix[p.key].image" />
+                <span v-else class="cell-na">—</span>
+              </td>
+              <td class="col-type">
+                <el-switch v-if="supportsManualReview(p.key, 'article')" v-model="settings.manualReviewMatrix[p.key].article" />
+                <span v-else class="cell-na">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -364,7 +407,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Plus, Close, Warning, Guide } from '@element-plus/icons-vue'
+import { ChatDotRound, Plus, Close, Warning, Guide, QuestionFilled } from '@element-plus/icons-vue'
 import { settingsApi } from '@/api/v2'
 import { platformList, getPlatformByKey } from '@/config/platforms'
 import { http } from '@/utils/request'
@@ -478,6 +521,49 @@ const handleClearCache = async (target) => {
   }
 }
 
+// ===== 发布提交方式（渠道 × 发布类型 人工验收矩阵） =====
+// 与后端能力一致：视频全部渠道支持；图文/文章仅下列渠道支持
+const MANUAL_REVIEW_IMAGE_PLATFORMS = ['xiaohongshu', 'douyin', 'kuaishou', 'weibo', 'alipay', 'weixin_gzh']
+const MANUAL_REVIEW_ARTICLE_PLATFORMS = ['weixin_gzh', 'zhihu', 'baijiahao', 'csdn', 'weibo', 'dayu', 'toutiao']
+// 历史「人工验收」全局开关生效的组合（后端迁移基线），仅在响应缺失矩阵字段时兜底预填
+const LEGACY_MANUAL_REVIEW_VIDEO = ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'channels', 'youtube']
+const LEGACY_MANUAL_REVIEW_IMAGE = ['douyin', 'xiaohongshu', 'kuaishou']
+
+const supportsManualReview = (platformKey, type) => {
+  if (type === 'video') return true
+  if (type === 'image') return MANUAL_REVIEW_IMAGE_PLATFORMS.includes(platformKey)
+  return type === 'article' && MANUAL_REVIEW_ARTICLE_PLATFORMS.includes(platformKey)
+}
+
+// 全量默认矩阵：所有支持的组合 = false
+const buildDefaultMatrix = () => Object.fromEntries(
+  platformList.map(p => [p.key, { video: false, image: false, article: false }])
+)
+
+// 把服务端返回的矩阵(JSON 字符串或对象)合并进 state；解析失败按空对象处理（即全 false）
+const applyManualReviewMatrix = (raw) => {
+  let parsed = {}
+  if (raw && typeof raw === 'object') {
+    parsed = raw
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      console.warn('解析 manualReviewMatrix 失败:', e)
+      parsed = {}
+    }
+  }
+  const matrix = buildDefaultMatrix()
+  for (const p of platformList) {
+    const row = parsed[p.key]
+    if (!row || typeof row !== 'object') continue
+    for (const type of ['video', 'image', 'article']) {
+      if (supportsManualReview(p.key, type)) matrix[p.key][type] = row[type] === true
+    }
+  }
+  settings.manualReviewMatrix = matrix
+}
+
 const settings = reactive({
   proxyUrl: '',
   autoFillTitle: true,
@@ -485,7 +571,7 @@ const settings = reactive({
   autoSaveInterval: 10,
   accountCheckMode: 'pre-publish',
   batchTaskInterval: 0,
-  manualReview: 'false',
+  manualReviewMatrix: buildDefaultMatrix(),
   storage: {
     type: 'local',
     s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
@@ -544,10 +630,17 @@ const fetchSettings = async () => {
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
       if (res.data.batchTaskInterval !== undefined) settings.batchTaskInterval = res.data.batchTaskInterval
-      if (res.data.manualReview !== undefined) {
-        // 归一化：兼容历史存过的 'True'/'False'/布尔值，统一为下拉的 'true'/'false'
-        const mr = res.data.manualReview
-        settings.manualReview = (mr === true || String(mr).trim().toLowerCase() === 'true') ? 'true' : 'false'
+      if (res.data.manualReviewMatrix !== undefined && res.data.manualReviewMatrix !== null && res.data.manualReviewMatrix !== '') {
+        applyManualReviewMatrix(res.data.manualReviewMatrix)
+      } else if (res.data.manualReview !== undefined) {
+        // 兜底：后端尚无矩阵字段时，按历史全局「人工验收」开关预填（与后端迁移基线一致）
+        const legacyMr = res.data.manualReview
+        if (legacyMr === true || String(legacyMr).trim().toLowerCase() === 'true') {
+          const matrix = buildDefaultMatrix()
+          LEGACY_MANUAL_REVIEW_VIDEO.forEach(key => { matrix[key].video = true })
+          LEGACY_MANUAL_REVIEW_IMAGE.forEach(key => { matrix[key].image = true })
+          settings.manualReviewMatrix = matrix
+        }
       }
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
@@ -590,7 +683,7 @@ const handleSave = async () => {
       autoSaveInterval: settings.autoSaveInterval,
       accountCheckMode: settings.accountCheckMode,
       batchTaskInterval: settings.batchTaskInterval,
-      manualReview: settings.manualReview === 'true',
+      manualReviewMatrix: JSON.stringify(settings.manualReviewMatrix),
       storage: settings.storage,
       feedbackEmail: settings.feedbackEmail,
     })
@@ -769,6 +862,74 @@ onMounted(() => {
         &:disabled {
           opacity: 0.5;
           cursor: not-allowed;
+        }
+      }
+    }
+
+    // 发布提交方式：渠道 × 发布类型 人工验收矩阵
+    .manual-review-matrix {
+      margin-top: 8px;
+      overflow-x: auto;
+
+      .matrix-table {
+        width: 100%;
+        border-collapse: collapse;
+
+        th,
+        td {
+          padding: 10px 12px;
+          border-bottom: 1px solid $border-light;
+          text-align: center;
+        }
+
+        thead th {
+          font-size: 12px;
+          font-weight: 500;
+          color: $text-muted;
+          white-space: nowrap;
+
+          .col-type-help {
+            margin-left: 4px;
+            color: $text-muted;
+            cursor: help;
+          }
+        }
+
+        tbody tr:last-child td {
+          border-bottom: none;
+        }
+
+        .col-platform {
+          width: 200px;
+          text-align: left;
+        }
+
+        .col-type {
+          width: 96px;
+        }
+
+        .platform-cell {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .platform-logo {
+          width: 18px;
+          height: 18px;
+          border-radius: 4px;
+        }
+
+        .platform-name {
+          font-size: 13px;
+          color: $text-primary;
+        }
+
+        .cell-na {
+          font-size: 13px;
+          color: $text-muted;
+          opacity: 0.45;
+          user-select: none;
         }
       }
     }

@@ -34,6 +34,7 @@ from .._utils import (
     scrape_dayu_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("dayu")
 
@@ -865,16 +866,22 @@ class DayuPlatform(BasePlatform):
                 # 兜底: 限定 .article-write_box-opt 容器(发表/预览/清空/保存 按钮组的
                 # 固定父级,语义 class)——has_text 是子串匹配,不限容器会误中
                 # 预览弹窗里的「确认发表」按钮。
-                logger.info("[发布] 正在点击发表按钮...")
-                publish_btn = page.locator('button[data-spm-click*="videowrite.publish"]')
-                if not await publish_btn.count():
-                    publish_btn = page.locator(
-                        '.article-write_box-opt button.w-btn_primary', has_text="发表"
-                    )
-                await publish_btn.first.click()
+                if manual_review_enabled('dayu', 'video'):
+                    # 人工验收：保留页面，用户亲自点「发表」及二次弹窗
+                    # 「确认发表」，程序不再点击。成功判定沿用自动分支：
+                    # 跳转 /dashboard/contents（is_success_url('dayu') 同款）。
+                    await wait_for_manual_publish(page, 'dayu')
+                else:
+                    logger.info("[发布] 正在点击发表按钮...")
+                    publish_btn = page.locator('button[data-spm-click*="videowrite.publish"]')
+                    if not await publish_btn.count():
+                        publish_btn = page.locator(
+                            '.article-write_box-opt button.w-btn_primary', has_text="发表"
+                        )
+                    await publish_btn.first.click()
 
-                # 等待发布结果:处理二次弹窗,成功则跳转 /dashboard/contents
-                await self._wait_publish_result(page)
+                    # 等待发布结果:处理二次弹窗,成功则跳转 /dashboard/contents
+                    await self._wait_publish_result(page)
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)
@@ -2479,6 +2486,35 @@ class DayuPlatform(BasePlatform):
             return
 
         # ---- 真实发表: 点发表 → 保存草稿 + 预览弹窗 → 确认发表 ----
+        if manual_review_enabled('dayu', 'article'):
+            # 人工验收：保留页面，用户亲自完成「发表」→ 预览弹窗
+            # 「确认发表」，程序不再点击。成功判定沿用铁律（发表成功
+            # 只认 API 响应）：/dashboard/submit-article 响应 HTTP 200
+            # 且含 content_id/_id，与 _parse_article_api 口径一致。
+            since = len(await capture.read(page))
+
+            async def _submit_article_ok(p) -> bool:
+                try:
+                    entries = await capture.read(p)
+                except Exception:
+                    return False
+                for item in entries[since:]:
+                    if "/dashboard/submit-article" not in item.get("url", ""):
+                        continue
+                    try:
+                        self._parse_article_api(item, "文章发表")
+                        return True
+                    except RuntimeError:
+                        continue
+                return False
+
+            await wait_for_manual_publish(
+                page, 'dayu', success_check=_submit_article_ok
+            )
+            logger.info("[文章][大鱼号] ✓ 文章发表成功(人工验收)")
+            await asyncio.sleep(1)
+            return
+
         start = len(await capture.read(page))
         clicked = await self._click_article_button(page, ["发表"])
         if not clicked:

@@ -38,6 +38,7 @@ from conf import BASE_DIR
 from util._logger import bind_account_name, get_channel_logger
 
 from .._browser import create_browser_sync, create_context_sync
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
@@ -545,10 +546,30 @@ class AlipayPlatform(BasePlatform):
                 await self._set_author_statement(page, author_statement)
 
                 # 7. 点击「确认发布」
-                await self._click_publish(page)
+                if manual_review_enabled('alipay', 'image'):
+                    # 人工验收：保留表单，等待用户亲自点击平台发布按钮
+                    async def _manual_image_success(page):
+                        # 与自动分支判据一致：URL 跳离发布页或「发布成功」文案
+                        try:
+                            if "publish/short-content" not in (page.url or ""):
+                                return True
+                        except Exception:
+                            pass
+                        try:
+                            return await page.get_by_text(
+                                "发布成功", exact=True
+                            ).count() > 0
+                        except Exception:
+                            return False
 
-                # 8. 等待发布成功(图集走 short-content 跳转判据)
-                await self._wait_for_publish_success(page, page_type="image")
+                    await wait_for_manual_publish(
+                        page, 'alipay', success_check=_manual_image_success
+                    )
+                else:
+                    await self._click_publish(page)
+
+                    # 8. 等待发布成功(图集走 short-content 跳转判据)
+                    await self._wait_for_publish_success(page, page_type="image")
 
                 # 9. 保存 cookie
                 await context.storage_state(path=account_file)
@@ -992,10 +1013,30 @@ class AlipayPlatform(BasePlatform):
                     await self._set_schedule_time(page, schedule_time_str)
 
                 # 9. 点击"确认发布"
-                await self._click_publish(page)
+                if manual_review_enabled('alipay', 'video'):
+                    # 人工验收：保留表单，等待用户亲自点击平台发布按钮
+                    async def _manual_video_success(page):
+                        # 与自动分支判据一致：URL 跳离发布页或「发布成功」文案
+                        try:
+                            if "publish/short-video" not in (page.url or ""):
+                                return True
+                        except Exception:
+                            pass
+                        try:
+                            return await page.get_by_text(
+                                "发布成功", exact=True
+                            ).count() > 0
+                        except Exception:
+                            return False
 
-                # 10. 等待发布成功
-                await self._wait_for_publish_success(page)
+                    await wait_for_manual_publish(
+                        page, 'alipay', success_check=_manual_video_success
+                    )
+                else:
+                    await self._click_publish(page)
+
+                    # 10. 等待发布成功
+                    await self._wait_for_publish_success(page)
 
                 # 11. 保存 cookie
                 await context.storage_state(path=account_file)

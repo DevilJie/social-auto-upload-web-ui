@@ -350,8 +350,12 @@ class JingmaiPlatform(BasePlatform):
         jingmai 与 jd 是同一个产品(dr.jd.com/jm/),用户在 jingmai 账号下
         登录后,直接使用 jd 平台的 publish_video 逻辑(上传/封面/标题/
         关联挂件/创作声明/定时发布/发布)。
+
+        人工验收（渠道×发布类型 粒度开关）按 jingmai 自己的渠道 key
+        查矩阵；实现内部成功判定沿用 jd 的规则。
         """
         from ..jd.platform import JdPlatform
+        kwargs.setdefault("_manual_review_key", "jingmai")
         jd = JdPlatform()
         return jd.publish_video(**kwargs)
 

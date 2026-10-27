@@ -1208,7 +1208,7 @@ async def _submit_publish(page, is_draft: bool = False) -> None:
     系统设置开启「人工验收」时：正式发表改为保留表单等待用户亲自提交；
     自动提交（默认）与保存草稿不受影响。
     """
-    if not is_draft and manual_review_enabled():
+    if not is_draft and manual_review_enabled('channels', 'video'):
         await wait_for_manual_publish(page, 'channels')
         return
     while True:

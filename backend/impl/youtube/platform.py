@@ -535,7 +535,7 @@ class YoutubePlatform(BasePlatform):
 
             await asyncio.sleep(1)
 
-            if manual_review_enabled():
+            if manual_review_enabled('youtube', 'video'):
                 # Final submission belongs to the user, including scheduled videos.
                 await wait_for_manual_publish(page, 'youtube')
             else:

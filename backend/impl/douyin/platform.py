@@ -703,7 +703,7 @@ class DouyinPlatform(BasePlatform):
                         pass
                     raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
-                if manual_review_enabled():
+                if manual_review_enabled('douyin', 'video'):
                     await wait_for_manual_publish(page, 'douyin')
                 else:
                     # Click publish and wait for redirect（自动提交，默认）
@@ -1366,7 +1366,7 @@ class DouyinPlatform(BasePlatform):
                 logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
-                    if manual_review_enabled():
+                    if manual_review_enabled('douyin', 'image'):
                         await wait_for_manual_publish(page, 'douyin')
                     else:
                         # Click publish button（自动提交，默认）
@@ -1394,7 +1394,7 @@ class DouyinPlatform(BasePlatform):
                             else:
                                 logger.warning("[发布] 图集发布可能失败 - 当前URL: %s", current_url)
                                 result = False
-                    if manual_review_enabled():
+                    if manual_review_enabled('douyin', 'image'):
                         result = True
 
                     # Save cookie state

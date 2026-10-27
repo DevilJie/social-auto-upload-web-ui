@@ -765,9 +765,9 @@ async def _publish_single_image(
                 # Click publish
                 btn_text = "定时发布" if is_scheduled else "发布"
                 logger.info("[发布] 正在点击发布按钮...")
-                await _click_publish_button(page, btn_text)
+                await _click_publish_button(page, btn_text, publish_type='image')
 
-                if manual_review_enabled():
+                if manual_review_enabled('xiaohongshu', 'image'):
                     logger.info("[人工验收] 图集发布结果已确认: %s", title)
                 else:
                     # Wait for page navigation after click（自动提交，默认）
@@ -992,9 +992,9 @@ async def _upload_video_content(
     # --- Click publish ---
     btn_text = "定时发布" if publish_strategy == _PUBLISH_STRATEGY_SCHEDULED else "发布"
     logger.info("[发布] 正在点击发布按钮...")
-    await _click_publish_button(page, btn_text)
+    await _click_publish_button(page, btn_text, publish_type='video')
 
-    if manual_review_enabled():
+    if manual_review_enabled('xiaohongshu', 'video'):
         logger.info("[人工验收] 视频发布结果已确认")
         return True
 
@@ -1032,9 +1032,9 @@ async def _upload_video_content(
 # Individual fill helpers
 # ======================================================================
 
-async def _click_publish_button(page, btn_text: str) -> None:
+async def _click_publish_button(page, btn_text: str, publish_type: str = 'video') -> None:
     """Click the publish button. Playwright locators pierce shadow DOM by default."""
-    if manual_review_enabled():
+    if manual_review_enabled('xiaohongshu', publish_type):
         # 人工验收：保留表单，等待用户亲自点击平台发布按钮
         await wait_for_manual_publish(page, 'xiaohongshu')
         return

@@ -1893,4 +1893,6 @@ if __name__ == "__main__":
     os.environ["SAU_PORT"] = str(port)
     # threads=16：默认 4 线程会被「并发 checkCookie + 多个 SSE /login 长连接」
     # 占满，导致后端假死。加大线程池让两者不再互相挤占。
-    serve(app, host="0.0.0.0", port=port, threads=16)
+    # channel_timeout=3600：图文/文章发布是同步 HTTP，人工验收模式下请求会
+    # 挂起直到用户亲自提交；waitress 默认 120s 会掐断无数据流动的连接。
+    serve(app, host="0.0.0.0", port=port, threads=16, channel_timeout=3600)

@@ -28,6 +28,7 @@ from .._utils import (
     save_login_result,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 from . import _link_ops
 
 logger = get_channel_logger("taobao_guanghe")
@@ -839,7 +840,15 @@ class TaobaoGuanghePlatform(BasePlatform):
                         pass
                     upload_success = True
                 else:
-                    submitted = await self._click_publish(frame, page)
+                    if manual_review_enabled('taobao_guanghe', 'video'):
+                        # 人工验收：发布按钮在 iframe 内，由用户亲自点击
+                        # （「立即发布/定时发布」），程序不再点击。成功判定
+                        # 沿用自动分支：主 frame 跳转 /page/workspace/tb
+                        # （is_success_url('taobao_guanghe') 同款规则）。
+                        await wait_for_manual_publish(page, 'taobao_guanghe')
+                        submitted = True
+                    else:
+                        submitted = await self._click_publish(frame, page)
                     if submitted:
                         logger.info("[上传视频] ✓ 发布成功")
                         try:

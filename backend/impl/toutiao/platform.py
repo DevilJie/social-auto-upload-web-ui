@@ -37,6 +37,7 @@ from .._utils import (
     scrape_toutiao_profile,
 )
 from ..base_platform import BasePlatform
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 
 logger = get_channel_logger("toutiao")
 
@@ -710,19 +711,25 @@ class ToutiaoPlatform(BasePlatform):
                     logger.info("[定时发布] 定时发布时间设置完成")
 
                 # Click publish
-                logger.info("[发布] 正在点击发布按钮...")
-                publish_btn = page.locator('button.action-footer-btn.submit')
-                if not await publish_btn.count():
-                    publish_btn = page.get_by_role("button", name="发布", exact=True)
-                await publish_btn.click()
-
-                # Wait for redirect (publish success)
-                await asyncio.sleep(3)
-                current_url = page.url
-                if "upload-video" not in current_url:
-                    logger.info("[发布] 视频发布成功! 页面跳转到: %s", current_url)
+                if manual_review_enabled('toutiao', 'video'):
+                    # 人工验收：保留页面，由用户亲自点击发布，程序不再点击。
+                    # 成功判定沿用自动分支：跳转后离开 upload-video 页
+                    # （is_success_url('toutiao') 同款反向规则）。
+                    await wait_for_manual_publish(page, 'toutiao')
                 else:
-                    logger.info("[发布] 发布按钮已点击，等待确认...")
+                    logger.info("[发布] 正在点击发布按钮...")
+                    publish_btn = page.locator('button.action-footer-btn.submit')
+                    if not await publish_btn.count():
+                        publish_btn = page.get_by_role("button", name="发布", exact=True)
+                    await publish_btn.click()
+
+                    # Wait for redirect (publish success)
+                    await asyncio.sleep(3)
+                    current_url = page.url
+                    if "upload-video" not in current_url:
+                        logger.info("[发布] 视频发布成功! 页面跳转到: %s", current_url)
+                    else:
+                        logger.info("[发布] 发布按钮已点击，等待确认...")
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)
@@ -1677,6 +1684,15 @@ class ToutiaoPlatform(BasePlatform):
                     logger.info(
                         "[文章][头条] ✓ 草稿模式完成(草稿已自动保存,"
                         "pgc_id=%s,未发表)", pgc_id or "未知",
+                    )
+                elif manual_review_enabled('toutiao', 'article'):
+                    # 人工验收：保留页面，用户亲自完成「预览并发布」→
+                    # 预览页「确认发布」/「发布」，程序不再点击。
+                    # 成功判定沿用自动分支口径：页面出现「发布成功」
+                    # 文案（已在通用成功文案列表）。
+                    await wait_for_manual_publish(page, 'toutiao')
+                    logger.info(
+                        "[文章][头条] ✓ 文章发表成功(人工验收)"
                     )
                 else:
                     result = await self._click_article_publish(

@@ -11,6 +11,7 @@ from queue import Queue
 
 from conf import BASE_DIR
 
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 from .._utils import (
     clear_and_type,
     get_account_name_by_cookie_file,
@@ -559,8 +560,29 @@ class WeiboPlatform(BasePlatform):
                 )
 
                 # 4. 发送
-                logger.info("[发布] 正在点击发送按钮...")
-                await self._click_send(page)
+                if manual_review_enabled('weibo', 'image'):
+                    # 人工验收：保留表单，等待用户亲自点击「发送」
+                    async def _manual_image_success(page):
+                        # 与自动分支判据一致：textarea 清空或「发送」重新 disabled
+                        try:
+                            if await page.locator(
+                                "textarea[placeholder*='有什么新鲜事']"
+                            ).first.input_value() == "":
+                                return True
+                        except Exception:
+                            pass
+                        try:
+                            return await page.get_by_role(
+                                "button", name="发送", exact=True
+                            ).first.get_attribute("disabled") is not None
+                        except Exception:
+                            return False
+                    await wait_for_manual_publish(
+                        page, 'weibo', success_check=_manual_image_success
+                    )
+                else:
+                    logger.info("[发布] 正在点击发送按钮...")
+                    await self._click_send(page)
 
                 # 5. 等成功信号
                 await self._wait_for_image_publish_success(page)
@@ -1014,8 +1036,26 @@ class WeiboPlatform(BasePlatform):
                 )
 
                 # 点发布
-                logger.info("[发布] 正在点击发布按钮...")
-                await self._click_publish(page)
+                if manual_review_enabled('weibo', 'video'):
+                    # 人工验收：保留表单，等待用户亲自点击平台发布按钮
+                    async def _manual_video_success(page):
+                        # 与自动分支判据一致：「视频已上传成功」toast
+                        # 或 URL 跳离 /upload/channel
+                        try:
+                            if await page.locator(
+                                "text=视频已上传成功"
+                            ).first.is_visible():
+                                return True
+                        except Exception:
+                            pass
+                        return "weibo.com/upload/channel" not in (page.url or "")
+
+                    await wait_for_manual_publish(
+                        page, 'weibo', success_check=_manual_video_success
+                    )
+                else:
+                    logger.info("[发布] 正在点击发布按钮...")
+                    await self._click_publish(page)
 
                 # 等待发布成功标志
                 await self._wait_for_publish_success(page)
@@ -3570,6 +3610,24 @@ class WeiboPlatform(BasePlatform):
                 )
 
         # 7. 点「发布」并监听发表 API
+        if manual_review_enabled('weibo', 'article'):
+            # 人工验收：保留发布弹窗，等待用户亲自点击「发布」；
+            # 成功判定与自动分支一致(发表接口 code==100000)，
+            # 回调只读 results(由页面 response 监听器填充)，不做任何点击
+            async def _manual_article_success(_page):
+                if not results["publish"]:
+                    return False
+                body = results["publish"][-1]
+                return (
+                    isinstance(body, dict)
+                    and body.get("code") == self._ARTICLE_OK_CODE
+                )
+
+            await wait_for_manual_publish(
+                page, 'weibo', success_check=_manual_article_success
+            )
+            return
+
         await self._article_click_publish(page, results, scheduled=scheduled)
 
     # ---- 发布弹窗控件定位/操作 ----

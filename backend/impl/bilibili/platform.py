@@ -788,7 +788,7 @@ class BilibiliPlatform(BasePlatform):
                         pass
                     raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
-                if manual_review_enabled():
+                if manual_review_enabled('bilibili', 'video'):
                     await wait_for_manual_publish(page, 'bilibili')
                 else:
                     # 10. Submit（自动提交，默认）

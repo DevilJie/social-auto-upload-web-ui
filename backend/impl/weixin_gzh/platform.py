@@ -33,6 +33,7 @@ from util._logger import bind_account_name, get_channel_logger
 from conf import BASE_DIR
 
 from .._browser import create_browser_sync, create_context_sync
+from .._manual_review import manual_review_enabled, wait_for_manual_publish
 from .._utils import (
     clear_input,
     get_account_name_by_cookie_file,
@@ -796,13 +797,13 @@ class WeixinGzhPlatform(BasePlatform):
                     publish_dt = self._build_publish_datetime(schedule_time_str, files_count)
                     if publish_dt and not (isinstance(publish_dt, int) and publish_dt == 0):
                         logger.info("[阶段②] 定时发布: %s", publish_dt)
-                        await self._publish_scheduled(page2, publish_dt)
+                        await self._publish_scheduled(page2, publish_dt, publish_type="video")
                     else:
                         logger.info("[阶段②] 定时时间解析失败,改为立即发表")
-                        await self._publish_immediate(page2)
+                        await self._publish_immediate(page2, publish_type="video")
                 else:
                     logger.info("[阶段②] 立即发表...")
-                    await self._publish_immediate(page2)
+                    await self._publish_immediate(page2, publish_type="video")
 
                 logger.info("[发布] 视频发布成功!")
 
@@ -1549,7 +1550,30 @@ class WeixinGzhPlatform(BasePlatform):
         logger.warning("[阶段②] 「%s」按钮在 %ds 内未可点", button_text, timeout_s)
 
     @staticmethod
-    async def _publish_immediate(page):
+    async def _manual_publish_success(page) -> bool:
+        """人工验收成功判定(只读页面,不做任何点击)。
+
+        与自动分支成功信号一致(_wait_for_home / _wait_article_publish_done):
+        URL 跳转首页(/cgi-bin/home?...token=),或弹出「已发送操作申请」
+        对话框(管理员验证策略,申请已提交视为成功)。
+        """
+        try:
+            url = page.url or ""
+            if "/cgi-bin/home" in url and "token=" in url:
+                return True
+            return await page.evaluate(
+                """() => {
+                    const els = [...document.querySelectorAll(
+                        '.weui-desktop-dialog__title, .page_msg h4')];
+                    return els.some((el) =>
+                        (el.innerText || '').includes('已发送操作申请'));
+                }"""
+            )
+        except Exception:
+            return False
+
+    @staticmethod
+    async def _publish_immediate(page, publish_type: str = "video"):
         """立即发表。
 
         流程:
@@ -1568,6 +1592,14 @@ class WeixinGzhPlatform(BasePlatform):
         logger.info("[阶段②] 已点击「发表」,等待发表弹窗...")
         await asyncio.sleep(2)
 
+        # 人工验收：发表弹窗已打开，等待用户亲自点击「发表」及后续确认
+        if manual_review_enabled('weixin_gzh', publish_type):
+            await wait_for_manual_publish(
+                page, 'weixin_gzh',
+                success_check=WeixinGzhPlatform._manual_publish_success,
+            )
+            return
+
         # 2. 点弹窗底部「发表」(不开定时开关,直接发)
         await WeixinGzhPlatform._click_dialog_primary(page, "发表", timeout_s=15)
         logger.info("[阶段②] 已点击弹窗「发表」,等待确认...")
@@ -1583,7 +1615,7 @@ class WeixinGzhPlatform(BasePlatform):
         await WeixinGzhPlatform._wait_for_home(page, timeout_s=600)
 
     @staticmethod
-    async def _publish_scheduled(page, publish_dt):
+    async def _publish_scheduled(page, publish_dt, publish_type: str = "video"):
         """定时发表。
 
         DOM(文档):
@@ -1696,6 +1728,14 @@ class WeixinGzhPlatform(BasePlatform):
         target_hour = publish_dt.strftime("%H")
         target_minute = publish_dt.strftime("%M")
         await WeixinGzhPlatform._select_schedule_time(page, target_hour, target_minute)
+
+        # 人工验收：定时时间已设置，等待用户亲自点击「发表」及后续确认
+        if manual_review_enabled('weixin_gzh', publish_type):
+            await wait_for_manual_publish(
+                page, 'weixin_gzh',
+                success_check=WeixinGzhPlatform._manual_publish_success,
+            )
+            return
 
         # 5. 点弹窗内「发表」(.mass-send__footer 内 primary)
         await WeixinGzhPlatform._click_dialog_primary(page, "发表", timeout_s=15)
@@ -2257,13 +2297,13 @@ class WeixinGzhPlatform(BasePlatform):
                     publish_dt = self._build_publish_datetime(schedule_time_str, 1)
                     if publish_dt and not (isinstance(publish_dt, int) and publish_dt == 0):
                         logger.info("[发布图集] 定时发布: %s", publish_dt)
-                        await self._publish_scheduled(page2, publish_dt)
+                        await self._publish_scheduled(page2, publish_dt, publish_type="image")
                     else:
                         logger.info("[发布图集] 定时时间解析失败,改为立即发表")
-                        await self._publish_immediate(page2)
+                        await self._publish_immediate(page2, publish_type="image")
                 else:
                     logger.info("[发布图集] 立即发表...")
-                    await self._publish_immediate(page2)
+                    await self._publish_immediate(page2, publish_type="image")
 
                 logger.info("[发布图集] 图集发布成功!")
 
@@ -2824,7 +2864,7 @@ class WeixinGzhPlatform(BasePlatform):
                             isinstance(publish_dt, int) and publish_dt == 0
                         ):
                             logger.info("[发布文章] 定时发表: %s", publish_dt)
-                            await self._publish_scheduled(page, publish_dt)
+                            await self._publish_scheduled(page, publish_dt, publish_type="article")
                         else:
                             logger.warning(
                                 "[发布文章] 定时时间解析失败,改为立即发表"
@@ -3867,6 +3907,13 @@ class WeixinGzhPlatform(BasePlatform):
         await btn.click()
         logger.info("[发布文章] 已点击「发表」,等待发表弹窗...")
         await asyncio.sleep(2)
+        # 人工验收：发表弹窗已打开，等待用户亲自点击「发表」及后续确认
+        if manual_review_enabled('weixin_gzh', 'article'):
+            await wait_for_manual_publish(
+                page, 'weixin_gzh',
+                success_check=WeixinGzhPlatform._manual_publish_success,
+            )
+            return
         # 弹窗内「发表」(摘要为空/无封面时此处会先弹补全提示,由用户在有头
         # 浏览器里人工处理 —— 代码只负责点弹窗主按钮)
         await WeixinGzhPlatform._click_dialog_primary(page, "发表", timeout_s=30)

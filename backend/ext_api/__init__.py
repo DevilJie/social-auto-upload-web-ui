@@ -750,6 +750,7 @@ def get_settings():
             "accountCheckMode": "pre-publish",
             "batchTaskInterval": "0",
             "manualReview": "false",
+            "manualReviewMatrix": "{}",
         }
         defaults.update(settings)
         # manualReview 归一化为小写字符串 'true'/'false'
@@ -761,6 +762,15 @@ def get_settings():
             )
         else:
             defaults['manualReview'] = 'false'
+        # manualReviewMatrix（渠道×发布类型 JSON）校验：解析失败一律回退空矩阵
+        if 'manualReviewMatrix' in defaults:
+            try:
+                parsed = json.loads(defaults['manualReviewMatrix'] or '{}')
+                if not isinstance(parsed, dict):
+                    raise ValueError('matrix is not a dict')
+                defaults['manualReviewMatrix'] = json.dumps(parsed, ensure_ascii=False)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                defaults['manualReviewMatrix'] = '{}'
         # 转换布尔值类型
         for key in ['autoFillTitle', 'autoSaveDraft']:
             if key in defaults:

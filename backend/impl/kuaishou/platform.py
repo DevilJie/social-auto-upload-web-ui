@@ -28,7 +28,11 @@ from .._utils import (
     scrape_user_profile,
 )
 from ..base_platform import BasePlatform
-from .._manual_review import pause_after_input, wait_for_manual_publish
+from .._manual_review import (
+    manual_review_enabled,
+    pause_after_input,
+    wait_for_manual_publish,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -575,7 +579,17 @@ class KuaishouPlatform(BasePlatform):
                 logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
-                    await wait_for_manual_publish(page, 'kuaishou')
+                    if manual_review_enabled():
+                        await wait_for_manual_publish(page, 'kuaishou')
+                    else:
+                        # 自动提交（默认）：点击发布按钮并等待跳转
+                        logger.info("[发布] 正在点击发布按钮...")
+                        publish_btn = page.get_by_text("发布", exact=True)
+                        await publish_btn.first.click()
+                        await page.wait_for_url(
+                            "**/article/manage/video?status=2&from=publish**",
+                            timeout=60000,
+                        )
                     logger.info("[发布] 图集发布成功!")
                     await context.storage_state(path=account_file)
                     logger.info("[发布] Cookie状态已更新")
@@ -829,7 +843,33 @@ class KuaishouPlatform(BasePlatform):
                 await self._set_schedule_time(page, publish_date)
                 logger.info("[定时发布] 定时发布设置完成")
 
-            await wait_for_manual_publish(page, 'kuaishou')
+            # ------ Click publish ------
+            if manual_review_enabled():
+                await wait_for_manual_publish(page, 'kuaishou')
+            else:
+                # 自动提交（默认）：点击发布/确认发布并等待跳转
+                logger.info("[发布] 正在点击发布按钮...")
+                while True:
+                    # 注：浏览器被用户关闭时, watchdog 会 cancel 当前 task,
+                    # CancelledError 不被 except Exception 捕获, 循环自然终止;
+                    # 页面级守卫做兜底(watchdog 在 CloakBrowser 下未必可靠)。
+                    raise_if_page_closed(page)
+                    try:
+                        publish_btn = page.get_by_text("发布", exact=True)
+                        if await publish_btn.count() > 0:
+                            await publish_btn.click()
+
+                        await asyncio.sleep(1)
+                        confirm_btn = page.get_by_text("确认发布")
+                        if await confirm_btn.count() > 0:
+                            await confirm_btn.click()
+
+                        await page.wait_for_url(_KS_MANAGE_URL_PATTERN, timeout=5000)
+                        logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
+                        break
+                    except Exception as exc:
+                        logger.info("[发布] 发布重试: %s", exc)
+                        await asyncio.sleep(1)
 
             upload_success = True
         finally:

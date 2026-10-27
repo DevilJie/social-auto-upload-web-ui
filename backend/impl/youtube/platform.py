@@ -26,7 +26,11 @@ from conf import BASE_DIR
 from .._browser import create_browser_sync, create_context_sync
 from .._utils import clear_input, get_account_name_by_cookie_file, parse_schedule_time, scrape_youtube_profile
 from ..base_platform import BasePlatform
-from .._manual_review import pause_after_input, wait_for_manual_publish
+from .._manual_review import (
+    manual_review_enabled,
+    pause_after_input,
+    wait_for_manual_publish,
+)
 
 YOUTUBE_STUDIO_URL = "https://studio.youtube.com"
 
@@ -531,8 +535,16 @@ class YoutubePlatform(BasePlatform):
 
             await asyncio.sleep(1)
 
-            # Final submission belongs to the user, including scheduled videos.
-            await wait_for_manual_publish(page, 'youtube')
+            if manual_review_enabled():
+                # Final submission belongs to the user, including scheduled videos.
+                await wait_for_manual_publish(page, 'youtube')
+            else:
+                # ---- Step 9: Click Done（自动提交，默认） ----
+                logger.info(_msg("[发布] 点击完成按钮..."))
+                done_btn = page.locator("#done-button").first
+                await done_btn.wait_for(state="visible", timeout=10000)
+                await done_btn.click()
+                await asyncio.sleep(5)
 
             logger.info(_msg("[发布] 视频发布成功!"))
 

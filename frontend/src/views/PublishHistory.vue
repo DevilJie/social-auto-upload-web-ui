@@ -1,7 +1,15 @@
 <template>
   <div class="publish-history-page">
-    <h1 class="page-title">发布历史</h1>
-    <p class="page-subtitle">回顾所有发布记录</p>
+    <div class="page-title-row">
+      <div>
+        <h1 class="page-title">发布历史</h1>
+        <p class="page-subtitle">回顾所有发布记录</p>
+      </div>
+      <el-button class="calendar-entry-btn" @click="$router.push('/publish-calendar')">
+        <el-icon><Calendar /></el-icon>
+        月视图
+      </el-button>
+    </div>
 
     <!-- 3 Stat cards row -->
     <div class="stat-cards">
@@ -554,6 +562,22 @@ onMounted(() => { fetchHistory(); fetchStats() })
 
 .publish-history-page {
   padding: 0 28px;
+
+  // 标题行 + 月视图入口
+  .page-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .calendar-entry-btn {
+    border-radius: 8px;
+
+    .el-icon {
+      margin-right: 4px;
+    }
+  }
 
   // Page title area
   .page-title {

@@ -93,6 +93,18 @@
           <el-input-number v-model="settings.batchTaskInterval" :min="0" :max="120" controls-position="right" style="width: 120px" />
         </div>
       </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">发布提交方式</span>
+          <span class="setting-desc">影响 抖音/小红书/视频号/快手/B站/YouTube 视频发布：「自动提交发布」由程序自动点击平台发布按钮（默认）；「人工验收」填写完成后保留浏览器，由你核对并亲自点击平台发布按钮，关闭页面视为取消</span>
+        </div>
+        <div class="setting-control">
+          <el-select v-model="settings.manualReview" style="width: 220px">
+            <el-option label="自动提交发布（默认）" value="false" />
+            <el-option label="人工验收（我亲自点击发布）" value="true" />
+          </el-select>
+        </div>
+      </div>
     </div>
 
     <!-- 渠道黑名单 -->
@@ -473,6 +485,7 @@ const settings = reactive({
   autoSaveInterval: 10,
   accountCheckMode: 'pre-publish',
   batchTaskInterval: 0,
+  manualReview: 'false',
   storage: {
     type: 'local',
     s3: { endpoint: '', access_key: '', secret_key: '', bucket: '', region: '' },
@@ -531,6 +544,7 @@ const fetchSettings = async () => {
       if (res.data.autoSaveInterval !== undefined) settings.autoSaveInterval = res.data.autoSaveInterval
       if (res.data.accountCheckMode !== undefined) settings.accountCheckMode = res.data.accountCheckMode
       if (res.data.batchTaskInterval !== undefined) settings.batchTaskInterval = res.data.batchTaskInterval
+      if (res.data.manualReview !== undefined) settings.manualReview = String(res.data.manualReview)
       if (res.data.storage) {
         settings.storage = { ...settings.storage, ...res.data.storage }
       }
@@ -572,6 +586,7 @@ const handleSave = async () => {
       autoSaveInterval: settings.autoSaveInterval,
       accountCheckMode: settings.accountCheckMode,
       batchTaskInterval: settings.batchTaskInterval,
+      manualReview: settings.manualReview === 'true',
       storage: settings.storage,
       feedbackEmail: settings.feedbackEmail,
     })

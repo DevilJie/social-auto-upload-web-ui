@@ -311,7 +311,7 @@
   </h2>
 
   <p class="hero-desc reveal d4">
-    v1.3.0 迎来两条主线:其一是<strong>全新的文章发布</strong>——一篇图文一键分发到微信公众号、知乎、百家号、CSDN、今日头条、微博、大鱼号,七平台发布设置逐项审计补齐,封面按平台规格自动裁剪;其二是<strong>发布设置弹窗的深度复刻</strong>——头条位置/合集、CSDN 标签不再是"盲填名称",而是和平台原生一致的弹窗/联想选择。同期上线<strong>全站新手引导系统</strong>,并修复了百家号封面、CSDN 标签两处"看似成功、实则丢失"的自动化隐患。
+    v1.3.0 迎来两条主线:其一是<strong>全新的文章发布</strong>——一篇图文一键分发到微信公众号、知乎、百家号、CSDN、今日头条、微博、大鱼号,七平台发布设置逐项审计补齐,封面按平台规格自动裁剪;其二是<strong>发布设置弹窗的深度复刻</strong>——头条位置/合集、CSDN 标签不再是"盲填名称",而是和平台原生一致的弹窗/联想选择。同期上线<strong>全站新手引导系统</strong>,修复百家号封面、CSDN 标签两处"看似成功、实则丢失"的自动化隐患,并新增<strong>「发布提交方式」系统设置</strong>(默认自动点击平台发布,可切换人工验收)。
   </p>
 
   <div class="hero-stats reveal d5">
@@ -448,6 +448,19 @@
         </div>
       </div>
     </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">+</div>
+      <div class="feat-body">
+        <h4>发布提交方式 · 系统设置项</h4>
+        <p>系统设置新增「发布提交方式」:默认<strong>自动提交发布</strong>——程序填写完成后自动点击平台发布按钮;可切换为<strong>人工验收</strong>——填写完成后保留浏览器,由你核对内容并亲自点击平台发布,关闭页面视为取消。覆盖抖音 / 小红书 / 视频号 / 快手 / B站 / YouTube 六个平台,设置即时生效。</p>
+        <div class="pills">
+          <span class="pill">默认自动提交</span>
+          <span class="pill">人工验收可选</span>
+          <span class="pill">6 平台覆盖</span>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -499,7 +512,7 @@
 
 <!-- ===== FIXES ===== -->
 <section id="fixes">
-  <h2 class="sec-title reveal">修复与优化 · 8 项</h2>
+  <h2 class="sec-title reveal">修复与优化 · 9 项</h2>
   <p class="sec-sub reveal">自动化可靠性与体验修复</p>
 
   <div class="feat-list">
@@ -575,6 +588,29 @@
           <span class="pill">B 站表单补齐</span>
           <span class="pill">HTTP 直连重构</span>
           <span class="pill">TTL 缓存提速</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>修复:文章发布历史封面不显示</h4>
+        <p>文章发布的历史记录里封面存于 <code>coverStoredPath</code>,而列表/详情两处渲染只认视频发布的封面字段——文章批次一律显示占位图。已在后端封面兜底链与详情页渲染中补齐该字段,文章发布历史的封面恢复正常显示。</p>
+        <div class="pills">
+          <span class="pill">列表 + 详情双修复</span>
+          <span class="pill">不影响视频字段</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat-item reveal">
+      <div class="feat-check">✓</div>
+      <div class="feat-body">
+        <h4>优化:发布历史新增月视图入口</h4>
+        <p>发布日历(只读月视图)此前是独立页面、入口不明显。现在发布历史页标题行右侧新增「<strong>月视图</strong>」按钮,一键跳转日历页,按月浏览全部发布记录。</p>
+        <div class="pills">
+          <span class="pill">历史 → 日历一键直达</span>
         </div>
       </div>
     </div>

@@ -15,6 +15,7 @@ const routes = [
   { path: '/publish-center', name: 'PublishCenter', component: PublishCenter, meta: { icon: 'Upload', title: '视频发布' } },
   { path: '/image-publish', name: 'ImagePublish', component: () => import('../views/ImagePublish.vue'), meta: { icon: 'Picture', title: '图集发布' } },
   { path: '/publish-history', name: 'PublishHistory', component: PublishHistory, meta: { icon: 'Clock', title: '发布历史' } },
+  { path: '/publish-calendar', name: 'PublishCalendar', component: () => import('../views/PublishCalendar.vue'), meta: { icon: 'Calendar', title: '发布日历' } },
   { path: '/publish-history/:batchId', name: 'PublishHistoryDetail', component: () => import('../views/PublishHistoryDetail.vue') },
   { path: '/changelog', name: 'Changelog', component: () => import('../views/Changelog.vue'), meta: { icon: 'Notebook', title: '更新日志' } },
   { path: '/settings', name: 'Settings', component: Settings, meta: { icon: 'Setting', title: '系统设置', isBottom: true } },

@@ -29,7 +29,11 @@ from .._utils import (
     scrape_user_profile,
 )
 from ..base_platform import BasePlatform
-from .._manual_review import pause_after_input, wait_for_manual_publish
+from .._manual_review import (
+    manual_review_enabled,
+    pause_after_input,
+    wait_for_manual_publish,
+)
 
 logger = get_channel_logger("douyin")
 
@@ -699,7 +703,29 @@ class DouyinPlatform(BasePlatform):
                         pass
                     raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
-                await wait_for_manual_publish(page, 'douyin')
+                if manual_review_enabled():
+                    await wait_for_manual_publish(page, 'douyin')
+                else:
+                    # Click publish and wait for redirect（自动提交，默认）
+                    logger.info("[发布] 正在点击发布按钮...")
+                    while True:
+                        raise_if_page_closed(page)
+                        try:
+                            publish_button = page.get_by_role(
+                                "button", name="发布", exact=True
+                            )
+                            if await publish_button.count():
+                                await publish_button.click()
+                            await page.wait_for_url(
+                                "https://creator.douyin.com/creator-micro/content/manage**",
+                                timeout=3000,
+                            )
+                            logger.info("[发布] 视频发布成功! 页面跳转到: %s", page.url)
+                            break
+                        except Exception:
+                            # Maybe a cover selection is required
+                            await self._handle_auto_video_cover(page)
+                            await asyncio.sleep(0.5)
 
                 # Save updated cookie state
                 await context.storage_state(path=account_file)
@@ -1340,8 +1366,36 @@ class DouyinPlatform(BasePlatform):
                 logger.info("[填写完成] 表单填写完成, 模式: %s", "演练(dry_run)" if dry_run else "正式发布")
 
                 if not dry_run:
-                    await wait_for_manual_publish(page, 'douyin')
-                    result = True
+                    if manual_review_enabled():
+                        await wait_for_manual_publish(page, 'douyin')
+                    else:
+                        # Click publish button（自动提交，默认）
+                        # 使用稳定的文本匹配：精确匹配"发布"按钮，排除"暂存离开"
+                        logger.info("[发布] 正在点击发布按钮...")
+                        publish_btn = page.get_by_role("button", name="发布", exact=True)
+                        await publish_btn.wait_for(state="visible", timeout=10000)
+                        await publish_btn.click()
+                        logger.info("[发布] 发布按钮已点击, 等待页面跳转...")
+
+                        # 等待页面跳转 - 跳转到 manage 页面才是发布成功
+                        try:
+                            await page.wait_for_url(
+                                "https://creator.douyin.com/creator-micro/content/manage*",
+                                timeout=60000
+                            )
+                            logger.info("[发布] 图集发布成功! 已跳转到管理页面")
+                            result = True
+                        except Exception:
+                            # 检查当前URL
+                            current_url = page.url
+                            if "content/manage" in current_url:
+                                logger.info("[发布] 图集发布成功! 已在管理页面")
+                                result = True
+                            else:
+                                logger.warning("[发布] 图集发布可能失败 - 当前URL: %s", current_url)
+                                result = False
+                    if manual_review_enabled():
+                        result = True
 
                     # Save cookie state
                     await context.storage_state(path=account_file)

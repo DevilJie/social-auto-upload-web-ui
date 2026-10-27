@@ -8,7 +8,7 @@
 
     <!-- Toolbar -->
     <div class="toolbar-card">
-      <div class="search-input-wrap">
+      <div class="search-input-wrap" data-tour="material-search">
         <el-input
           v-model="searchKeyword"
           placeholder="按文件名搜索..."
@@ -18,7 +18,7 @@
           @clear="onSearchClear"
         />
       </div>
-      <div class="type-filter">
+      <div class="type-filter" data-tour="material-type-filter">
         <button
           v-for="opt in typeOptions"
           :key="opt.value"
@@ -45,7 +45,7 @@
         </template>
         <!-- 常规按钮 -->
         <template v-else>
-          <el-button class="btn-batch" @click="enterSelectMode">
+          <el-button class="btn-batch" data-tour="material-batch" @click="enterSelectMode">
             <el-icon><Select /></el-icon>
             <span>批量删除</span>
           </el-button>
@@ -54,7 +54,11 @@
             <span v-if="isRefreshing">刷新中</span>
             <span v-else>刷新</span>
           </el-button>
-          <el-button type="primary" class="btn-upload" @click="handleUploadMaterial">
+          <el-button class="btn-guide" @click="startGuide">
+            <el-icon><Guide /></el-icon>
+            <span>新手引导</span>
+          </el-button>
+          <el-button type="primary" class="btn-upload" data-tour="material-upload" @click="handleUploadMaterial">
             <el-icon><Upload /></el-icon>
             <span>上传素材</span>
           </el-button>
@@ -63,7 +67,7 @@
     </div>
 
     <!-- Cards Grid -->
-    <div class="cards-container" v-loading="loading">
+    <div class="cards-container" data-tour="material-grid" v-loading="loading">
       <div v-if="items.length > 0" class="cards-grid">
         <div
           v-for="mat in items"
@@ -161,7 +165,7 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="total > 0" class="pagination-wrap">
+    <div v-if="total > 0" class="pagination-wrap" data-tour="material-pagination">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
@@ -207,6 +211,9 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 页面新手引导（teleport 到 body，首次进入自动播放） -->
+    <GuideTour ref="tourRef" :steps="materialGuideSteps" @finish="onGuideDone" @skip="onGuideDone" />
   </div>
 </template>
 
@@ -222,6 +229,7 @@ import {
   PictureFilled,
   VideoCamera,
   Grid,
+  Guide,
   Monitor,
   Select,
   Check,
@@ -231,6 +239,8 @@ import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
 import { useAppStore } from '@/stores/app'
 import MaterialUploader from '@/components/MaterialUploader.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { materialGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const appStore = useAppStore()
 
@@ -500,8 +510,23 @@ function handleBatchDelete() {
     .catch(() => {})
 }
 
+// ===== 新手引导 =====
+const tourRef = ref(null)
+
+// 重看入口（工具栏「新手引导」按钮）
+function startGuide() {
+  tourRef.value?.start()
+}
+
+// 引导完成/跳过都记为"已看过"，之后进入页面不再自动播放
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.material)
+
 onMounted(() => {
   loadPage()
+  // 首次进入自动播放（稍等页面渲染稳定再启动，定位更准）
+  if (!isGuideDone(GUIDE_KEYS.material)) {
+    setTimeout(() => tourRef.value?.start(), 600)
+  }
 })
 </script>
 
@@ -621,6 +646,17 @@ $danger: #ef4444;
     border: 1px solid $border;
     color: $text-secondary;
     &:hover { border-color: $border-active; color: $text-primary; }
+  }
+
+  .btn-guide {
+    background: rgba($overlay-rgb, 0.04);
+    border: 1px dashed rgba($overlay-rgb, 0.28);
+    color: $text-secondary;
+    &:hover {
+      border-color: rgba($brand-1, 0.4);
+      color: $brand-1;
+      background: rgba($brand-1, 0.08);
+    }
   }
 
   .btn-upload {

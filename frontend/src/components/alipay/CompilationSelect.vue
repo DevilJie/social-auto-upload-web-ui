@@ -5,6 +5,7 @@
       placeholder="输入合集名称搜索"
       clearable
       filterable
+      :disabled="disabled"
       no-data-text=" "
       @change="handleChange"
       style="width: 100%"
@@ -15,6 +16,7 @@
             v-model="searchKeyword"
             placeholder="输入关键词后按回车搜索"
             clearable
+            :disabled="disabled"
             @keyup.enter="handleSearch"
             @clear="handleClear"
           >
@@ -80,6 +82,10 @@ const props = defineProps({
     type: String,
     default: 'alipay', // 'alipay' | 'toutiao'
     validator: (value) => ['alipay', 'toutiao'].includes(value)
+  },
+  disabled: {
+    type: Boolean,
+    default: false
   }
 })
 

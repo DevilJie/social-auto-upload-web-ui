@@ -30,7 +30,7 @@ frontend-dist/
 python/
 .gstack/
 docs/superpowers/.claude/
-.claude/
+.claude/settings.local.json
 data/frames/*
 data/image-publish/*
 data/materials/*
@@ -48,7 +48,7 @@ backend.log
 frontend.log
 mcp.logdependency/
 dependency*
-QianFan*
+/QianFan*/
 *.log
 AGENTS.md
 

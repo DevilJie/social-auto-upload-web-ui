@@ -3,10 +3,12 @@
     v-model="visible"
     :width="720"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     :show-close="!uploading"
     class="material-uploader-dialog"
     append-to-body
     @closed="onClosed"
+    @opened="onOpened"
   >
     <template #header>
       <div class="mud-header">
@@ -14,7 +16,15 @@
           <span class="mud-header-dot" />
           <span>{{ title }}</span>
         </div>
-        <div class="mud-header-hint" v-if="tip">{{ tip }}</div>
+        <div class="mud-header-right">
+          <div class="mud-header-hint" v-if="tip">{{ tip }}</div>
+          <el-tooltip content="重新查看引导" placement="top">
+            <button class="mud-guide-btn" type="button" @click="startGuide">
+              <el-icon><Guide /></el-icon>
+              新手引导
+            </button>
+          </el-tooltip>
+        </div>
       </div>
     </template>
 
@@ -31,6 +41,7 @@
         :on-change="onFileChange"
         drag
         class="mud-dragger"
+        data-tour="uploader-dragger"
       >
         <el-icon class="mud-dragger-icon" :size="56"><UploadFilled /></el-icon>
         <div class="mud-dragger-text">
@@ -40,7 +51,7 @@
       </el-upload>
 
       <!-- File list with progress -->
-      <div v-else class="mud-filelist">
+      <div v-else class="mud-filelist" data-tour="uploader-list">
         <div
           v-for="(f, idx) in fileList"
           :key="f.uid"
@@ -118,6 +129,7 @@
           >取消</el-button>
           <el-button
             type="primary"
+            data-tour="uploader-start"
             :loading="uploading"
             @click="startUpload"
           >开始上传</el-button>
@@ -125,14 +137,24 @@
       </div>
     </div>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，首次打开自动播放） -->
+  <GuideTour
+    ref="tourRef"
+    :steps="materialUploadGuideSteps"
+    @finish="onGuideDone"
+    @skip="onGuideDone"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { UploadFilled, VideoCamera, Picture, CircleCheckFilled, CircleCloseFilled, Plus } from '@element-plus/icons-vue'
+import { UploadFilled, VideoCamera, Picture, CircleCheckFilled, CircleCloseFilled, Plus, Guide } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { materialsApi } from '@/api/materials'
 import { uploadApi } from '@/api/upload'
+import GuideTour from '@/components/GuideTour.vue'
+import { materialUploadGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -418,8 +440,27 @@ function retryUpload(idx) {
   startUpload()
 }
 
+// ===== 弹窗新手引导 =====
+const tourRef = ref(null)
+
+const startGuide = () => tourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，之后打开弹窗不再自动播放
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.materialUpload)
+
+// @opened：弹窗打开动画结束后再启动引导，保证高亮定位准确
+function onOpened() {
+  if (!isGuideDone(GUIDE_KEYS.materialUpload)) {
+    setTimeout(() => tourRef.value?.start(), 150)
+  }
+}
+
 watch(visible, (v) => {
-  if (!v) resetState()
+  if (!v) {
+    resetState()
+    // 保险：弹窗关闭时结束可能还开着的引导
+    tourRef.value?.stop()
+  }
 })
 </script>
 
@@ -437,6 +478,30 @@ watch(visible, (v) => {
   &-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: $text-primary; }
   &-dot { width: 6px; height: 6px; border-radius: 50%; background: $brand-start; box-shadow: 0 0 8px $brand-start; }
   &-hint { font-size: 12px; color: $text-muted; }
+}
+
+// 标题栏右侧：提示文案 + 新手引导入口
+// （#header 插槽内容编译自本组件，scoped 样式放顶层即可直接命中，不嵌套在 .material-uploader-dialog 下）
+.mud-header-right {
+  display: flex; align-items: center; gap: 10px;
+}
+
+.mud-guide-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
 }
 
 .mud-body {

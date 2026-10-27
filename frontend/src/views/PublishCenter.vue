@@ -33,7 +33,13 @@
             {{ currentPlatformConfig.name }} · 个性化设置
           </span>
         </div>
-        <div class="header-right">
+        <div class="header-right" data-tour="header-tools">
+          <el-tooltip content="重新查看新手引导" placement="bottom">
+            <el-button class="header-btn guide-entry-btn" @click="startGuide">
+              <el-icon><Guide /></el-icon>
+              新手引导
+            </el-button>
+          </el-tooltip>
           <el-button :icon="Document" @click="saveDraft" class="header-btn">
             {{ currentDraftId ? '更新草稿' : '保存草稿' }}
           </el-button>
@@ -87,7 +93,7 @@
           <!-- Cover Section -->
           <div class="media-section cover-section">
             <div class="section-label">封面</div>
-            <div class="cover-grid">
+            <div class="cover-grid" data-tour="cover-grid">
               <CoverCard
                 label="竖版封面"
                 :ratios="['3:4', '9:16']"
@@ -130,7 +136,7 @@
         <div class="divider"></div>
 
         <!-- ===== PLATFORM-SPECIFIC SETTINGS ===== -->
-        <div v-if="currentPlatformConfig && publishAccountIds.size > 0" class="config-section">
+        <div v-if="currentPlatformConfig && publishAccountIds.size > 0" class="config-section" data-tour="platform-settings">
           <div class="section-bar">
             <div class="bar" :style="{ background: currentPlatformConfig.color }"></div>
             <span class="section-label">
@@ -461,6 +467,77 @@
                   @change="handleBiliCollectionChange"
                 />
               </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">参与话题</div>
+                <RemoteSearchSelect
+                  v-model="form.biliTopicName"
+                  :data="form.biliTopicData"
+                  :fetcher="fetchBiliTopics"
+                  :field-map="{ label: 'name', desc: 'activityText' }"
+                  search-mode="frontend"
+                  empty-behavior="load-all"
+                  placeholder="从 B 站推荐话题中选择"
+                  search-placeholder="输入话题名称搜索"
+                  @change="handleBiliTopicChange"
+                />
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">可见范围</div>
+                <div class="radio-row">
+                  <label class="radio-item cursor-pointer">
+                    <input
+                      type="radio"
+                      :name="(selectedAccountId || selectedPlatform) + '-biliVisibility'"
+                      value="public"
+                      v-model="form.biliVisibility"
+                      class="cursor-pointer"
+                    />
+                    <span
+                      :class="['radio-text', { on: form.biliVisibility === 'public' }]"
+                      :style="form.biliVisibility === 'public' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    >公开可见</span>
+                  </label>
+                  <label class="radio-item cursor-pointer">
+                    <input
+                      type="radio"
+                      :name="(selectedAccountId || selectedPlatform) + '-biliVisibility'"
+                      value="self"
+                      v-model="form.biliVisibility"
+                      class="cursor-pointer"
+                    />
+                    <span
+                      :class="['radio-text', { on: form.biliVisibility === 'self' }]"
+                      :style="form.biliVisibility === 'self' ? { borderColor: currentPlatformConfig.color, color: currentPlatformConfig.color } : {}"
+                    >仅自己可见</span>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">互动设置</div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliCloseDanmaku" size="small" />
+                  <span class="tag-option-label">关闭弹幕</span>
+                </div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliCloseComment" size="small" />
+                  <span class="tag-option-label">关闭评论</span>
+                </div>
+                <div class="tag-option-row">
+                  <el-switch v-model="form.biliFeaturedComment" size="small" />
+                  <span class="tag-option-label">开启精选评论</span>
+                </div>
+              </div>
+              <div class="setting-card" :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }">
+                <div class="setting-label" :style="{ color: currentPlatformConfig.color }">粉丝动态</div>
+                <el-input
+                  v-model="form.biliFansDynamic"
+                  type="textarea"
+                  :rows="3"
+                  maxlength="233"
+                  show-word-limit
+                  placeholder="发布时同步一条粉丝动态,有趣的描述会增加上热门的机会(选填)"
+                />
+              </div>
             </template>
 
             <!-- 视频号平台级字段(选中平台就显示,无需先选账号) -->
@@ -600,6 +677,7 @@
               <template v-if="field.key !== 'title' && field.key !== 'description' && field.key !== 'videoFormat'">
                 <div
                   v-if="!field.visibleWhen || form[field.visibleWhen.key] === field.visibleWhen.value"
+                  :data-tour="'field-' + field.key"
                   :class="['setting-card', { 'setting-card--full-row': field.fullRow }]"
                   :style="{ borderColor: currentPlatformConfig.color + '26', background: currentPlatformConfig.color + '0a' }"
                 >
@@ -915,6 +993,14 @@
       :init-selected="form.channelsDrama"
       @confirm="onChannelsDramaPickerConfirm"
     />
+
+    <!-- 新手引导（首次进入自动播放，可随时点右上角「?」重看） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="publishGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
   </div>
 </template>
 
@@ -922,7 +1008,7 @@
 import { historyApi } from '@/api/v2'
 import { historyVideoSnapshot, limitTags } from '@/utils/publishPreferences'
 import { ref, reactive, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
-import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus } from '@element-plus/icons-vue'
+import { Upload, Picture, VideoCameraFilled, Delete, Document, WarningFilled, MagicStick, Setting, Promotion, UserFilled, Close, Plus, Guide } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -932,10 +1018,12 @@ import { http } from '@/utils/request'
 import { accountApi } from '@/api/account'
 import { platformList, getPlatformByKey, platformKeyToId, platformNameToKey } from '@/config/platforms'
 import { validateVideoForPlatform, validateTitleForPlatform, validateDescForPlatform, countCharsWithEmoji } from '@/config/videoLimits'
+import { publishGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import AccountSelectDialog from '@/components/AccountSelectDialog.vue'
 import BatchSetDialog from '@/components/BatchSetDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
 import CoverCard from '@/components/CoverCard.vue'
 import CoverEditorDialog from '@/components/CoverEditorDialog.vue'
 import MaterialSelectDialog from '@/components/MaterialSelectDialog.vue'
@@ -979,6 +1067,14 @@ appStore.loadAccountCheckMode()
 appStore.loadAutoSaveSettings()
 const route = useRoute()
 const router = useRouter()
+
+// ========== 新手引导 ==========
+const tourRef = ref(null)
+
+const startGuide = () => tourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，不再自动弹出
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.publish)
 
 // ========== Left Sidebar State ==========
 const expandedGroups = ref(new Set())
@@ -1227,6 +1323,14 @@ function mergeConfig(common, platformDefault, platformOv, accountOv) {
     // B 站合集(账号级)
     biliCollectionName: accountOv?.biliCollectionName ?? platformOv?.biliCollectionName ?? platformDefault?.biliCollectionName ?? '',
     biliCollectionData: accountOv?.biliCollectionData ?? platformOv?.biliCollectionData ?? platformDefault?.biliCollectionData ?? null,
+    // B 站参与话题/可见范围/互动设置/粉丝动态
+    biliTopicName: accountOv?.biliTopicName ?? platformOv?.biliTopicName ?? platformDefault?.biliTopicName ?? '',
+    biliTopicData: accountOv?.biliTopicData ?? platformOv?.biliTopicData ?? platformDefault?.biliTopicData ?? null,
+    biliVisibility: accountOv?.biliVisibility ?? platformOv?.biliVisibility ?? platformDefault?.biliVisibility ?? 'public',
+    biliCloseDanmaku: accountOv?.biliCloseDanmaku ?? platformOv?.biliCloseDanmaku ?? platformDefault?.biliCloseDanmaku ?? false,
+    biliCloseComment: accountOv?.biliCloseComment ?? platformOv?.biliCloseComment ?? platformDefault?.biliCloseComment ?? false,
+    biliFeaturedComment: accountOv?.biliFeaturedComment ?? platformOv?.biliFeaturedComment ?? platformDefault?.biliFeaturedComment ?? false,
+    biliFansDynamic: accountOv?.biliFansDynamic ?? platformOv?.biliFansDynamic ?? platformDefault?.biliFansDynamic ?? '',
     // 视频号合集(账号级)
     channelsCollectionName: accountOv?.channelsCollectionName ?? platformOv?.channelsCollectionName ?? platformDefault?.channelsCollectionName ?? '',
     channelsCollectionData: accountOv?.channelsCollectionData ?? platformOv?.channelsCollectionData ?? platformDefault?.channelsCollectionData ?? null,
@@ -1332,7 +1436,7 @@ const DEFAULT_PLATFORM_CONFIGS = {
   douyin: { title: '', description: '', tags: [], aiContent: '', isOriginal: false, scheduleTime: '', activityId: [], hotspotId: '', hotspotData: null, selectedTag: null, tagType: '', tagValue: '', mixId: '', mixData: null },
   xiaohongshu: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [], collectionId: '', collectionName: '', collectionData: null },
   kuaishou: { title: '', description: '', aiContent: '', isOriginal: false, scheduleTime: '', tags: [] },
-  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null },
+  bilibili: { title: '', description: '', zone: '', tags: [], creationDeclaration: '', biliRepostSource: '', biliKeepSystemTags: true, isOriginal: false, scheduleTime: '', biliCollectionName: '', biliCollectionData: null, biliTopicName: '', biliTopicData: null, biliVisibility: 'public', biliCloseDanmaku: false, biliCloseComment: false, biliFeaturedComment: false, biliFansDynamic: '' },
   channels: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [], channelsCollectionName: '', channelsCollectionData: null, channelsLocationName: '', channelsLocationData: null, channelsActivityName: '', channelsActivityData: null, channelsMarkTag: '无需标注', channelsShootDate: '', channelsShootRegion: [], channelsRepostSource: '', channelsDrama: [], channelsLinkType: '', channelsLinkArticleUrl: '', channelsRedEnvelopeUrl: '' },
   baijiahao: { title: '', description: '', isOriginal: false, scheduleTime: '', tags: [] },
   tiktok: { title: '', description: '', aiContent: false, isOriginal: false, scheduleTime: '', tags: [] },
@@ -1906,6 +2010,17 @@ async function fetchBiliCollections(keyword) {
   }
 }
 
+// B站参与话题 —— RemoteSearchSelect 数据源(前端过滤模式)
+// 数据源:后端登录 context 直连 B站话题接口,按当前标题相关性推荐
+async function fetchBiliTopics(keyword) {
+  const resp = await biliApi.getTopics(selectedAccountId.value, form.title || '')
+  const all = resp.data?.list || []
+  const kw = keyword?.trim().toLowerCase()
+  return {
+    list: kw ? all.filter(t => t.name?.toLowerCase().includes(kw)) : all
+  }
+}
+
 // 抖音合集(mix)—— RemoteSearchSelect 数据源(前端过滤模式,空关键词清空)
 async function fetchDouyinMixes(keyword) {
   const resp = await douyinImageApi.getMixList(selectedAccountId.value)
@@ -2020,6 +2135,16 @@ function handleBiliCollectionChange(col) {
     form.biliCollectionData = col
   } else {
     form.biliCollectionData = null
+  }
+}
+
+// B站话题选择回调:v-model 已把话题名绑到 form.biliTopicName,
+// 这里把完整对象存到 form.biliTopicData 便于回显与校验
+function handleBiliTopicChange(topic) {
+  if (topic && topic.name) {
+    form.biliTopicData = topic
+  } else {
+    form.biliTopicData = null
   }
 }
 
@@ -2921,6 +3046,11 @@ onMounted(async () => {
     restoreDraft(Number(draftId))
   }
   startAutoSaveTimer()
+
+  // 首次进入自动播放新手引导（稍等页面渲染稳定后再启动）
+  if (!isGuideDone(GUIDE_KEYS.publish)) {
+    setTimeout(() => tourRef.value?.start(), 600)
+  }
 })
 
 // ========== 批量发布：逐视频校验 + 提交 ==========
@@ -3470,6 +3600,22 @@ function formatSize(bytes) {
     gap: 12px;
     flex-wrap: wrap;
     justify-content: flex-end;
+
+    // 新手引导入口：虚线幽灵按钮，辅助属性不与主操作抢视觉
+    .guide-entry-btn {
+      background: transparent;
+      border: 1px dashed rgba($overlay-rgb, 0.28);
+      box-shadow: none;
+      color: $text-secondary;
+      padding: 8px 14px;
+
+      &:hover {
+        background: rgba($brand-start, 0.08);
+        border-color: rgba($brand-start, 0.5);
+        color: $brand-start;
+        box-shadow: none;
+      }
+    }
 
     .header-btn {
       // el-button 默认 padding 8px 15px / font-size 14px / height 32px
@@ -4027,6 +4173,18 @@ function formatSize(bytes) {
     &:hover {
       border-color: $border-active;
     }
+  }
+
+  // 原生 el-select 触发器(分区/创作声明等):与 RemoteSearchSelect 同款边距
+  // 内边距加大 + 最小高度 40px,覆盖 size="small" 的 24px 扁高
+  :deep(.el-select__wrapper) {
+    padding: 6px 14px;
+    min-height: 40px;
+  }
+
+  // 下拉框与 label/卡片边缘的外间距(直接子级,避免叠加 RemoteSearchSelect 自身 margin)
+  > .el-select {
+    margin: 4px 0;
   }
 
   .radio-row {

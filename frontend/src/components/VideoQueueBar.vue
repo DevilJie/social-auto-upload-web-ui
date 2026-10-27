@@ -39,6 +39,7 @@
 
       <el-dropdown
         class="vq-add-dropdown"
+        data-tour="queue-add"
         trigger="click"
         placement="bottom-start"
         @command="(cmd) => $emit('add', cmd)"

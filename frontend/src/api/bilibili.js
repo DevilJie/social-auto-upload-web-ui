@@ -6,4 +6,10 @@ export const biliApi = {
   getCollections(accountId) {
     return http.get(`/api/bilibili/collections?account_id=${accountId}`)
   },
+  // 获取参与话题列表(后端登录 context 直连 B站话题接口,按标题相关性推荐)
+  getTopics(accountId, title = '') {
+    return http.get(
+      `/api/bilibili/topics?account_id=${accountId}&title=${encodeURIComponent(title || '')}`
+    )
+  },
 }

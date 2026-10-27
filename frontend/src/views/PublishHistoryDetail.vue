@@ -193,6 +193,7 @@ import { platformList, getPlatformByKey } from '@/config/platforms'
 import AccountSidebar from '@/components/AccountSidebar.vue'
 import PublishStats from '@/components/PublishStats.vue'
 import { useNowTicker, formatCountdown, batchCountdownMs } from '@/composables/useNowTicker'
+import { getFileUrl } from '@/utils/storage'
 
 const route = useRoute()
 const router = useRouter()
@@ -255,6 +256,8 @@ function getCoverUrl(item) {
   // 优先用 per-account cover 自带的 .url 字段（后端已构造为绝对 URL）
   if (cfg.coverLandscape?.url) return cfg.coverLandscape.url
   if (cfg.coverPortrait?.url) return cfg.coverPortrait.url
+  // 文章发布(type=article)：封面存的是 stored_path（如 covers/2026/10/23/uuid.jpg）
+  if (cfg.coverStoredPath) return getFileUrl(cfg.coverStoredPath)
   // 兜底：batch 级 cover_url
   return batch.value?.cover_url || ''
 }

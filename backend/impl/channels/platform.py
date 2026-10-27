@@ -31,7 +31,11 @@ from .._utils import (
     scrape_tencent_profile,
 )
 from ..base_platform import BasePlatform
-from .._manual_review import pause_after_input, wait_for_manual_publish
+from .._manual_review import (
+    manual_review_enabled,
+    pause_after_input,
+    wait_for_manual_publish,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1199,8 +1203,12 @@ async def _dismiss_i_know_dialog(page) -> bool:
 
 
 async def _submit_publish(page, is_draft: bool = False) -> None:
-    """Manual publication; automatic draft saving remains supported."""
-    if not is_draft:
+    """Click the publish (or save-draft) button and wait for navigation.
+
+    系统设置开启「人工验收」时：正式发表改为保留表单等待用户亲自提交；
+    自动提交（默认）与保存草稿不受影响。
+    """
+    if not is_draft and manual_review_enabled():
         await wait_for_manual_publish(page, 'channels')
         return
     while True:
@@ -1214,6 +1222,22 @@ async def _submit_publish(page, is_draft: bool = False) -> None:
                     await draft_button.click()
                 await page.wait_for_url("**/post/list**", timeout=30000)
                 logger.info("[发布] draft saved successfully")
+            else:
+                publish_button = page.locator(
+                    'div.form-btns button:has-text("发表")'
+                )
+                if await publish_button.count():
+                    await publish_button.click()
+                    # 视频号偶尔弹出「我知道了」提醒框,先关掉再等跳转
+                    if await _dismiss_i_know_dialog(page):
+                        # 弹窗关掉后,需要再次点击「发表」才能真正提交
+                        publish_button = page.locator(
+                            'div.form-btns button:has-text("发表")'
+                        )
+                        if await publish_button.count():
+                            await publish_button.click()
+                await page.wait_for_url(TENCENT_MANAGE_URL, timeout=30000)
+                logger.info("[发布] video published successfully")
             break
         except Exception as exc:
             current_url = page.url

@@ -6,11 +6,34 @@ Completion requires a user submit gesture AND a platform success signal.
 
 import asyncio
 import logging
+import sqlite3
 import uuid
+from pathlib import Path
 from urllib.parse import urlparse
+
+from conf import BASE_DIR
 
 logger = logging.getLogger(__name__)
 INPUT_PAUSE_SECONDS = 5
+
+
+def manual_review_enabled() -> bool:
+    """系统设置「发布提交方式」。
+
+    true  = 人工验收：填写完成后保留浏览器，等待用户亲自点击平台发布。
+    false / 未设置（默认）= 自动提交：程序自动点击平台发布按钮。
+    读取失败一律按自动提交处理。
+    """
+    try:
+        db = Path(BASE_DIR) / "db" / "database.db"
+        with sqlite3.connect(str(db)) as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='manualReview'"
+            ).fetchone()
+        return bool(row) and str(row[0]).strip().lower() in ("1", "true", "yes")
+    except Exception as e:
+        logger.warning("[人工验收] 读取设置失败,按自动提交处理: %s", e)
+        return False
 
 
 async def pause_after_input():

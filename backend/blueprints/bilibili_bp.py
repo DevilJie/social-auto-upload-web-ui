@@ -1,33 +1,46 @@
-"""B 站创作者平台相关 API 代理。
+"""B 站创作者平台相关 API 代理(纯 HTTP 轻量方案)。
 
-用 CloakBrowser 打开 B 站视频上传页 → 上传视频触发页面跳转到发布表单(不等上传完成) →
-点「请选择合集」入口 → 解析下拉 DOM 的 season-item-title 文本(合集名) →
-返回给前端下拉选项。
+合集列表 / 参与话题列表均直连 B站创作中心接口:
+从 cookie 文件解析登录态 → requests 带 Cookie/UA/Referer 请求 → 毫秒级返回。
+两个接口均经投稿页抓包确认无需 wbi 签名(2026-10)。
 
-开发阶段:有头模式,便于观察。
+历史:合集列表旧实现走浏览器 UI 解析(开上传页→传测试视频→点「请选择合集」
+→解析浮层 DOM),单次请求 30-60s、每次都向 B 站上传一个测试视频,且 B 站
+改版后「请选择合集」入口文案变化导致接口必挂;前端下拉每次展开都调一次,
+体验极差。2026-10 重构为纯 HTTP 直连(实测 108ms)。
 """
 
 from __future__ import annotations
 
-import asyncio
+import json
 import sqlite3
+import time
 from pathlib import Path
+from urllib.parse import quote
 
+import requests
 from flask import Blueprint, request, jsonify
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from conf import BASE_DIR
 from util._logger import get_channel_logger
-from impl._browser import create_browser, create_context
-from services.test_video import get_test_video
 
 logger = get_channel_logger("bilibili")
 
 bilibili_bp = Blueprint('bilibili', __name__, url_prefix='/api/bilibili')
 
-# B 站视频上传页(与 impl/bilibili/platform.py 同源)
+# B 站创作中心投稿页(接口 Referer 来源)
 _BILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
+# 合集接口(2026-10 投稿页侦察:GET 无 wbi 签名,登录 cookie 即可)
+_BILI_SEASONS_API = "https://member.bilibili.com/x2/creative/web/seasons"
+# 参与话题接口(同上,按标题相关性推荐)
+_BILI_TOPIC_API = "https://member.bilibili.com/x/vupre/web/topic/type/v2"
+
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+)
 
 
 def _get_cookie_path(cookie_file: str) -> str:
@@ -51,50 +64,40 @@ def _get_account_cookie_file(account_id: str) -> str | None:
     return row[0]
 
 
-def run_async(coro):
-    """在新事件循环里跑协程(避免与 Flask 线程冲突)。"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import threading
-            result = {}
+def _bili_api_get(url: str, cookie_path: str) -> dict:
+    """带登录态请求 B站创作中心接口,返回响应 JSON。
 
-            def _run():
-                new_loop = asyncio.new_event_loop()
-                try:
-                    result["v"] = new_loop.run_until_complete(coro)
-                finally:
-                    new_loop.close()
+    cookie_path 指向 Playwright storage_state JSON,解析出 bilibili 域的
+    cookie 拼 Cookie 头;实测(cookie+UA+Referer)可通过风控。
+    网络/HTTP 层失败抛异常,由调用方转 500。
+    """
+    state = json.loads(Path(cookie_path).read_text(encoding="utf-8"))
+    cookie_str = "; ".join(
+        f"{c['name']}={c['value']}"
+        for c in state.get("cookies", [])
+        if "bilibili" in c.get("domain", "")
+    )
+    headers = {
+        "Cookie": cookie_str,
+        "User-Agent": _UA,
+        "Referer": _BILI_UPLOAD_URL,
+        "Origin": "https://member.bilibili.com",
+    }
+    resp = requests.get(url, headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
 
-            t = threading.Thread(target=_run)
-            t.start()
-            t.join()
-            return result.get("v")
-    except RuntimeError:
-        pass
-    return asyncio.run(coro)
-
-
-# ======================================================================
-# 合集列表 API
-# ======================================================================
 
 @bilibili_bp.route('/collections', methods=['GET'])
 def list_collections():
-    """获取账号的合集列表。
+    """获取账号的合集列表(投稿表单「选择合集」数据源)。
 
     Query params:
         account_id: 账号 id(用于取 cookie)
 
-    流程:
-        1. 用账号 cookie 打开 B 站视频上传页
-        2. 上传测试视频触发表单渲染
-        3. 点「请选择合集」入口,展开合集选择浮层
-        4. 直接解析浮层 DOM 的 season-item-title 文本(合集名)
-        5. 不点选(仅取列表),返回结果
-
     Returns:
-        {"code": 200, "data": {"list": [...], "total": N}}
+        {"code": 200, "data": {"list": [{"name": 合集名, "id": 合集id,
+         "total": 稿件数}...], "total": N, "tip": B站提示(可为空)}}
     """
     account_id = request.args.get('account_id')
     logger.info(f"[合集列表] 收到请求: account_id={account_id}")
@@ -105,131 +108,95 @@ def list_collections():
             logger.warning(f"[合集列表] 账号不存在: {account_id}")
             return jsonify({"code": 404, "msg": "没有可用的 B 站账号"}), 404
 
-        result = run_async(_fetch_collections_via_browser(cookie_file))
+        cookie_path = _get_cookie_path(cookie_file)
+        url = (
+            f"{_BILI_SEASONS_API}?pn=1&ps=50&order=desc&sort=mtime"
+            f"&filter=1&t={int(time.time() * 1000)}"
+        )
+        body = _bili_api_get(url, cookie_path)
+        if body.get("code") != 0:
+            msg = f"B站接口返回异常: code={body.get('code')} {body.get('message', '')}"
+            logger.error(f"[合集列表] {msg}")
+            return jsonify({"code": 500, "msg": msg}), 500
 
-        if result.get("success"):
-            data = result.get("data", {})
-            logger.info(f"[合集列表] 成功,共 {data.get('total', 0)} 个合集")
-            return jsonify({"code": 200, "data": data})
-        else:
-            logger.error(f"[合集列表] 失败: {result.get('error')}")
-            return jsonify({
-                "code": 500, "msg": result.get("error", "请求失败"),
-            }), 500
+        data = body.get("data") or {}
+        seasons = data.get("seasons") or []
+        items = []
+        for s in seasons:
+            if not isinstance(s, dict):
+                continue
+            # seasons 元素字段名未固化(无合集账号无法实测有合集结构),
+            # 合集名按 title/name/season_name 宽兼容取值
+            name = (s.get("title") or s.get("name") or s.get("season_name") or "").strip()
+            if not name:
+                continue
+            items.append({
+                "name": name,
+                "id": s.get("season_id") or s.get("id") or "",
+                "total": s.get("total", ""),
+            })
+        tip = (data.get("tip") or {}).get("title") or ""
+        logger.info(f"[合集列表] 成功,共 {len(items)} 个合集")
+        return jsonify({
+            "code": 200,
+            "data": {"list": items, "total": len(items), "tip": tip},
+        })
     except Exception as e:
         logger.error(f"[合集列表] 异常: {e}", exc_info=True)
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 
-async def _fetch_collections_via_browser(cookie_file: str) -> dict:
-    """打开 B 站视频上传页,上传视频触发页面跳转到发布表单,然后解析合集下拉 DOM。
+@bilibili_bp.route('/topics', methods=['GET'])
+def list_topics():
+    """获取 B 站参与话题列表(投稿表单「参与话题」数据源)。
 
-    B 站需要上传视频才能跳转到发布界面(合集入口在发布表单里),
-    但不需要等上传完成 —— 上传开始后页面就跳转,标题输入框出现即代表发布表单就绪。
+    Query params:
+        account_id: 账号 id(用于取 cookie)
+        title: 视频标题(可选,B 站按标题相关性推荐话题)
 
-    流程:
-      1. 用账号 cookie 打开 B 站视频上传页
-      2. 上传测试视频(通过 iframe 或主页面的 input)
-      3. 等标题输入框出现(= 页面跳转到发布表单,不需要等上传完成)
-      4. 点击「请选择合集」入口,展开合集选择浮层
-      5. 直接解析浮层 DOM 的 season-item-title 文本(合集名)
-      6. 不点选(仅取列表),返回结果
-
-    DOM 结构(需求文档):
-      season-list > season-content > seasons > season-item > season-item-title(合集名)
-      底部 season-add 里有「创建合集」按钮,用 season-item-title 定位天然排除它。
-
-    全程文案/placeholder/固定语义 class 定位,禁用 data-v 随机串。
+    Returns:
+        {"code": 200, "data": {"list": [{"topicId","name","activityText",
+         "activityDescription","playVv"}...], "total": N}}
     """
-    cookie_path = _get_cookie_path(cookie_file)
+    account_id = request.args.get('account_id')
+    title = request.args.get('title', '')
+    logger.info(f"[话题列表] 收到请求: account_id={account_id} title={title!r}")
 
-    # 无头模式:合集 DOM 解析逻辑已验证通过,无需观察
-    browser = await create_browser(headless=True)
     try:
-        context = await create_context(browser, storage_state=cookie_path)
-        try:
-            page = await context.new_page()
+        cookie_file = _get_account_cookie_file(account_id)
+        if not cookie_file:
+            logger.warning(f"[话题列表] 账号不存在: {account_id}")
+            return jsonify({"code": 404, "msg": "没有可用的 B 站账号"}), 404
 
-            # 1. 打开 B 站视频上传页
-            logger.info("[合集列表] 打开 B 站视频上传页...")
-            try:
-                await page.goto(_BILI_UPLOAD_URL, timeout=30000)
-                await page.wait_for_load_state("domcontentloaded", timeout=15000)
-                await asyncio.sleep(2)
-            except Exception as e:
-                logger.info(f"[合集列表] 页面加载(非致命): {e}")
+        cookie_path = _get_cookie_path(cookie_file)
+        params = {
+            "pn": "0",
+            "ps": "20",
+            "title": title or "视频投稿",
+            "platform": "pc",
+            "t": str(int(time.time() * 1000)),
+        }
+        query = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in params.items())
+        body = _bili_api_get(f"{_BILI_TOPIC_API}?{query}", cookie_path)
+        if body.get("code") != 0:
+            msg = f"B站接口返回异常: code={body.get('code')} {body.get('message', '')}"
+            logger.error(f"[话题列表] {msg}")
+            return jsonify({"code": 500, "msg": msg}), 500
 
-            # 2. 上传测试视频触发页面跳转到发布表单(不等上传完成)
-            # 完全复用 platform.py 的 _upload_video_file 同款逻辑
-            test_video = get_test_video()
-            if not test_video:
-                return {"success": False, "error": "未找到测试视频文件"}
-            logger.info(f"[合集列表] 上传测试视频触发页面跳转: {test_video}")
-
-            file_input = None
-            try:
-                upload_frame = page.frame_locator('iframe[name="videoUpload"]')
-                input_in_frame = upload_frame.locator('input[type="file"]')
-                await input_in_frame.wait_for(state="attached", timeout=5000)
-                file_input = input_in_frame
-            except Exception:
-                pass
-            if file_input is None:
-                file_input = page.locator(
-                    'input[type="file"][accept*="video"], input[type="file"]'
-                ).first
-                await file_input.wait_for(state="attached", timeout=10000)
-            await file_input.set_input_files(test_video)
-            logger.info("[合集列表] 视频已选择,等待页面跳转到发布表单...")
-
-            # 3. 等标题输入框出现(= 发布表单就绪,不需要等上传完成)
-            title_input = page.locator('input[placeholder*="标题"]').first
-            for _ in range(120):  # 最多等 60s
-                if await title_input.count() > 0:
-                    break
-                await asyncio.sleep(0.5)
-            else:
-                return {"success": False, "error": "页面未跳转到发布表单(标题输入框未出现)"}
-            logger.info("[合集列表] 发布表单已就绪")
-            await asyncio.sleep(1)
-
-            # 4. 点击「请选择合集」入口
-            logger.info("[合集列表] 点击「请选择合集」入口...")
-            entry = page.get_by_text("请选择合集", exact=True)
-            if await entry.count() == 0:
-                return {"success": False, "error": "未找到「请选择合集」入口"}
-            await entry.first.click()
-            logger.info("[合集列表] 已点击,等待合集浮层弹出...")
-            await asyncio.sleep(1.5)
-
-            # 5. 解析下拉 DOM —— season-item-title 是组件库固定语义 class(非 data-v 随机串)
-            titles = page.locator(".season-item-title")
-            ready = False
-            for _ in range(20):  # 最多等 10s
-                if await titles.count() > 0:
-                    ready = True
-                    break
-                await asyncio.sleep(0.5)
-            if not ready:
-                return {"success": False, "error": "点击后未弹出合集选择浮层"}
-
-            count = await titles.count()
-            logger.info(f"[合集列表] 浮层出现 {count} 个合集,开始解析")
-            items = []
-            for i in range(count):
-                name = (await titles.nth(i).inner_text()).strip()
-                if not name:
-                    continue
-                if name in ("创建合集", "请选择合集"):
-                    continue
-                items.append({"name": name})
-
-            logger.info(f"[合集列表] 解析完成,共 {len(items)} 个合集")
-            return {
-                "success": True,
-                "data": {"list": items, "total": len(items)},
+        topics = (body.get("data") or {}).get("topics") or []
+        items = [
+            {
+                "topicId": t.get("topic_id"),
+                "name": t.get("topic_name", ""),
+                "activityText": t.get("activity_text") or "",
+                "activityDescription": t.get("topic_description") or "",
+                "playVv": t.get("arc_play_vv", 0),
             }
-        finally:
-            await context.close()
-    finally:
-        await browser.close()
+            for t in topics
+            if t.get("topic_name")
+        ]
+        logger.info(f"[话题列表] 成功,共 {len(items)} 个话题")
+        return jsonify({"code": 200, "data": {"list": items, "total": len(items)}})
+    except Exception as e:
+        logger.error(f"[话题列表] 异常: {e}", exc_info=True)
+        return jsonify({"code": 500, "msg": str(e)}), 500

@@ -3,6 +3,7 @@
     v-model="visible"
     :width="920"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     class="material-select-dialog"
     destroy-on-close
     @closed="onClosed"
@@ -14,16 +15,21 @@
           <span class="msd-header-dot" />
           <span>选择素材</span>
         </div>
-        <div class="msd-header-stats">
-          共 <b>{{ total }}</b> 个素材
-          <span v-if="hasFilter" class="msd-header-filter-hint">（已筛选）</span>
+        <div class="msd-header-right">
+          <div class="msd-header-stats">
+            共 <b>{{ total }}</b> 个素材
+            <span v-if="hasFilter" class="msd-header-filter-hint">（已筛选）</span>
+          </div>
+          <el-tooltip content="引导" placement="top">
+            <button class="msd-guide-help" type="button" @click="startGuide">?</button>
+          </el-tooltip>
         </div>
       </div>
     </template>
 
     <!-- Toolbar: search + type filter -->
     <div class="msd-toolbar">
-      <div class="msd-search">
+      <div class="msd-search" data-tour="msd-search">
         <el-input
           v-model="searchKeyword"
           placeholder="按文件名搜索..."
@@ -33,7 +39,7 @@
           @clear="onSearchClear"
         />
       </div>
-      <div class="msd-type-filter">
+      <div class="msd-type-filter" data-tour="msd-type-filter">
         <button
           v-for="opt in typeOptions"
           :key="opt.value"
@@ -50,10 +56,11 @@
     <div class="msd-body" v-loading="loading">
       <div v-if="items.length > 0" class="msd-grid">
         <div
-          v-for="mat in items"
+          v-for="(mat, i) in items"
           :key="mat.id"
           class="msd-card"
           :class="{ selected: isSelected(mat.id) }"
+          :data-tour="i === 0 ? 'msd-card' : undefined"
           @click="onCardClick(mat)"
         >
           <!-- Preview -->
@@ -194,6 +201,7 @@
           <el-button @click="visible = false">取消</el-button>
           <el-button
             type="primary"
+            data-tour="msd-confirm"
             :disabled="multiple ? selectedMats.length === 0 : !selectedId"
             :loading="probing"
             @click="confirmSelect"
@@ -204,6 +212,9 @@
       </div>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，仅标题栏「?」按钮按需查看） -->
+  <GuideTour ref="msdTourRef" :steps="materialSelectGuideSteps" />
 </template>
 
 <script setup>
@@ -222,6 +233,8 @@ import {
 } from '@element-plus/icons-vue'
 import { materialsApi } from '@/api/materials'
 import { getFileUrl } from '@/utils/storage'
+import GuideTour from '@/components/GuideTour.vue'
+import { materialSelectGuideSteps } from '@/config/guides'
 
 const props = defineProps({
   /** 'all' | 'image' | 'video' - 限制可选项，默认 'all' */
@@ -467,6 +480,15 @@ async function open() {
   await loadPage()
 }
 
+// ========== 弹窗新手引导（仅按需查看：标题栏「?」按钮触发） ==========
+const msdTourRef = ref(null)
+const startGuide = () => msdTourRef.value?.start()
+
+// 保险：弹窗关闭时结束可能还开着的引导
+watch(visible, (v) => {
+  if (!v) msdTourRef.value?.stop()
+})
+
 defineExpose({ open })
 </script>
 
@@ -562,6 +584,33 @@ $bg-card-hover: rgba($overlay-rgb, 0.05);
 .msd-header-filter-hint {
   margin-left: 4px;
   color: $brand-1;
+}
+
+// 标题栏右侧：统计 + 引导入口（仅按需查看的「?」小按钮）
+.msd-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.msd-guide-help {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-3;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: $brand-1;
+    border-color: rgba($brand-1, 0.5);
+    background: rgba($brand-1, 0.08);
+  }
 }
 
 // ===== Toolbar（独立容器，搜索 + 分段控件） =====

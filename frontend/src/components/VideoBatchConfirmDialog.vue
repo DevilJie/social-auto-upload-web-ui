@@ -1,16 +1,26 @@
 <template>
   <el-dialog
     :model-value="visible"
-    title="批量发布确认"
     width="860px"
     top="6vh"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     @update:model-value="$emit('update:visible', $event)"
   >
+    <template #header>
+      <div class="vbc-dialog-header">
+        <span class="vbc-dialog-title">批量发布确认</span>
+        <el-tooltip content="引导" placement="top">
+          <button class="vbc-guide-btn" type="button" @click="startGuide">
+            <el-icon><QuestionFilled /></el-icon>
+          </button>
+        </el-tooltip>
+      </div>
+    </template>
     <div v-if="rows.length === 0" class="empty">队列为空</div>
     <template v-else>
       <!-- ── 顶部统计条：结果一目了然，可点击筛选 ── -->
-      <div class="stat-bar">
+      <div class="stat-bar" data-tour="vbc-stats">
         <div class="stat-chips">
           <button
             :class="['stat-chip', 'is-all', { 'is-active': filter === 'all' }]"
@@ -38,8 +48,9 @@
       <!-- ── 视频卡片列表 ── -->
       <div class="video-list">
         <div
-          v-for="row in filteredRows"
+          v-for="(row, i) in filteredRows"
           :key="row.index"
+          :data-tour="i === 0 ? 'vbc-video-card' : undefined"
           :class="['video-card', {
             'is-selected': selectedIndexes.includes(row.index),
             'is-failed': row.errors.length > 0,
@@ -112,7 +123,7 @@
       </div>
 
       <!-- ── 发布间隔：紧凑一行 ── -->
-      <div class="interval-row">
+      <div class="interval-row" data-tour="vbc-interval">
         <el-icon class="interval-icon"><Timer /></el-icon>
         <span class="interval-label">发布间隔</span>
         <el-input-number
@@ -149,6 +160,7 @@
           <el-button @click="$emit('update:visible', false)" :disabled="submitting">取消</el-button>
           <el-button
             type="primary"
+            data-tour="vbc-submit"
             :disabled="selectedIndexes.length === 0"
             :loading="submitting"
             @click="onConfirm"
@@ -159,11 +171,19 @@
       </div>
     </template>
   </el-dialog>
+
+  <!-- 发布流程引导（teleport 到 body；流程中弹窗不自动播放，仅标题栏「?」按需查看） -->
+  <GuideTour
+    ref="vbcTourRef"
+    :steps="videoConfirmGuideSteps"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { VideoCameraFilled, CircleCheckFilled, CircleCloseFilled, Timer, QuestionFilled } from '@element-plus/icons-vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { videoConfirmGuideSteps } from '@/config/guides'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -185,6 +205,10 @@ const intervalMinutes = ref(30)
 
 const okCount = computed(() => props.rows.filter((r) => r.errors.length === 0).length)
 const failedCount = computed(() => props.rows.length - okCount.value)
+
+// ========== 弹窗新手引导（流程中弹窗：仅标题栏「?」按需查看，不自动播放） ==========
+const vbcTourRef = ref(null)
+const startGuide = () => vbcTourRef.value?.start()
 const estimatedAllTasks = computed(() =>
   props.rows.reduce((sum, r) => sum + (r.accountCount || 0), 0)
 )
@@ -204,6 +228,9 @@ watch(
       selectedIndexes.value = props.rows
         .filter((r) => r.errors.length === 0)
         .map((r) => r.index)
+    } else {
+      // 保险：弹窗关闭时结束可能还开着的引导
+      vbcTourRef.value?.stop()
     }
   },
   { immediate: true }
@@ -247,6 +274,43 @@ function onConfirm() {
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
+
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中）：
+// 标题 + 「?」引导按钮，padding-right 给右上角关闭按钮留位
+.vbc-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.vbc-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.vbc-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  border-radius: 50%;
+  background: transparent;
+  color: $text-muted;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .empty {
   text-align: center;

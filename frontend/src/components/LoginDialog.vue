@@ -1,20 +1,35 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    :title="dialogTitle"
     :width="mode === 'relogin' ? '420px' : '680px'"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     @update:model-value="$emit('update:modelValue', $event)"
     @open="onDialogOpen"
+    @opened="onOpened"
     @close="handleClose"
   >
+    <template #header>
+      <div class="login-dialog-header">
+        <span class="login-dialog-title">{{ dialogTitle }}</span>
+        <button
+          v-if="mode === 'add'"
+          class="login-guide-btn"
+          type="button"
+          @click="startGuide"
+        >
+          <el-icon><Guide /></el-icon>
+          新手引导
+        </button>
+      </div>
+    </template>
     <!-- add 模式: 平台卡片网格(扁平横向) -->
     <div v-if="mode === 'add'" class="login-dialog-body">
       <p class="dialog-hint">选择要登录的平台,点击卡片即开始登录</p>
       <div v-if="cardList.length === 0" class="empty-state">
         所有渠道都已加入黑名单,请先在系统设置中移除后再来登录
       </div>
-      <div v-else class="platform-grid">
+      <div v-else class="platform-grid" data-tour="ld-grid">
         <div
           v-for="p in cardList"
           :key="p.key"
@@ -92,14 +107,24 @@
       <el-button @click="$emit('update:modelValue', false)">关闭</el-button>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（仅 add 模式自动播放，teleport 到 body） -->
+  <GuideTour
+    ref="loginTourRef"
+    :steps="loginGuideSteps"
+    @finish="onGuideDone"
+    @skip="onGuideDone"
+  />
 </template>
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loading, Select, CloseBold } from '@element-plus/icons-vue'
+import { Loading, Select, CloseBold, Guide } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { platformList, getPlatformByName, getPlatformByKey } from '@/config/platforms'
+import GuideTour from '@/components/GuideTour.vue'
+import { loginGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -154,6 +179,20 @@ function onDialogOpen() {
   }
 }
 
+// ========== 弹窗新手引导（仅 add 模式） ==========
+const loginTourRef = ref(null)
+
+const startGuide = () => loginTourRef.value?.start()
+
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.login)
+
+// @opened：动画结束后再启动，且仅 add 模式（relogin 是单卡片修复流程，不打扰）
+function onOpened() {
+  if (props.mode === 'add' && !isGuideDone(GUIDE_KEYS.login)) {
+    setTimeout(() => loginTourRef.value?.start(), 150)
+  }
+}
+
 function initCardStates() {
   // 清掉旧状态
   for (const k of Object.keys(cardStates)) delete cardStates[k]
@@ -162,6 +201,8 @@ function initCardStates() {
 function handleClose() {
   // 清理所有 SSE 连接(el-dialog 关闭时已经会通过 @update:model-value 通知父组件)
   for (const key of eventSources.keys()) closeSSE(key)
+  // 保险：弹窗关闭时结束可能还开着的引导
+  loginTourRef.value?.stop()
 }
 
 // ===== SSE 逻辑 =====
@@ -283,6 +324,41 @@ function cancelRelogin() {
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
+
+// 自定义 header（#header 插槽内容编译自本组件，scoped 顶层选择器直接命中）：
+// 标题 + 新手引导入口，padding-right 给右上角关闭按钮留位
+.login-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.login-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.login-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .login-dialog-body {
   padding: 0 4px;

@@ -1,13 +1,23 @@
 <template>
   <el-dialog
     :model-value="visible"
-    title="批量发布进度"
     width="660px"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     class="batch-task-progress-dialog"
     @update:model-value="$emit('update:visible', $event)"
   >
-    <div class="progress-head">
+    <template #header>
+      <div class="btp-dialog-header">
+        <span class="btp-dialog-title">批量发布进度</span>
+        <el-tooltip content="引导" placement="top">
+          <button class="btp-guide-btn" type="button" @click="startGuide">
+            <el-icon><QuestionFilled /></el-icon>
+          </button>
+        </el-tooltip>
+      </div>
+    </template>
+    <div class="progress-head" data-tour="btp-progress">
       <el-progress
         :percentage="progress"
         :status="allDone ? 'success' : ''"
@@ -41,8 +51,9 @@
 
     <div v-if="sortedGroups.length > 0" class="task-list">
       <div
-        v-for="g in sortedGroups"
+        v-for="(g, i) in sortedGroups"
         :key="g.id"
+        :data-tour="i === 0 ? 'btp-video-card' : undefined"
         :class="['video-card', `card-${g.summaryType}`]"
       >
         <div class="card-head" @click="toggleExpand(g)">
@@ -104,7 +115,7 @@
     </div>
 
     <template #footer>
-      <div class="dialog-footer-right">
+      <div class="dialog-footer-right" data-tour="btp-footer">
         <template v-if="allDone">
           <el-button @click="$emit('update:visible', false)">关闭</el-button>
           <el-button type="primary" @click="$emit('go-history')">去发布历史</el-button>
@@ -122,13 +133,21 @@
       </div>
     </template>
   </el-dialog>
+
+  <!-- 发布流程引导（teleport 到 body；流程中弹窗不自动播放，仅标题栏「?」按需查看） -->
+  <GuideTour
+    ref="btpTourRef"
+    :steps="videoProgressGuideSteps"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch, onBeforeUnmount, onMounted, triggerRef } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading, Clock, CircleCheckFilled, CircleCloseFilled, VideoCameraFilled, ArrowDown, Timer } from '@element-plus/icons-vue'
+import { Loading, Clock, CircleCheckFilled, CircleCloseFilled, VideoCameraFilled, ArrowDown, Timer, QuestionFilled } from '@element-plus/icons-vue'
 import { historyApi, taskApi } from '@/api/v2'
+import GuideTour from '@/components/GuideTour.vue'
+import { videoProgressGuideSteps } from '@/config/guides'
 
 // 批量视频发布实时进度弹窗：
 // 提交 /api/v2/videos/batch-publish 后由父组件打开，传入后端返回的 batch_ids。
@@ -430,6 +449,10 @@ function stopTracking() {
 // 每秒刷新倒计时文本（仅在弹窗打开期间跑，关闭即停）
 let tickerTimer = null
 
+// ========== 弹窗新手引导（流程中弹窗：仅标题栏「?」按需查看，不自动播放） ==========
+const btpTourRef = ref(null)
+const startGuide = () => btpTourRef.value?.start()
+
 watch(
   () => props.visible,
   (vis) => {
@@ -445,6 +468,9 @@ watch(
       tickerTimer = setInterval(() => {
         countdownNow.value = Date.now()
       }, 1000)
+    } else {
+      // 保险：弹窗关闭时结束可能还开着的引导
+      btpTourRef.value?.stop()
     }
   }
 )
@@ -454,6 +480,44 @@ onBeforeUnmount(stopTracking)
 
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
+
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中；顶层选择器，
+// 不嵌套在传给 el-dialog 的 .batch-task-progress-dialog 下）：
+// 标题 + 「?」引导按钮，padding-right 给右上角关闭按钮留位
+.btp-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.btp-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.btp-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  border-radius: 50%;
+  background: transparent;
+  color: $text-muted;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .batch-task-progress-dialog {
   .progress-head {

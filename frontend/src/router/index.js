@@ -14,6 +14,7 @@ const routes = [
   { path: '/drafts', name: 'DraftBox', component: () => import('../views/DraftBox.vue'), meta: { icon: 'Document', title: '草稿箱' } },
   { path: '/publish-center', name: 'PublishCenter', component: PublishCenter, meta: { icon: 'Upload', title: '视频发布' } },
   { path: '/image-publish', name: 'ImagePublish', component: () => import('../views/ImagePublish.vue'), meta: { icon: 'Picture', title: '图集发布' } },
+  { path: '/article-publish', name: 'ArticlePublish', component: () => import('../views/ArticlePublish.vue'), meta: { icon: 'EditPen', title: '文章发布' } },
   { path: '/publish-history', name: 'PublishHistory', component: PublishHistory, meta: { icon: 'Clock', title: '发布历史' } },
   { path: '/publish-calendar', name: 'PublishCalendar', component: () => import('../views/PublishCalendar.vue'), meta: { icon: 'Calendar', title: '发布日历' } },
   { path: '/publish-history/:batchId', name: 'PublishHistoryDetail', component: () => import('../views/PublishHistoryDetail.vue') },

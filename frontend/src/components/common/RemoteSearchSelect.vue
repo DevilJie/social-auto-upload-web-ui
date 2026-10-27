@@ -310,10 +310,17 @@ watch(() => props.modelValue, (val) => {
 
 .remote-search-select {
   width: 100%;
+  // 与周围元素的外间距:setting-card 内 gap 10px 基础上上下再各加 4px,
+  // label ↔ 触发器 ↔ 下一控件视觉间隔 14px,不再贴挤
+  margin: 4px 0;
+
   // 触发器:让 el-select 融入暗色主题
   :deep(.el-select__wrapper) {
     background: $bg-surface;
     box-shadow: 0 0 0 1px $border inset;
+    // 内边距加大 + 最小高度 40px:输入框更高,文字不贴边
+    padding: 6px 14px;
+    min-height: 40px;
     transition: box-shadow 0.2s;
 
     &:hover {
@@ -357,7 +364,7 @@ watch(() => props.modelValue, (val) => {
     position: sticky;
     top: 0;
     z-index: 2;
-    padding: 14px 14px 10px;
+    padding: 14px 14px 12px;
     background: linear-gradient(180deg, rgba($bg-elevated-rgb, 0.98) 70%, rgba($bg-elevated-rgb, 0));
     // 底部渐隐分隔线(替代生硬实线)
     &::after {
@@ -428,10 +435,10 @@ watch(() => props.modelValue, (val) => {
   // ─────────── 列表项 ───────────
   .el-select-dropdown__item {
     height: auto;
-    min-height: 40px;
+    min-height: 44px;
     padding: 0;
-    // 紧凑间距:项之间 2px,面板边缘 8px,既保留分隔又不挤占可见项数
-    margin: 2px 8px;
+    // 项之间 3px,面板边缘 10px:比旧值(2px/8px)更透气
+    margin: 3px 10px;
     border-radius: 8px;
     // 卡片式底色:比面板略亮一点点 + 1px 边框,每项独立成卡
     background: rgba($overlay-rgb, 0.03) !important;
@@ -458,13 +465,13 @@ watch(() => props.modelValue, (val) => {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 10px;
-    min-height: 40px;
+    padding: 9px 12px;
+    min-height: 44px;
 
     // 选中态左侧紫蓝渐变条
     .rss-option-bar {
       position: absolute;
-      left: 0; top: 10px; bottom: 10px;
+      left: 0; top: 12px; bottom: 12px;
       width: 3px;
       border-radius: 0 3px 3px 0;
       background: $gradient-brand;

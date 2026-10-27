@@ -2,8 +2,10 @@
 
 import asyncio
 import os
+import re
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from queue import Queue
 
@@ -2091,3 +2093,2264 @@ class WeiboPlatform(BasePlatform):
                 raise RuntimeError(
                     f"[发布] 发布后未检测到成功信号,当前 URL: {current}"
                 )
+
+    # ==================================================================
+    # 头条文章发布(publish_article)
+    # ==================================================================
+    # 编辑器: https://card.weibo.com/article/v5/editor#/draft
+    #   - 标题:  textarea[placeholder*=请输入标题] (≤32 字)
+    #   - 导语:  textarea[placeholder*=导语]     (≤44 字, 即 draft.summary)
+    #   - 正文:  .tiptap.ProseMirror (ProseMirror, 粘贴 text/html 解析)
+    #   - 图片:  图片库弹窗「上传」→ picupload.weibo.com → sinaimg CDN URL
+    #            (实现改为页面内 fetch 直传图床, 与前端同接口, 再注册
+    #             uploadpic 进文章图片库)
+    #   - 封面:  「设置文章封面」弹窗(正文图片 / 图片库) → 下一步 → 16:9 裁剪
+    #   - 编辑页「发布设置」区(2026-10 全量实测):
+    #       设置封面(16:9) / 专栏设置(加入专栏) / 其他设置:
+    #       仅粉丝阅读全文(follow_to_read, 本账号默认开) / 设置推荐文章
+    #       (article_recommend) / 同步至新浪新闻(mpkey) / 仅在移动端展示
+    #       (only_render_h5) / 付费、V+订阅、单篇付费、赞赏(isreward)
+    #       后 5 项均受账号能力位控制(switch/plugins_enable), 本账号不显示
+    #   - 草稿:  POST /article/v5/aj/editor/draft/create + /draft/save
+    #   - 下一步: 点「下一步」→ POST /draft/save(action=2) 前置校验
+    #            可能返回 data.geetest.verifyUrl → 跳转
+    #            security.weibo.com/captcha/geetest 身份验证(风控, 需人工处理)
+    #            → 通过后弹出发布弹窗(publish-modal)
+    #   - 发布弹窗(publish-modal)设置(由编辑器 bundle PublishModal 还原):
+    #       * 微博正文 textarea(maxlength=2000, 必填, 空则「发布」disabled;
+    #         默认文案「发布了头条文章：《标题》」), 字数按中文1/英文0.5 折算
+    #       * 发布范围 WbSetting: 公开(rank=0) / 粉丝(rank=10)
+    #       * 内容声明 WbSetting 子菜单: 无(0) / 内容由AI生成(1) /
+    #         内容为虚构演绎(2) → 提交字段 mblog_statement
+    #       * 定时发布(publish-time 图标, 仅 switch 位掩码 2 可用时显示):
+    #         日期(今天~+7天)+时+分, 默认 server_time+15min;
+    #         提交走 POST /draft/publishtiming(time="YYYY-MM-DD HH:mm",
+    #         timestamp=时区偏移小时), 立即发表走 /draft/publish
+    #       * 原创声明 is_original(仅签约自媒体 is_wemedia_memeber 显示,
+    #         文案「我同意《微博签约媒体原创认证协议》，并声明本文是原创作品」)
+    #       * 关注@头条文章 follow_official(已关注则控件隐藏)
+    #       * 同步到微博 sync_wb(仅 super_topic 类型草稿显示, 普通文章无此项)
+    #   - 发表:  发布弹窗「发布」按钮 → POST /draft/publish 或 /draft/publishtiming
+    #            成功判定: 该接口响应 code == 100000(唯一依据)
+    # ------------------------------------------------------------------
+
+    _ARTICLE_EDITOR_URL = "https://card.weibo.com/article/v5/editor#/draft"
+    _ARTICLE_TITLE_MAX = 32
+    _ARTICLE_SUMMARY_MAX = 44
+    _ARTICLE_UA = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/127.0.4324.150 Safari/537.36"
+    )
+    # 微博接口成功码(草稿保存/图片注册/发表统一)
+    _ARTICLE_OK_CODE = 100000
+    # 发表时若触发微博身份验证(geetest), 有头浏览器等待人工处理的最长时间
+    _ARTICLE_CAPTCHA_TIMEOUT = 300
+    # 发布弹窗微博正文硬上限(平台 textarea maxlength=2000)
+    _ARTICLE_WEIBO_TEXT_MAX = 2000
+    # 定时发布可选日期范围: 今天 ~ 今天+7 天(与平台 date-picker 禁用规则一致)
+    _ARTICLE_TIMING_MAX_DAYS = 7
+
+    # 内容声明(发布弹窗 WbSetting)选项 → mblog_statement 编码
+    _ARTICLE_STATEMENT_MAP = {
+        "无": 0,
+        "内容无需标注": 0,
+        "内容由AI生成": 1,
+        "含AI生成内容": 1,
+        "内容为虚构演绎": 2,
+        "含虚构演绎内容": 2,
+    }
+
+    # 发布范围(发布弹窗 WbSetting)选项 → rank 编码
+    _ARTICLE_RANK_MAP = {
+        "": 0,
+        "公开": 0,
+        "粉丝": 10,
+        "0": 0,
+        "10": 10,
+    }
+
+    def publish_article(self, **kwargs) -> bool:
+        """发布头条文章到微博(同步入口)。
+
+        kwargs:
+            title (*str*) -- 文章标题(≤32 字,超出截断)
+            html (*str*) -- 正文 HTML(img src 为本地素材 URL,自动上传
+                微博图床后替换为 sinaimg CDN URL)
+            account_file (*list[str]*) -- cookie 文件名列表(逐个账号发布)
+            cover_path (*str*, optional) -- 封面图本地路径(16:9 建议);
+                空则默认取正文首图
+            is_draft (*bool*) -- True(默认)= 只保存草稿,不点下一步/发布;
+                False = 走完发布弹窗并点「发布」真实发表
+            dry_run (*bool*) -- True 时强制 is_draft=True
+            schedule_time_str (*str*, optional) -- 定时发布时间
+                ("YYYY-MM-DD HH:mm" 等可解析格式); 发表模式下生效,
+                提交走 /draft/publishtiming。账号无定时能力时中止
+                (不静默改为立即发表, 避免时机错误)
+            summary / weibo_summary / digest (*str*, optional) -- 导语(≤44 字)
+            weibo_topics / topics (*list[str]*, optional) -- 话题标签,
+                以 #话题# 形式追加到正文末尾与发布弹窗微博正文
+            weibo_statement (*str*, optional) -- 内容声明:
+                无 / 内容由AI生成 / 内容为虚构演绎(发布弹窗设置; 显式传入但
+                自动化失败会中止发表, 避免设置丢失)
+            weibo_text (*str*, optional) -- 发布弹窗「微博正文」文案;
+                空则用平台默认「发布了头条文章：《标题》」(≤2000 字)
+            weibo_rank (*str|int*, optional) -- 发布范围: 公开(默认)/粉丝
+                (与内容声明互斥: 选内容声明的平台联动会把范围改为公开)
+            weibo_is_original (*bool*, optional) -- 原创声明(仅签约自媒体
+                账号有该控件; 无控件时告警跳过)
+            weibo_follow_official (*bool*, optional) -- 关注@头条文章
+                (默认 True; 账号已关注时平台隐藏该控件)
+            weibo_follow_to_read (*bool*, optional) -- 编辑页「仅粉丝阅读全文」;
+                None(默认)= 保留平台默认, True/False = 显式开关
+            weibo_sync_wb (*bool*, optional) -- 发布弹窗「同步到微博」,
+                仅 super_topic 类型草稿有该开关, 普通文章忽略
+        """
+        allowed_keys = (
+            "title", "html", "account_file", "cover_path",
+            "is_draft", "dry_run", "schedule_time_str",
+            "summary", "weibo_summary", "digest",
+            "weibo_topics", "topics", "weibo_statement",
+            "weibo_text", "weibo_rank", "weibo_is_original",
+            "weibo_follow_official", "weibo_follow_to_read",
+            "weibo_sync_wb",
+        )
+        filtered = {k: kwargs[k] for k in allowed_keys if k in kwargs}
+        if filtered.get("dry_run", False):
+            filtered["is_draft"] = True
+        asyncio.run(self._publish_article_all(**filtered))
+        return True
+
+    # ------------------------------------------------------------------
+    # 编排: 单层账号循环(一账号发完一篇文章)
+    # ------------------------------------------------------------------
+
+    async def _publish_article_all(self, **kwargs):
+        logger.info("=" * 60)
+        logger.info("[文章] 开始微博头条文章发布流程")
+        logger.info("=" * 60)
+
+        title = (kwargs.get("title") or "").strip()
+        html = kwargs.get("html") or ""
+        account_file = kwargs.get("account_file") or []
+        cover_path = kwargs.get("cover_path") or ""
+        is_draft = kwargs.get("is_draft", True)
+        dry_run = bool(kwargs.get("dry_run", False))
+        summary = (
+            kwargs.get("summary")
+            or kwargs.get("weibo_summary")
+            or kwargs.get("digest")
+            or ""
+        )
+        topics = kwargs.get("weibo_topics") or kwargs.get("topics") or []
+        statement = kwargs.get("weibo_statement") or ""
+        schedule_time_str = kwargs.get("schedule_time_str") or ""
+        weibo_text = kwargs.get("weibo_text") or ""
+        rank_raw = kwargs.get("weibo_rank", "")
+        is_original = bool(kwargs.get("weibo_is_original", False))
+        follow_official = kwargs.get("weibo_follow_official", True)
+        if follow_official is None:
+            follow_official = True
+        follow_to_read = kwargs.get("weibo_follow_to_read", None)
+        sync_wb = kwargs.get("weibo_sync_wb", None)
+
+        if isinstance(topics, str):
+            topics = [
+                t.strip() for t in topics.replace("，", ",").split(",")
+                if t.strip()
+            ]
+        topics = [str(t).strip() for t in topics if str(t).strip()]
+
+        rank = self._ARTICLE_RANK_MAP.get(str(rank_raw).strip())
+        if rank is None:
+            logger.warning(
+                "[文章参数] 未知发布范围 weibo_rank=%r,按「公开」处理",
+                rank_raw,
+            )
+            rank = 0
+        follow_to_read_flag = None
+        if follow_to_read is not None:
+            follow_to_read_flag = 1 if follow_to_read in (
+                True, "true", "True", 1, "1") else 0
+
+        logger.info("[文章参数] 标题: %s", title)
+        logger.info("[文章参数] 正文 HTML 长度: %d", len(html))
+        logger.info("[文章参数] 导语: %s", (summary or "无")[:44])
+        logger.info("[文章参数] 话题标签: %s", topics or "无")
+        logger.info("[文章参数] 内容声明: %s", statement or "无")
+        logger.info("[文章参数] 微博正文: %s",
+                    (weibo_text or "无(平台默认:发布了头条文章：《标题》)")[:120])
+        logger.info("[文章参数] 发布范围: %s", "粉丝" if rank == 10 else "公开")
+        logger.info("[文章参数] 原创声明: %s", "是" if is_original else "否")
+        logger.info("[文章参数] 关注@头条文章: %s",
+                    "是" if follow_official else "否")
+        logger.info(
+            "[文章参数] 仅粉丝阅读全文: %s",
+            "保留平台默认" if follow_to_read_flag is None
+            else ("开" if follow_to_read_flag == 1 else "关"),
+        )
+        if sync_wb is not None:
+            logger.info(
+                "[文章参数] 同步到微博: %s(仅 super_topic 草稿平台才显示)",
+                "开" if sync_wb else "关",
+            )
+        logger.info("[文章参数] 封面: %s", cover_path or "无(取正文首图)")
+        logger.info("[文章参数] 账号数量: %d", len(account_file))
+        logger.info(
+            "[文章参数] 模式: %s",
+            "dry-run/存草稿" if dry_run else ("存草稿" if is_draft else "发表"),
+        )
+        if schedule_time_str:
+            if is_draft:
+                logger.warning(
+                    "[文章参数] 草稿模式忽略定时发布 schedule_time_str=%s",
+                    schedule_time_str,
+                )
+            else:
+                logger.info(
+                    "[文章参数] 定时发布: %s", schedule_time_str
+                )
+
+        if not title:
+            raise RuntimeError("[文章][微博] 标题不能为空")
+        if not html.strip():
+            raise RuntimeError("[文章][微博] 正文不能为空")
+        if not account_file:
+            raise RuntimeError("[文章][微博] 缺少账号 cookie 配置")
+
+        account_paths = [
+            str(Path(BASE_DIR / "cookiesFile") / f) for f in account_file
+        ]
+        for cookie_index, cookie_path in enumerate(account_paths):
+            cookie_name = Path(cookie_path).name
+            nick = get_account_name_by_cookie_file(cookie_name)
+            with bind_account_name(nick or "-"):
+                logger.info(
+                    "[文章进度] 发布到第 %d/%d 个账号 (%s)",
+                    cookie_index + 1, len(account_paths), nick or "未知",
+                )
+                await self._publish_article_one(
+                    title=title,
+                    html=html,
+                    account_file=cookie_path,
+                    summary=summary,
+                    topics=topics,
+                    statement=statement,
+                    cover_path=str(cover_path) if cover_path else "",
+                    is_draft=is_draft,
+                    dry_run=dry_run,
+                    weibo_text=weibo_text,
+                    rank=rank,
+                    is_original=is_original,
+                    follow_official=bool(follow_official),
+                    follow_to_read=follow_to_read_flag,
+                    sync_wb=sync_wb,
+                    schedule_time_str="" if is_draft else schedule_time_str,
+                )
+
+        logger.info("=" * 60)
+        logger.info("[文章] 微博头条文章发布流程完成!")
+        logger.info("=" * 60)
+
+    # ------------------------------------------------------------------
+    # 单账号完整流程
+    # ------------------------------------------------------------------
+
+    async def _publish_article_one(
+        self,
+        title: str,
+        html: str,
+        account_file: str,
+        summary: str = "",
+        topics=None,
+        statement: str = "",
+        cover_path: str = "",
+        is_draft: bool = True,
+        dry_run: bool = False,
+        weibo_text: str = "",
+        rank: int = 0,
+        is_original: bool = False,
+        follow_official: bool = True,
+        follow_to_read=None,
+        sync_wb=None,
+        schedule_time_str: str = "",
+    ):
+        """单账号头条文章发布完整流程。
+
+        流程: 打开编辑器 → 写文章建草稿 → 上传正文图片微博图床 →
+        粘贴正文 HTML → 标题/导语 → 仅粉丝阅读全文 → 封面 →
+        before_submit 截图 → 保存草稿(并核对) →
+        (非草稿)下一步 → 发布弹窗(微博正文/发布范围/内容声明/原创声明/
+        关注官方/定时发布) → 发布API 判定。
+        """
+        from services.article_html import (
+            extract_img_srcs,
+            replace_img_srcs,
+            sanitize_article_html,
+        )
+
+        topics = topics or []
+        logger.info("[文章][微博] 开始单账号文章发布")
+
+        # 正文图片本地路径解析(失败即异常: 图片缺失等于内容损坏)
+        clean_html = sanitize_article_html(html)
+        srcs = extract_img_srcs(clean_html)
+        local_paths = []
+        if srcs:
+            logger.info(
+                "[文章][微博] 正文含 %d 张图片,准备上传微博图床", len(srcs)
+            )
+            local_paths = [self._resolve_article_image_path(s) for s in srcs]
+        else:
+            logger.info("[文章][微博] 正文无图片,跳过上传")
+
+        # 话题标签: 以 #话题# 形式写入正文末尾(微博惯例,正文页可见)
+        if topics:
+            tag_text = " ".join(f"#{t}#" for t in topics)
+            clean_html += f"<p>{tag_text}</p>"
+            logger.info("[文章][微博] 话题标签已写入正文末尾: %s", tag_text)
+
+        browser = await self.create_browser(headless=False)
+        try:
+            context = await self.create_context(
+                browser,
+                storage_state=account_file,
+                user_agent=self._ARTICLE_UA,
+            )
+            try:
+                page = await context.new_page()
+                # 发布接口结果收集(草稿保存/发表)
+                results = {"save": [], "publish": []}
+
+                async def _on_response(resp):
+                    try:
+                        url = resp.url
+                        req = resp.request
+                        if req.method != "POST":
+                            return
+                        if "/aj/editor/draft/save" in url:
+                            body = await self._safe_json(resp)
+                            results["save"].append(body)
+                        elif (
+                            "/aj/editor/draft/publish" in url
+                            or "/aj/editor/draft/publishtiming" in url
+                        ):
+                            body = await self._safe_json(resp)
+                            results["publish"].append(body)
+                    except Exception:
+                        pass
+
+                page.on("response", _on_response)
+
+                # 1. 打开编辑器 → 写文章建新草稿
+                await self._article_open_editor(page)
+                draft_id = await self._article_create_draft(page)
+                uid, nick = await self._article_get_uid_nick(page)
+                logger.info(
+                    "[文章][微博] 草稿已创建: id=%s uid=%s nick=%s",
+                    draft_id, uid, nick,
+                )
+
+                # 2. 正文图片 → 微博图床 → 替换 CDN URL
+                if srcs:
+                    mapping = await self._article_upload_images(
+                        page, local_paths, uid, nick
+                    )
+                    clean_html = replace_img_srcs(
+                        clean_html, dict(zip(srcs, mapping))
+                    )
+                    logger.info(
+                        "[文章][微博] 正文图片已全部替换为微博 CDN URL"
+                    )
+
+                # 3. 封面图上传图床(先传, 稍后在封面弹窗里选)
+                cover_pid = ""
+                if cover_path and Path(cover_path).exists():
+                    try:
+                        cover_pid, cover_url = await self._article_upload_image(
+                            page, cover_path, uid, nick
+                        )
+                        logger.info(
+                            "[文章][微博] 封面图已上传图床: %s", cover_url
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "[文章][微博] 封面上传失败(跳过,稍后取正文首图): %s",
+                            e,
+                        )
+                        cover_pid = ""
+                elif cover_path:
+                    logger.warning(
+                        "[文章][微博] 封面文件不存在: %s,跳过", cover_path
+                    )
+
+                # 4. 标题 / 导语
+                await self._article_fill_title(page, title)
+                await self._article_fill_summary(page, summary)
+
+                # 5. 正文 HTML 粘贴
+                await self._article_paste_html(page, clean_html)
+
+                # 6. 编辑页「仅粉丝阅读全文」(follow_to_read):
+                #    None=保留平台默认(本账号默认开), 显式 True/False 才点开关
+                if follow_to_read is not None:
+                    await self._article_set_follow_to_read(page, follow_to_read)
+
+                # 7. 封面(正文首图 / 刚上传的封面图)
+                await self._article_set_cover(page, cover_pid)
+
+                # 8. before_submit 截图(验证证据)
+                await self._article_screenshot(
+                    page, "weibo_article_before_submit.png"
+                )
+
+                # 9. 保存草稿 + 核对
+                await self._article_save_draft(page, results)
+                await self._article_verify_draft(
+                    page, draft_id, title, summary, clean_html,
+                    expected_follow_to_read=follow_to_read,
+                )
+
+                # 10. 草稿模式到此为止; 发表模式走下一步 + 发布弹窗
+                if not is_draft:
+                    await self._article_click_next(page)
+                    await self._article_publish(
+                        page, results, title, summary, topics, statement,
+                        weibo_text=weibo_text,
+                        rank=rank,
+                        is_original=is_original,
+                        follow_official=follow_official,
+                        sync_wb=sync_wb,
+                        schedule_time_str=schedule_time_str,
+                    )
+                    logger.info("[文章][微博] ✓ 文章发表成功!")
+
+                # 保存 cookie
+                try:
+                    await context.storage_state(path=account_file)
+                    logger.info("[文章][微博] Cookie 状态已更新")
+                except Exception as e:
+                    logger.warning("[文章][微博] 保存 cookie 失败: %s", e)
+                await asyncio.sleep(2)
+            finally:
+                await context.close()
+        finally:
+            await self.close_browser(browser, is_close_by_code=True)
+
+    # ==================================================================
+    # 文章辅助方法
+    # ==================================================================
+
+    @staticmethod
+    async def _safe_json(resp):
+        try:
+            return await resp.json()
+        except Exception:
+            try:
+                return {"_raw": (await resp.text())[:500]}
+            except Exception:
+                return {}
+
+    @staticmethod
+    async def _article_screenshot(page, name: str):
+        try:
+            from conf import BASE_DIR as _BASE_DIR
+            shot_dir = Path(_BASE_DIR) / "screenshots"
+            shot_dir.mkdir(parents=True, exist_ok=True)
+            path = shot_dir / name
+            await page.screenshot(path=str(path), full_page=True)
+            logger.info("[文章][微博] 截图: %s", path)
+        except Exception as e:
+            logger.warning("[文章][微博] 截图失败(非致命): %s", e)
+
+    async def _article_open_editor(self, page):
+        """打开头条文章编辑器, 等「写文章」按钮就绪(初始加载遮罩消失)。"""
+        logger.info("[文章][微博] 打开编辑器: %s", self._ARTICLE_EDITOR_URL)
+        await page.goto(
+            self._ARTICLE_EDITOR_URL,
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+        deadline = asyncio.get_event_loop().time() + 60
+        while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page, action="文章发布")
+            try:
+                if await page.locator(
+                    'button:has-text("写文章")'
+                ).first.is_visible():
+                    await asyncio.sleep(1)
+                    logger.info("[文章][微博] 编辑器已就绪, url=%s", page.url)
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+        raise RuntimeError("[文章][微博] 编辑器加载超时(未找到「写文章」按钮)")
+
+    async def _article_create_draft(self, page) -> str:
+        """点「写文章」创建新草稿, 返回 draft id(URL hash #/draft/<id>)。"""
+        import re as _re
+
+        before = page.url
+        try:
+            await page.locator(
+                'button:has-text("写文章")'
+            ).first.click(timeout=15000)
+        except Exception as e:
+            logger.warning("[文章][微博] 「写文章」点击失败,尝试 JS 点击: %s", e)
+            await page.evaluate(
+                """() => {
+                  for (const b of document.querySelectorAll('button')) {
+                    if ((b.innerText || '').trim() === '写文章') {
+                      b.click(); return true;
+                    }
+                  }
+                  return false;
+                }"""
+            )
+        deadline = asyncio.get_event_loop().time() + 60
+        while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page, action="文章发布")
+            url = page.url or ""
+            m = _re.search(r"#/draft/(\d+)", url)
+            if m and url != before:
+                draft_id = m.group(1)
+                await asyncio.sleep(2)
+                return draft_id
+            await asyncio.sleep(1)
+        raise RuntimeError(
+            f"[文章][微博] 创建草稿超时(当前 URL: {page.url})"
+        )
+
+    @staticmethod
+    async def _article_get_uid_nick(page):
+        """从顶部导航取 uid / 昵称(图床上传参数用)。"""
+        info = await page.evaluate(
+            """() => {
+              let uid = '', nick = '';
+              const cands = [
+                '.woo-tab-nav a[href^="/u/"]',
+                'a[href^="https://weibo.com/u/"]',
+                'a[href*="weibo.com/u/"]',
+              ];
+              for (const sel of cands) {
+                const a = document.querySelector(sel);
+                if (!a) continue;
+                const m = (a.getAttribute('href') || '').match(/\\/u\\/(\\d+)/);
+                if (m) {
+                  uid = m[1];
+                  nick = (a.getAttribute('title') || a.innerText || '').trim();
+                  break;
+                }
+              }
+              return {uid, nick};
+            }"""
+        )
+        return (info or {}).get("uid", ""), (info or {}).get("nick", "")
+
+    # ---------------- 图片 ----------------
+
+    @staticmethod
+    def _resolve_article_image_path(src: str) -> str:
+        """正文 img src → 本地文件路径(上传微博图床用)。
+
+        支持: 素材库 URL(/api/materials/file/<stored_path>)、本地绝对路径、
+        data: URL(写临时文件)、外链 http(s)(下载到临时文件)。
+        """
+        import base64
+        import mimetypes
+        import tempfile
+        from urllib.parse import unquote, urlparse
+
+        from storage import get_storage
+
+        if src.startswith("data:"):
+            head, _, b64 = src.partition(",")
+            mime = head[5:].split(";")[0] or "image/png"
+            ext = mimetypes.guess_extension(mime) or ".png"
+            fd, path = tempfile.mkstemp(suffix=ext)
+            with os.fdopen(fd, "wb") as f:
+                f.write(base64.b64decode(b64))
+            return path
+
+        parsed = urlparse(src)
+        marker = "/api/materials/file/"
+        stored = ""
+        if marker in src:
+            stored = unquote(src.split(marker, 1)[1].split("?")[0])
+        elif parsed.path and marker in parsed.path:
+            stored = unquote(parsed.path.split(marker, 1)[1])
+
+        if stored:
+            local = get_storage().get_local_path(stored)
+            if local and Path(local).exists():
+                return local
+            full_url = src if src.startswith("http") else (
+                f"http://127.0.0.1:5409{src}"
+            )
+            return WeiboPlatform._download_to_temp(
+                full_url, stored.split("/")[-1]
+            )
+
+        if src.startswith(("http://", "https://")):
+            return WeiboPlatform._download_to_temp(
+                src, Path(parsed.path).name or "img.png"
+            )
+
+        p = Path(src)
+        if p.exists():
+            return str(p)
+        raise RuntimeError(f"[文章][微博] 无法解析正文图片 src: {src}")
+
+    @staticmethod
+    def _download_to_temp(url: str, filename: str = "img.png") -> str:
+        import tempfile
+        import urllib.request
+
+        resp = urllib.request.urlopen(url, timeout=30)
+        data = resp.read()
+        suffix = Path(filename).suffix or ".png"
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        return path
+
+    async def _article_upload_images(self, page, local_paths, uid, nick):
+        """逐张上传本地图片到微博图床, 返回 CDN URL 列表(顺序一致)。
+
+        走编辑器同款接口: POST picupload.weibo.com/interface/pic_upload.php
+        (页面内 fetch, 自动带 cookie/水印参数), 再 POST
+        /article/v5/aj/editor/plugins/uploadpic 注册进文章图片库。
+        任一张失败 → 抛异常(正文图片缺失等于内容损坏)。
+        """
+        urls = []
+        for i, path in enumerate(local_paths):
+            try:
+                pid, url = await self._article_upload_image(page, path, uid, nick)
+                urls.append(url)
+                logger.info(
+                    "[文章][微博] 图片 %d/%d 已上传图床: %s",
+                    i + 1, len(local_paths), url[:90],
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"[文章][微博] 正文图片上传失败({Path(path).name}): {e}"
+                )
+        return urls
+
+    async def _article_upload_image(self, page, local_path, uid, nick):
+        """单张图片上传微博图床 + 注册, 返回 (pid, CDN URL)。"""
+        import base64
+        import mimetypes
+
+        data = Path(local_path).read_bytes()
+        name = Path(local_path).name
+        mime = mimetypes.guess_type(name)[0] or "image/jpeg"
+        b64 = base64.b64encode(data).decode()
+        ext = "gif" if mime == "image/gif" else "jpg"
+
+        result = await page.evaluate(
+            """async (payload) => {
+              const bin = atob(payload.b64);
+              const arr = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+              const blob = new Blob([arr], {type: payload.mime});
+              const q = new URLSearchParams({
+                app: 'miniblog', s: 'json', p: '1', data: '1',
+                file_source: '4',
+                url: 'weibo.com/u/' + payload.uid,
+                markpos: '1', logo: '1', nick: payload.nick || '',
+              });
+              let resp;
+              try {
+                resp = await fetch(
+                  'https://picupload.weibo.com/interface/pic_upload.php?'
+                  + q.toString(),
+                  {
+                    method: 'POST', body: blob, credentials: 'include',
+                    headers: {'Content-Type': payload.mime},
+                  },
+                );
+              } catch (e) {
+                return {ok: false, err: 'fetch:' + String(e)};
+              }
+              let js = null;
+              try { js = await resp.json(); } catch (e) {
+                return {ok: false, err: 'json:' + String(e),
+                        status: resp.status};
+              }
+              const pid = (js && js.pics && js.pics.pic_1 &&
+                           js.pics.pic_1.pid)
+                || (js && js.data && js.data.pics && js.data.pics.pic_1 &&
+                    js.data.pics.pic_1.pid) || '';
+              return {ok: !!pid, pid, code: js && js.code,
+                      raw: JSON.stringify(js).slice(0, 300)};
+            }""",
+            {"b64": b64, "mime": mime, "uid": uid, "nick": nick},
+        )
+        if not result or not result.get("ok"):
+            raise RuntimeError(
+                f"图床上传失败 code={((result or {}).get('code'))} "
+                f"{(result or {}).get('err') or (result or {}).get('raw') or ''}"
+            )
+        pid = result["pid"]
+        cdn_url = f"https://wx3.sinaimg.cn/large/{pid}.{ext}"
+
+        # 注册进文章图片库(不注册时正文/封面选图列表里看不到该图)
+        reg = await page.evaluate(
+            """async (payload) => {
+              const body = new URLSearchParams({
+                pid: payload.pid, uid: payload.uid,
+              });
+              try {
+                const resp = await fetch(
+                  '/article/v5/aj/editor/plugins/uploadpic',
+                  {
+                    method: 'POST', body,
+                    credentials: 'include',
+                    headers: {
+                      'Content-Type':
+                        'application/x-www-form-urlencoded;charset=UTF-8',
+                    },
+                  },
+                );
+                const js = await resp.json();
+                return {code: js && js.code};
+              } catch (e) {
+                return {code: -1, err: String(e)};
+              }
+            }""",
+            {"pid": pid, "uid": uid},
+        )
+        if (reg or {}).get("code") != self._ARTICLE_OK_CODE:
+            logger.warning(
+                "[文章][微博] 图片注册到文章图片库失败(仍继续): %s", reg
+            )
+        else:
+            # 图片入库/转码需要一点时间(前端实现固定等待 15s, 这里缩短)
+            await asyncio.sleep(2)
+        return pid, cdn_url
+
+    # ---------------- 标题 / 导语 / 正文 ----------------
+
+    async def _article_fill_title(self, page, title: str):
+        text = (title or "").strip()[: self._ARTICLE_TITLE_MAX]
+        box = page.locator('textarea[placeholder*="请输入标题"]').first
+        await box.wait_for(state="visible", timeout=20000)
+        await box.fill(text)
+        await asyncio.sleep(0.5)
+        logger.info("[文章][微博] 标题已填写(%d 字): %s", len(text), text)
+
+    async def _article_fill_summary(self, page, summary: str):
+        text = (summary or "").strip()[: self._ARTICLE_SUMMARY_MAX]
+        if not text:
+            logger.info("[文章][微博] 未提供导语,跳过")
+            return
+        box = page.locator('textarea[placeholder*="导语"]').first
+        await box.wait_for(state="visible", timeout=15000)
+        await box.fill(text)
+        await asyncio.sleep(0.5)
+        logger.info("[文章][微博] 导语已填写(%d 字): %s", len(text), text)
+
+    async def _article_paste_html(self, page, html: str):
+        """把正文 HTML 粘贴进 tiptap/ProseMirror 编辑器。
+
+        实测(2026-10): 通过 ClipboardEvent paste(text/html) 注入,
+        h2/p/strong/em/ul/blockquote/img(微博 CDN URL) 均正确解析。
+        粘贴后校验正文长度与图片数量。
+        """
+        from services.article_html import extract_img_srcs
+
+        expect_imgs = len(extract_img_srcs(html))
+        length = await page.evaluate(
+            """(html) => {
+              const ed = document.querySelector('.tiptap.ProseMirror')
+                || document.querySelector(
+                  '.ProseMirror[contenteditable="true"]');
+              if (!ed) return -1;
+              ed.focus();
+              try {
+                const dt = new DataTransfer();
+                dt.setData('text/html', html);
+                dt.setData('text/plain', html.replace(/<[^>]+>/g, ''));
+                ed.dispatchEvent(new ClipboardEvent('paste', {
+                  bubbles: true, cancelable: true, clipboardData: dt,
+                }));
+              } catch (e) {
+                return -2;
+              }
+              return ed.innerHTML.length;
+            }""",
+            html,
+        )
+        if length == -1:
+            raise RuntimeError("[文章][微博] 未找到正文编辑器(.tiptap.ProseMirror)")
+        if length == -2:
+            raise RuntimeError("[文章][微博] 正文粘贴事件派发失败")
+        await asyncio.sleep(3)
+        info = await page.evaluate(
+            """() => {
+              const ed = document.querySelector('.tiptap.ProseMirror');
+              if (!ed) return {html: 0, imgs: 0, text: 0};
+              return {
+                html: (ed.innerHTML || '').length,
+                imgs: ed.querySelectorAll('img').length,
+                text: (ed.innerText || '').trim().length,
+                imgSrcs: [...ed.querySelectorAll('img')]
+                  .map((i) => i.src).slice(0, 20),
+              };
+            }"""
+        )
+        logger.info(
+            "[文章][微博] 正文已粘贴(innerHTML=%d, 文本=%d, 图片=%d/%d)",
+            info.get("html", 0), info.get("text", 0),
+            info.get("imgs", 0), expect_imgs,
+        )
+        if info.get("html", 0) < 20 or info.get("text", 0) < 2:
+            raise RuntimeError(
+                f"[文章][微博] 正文粘贴后内容过短(innerHTML={info.get('html')}),"
+                "粘贴失败"
+            )
+        if expect_imgs and info.get("imgs", 0) < expect_imgs:
+            # 图片可能异步渲染, 再等 5s 复查
+            await asyncio.sleep(5)
+            imgs2 = await page.evaluate(
+                """() => (document.querySelector(
+                    '.tiptap.ProseMirror') || {querySelectorAll: () => []})
+                  .querySelectorAll('img').length"""
+            )
+            if imgs2 < expect_imgs:
+                raise RuntimeError(
+                    f"[文章][微博] 正文图片渲染不完整(期望 {expect_imgs} 张,"
+                    f"实际 {imgs2} 张)"
+                )
+        await asyncio.sleep(1)
+
+    # ---------------- 编辑页设置: 仅粉丝阅读全文 ----------------
+
+    async def _article_set_follow_to_read(self, page, desired_flag: int):
+        """编辑页「发布设置 → 其他设置 → 仅粉丝阅读全文」开关。
+
+        该设置保存进 draft.follow_to_read(1=仅粉丝可读全文, 0=公开),
+        本账号平台默认=1(开)。失败仅告警(不影响发表), 但会在草稿核对时
+        提示实际落库值。
+        """
+        want = 1 if int(desired_flag) == 1 else 0
+        try:
+            entry = page.get_by_text("仅粉丝阅读全文", exact=True).first
+            if await entry.count() == 0:
+                logger.warning(
+                    "[文章][微博] 未找到「仅粉丝阅读全文」设置项"
+                    "(账号无此能力位),跳过"
+                )
+                return
+            await entry.scroll_into_view_if_needed(timeout=8000)
+            state = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const label = [...document.querySelectorAll('*')].find(
+                    (el) => vis(el) && el.children.length === 0
+                      && (el.innerText || '').trim() === '仅粉丝阅读全文');
+                  if (!label) return null;
+                  let row = label.parentElement;
+                  for (let d = 0; d < 6 && row; d++) {
+                    const sw = row.querySelector('.n-switch, .n-checkbox');
+                    if (sw) {
+                      const r = sw.getBoundingClientRect();
+                      return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+                              active: sw.classList.contains('n-switch--active')
+                                || sw.classList.contains('n-checkbox--checked')
+                                || sw.getAttribute('aria-checked') === 'true'
+                                || !!sw.querySelector(
+                                  '.n-switch__checked, .n-checkbox__checked')};
+                    }
+                    row = row.parentElement;
+                  }
+                  return null;
+                }"""
+            )
+            if not state:
+                logger.warning(
+                    "[文章][微博] 「仅粉丝阅读全文」开关未找到,跳过"
+                )
+                return
+            cur = 1 if state.get("active") else 0
+            if cur == want:
+                logger.info(
+                    "[文章][微博] 仅粉丝阅读全文已是目标值: %s",
+                    "开" if want else "关",
+                )
+                return
+            await page.mouse.click(state["x"], state["y"])
+            await asyncio.sleep(1.5)
+            now_active = await page.evaluate(
+                """() => {
+                  const label = [...document.querySelectorAll('*')].find(
+                    (el) => el.children.length === 0
+                      && (el.innerText || '').trim() === '仅粉丝阅读全文');
+                  if (!label) return null;
+                  let row = label.parentElement;
+                  for (let d = 0; d < 6 && row; d++) {
+                    const sw = row.querySelector('.n-switch, .n-checkbox');
+                    if (sw) {
+                      return sw.classList.contains('n-switch--active')
+                        || sw.classList.contains('n-checkbox--checked')
+                        || sw.getAttribute('aria-checked') === 'true'
+                        || !!sw.querySelector(
+                          '.n-switch__checked, .n-checkbox__checked');
+                    }
+                    row = row.parentElement;
+                  }
+                  return null;
+                }"""
+            )
+            logger.info(
+                "[文章][微博] 仅粉丝阅读全文已设置为: %s(当前=%s)",
+                "开" if want else "关", now_active,
+            )
+        except Exception as e:
+            logger.warning(
+                "[文章][微博] 设置「仅粉丝阅读全文」失败(跳过): %s", e
+            )
+            await self._article_close_dialogs(page)
+
+    # ---------------- 封面 ----------------
+
+    async def _article_set_cover(self, page, cover_pid: str = ""):
+        """设置文章封面(失败仅告警: 平台会自动取上一篇封面兜底)。
+
+        cover_pid: 已上传图床的封面图 pid; 空则取正文首图。
+        流程: 点「设置文章封面」→ 图片选择弹窗(正文图片/图片库)
+              → 选图 → 「下一步」→ 弹窗关闭即封面已设置。
+        """
+        try:
+            entry = page.get_by_text("设置文章封面", exact=False).first
+            if await entry.count() == 0:
+                entry = page.get_by_text("替换封面图", exact=False).first
+            await entry.scroll_into_view_if_needed(timeout=8000)
+            await entry.click(timeout=10000)
+            await asyncio.sleep(3)
+
+            # 等图片选择弹窗出现(含「正文图片」「图片库」tab)
+            modal_info = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const dialogs = [...document.querySelectorAll(
+                      '.n-dialog, .n-modal')].filter(
+                    (el) => vis(el) && /正文图片|图片库/.test(el.innerText || ''));
+                  return {count: dialogs.length};
+                }"""
+            )
+            if not modal_info.get("count"):
+                logger.warning("[文章][微博] 封面弹窗未出现,跳过封面设置")
+                return
+
+            if cover_pid:
+                # 切到「图片库」tab, 选刚上传的封面图
+                clicked_tab = await page.evaluate(
+                    """() => {
+                      const vis = (el) => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                      };
+                      for (const el of document.querySelectorAll(
+                          '.n-dialog *, .n-modal *')) {
+                        if (!vis(el)) continue;
+                        if ((el.innerText || '').trim() === '图片库'
+                            && el.children.length === 0) {
+                          el.click(); return true;
+                        }
+                      }
+                      return false;
+                    }"""
+                )
+                if clicked_tab:
+                    await asyncio.sleep(3)
+                picked = await page.evaluate(
+                    """(pid) => {
+                      const vis = (el) => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                      };
+                      const imgs = [...document.querySelectorAll(
+                          '.n-dialog img, .n-modal img')].filter(
+                        (im) => vis(im) && im.src.includes(pid));
+                      if (!imgs.length) return null;
+                      const r = imgs[0].getBoundingClientRect();
+                      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+                    }""",
+                    cover_pid,
+                )
+                if not picked:
+                    # 兜底: 图片库第一张
+                    picked = await page.evaluate(
+                        """() => {
+                          const vis = (el) => {
+                            const r = el.getBoundingClientRect();
+                            return r.width > 0 && r.height > 0;
+                          };
+                          const imgs = [...document.querySelectorAll(
+                              '.n-dialog img, .n-modal img')].filter(
+                            (im) => vis(im));
+                          if (!imgs.length) return null;
+                          const r = imgs[0].getBoundingClientRect();
+                          return {x: r.x + r.width / 2,
+                                  y: r.y + r.height / 2};
+                        }"""
+                    )
+            else:
+                # 默认「正文图片」tab, 取第一张
+                picked = await page.evaluate(
+                    """() => {
+                      const vis = (el) => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                      };
+                      const imgs = [...document.querySelectorAll(
+                          '.n-dialog img, .n-modal img')].filter(
+                        (im) => vis(im));
+                      if (!imgs.length) return null;
+                      const r = imgs[0].getBoundingClientRect();
+                      return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+                    }"""
+                )
+
+            if not picked:
+                logger.warning("[文章][微博] 封面弹窗内未找到可选图片,跳过封面")
+                await self._article_close_dialogs(page)
+                return
+            await page.mouse.click(picked["x"], picked["y"])
+            await asyncio.sleep(2)
+
+            # 点「下一步」确认封面 → 出现「图片裁剪」弹窗 → 点「确定」
+            next_btn = page.locator(
+                '.n-dialog button:has-text("下一步"), '
+                '.n-modal button:has-text("下一步")'
+            ).first
+            await next_btn.click(timeout=10000)
+            await asyncio.sleep(3)
+            # 裁剪弹窗(图片裁剪 / 上一步 / 确定)确认; 部分场景无裁剪直接关闭
+            crop_confirmed = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const dialogs = [...document.querySelectorAll(
+                      '.n-dialog, .n-modal')].filter(
+                    (el) => vis(el) && /图片裁剪|裁剪/.test(
+                      el.innerText || ''));
+                  for (const dlg of dialogs) {
+                    for (const b of dlg.querySelectorAll('button')) {
+                      if (!vis(b)) continue;
+                      if ((b.innerText || '').trim() === '确定'
+                          && !b.disabled) {
+                        b.click();
+                        return true;
+                      }
+                    }
+                  }
+                  return false;
+                }"""
+            )
+            if crop_confirmed:
+                logger.info("[文章][微博] 已确认封面裁剪")
+            await asyncio.sleep(3)
+            # 等裁剪弹窗真正关闭(遮罩会拦截后续点击)
+            deadline = asyncio.get_event_loop().time() + 20
+            while asyncio.get_event_loop().time() < deadline:
+                raise_if_page_closed(page, action="文章发布")
+                still = await page.evaluate(
+                    """() => [...document.querySelectorAll(
+                        '.n-dialog, .n-modal')].some((el) => {
+                      const r = el.getBoundingClientRect();
+                      return r.width > 0 && r.height > 0
+                        && /图片裁剪|正文图片|图片库/.test(el.innerText || '');
+                    })"""
+                )
+                if not still:
+                    break
+                await asyncio.sleep(1)
+            logger.info("[文章][微博] 封面已设置")
+            await self._article_close_dialogs(page)
+        except Exception as e:
+            logger.warning("[文章][微博] 封面设置失败(跳过): %s", e)
+            await self._article_close_dialogs(page)
+
+    @staticmethod
+    async def _article_close_dialogs(page):
+        """关闭可能残留的弹层(遮罩会拦截后续点击)。"""
+        for _ in range(3):
+            try:
+                closed = await page.evaluate(
+                    """() => {
+                      const vis = (el) => {
+                        const r = el.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                      };
+                      for (const b of document.querySelectorAll(
+                          '.n-dialog button, .n-modal button')) {
+                        if (!vis(b)) continue;
+                        const t = (b.innerText || '').trim();
+                        if (t === '取消' || t === '关闭') {
+                          b.click(); return true;
+                        }
+                      }
+                      return false;
+                    }"""
+                )
+                if not closed:
+                    await page.keyboard.press("Escape")
+                await asyncio.sleep(0.6)
+                still = await page.evaluate(
+                    """() => [...document.querySelectorAll(
+                        '.n-dialog, .n-modal')].some((el) => {
+                      const r = el.getBoundingClientRect();
+                      return r.width > 0 && r.height > 0
+                        && /正文图片|图片库|发布/.test(el.innerText || '');
+                    })"""
+                )
+                if not still:
+                    return
+            except Exception:
+                return
+
+    # ---------------- 草稿保存 / 核对 ----------------
+
+    async def _article_save_draft(self, page, results):
+        """点「保存草稿」按钮, 等 draft/save 接口返回 code==100000。"""
+        results["save"].clear()
+        # 先关掉可能残留的弹层(弹层遮罩会拦截按钮点击)
+        await self._article_close_dialogs(page)
+        btn = page.get_by_role("button", name="保存草稿", exact=True).first
+        try:
+            await btn.scroll_into_view_if_needed(timeout=8000)
+            await btn.click(timeout=15000)
+        except Exception as e:
+            logger.warning(
+                "[文章][微博] 「保存草稿」常规点击失败,改用 JS 点击: %s", e
+            )
+            clicked = await page.evaluate(
+                """() => {
+                  for (const b of document.querySelectorAll('button')) {
+                    if ((b.innerText || '').trim() === '保存草稿') {
+                      b.click(); return true;
+                    }
+                  }
+                  return false;
+                }"""
+            )
+            if not clicked:
+                raise RuntimeError("[文章][微博] 未找到「保存草稿」按钮")
+        logger.info("[文章][微博] 已点击「保存草稿」,等待保存接口...")
+        deadline = asyncio.get_event_loop().time() + 60
+        while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page, action="文章发布")
+            if results["save"]:
+                body = results["save"][-1]
+                code = body.get("code") if isinstance(body, dict) else None
+                msg = (body or {}).get("msg", "") if isinstance(body, dict) else ""
+                if code == self._ARTICLE_OK_CODE:
+                    data = body.get("data") or {}
+                    logger.info(
+                        "[文章][微博] ✓ 草稿已保存(code=%s, content_length=%s)",
+                        code, data.get("content_length"),
+                    )
+                    await asyncio.sleep(1)
+                    return
+                raise RuntimeError(
+                    f"[文章][微博] 草稿保存失败 code={code} msg={msg}"
+                )
+            await asyncio.sleep(1)
+        raise RuntimeError("[文章][微博] 保存草稿超时(未收到 draft/save 响应)")
+
+    async def _article_verify_draft(self, page, draft_id, title, summary, html,
+                                    expected_follow_to_read=None):
+        """用草稿加载接口核对标题/导语/正文/封面/仅粉丝阅读全文已落库。"""
+        uid, _ = await self._article_get_uid_nick(page)
+        try:
+            verify = await page.evaluate(
+                """async (payload) => {
+                  const resp = await fetch(
+                    '/article/v5/aj/editor/draft/load?uid='
+                    + encodeURIComponent(payload.uid)
+                    + '&id=' + encodeURIComponent(payload.id),
+                    {credentials: 'include'});
+                  return await resp.json();
+                }""",
+                {"uid": uid, "id": draft_id},
+            )
+        except Exception as e:
+            logger.warning("[文章][微博] 草稿核对请求失败(非致命): %s", e)
+            return
+        try:
+            data = (verify or {}).get("data") or {}
+            saved_title = (data.get("title") or "").strip()
+            saved_summary = (data.get("summary") or "").strip()
+            saved_content = data.get("content") or ""
+            logger.info(
+                "[文章][微博] 草稿核对: code=%s 标题=%r 导语=%r 正文长度=%d"
+                " 封面=%s 仅粉丝阅读全文=%s",
+                (verify or {}).get("code"), saved_title[:40],
+                saved_summary[:44], len(saved_content),
+                (data.get("cover") or "")[:80] or "无",
+                data.get("follow_to_read"),
+            )
+            if saved_title != title[: self._ARTICLE_TITLE_MAX]:
+                logger.warning(
+                    "[文章][微博] 草稿标题与预期不一致: %r != %r",
+                    saved_title, title[: self._ARTICLE_TITLE_MAX],
+                )
+            if expected_follow_to_read is not None:
+                saved_ftr = data.get("follow_to_read")
+                try:
+                    saved_ftr = int(saved_ftr)
+                except (TypeError, ValueError):
+                    saved_ftr = None
+                if saved_ftr != int(expected_follow_to_read):
+                    logger.warning(
+                        "[文章][微博] 草稿「仅粉丝阅读全文」与预期不一致: "
+                        "预期=%s 实际=%s",
+                        int(expected_follow_to_read), saved_ftr,
+                    )
+                else:
+                    logger.info(
+                        "[文章][微博] ✓ 草稿「仅粉丝阅读全文」已生效: %s",
+                        "开" if saved_ftr == 1 else "关",
+                    )
+            if not saved_content:
+                raise RuntimeError("[文章][微博] 草稿正文为空,保存未生效")
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning("[文章][微博] 草稿核对解析失败(非致命): %s", e)
+
+    # ---------------- 下一步 / 发布弹窗 / 发表 ----------------
+
+    async def _article_click_next(self, page):
+        """点「下一步」→ 等发布弹窗;若跳转微博身份验证, 等人工处理。
+
+        平台逻辑(编辑器 bundle DraftFooter):
+          1) 首次点击: setDefaultCover() 若自动选了上一篇封面 → 只把页面
+             滚到「发布设置」区, 需要再点一次「下一步」;
+          2) 第二次: validatePublish → saveDraft(action=2)。该接口可能返回
+             data.geetest.verifyUrl → 前端跳 security.weibo.com 身份验证;
+          3) 签约自媒体(is_wemedia_memeber)首次发表还会弹「头条文章原创声明」
+             协议弹窗, 需点「我同意」后才继续;
+          4) 之后才弹出发布弹窗(publish-modal)。
+        """
+        for attempt in range(3):
+            btn = page.get_by_role("button", name="下一步", exact=True).first
+            await btn.wait_for(state="visible", timeout=15000)
+            await btn.click()
+            logger.info("[文章][微博] 已点击「下一步」(第 %d 次)", attempt + 1)
+
+            captcha_waited = False
+            deadline = asyncio.get_event_loop().time() + 60
+            while asyncio.get_event_loop().time() < deadline:
+                raise_if_page_closed(page, action="文章发布")
+                url = page.url or ""
+                if "security.weibo.com" in url or "/captcha" in url:
+                    if captcha_waited:
+                        raise RuntimeError(
+                            "[文章][微博] 身份验证通过后再次跳转验证页,放弃发表"
+                        )
+                    captcha_waited = True
+                    await self._article_wait_captcha(page)
+                    # 验证通过后页面自动回到编辑器并重跑下一步逻辑
+                    deadline = asyncio.get_event_loop().time() + 90
+                    continue
+                # 原创声明协议弹窗(签约自媒体首次发表时出现)
+                if await self._article_accept_original_agreement(page):
+                    continue
+                if await self._article_publish_modal_visible(page):
+                    logger.info("[文章][微博] 发布弹窗已出现")
+                    return
+                await asyncio.sleep(1.5)
+
+            # 未出现弹窗/验证页: 平台可能只是自动选了默认封面并滚动到
+            # 发布设置区(setDefaultCover 返回 true), 再点一次「下一步」
+            logger.info(
+                "[文章][微博] 第 %d 次「下一步」未出现弹窗(可能自动选封面),重试",
+                attempt + 1,
+            )
+
+        raise RuntimeError(
+            "[文章][微博] 点击「下一步」后未出现发布弹窗"
+            f"(当前 URL: {page.url})"
+        )
+
+    async def _article_accept_original_agreement(self, page) -> bool:
+        """处理「头条文章原创声明」协议弹窗(签约自媒体首次发表)。
+
+        出现则点「我同意」并返回 True; 未出现返回 False。
+        """
+        try:
+            clicked = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const dlg = [...document.querySelectorAll(
+                      '.n-dialog, .n-modal')].find(
+                    (el) => vis(el)
+                      && (el.innerText || '').includes('头条文章原创声明'));
+                  if (!dlg) return false;
+                  for (const b of dlg.querySelectorAll('button')) {
+                    if (!vis(b)) continue;
+                    if ((b.innerText || '').trim() === '我同意') {
+                      b.click();
+                      return true;
+                    }
+                  }
+                  return false;
+                }"""
+            )
+            if clicked:
+                logger.info("[文章][微博] 已同意「头条文章原创声明」协议")
+                await asyncio.sleep(1.5)
+                return True
+        except Exception:
+            pass
+        return False
+
+    async def _article_wait_captcha(self, page):
+        """微博身份验证(geetest)人工处理等待。
+
+        发表前校验触发风控时, 浏览器会跳转 security.weibo.com 验证页;
+        有头浏览器下等待用户完成验证(默认最多 5 分钟), 完成后页面会
+        自动跳回编辑器继续。超时如实报失败(风控拦截按失败记录)。
+        """
+        logger.warning(
+            "[文章][微博] ⚠ 触发微博身份验证(风控 geetest),请在有头浏览器"
+            "中完成验证(最多等待 %ds)...",
+            self._ARTICLE_CAPTCHA_TIMEOUT,
+        )
+        # 留证: 风控验证页截图(便于排查/汇报)
+        await self._article_screenshot(page, "weibo_article_captcha.png")
+        start = asyncio.get_event_loop().time()
+        last_log = start
+        while asyncio.get_event_loop().time() - start < self._ARTICLE_CAPTCHA_TIMEOUT:
+            raise_if_page_closed(page, action="文章发布")
+            url = page.url or ""
+            if "card.weibo.com" in url and "security.weibo.com" not in url:
+                logger.info("[文章][微博] 身份验证已通过,继续发表流程")
+                await asyncio.sleep(3)
+                return
+            now = asyncio.get_event_loop().time()
+            if now - last_log >= 15:
+                last_log = now
+                logger.info(
+                    "[文章][微博] 仍在等待人工完成身份验证(已等待 %ds)...",
+                    int(now - start),
+                )
+            await asyncio.sleep(2)
+        await self._article_screenshot(page, "weibo_article_publish_failed.png")
+        raise RuntimeError(
+            "[文章][微博] 发表触发微博身份验证(风控 geetest),"
+            f"等待人工处理超时({self._ARTICLE_CAPTCHA_TIMEOUT}s) —— 文章未发表"
+        )
+
+    @staticmethod
+    async def _article_publish_modal_visible(page) -> bool:
+        try:
+            return await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  return [...document.querySelectorAll(
+                      '.publish-modal, .n-modal')].some(
+                    (el) => vis(el) && (el.innerText || '').includes('发布'));
+                }"""
+            )
+        except Exception:
+            return False
+
+    async def _article_publish(self, page, results, title, summary,
+                               topics, statement, weibo_text="", rank=0,
+                               is_original=False, follow_official=True,
+                               sync_wb=None, schedule_time_str=""):
+        """发布弹窗内: 填微博正文/发布范围/内容声明/原创/关注/定时 → 点「发布」。
+
+        控件来自编辑器 bundle 的 PublishModal(2026-10 逐项还原):
+          textarea(微博正文, 必填, maxlength=2000) / WbSetting(公开·粉丝 +
+          内容声明) / publish-time(定时) / 原创声明 / 关注@头条文章 /
+          同步到微博(仅 super_topic) / 发布按钮。
+        """
+        # 1. 微博正文(必填, 空则「发布」按钮 disabled)
+        tag_text = " ".join(f"#{t}#" for t in (topics or []) if t)
+        if weibo_text:
+            base_text = weibo_text.strip()
+            if tag_text and tag_text not in base_text:
+                base_text = f"{base_text} {tag_text}"
+        else:
+            base_text = f"发布了头条文章：《{title}》"
+            if tag_text:
+                base_text = f"{base_text} {tag_text}"
+        base_text = base_text[: self._ARTICLE_WEIBO_TEXT_MAX]
+        texts = await page.evaluate(
+            """(text) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const scope = [...document.querySelectorAll(
+                  '.publish-modal, .n-modal')].find(
+                (el) => vis(el) && (el.innerText || '').includes('发布'));
+              if (!scope) return null;
+              const ta = [...scope.querySelectorAll('textarea')]
+                .filter(vis)[0];
+              if (!ta) return null;
+              const setter = Object.getOwnPropertyDescriptor(
+                window.HTMLTextAreaElement.prototype, 'value').set;
+              setter.call(ta, text);
+              ta.dispatchEvent(new Event('input', {bubbles: true}));
+              ta.dispatchEvent(new Event('change', {bubbles: true}));
+              return {value: ta.value, maxlength: ta.maxLength};
+            }""",
+            base_text,
+        )
+        if not texts:
+            raise RuntimeError(
+                "[文章][微博] 发布弹窗未找到「微博正文」输入框"
+            )
+        final_text = (texts.get("value") or "").strip()
+        logger.info(
+            "[文章][微博] 发布弹窗微博正文已填写(%d 字, 上限 %s): %s",
+            len(final_text), texts.get("maxlength"), final_text[:120],
+        )
+        if not final_text:
+            raise RuntimeError(
+                "[文章][微博] 发布弹窗「微博正文」为空,发布按钮不可用"
+            )
+
+        # 2. 发布范围(公开/粉丝) + 内容声明
+        #    平台联动: 内容声明只在「公开」项下, 选择内容声明会同时把发布
+        #    范围置为公开; 选「粉丝」时内容声明被重置为「无」→ 二者互斥
+        statement = (statement or "").strip()
+        if statement == "无":
+            statement = ""
+        if statement or rank:
+            await self._article_set_wb_setting(page, statement, rank)
+
+        # 3. 原创声明(仅签约自媒体账号有控件)
+        if is_original:
+            await self._article_set_original(page, True)
+
+        # 4. 关注@头条文章(默认勾选; 已关注的账号平台隐藏该控件)
+        await self._article_set_follow_official(page, follow_official)
+
+        # 5. 同步到微博(仅 super_topic 类型草稿显示该开关)
+        if sync_wb is not None:
+            changed = await self._article_set_sync_wb(page, bool(sync_wb))
+            if not changed:
+                logger.info(
+                    "[文章][微博] 发布弹窗无「同步到微博」开关"
+                    "(仅 super_topic 草稿有), 忽略"
+                )
+
+        # 6. 定时发布(账号开关位支持时才显示 publish-time 图标)
+        scheduled = False
+        if schedule_time_str:
+            scheduled = await self._article_set_timing(
+                page, schedule_time_str
+            )
+            if not scheduled:
+                raise RuntimeError(
+                    "[文章][微博] 请求了定时发布, 但发布弹窗没有「定时发布」"
+                    "控件(账号 switch 位不支持或自动化失败), 已中止以免误发表"
+                )
+
+        # 7. 点「发布」并监听发表 API
+        await self._article_click_publish(page, results, scheduled=scheduled)
+
+    # ---- 发布弹窗控件定位/操作 ----
+
+    @staticmethod
+    async def _article_modal_dismiss_popovers(page):
+        """关闭发布弹窗内的浮层(下拉/日历/表情)。
+
+        注意: **不能用 Escape** —— 发布弹窗是 n-modal, 默认 close-on-esc,
+        Escape 会把整个发布弹窗关掉(实测踩坑)。改点击遮罩空白处: 该弹窗
+        mask-closable=false, 点遮罩不会关弹窗, 但会触发浮层的 clickoutside。
+        """
+        try:
+            await page.mouse.move(5, 5)
+            await page.mouse.click(5, 5)
+            await asyncio.sleep(0.4)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _article_modal_wb_trigger(page):
+        """发布弹窗 WbSetting 触发器(公开/粉丝)坐标。"""
+        return await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const scope = [...document.querySelectorAll(
+                  '.publish-modal, .n-modal')].find(
+                (el) => vis(el) && (el.innerText || '').includes('发布'));
+              if (!scope) return null;
+              const el = [...scope.querySelectorAll('*')].find(
+                (n) => vis(n) && n.children.length === 0
+                  && ['公开', '粉丝'].includes((n.innerText || '').trim()));
+              if (!el) return null;
+              const r = el.getBoundingClientRect();
+              return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+                      text: (el.innerText || '').trim()};
+            }"""
+        )
+
+    @staticmethod
+    async def _article_dropdown_visible(page):
+        try:
+            return await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  return [...document.querySelectorAll(
+                      '.publish-dropdown, [class*="publish-dropdown"]')]
+                    .some((el) => vis(el));
+                }"""
+            )
+        except Exception:
+            return False
+
+    @staticmethod
+    async def _article_dropdown_item_rect(page, label):
+        """WbSetting 下拉项(公开/粉丝)坐标。"""
+        return await page.evaluate(
+            """(label) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const items = [...document.querySelectorAll(
+                  '.publish-dropdown__item')].filter(
+                (el) => vis(el)
+                  && (el.innerText || '').indexOf(label) === 0);
+              if (!items.length) return null;
+              const r = items[0].getBoundingClientRect();
+              return {x: r.x + 20, y: r.y + r.height / 2};
+            }""",
+            label,
+        )
+
+    @staticmethod
+    async def _article_dropdown_extend_rect(page, item_label):
+        """WbSetting 下拉项右侧「内容声明」入口坐标(悬停展开子菜单)。"""
+        return await page.evaluate(
+            """(label) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const items = [...document.querySelectorAll(
+                  '.publish-dropdown__item')].filter(
+                (el) => vis(el)
+                  && (el.innerText || '').indexOf(label) === 0);
+              if (!items.length) return null;
+              const right = items[0].querySelector('.right');
+              if (!right) return null;
+              const r = right.getBoundingClientRect();
+              return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+            }""",
+            item_label,
+        )
+
+    @staticmethod
+    async def _article_statement_option_rect(page, target):
+        """「内容声明」子菜单选项坐标。"""
+        return await page.evaluate(
+            """(target) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const items = [...document.querySelectorAll(
+                  '.extend-box__content__item')].filter(
+                (el) => vis(el)
+                  && (el.innerText || '').trim() === target);
+              if (!items.length) return null;
+              const r = items[0].getBoundingClientRect();
+              return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+            }""",
+            target,
+        )
+
+    @staticmethod
+    async def _article_switch_rect(page, label, match="equals"):
+        """发布弹窗内「label + 开关」行里的开关坐标/状态。
+
+        label 文案定位到叶子节点后向上找 .n-switch / .n-checkbox。
+        match="contains" 用于长文案(原创声明协议)。
+        """
+        return await page.evaluate(
+            """(payload) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const scope = [...document.querySelectorAll(
+                  '.publish-modal, .n-modal')].find(
+                (el) => vis(el) && (el.innerText || '').includes('发布'));
+              if (!scope) return null;
+              const eq = payload.match === 'equals';
+              const matches = [...scope.querySelectorAll('*')].filter((el) => {
+                if (!vis(el)) return false;
+                const t = (el.innerText || '').trim();
+                if (eq ? t !== payload.label : !t.includes(payload.label)) {
+                  return false;
+                }
+                if (eq) return true;
+                // contains 模式取最深匹配(排除其子元素也含该文案的祖先容器),
+                // 兼容「我同意《…协议》，并声明本文是原创作品」这种带链接的行
+                return ![...el.children].some(
+                  (c) => ((c.innerText || '').trim().includes(payload.label)));
+              });
+              if (!matches.length) return null;
+              let row = matches[0].parentElement;
+              for (let d = 0; d < 6 && row; d++) {
+                const sw = row.querySelector('.n-switch, .n-checkbox');
+                if (sw) {
+                  const r = sw.getBoundingClientRect();
+                  return {
+                    x: r.x + r.width / 2, y: r.y + r.height / 2,
+                    active: sw.classList.contains('n-switch--active')
+                      || sw.classList.contains('n-checkbox--checked')
+                      || !!sw.querySelector(
+                        '.n-switch__checked, .n-checkbox__checked'),
+                  };
+                }
+                row = row.parentElement;
+              }
+              return null;
+            }""",
+            {"label": label, "match": match},
+        )
+
+    async def _article_set_wb_setting(self, page, statement: str, rank: int):
+        """发布弹窗 WbSetting: 发布范围(公开/粉丝) + 内容声明。
+
+        实测联动(编辑器 bundle wb-setting.vue):
+          - 下拉触发器显示当前范围(公开/粉丝), hover 展开;
+          - 「内容声明」是「公开」项的二级子菜单, 悬停其右侧入口展开;
+          - 选内容声明会把发布范围重置为「公开」; 选「粉丝」则内容声明归零。
+        """
+        desired_rank = int(rank or 0)
+        target_statement = ""
+        if statement:
+            target_statement = statement
+            if target_statement not in self._ARTICLE_STATEMENT_MAP:
+                for key in self._ARTICLE_STATEMENT_MAP:
+                    if key in target_statement or target_statement in key:
+                        target_statement = key
+                        break
+        if desired_rank == 10 and target_statement:
+            logger.warning(
+                "[文章][微博] 平台限制: 发布范围「粉丝」与内容声明互斥"
+                "(选内容声明会强制公开), 已忽略内容声明=%s", target_statement,
+            )
+            target_statement = ""
+        target_scope = "粉丝" if desired_rank == 10 else "公开"
+        logger.info(
+            "[文章][微博] 发布弹窗设置: 发布范围=%s 内容声明=%s",
+            target_scope, target_statement or "无",
+        )
+
+        # 1) hover 触发器展开下拉
+        trig = await self._article_modal_wb_trigger(page)
+        if not trig:
+            raise RuntimeError("未找到发布范围/内容声明入口(公开/粉丝)")
+        await page.mouse.move(trig["x"], trig["y"])
+        await asyncio.sleep(1.2)
+        if not await self._article_dropdown_visible(page):
+            # 再 hover 一次(首次 hover 可能只触发了 tooltip 动画)
+            await page.mouse.move(trig["x"] + 2, trig["y"] + 2)
+            await asyncio.sleep(1.5)
+        if not await self._article_dropdown_visible(page):
+            raise RuntimeError("发布弹窗 WbSetting 下拉未展开")
+        logger.info(
+            "[文章][微博] WbSetting 下拉已展开(当前范围=%s)", trig["text"]
+        )
+
+        # 2) 发布范围
+        if trig["text"] != target_scope:
+            item = await self._article_dropdown_item_rect(page, target_scope)
+            if not item:
+                raise RuntimeError(f"未找到发布范围选项: {target_scope}")
+            await page.mouse.move(item["x"], item["y"])
+            await asyncio.sleep(0.5)
+            await page.mouse.click(item["x"], item["y"])
+            await asyncio.sleep(1.2)
+            logger.info(
+                "[文章][微博] 发布范围已设置为: %s", target_scope
+            )
+        else:
+            logger.info("[文章][微博] 发布范围已是目标值: %s", target_scope)
+
+        # 3) 内容声明(公开项二级子菜单; 设置后发布范围=公开)
+        if target_statement:
+            if target_scope == "粉丝":
+                # 上一步已切到粉丝, 下拉已关闭; 重新 hover 触发器
+                pass
+            trig2 = await self._article_modal_wb_trigger(page)
+            if not trig2:
+                raise RuntimeError("未找到发布范围/内容声明入口(公开/粉丝)")
+            if not await self._article_dropdown_visible(page):
+                await page.mouse.move(trig2["x"], trig2["y"])
+                await asyncio.sleep(1.5)
+            entry = await self._article_dropdown_extend_rect(page, "公开")
+            if not entry:
+                raise RuntimeError("未找到内容声明入口(公开项右侧)")
+            await page.mouse.move(entry["x"], entry["y"])
+            await asyncio.sleep(1.2)
+            opt = await self._article_statement_option_rect(
+                page, target_statement
+            )
+            if not opt:
+                await asyncio.sleep(1.5)
+                opt = await self._article_statement_option_rect(
+                    page, target_statement
+                )
+            if not opt:
+                raise RuntimeError(
+                    f"未找到内容声明选项: {target_statement}"
+                )
+            await page.mouse.move(opt["x"], opt["y"])
+            await asyncio.sleep(0.3)
+            await page.mouse.click(opt["x"], opt["y"])
+            await asyncio.sleep(1.0)
+            logger.info(
+                "[文章][微博] 内容声明已设置为: %s(发布范围联动为公开)",
+                target_statement,
+            )
+
+        # 4) 关闭下拉, 避免遮罩拦截「发布」点击
+        await self._article_modal_dismiss_popovers(page)
+
+    async def _article_set_original(self, page, desired: bool):
+        """原创声明(仅签约自媒体 is_wemedia_memeber 显示)。
+
+        文案:「我同意《微博签约媒体原创认证协议》，并声明本文是原创作品」。
+        非签约账号无该控件 → 告警跳过(不阻塞发表)。
+        """
+        await self._article_modal_dismiss_popovers(page)
+        state = await self._article_switch_rect(
+            page, "并声明本文是原创作品", match="contains"
+        )
+        if not state:
+            logger.warning(
+                "[文章][微博] 发布弹窗无「原创声明」控件"
+                "(账号非签约自媒体), 跳过原创声明"
+            )
+            return
+        cur = bool(state.get("active"))
+        if cur == bool(desired):
+            logger.info(
+                "[文章][微博] 原创声明已是目标值: %s",
+                "开" if desired else "关",
+            )
+            return
+        await page.mouse.click(state["x"], state["y"])
+        await asyncio.sleep(1.2)
+        logger.info(
+            "[文章][微博] 原创声明已设置为: %s", "开" if desired else "关"
+        )
+
+    async def _article_set_follow_official(self, page, desired: bool):
+        """「关注@头条文章 第一时间获取官方通知」勾选框(默认勾选)。
+
+        账号已关注时平台隐藏该控件 → 视为已满足, 无需操作。
+        """
+        state = await self._article_switch_rect(
+            page, "关注@头条文章", match="contains"
+        )
+        if not state:
+            logger.info(
+                "[文章][微博] 发布弹窗无「关注@头条文章」勾选项"
+                "(账号已关注, 平台隐藏), 无需设置"
+            )
+            return
+        cur = bool(state.get("active"))
+        if cur == bool(desired):
+            logger.info(
+                "[文章][微博] 关注@头条文章已是目标值: %s",
+                "开" if desired else "关",
+            )
+            return
+        await page.mouse.click(state["x"], state["y"])
+        await asyncio.sleep(1.0)
+        logger.info(
+            "[文章][微博] 关注@头条文章已设置为: %s",
+            "开" if desired else "关",
+        )
+
+    async def _article_set_sync_wb(self, page, desired: bool) -> bool:
+        """「同步到微博」开关(仅 super_topic 类型草稿显示)。返回是否有控件。"""
+        state = await self._article_switch_rect(
+            page, "同步到微博", match="contains"
+        )
+        if not state:
+            return False
+        cur = bool(state.get("active"))
+        if cur != bool(desired):
+            await page.mouse.click(state["x"], state["y"])
+            await asyncio.sleep(1.0)
+        logger.info(
+            "[文章][微博] 同步到微博已设置为: %s",
+            "开" if desired else "关",
+        )
+        return True
+
+    async def _article_set_timing(self, page, schedule_time_str: str) -> bool:
+        """发布弹窗「定时发布」: 日期(今~+7天) + 时 + 分。
+
+        平台实现(timing-setting.vue): 日期 n-date-picker(禁用今天之前/
+        今天+7天之后) + 时/分 n-select(00-23时 / 00-59分), 默认
+        server_time+15min; 输出 "YYYY-MM-DD HH:mm"。发表接口切换为
+        /draft/publishtiming, 请求带 time 与 timestamp(时区偏移小时)。
+        返回 False 表示弹窗里没有该控件(账号 switch 位不支持)。
+        """
+        # 解析目标时间
+        target_dt = None
+        raw = (schedule_time_str or "").strip()
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
+                    "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
+            try:
+                target_dt = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                continue
+        if target_dt is None:
+            logger.warning(
+                "[文章][微博] 定时时间格式无法解析(%r), 使用平台默认"
+                "(server_time+15min)", raw,
+            )
+        else:
+            now = datetime.now()
+            if target_dt < now:
+                logger.warning(
+                    "[文章][微博] 定时时间(%s)早于当前时间,平台可能拒绝",
+                    target_dt.strftime("%Y-%m-%d %H:%M"),
+                )
+            if target_dt.date() > (now + timedelta(
+                    days=self._ARTICLE_TIMING_MAX_DAYS)).date():
+                logger.warning(
+                    "[文章][微博] 定时时间(%s)超出平台范围(今天~+%d天)",
+                    target_dt.strftime("%Y-%m-%d"), self._ARTICLE_TIMING_MAX_DAYS,
+                )
+
+        # 1) 点「定时发布」图标
+        #    工具栏 .tools-icon 顺序(编辑器 bundle PublishModal 渲染顺序):
+        #    表情 / @ / # / 定时(仅账号 switch 位支持时存在)
+        tools = await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const scope = [...document.querySelectorAll(
+                  '.publish-modal, .n-modal')].find(
+                (el) => vis(el) && (el.innerText || '').includes('发布'));
+              if (!scope) return [];
+              return [...scope.querySelectorAll('.tools-icon')].filter(vis)
+                .map((el) => {
+                  const r = el.getBoundingClientRect();
+                  return {x: r.x + r.width / 2, y: r.y + r.height / 2,
+                          active: String(el.className).includes('active')};
+                });
+            }"""
+        )
+        if len(tools) < 3:
+            logger.warning(
+                "[文章][微博] 发布弹窗工具栏只有 %d 个图标, 无「定时发布」"
+                "图标(账号 switch 位不支持定时)", len(tools),
+            )
+            return False
+        exists = False
+        for idx in [3, 2, 1, 0]:
+            if idx >= len(tools):
+                continue
+            await self._article_modal_dismiss_popovers(page)
+            await page.mouse.click(tools[idx]["x"], tools[idx]["y"])
+            await asyncio.sleep(1.2)
+            exists = await page.evaluate(
+                """() => {
+                  const el = document.querySelector(
+                      '.publish-modal .timing-setting, '
+                      + '.n-modal .timing-setting');
+                  if (!el) return false;
+                  const r = el.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0;
+                }"""
+            )
+            if exists:
+                logger.info(
+                    "[文章][微博] 定时发布控件已展开(工具栏图标 index=%d)", idx
+                )
+                break
+        if not exists:
+            logger.warning(
+                "[文章][微博] 未找到「定时发布」图标/点击后未出现定时控件"
+                "(账号 switch 位不支持定时或 UI 改版)"
+            )
+            return False
+        logger.info(
+            "[文章][微博] 定时发布控件已展开, 默认时间=%s",
+            (await page.evaluate(
+                """() => {
+                  const el = document.querySelector(
+                      '.publish-modal .timing-setting, '
+                      + '.n-modal .timing-setting');
+                  return el ? (el.innerText || '').replace(/\\s+/g, ' ') : '';
+                }"""
+            )),
+        )
+
+        # 2) 设置日期: naive-ui n-date-picker 输入框不可编辑, 走日历面板
+        #    (.n-date-panel) 翻月 + 点日期格子; 平台只允许今天~+7 天
+        if target_dt is not None:
+            await self._article_pick_date(page, target_dt.date())
+            await asyncio.sleep(0.8)
+
+        # 3) 设置时/分(两个 n-select)
+        async def _pick_select(index: int, label: str) -> bool:
+            boxes = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const el = document.querySelector(
+                      '.publish-modal .timing-setting, '
+                      + '.n-modal .timing-setting');
+                  if (!el) return [];
+                  return [...el.querySelectorAll('.n-select')].filter(vis)
+                    .map((s) => {
+                      const r = s.getBoundingClientRect();
+                      return {x: r.x + r.width / 2,
+                              y: r.y + r.height / 2,
+                              text: (s.innerText || '').trim()};
+                    });
+                }"""
+            )
+            if len(boxes) <= index:
+                return False
+            box = boxes[index]
+            if (box.get("text") or "") == label:
+                return True
+            await page.mouse.click(box["x"], box["y"])
+            await asyncio.sleep(1.0)
+            picked = await page.evaluate(
+                """(label) => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const opt = [...document.querySelectorAll(
+                      '.n-base-select-option')].filter(
+                    (el) => vis(el)
+                      && (el.innerText || '').trim() === label)[0];
+                  if (!opt) return false;
+                  opt.click();
+                  return true;
+                }""",
+                label,
+            )
+            await asyncio.sleep(0.8)
+            return bool(picked)
+
+        if target_dt is not None:
+            hour_label = f"{target_dt.hour:02d}时"
+            minute_label = f"{target_dt.minute:02d}分"
+            ok_h = await _pick_select(0, hour_label)
+            ok_m = await _pick_select(1, minute_label)
+            if not ok_h or not ok_m:
+                logger.warning(
+                    "[文章][微博] 定时「时/分」选择失败(时=%s 分=%s),"
+                    "将使用平台默认时间", ok_h, ok_m,
+                )
+
+        # 4) 读取最终定时值并严格校验(避免时间设置失败却按错误时间发表)
+        final = await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const el = document.querySelector(
+                  '.publish-modal .timing-setting, '
+                  + '.n-modal .timing-setting');
+              if (!el) return null;
+              const inputs = [...el.querySelectorAll('input')]
+                .filter(vis).map((i) => i.value);
+              const selects = [...el.querySelectorAll('.n-select')]
+                .filter(vis).map((s) => (s.innerText || '').trim());
+              return {inputs, selects,
+                      text: (el.innerText || '').replace(/\\s+/g, ' ')};
+            }"""
+        )
+        if not final:
+            raise RuntimeError("[文章][微博] 定时设置控件已消失, 中止发表")
+        logger.info(
+            "[文章][微博] 定时发布已设置: %s", final.get("text") or final
+        )
+        if target_dt is not None:
+            shown_date = ""
+            for v in final.get("inputs") or []:
+                if v and re.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$", v):
+                    shown_date = v.replace("/", "-")
+                    break
+            expect_date = target_dt.strftime("%Y-%m-%d")
+            if shown_date != expect_date:
+                raise RuntimeError(
+                    "[文章][微博] 定时日期未生效: 期望=%s 实际=%r,"
+                    "已中止发表(避免错误时间发表)"
+                    % (expect_date, shown_date or (final.get("inputs") or [""])[0])
+                )
+            shown_sel = " ".join(final.get("selects") or [])
+            expect_sel = f"{target_dt.hour:02d}时 {target_dt.minute:02d}分"
+            if shown_sel != expect_sel:
+                raise RuntimeError(
+                    "[文章][微博] 定时时分未生效: 期望=%s 实际=%r,"
+                    "已中止发表(避免错误时间发表)" % (expect_sel, shown_sel)
+                )
+        return True
+
+    async def _article_pick_date(self, page, target_date):
+        """在 n-date-picker 日历面板里选目标日期(逐月翻页 + 点日期格)。
+
+        面板结构(naive-ui DatePanel): .n-date-panel > .n-date-panel-calendar >
+        .n-date-panel-month(__prev/__next 翻月, PanelHeader 显示 yyyy年M月) +
+        .n-date-panel-dates > .n-date-panel-date(当前月日期)。
+        """
+        # 1) 点日期输入框展开日历面板
+        input_rect = await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const el = document.querySelector(
+                  '.publish-modal .timing-setting, '
+                  + '.n-modal .timing-setting');
+              if (!el) return null;
+              const input = [...el.querySelectorAll('input')].filter(vis)[0];
+              if (!input) return null;
+              const r = input.getBoundingClientRect();
+              return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+            }"""
+        )
+        if not input_rect:
+            raise RuntimeError("[文章][微博] 未找到定时日期输入框")
+        await page.mouse.click(input_rect["x"], input_rect["y"])
+        await asyncio.sleep(1.2)
+
+        # 2) 翻到目标年月
+        target_ym = (target_date.year, target_date.month)
+        for _ in range(24):
+            shown = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const panel = [...document.querySelectorAll(
+                      '.n-date-panel')].filter(vis).pop();
+                  if (!panel) return null;
+                  const month = panel.querySelector('.n-date-panel-month');
+                  return month ? (month.innerText || '').trim() : '';
+                }"""
+            )
+            if shown is None:
+                raise RuntimeError("[文章][微博] 定时日期日历面板未出现")
+            nums = re.findall(r"\d+", shown)
+            year = month = None
+            for i, n in enumerate(nums):
+                if len(n) == 4 and year is None:
+                    year = int(n)
+                elif len(n) <= 2 and i > 0 and month is None and year is not None:
+                    month = int(n)
+            if year is None or month is None:
+                # locale 文案差异兜底: "2026年10月"
+                m = re.search(r"(\d{4})\D+(\d{1,2})", shown)
+                if m:
+                    year, month = int(m.group(1)), int(m.group(2))
+            if year == target_ym[0] and month == target_ym[1]:
+                logger.info("[文章][微博] 定时日历已翻到: %s", shown)
+                break
+            if year is None or month is None:
+                raise RuntimeError(
+                    f"[文章][微博] 无法解析日历年月: {shown!r}"
+                )
+            cur = year * 12 + month
+            want = target_ym[0] * 12 + target_ym[1]
+            sel = ("__next" if want > cur else "__prev")
+            moved = await page.evaluate(
+                """(sel) => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const panel = [...document.querySelectorAll(
+                      '.n-date-panel')].filter(vis).pop();
+                  if (!panel) return false;
+                  const btn = panel.querySelector(
+                      '.n-date-panel-month' + sel);
+                  if (!btn) return false;
+                  btn.click();
+                  return true;
+                }""",
+                sel,
+            )
+            if not moved:
+                raise RuntimeError("[文章][微博] 无法翻动定时日历月份")
+            await asyncio.sleep(0.7)
+
+        # 3) 点目标日期格子(排除非当前月/禁用)
+        picked = await page.evaluate(
+            """(payload) => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const panel = [...document.querySelectorAll(
+                  '.n-date-panel')].filter(vis).pop();
+              if (!panel) return {ok: false, err: 'no panel'};
+              const cells = [...panel.querySelectorAll('.n-date-panel-date')];
+              const target = cells.find((el) => {
+                if (!vis(el)) return false;
+                const cls = String(el.className || '');
+                if (cls.includes('--excluded') || cls.includes('--disabled')) {
+                  return false;
+                }
+                return (el.innerText || '').trim() === String(payload.day);
+              });
+              if (!target) return {ok: false, err: 'no cell'};
+              const r = target.getBoundingClientRect();
+              return {ok: true, x: r.x + r.width / 2,
+                      y: r.y + r.height / 2};
+            }""",
+            {"day": target_date.day},
+        )
+        if not picked or not picked.get("ok"):
+            raise RuntimeError(
+                "[文章][微博] 定时日历未找到目标日期格子: %s"
+                % (picked or {}).get("err")
+            )
+        await page.mouse.click(picked["x"], picked["y"])
+        await asyncio.sleep(1.0)
+        logger.info(
+            "[文章][微博] 定时日期已选择: %s", target_date.strftime("%Y-%m-%d")
+        )
+
+
+    async def _article_click_publish(self, page, results, scheduled=False):
+        """点发布弹窗「发布」, 以 publish/publishtiming 响应 code 判定成功。"""
+        results["publish"].clear()
+        # 找到弹窗内可见且未禁用的「发布」按钮
+        clicked = await page.evaluate(
+            """() => {
+              const vis = (el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+              const scope = [...document.querySelectorAll(
+                  '.publish-modal, .n-modal')].find(
+                (el) => vis(el) && (el.innerText || '').includes('发布'));
+              if (!scope) return false;
+              for (const b of scope.querySelectorAll('button')) {
+                if (!vis(b)) continue;
+                if ((b.innerText || '').trim() === '发布' && !b.disabled) {
+                  b.click();
+                  return true;
+                }
+              }
+              return false;
+            }"""
+        )
+        if not clicked:
+            raise RuntimeError(
+                "[文章][微博] 发布弹窗内「发布」按钮不可用(微博正文可能为空)"
+            )
+        logger.info(
+            "[文章][微博] 已点击发布弹窗「发布」(%s),等待发表接口...",
+            "定时发布 → /draft/publishtiming" if scheduled
+            else "立即发布 → /draft/publish",
+        )
+
+        deadline = asyncio.get_event_loop().time() + 120
+        while asyncio.get_event_loop().time() < deadline:
+            raise_if_page_closed(page, action="文章发布")
+            url = page.url or ""
+            if "security.weibo.com" in url or "/captcha" in url:
+                await self._article_wait_captcha(page)
+                # 验证通过后重新点发布
+                await self._article_click_publish_retry(page)
+            if results["publish"]:
+                body = results["publish"][-1]
+                code = body.get("code") if isinstance(body, dict) else None
+                msg = (
+                    (body or {}).get("msg")
+                    or (body or {}).get("message")
+                    or ""
+                ) if isinstance(body, dict) else ""
+                if code == self._ARTICLE_OK_CODE:
+                    logger.info("[文章][微博] ✓ 发表成功(code=%s)", code)
+                    await asyncio.sleep(3)
+                    return
+                if code is not None:
+                    raise RuntimeError(
+                        f"[文章][微博] 文章发表失败 code={code} msg={msg}"
+                    )
+            await asyncio.sleep(1.5)
+        # 未收到发表接口响应: 若已跳转到文章页则视为失败(禁止 URL 判定成功)
+        raise RuntimeError(
+            "[文章][微博] 未监听到发表接口响应,文章未确认发表"
+            f"(当前 URL: {page.url})"
+        )
+
+    async def _article_click_publish_retry(self, page):
+        """身份验证通过后重新点发布弹窗「发布」。"""
+        logger.info("[文章][微博] 身份验证通过,重新点击「发布」")
+        await asyncio.sleep(3)
+        for _ in range(3):
+            clicked = await page.evaluate(
+                """() => {
+                  const vis = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  };
+                  const scope = [...document.querySelectorAll(
+                      '.publish-modal, .n-modal')].find(
+                    (el) => vis(el) && (el.innerText || '').includes('发布'));
+                  if (!scope) return false;
+                  for (const b of scope.querySelectorAll('button')) {
+                    if (!vis(b)) continue;
+                    if ((b.innerText || '').trim() === '发布'
+                        && !b.disabled) {
+                      b.click(); return true;
+                    }
+                  }
+                  return false;
+                }"""
+            )
+            if clicked:
+                return
+            await asyncio.sleep(2)
+        raise RuntimeError("[文章][微博] 身份验证后未能重新点击发布按钮")

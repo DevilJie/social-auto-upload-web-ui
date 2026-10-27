@@ -7,20 +7,26 @@
           <p class="page-subtitle">管理所有平台账号</p>
         </div>
         <div class="header-actions">
-          <el-button type="primary" class="add-btn" @click="handleAddAccount">
+          <el-button type="primary" class="add-btn" data-tour="add-account" @click="handleAddAccount">
             <el-icon><Plus /></el-icon>
             添加账号
           </el-button>
-          <el-button class="add-btn import-btn" @click="handleImportAccount">
+          <el-button class="add-btn import-btn" data-tour="import-user" @click="handleImportAccount">
             <el-icon><Upload /></el-icon>
             导入用户
           </el-button>
+          <el-tooltip content="重新查看本页功能介绍" placement="bottom">
+            <el-button class="add-btn guide-entry-btn" @click="startGuide">
+              <el-icon><Guide /></el-icon>
+              新手引导
+            </el-button>
+          </el-tooltip>
         </div>
       </div>
     </div>
 
     <!-- 平台筛选标签 -->
-    <div class="platform-tabs">
+    <div class="platform-tabs" data-tour="platform-tabs">
       <button
         v-for="tab in filterOptions"
         :key="tab.value"
@@ -33,7 +39,7 @@
     </div>
 
     <!-- 搜索栏 -->
-    <div class="search-bar">
+    <div class="search-bar" data-tour="search-bar">
       <el-input
         v-model="searchKeyword"
         placeholder="搜索名称或账号..."
@@ -56,7 +62,7 @@
     </div>
 
     <!-- 标签筛选 -->
-    <div v-if="tagFilterOptions.length > 0" class="tag-filter-bar">
+    <div v-if="tagFilterOptions.length > 0" class="tag-filter-bar" data-tour="tag-filter">
       <button
         :class="['tag-filter-item', { active: !activeTagId }]"
         @click="activeTagId = null"
@@ -75,9 +81,10 @@
     <!-- 账号卡片列表 -->
     <div v-if="filteredAccounts.length > 0" class="account-grid">
       <div
-        v-for="account in filteredAccounts"
+        v-for="(account, accIdx) in filteredAccounts"
         :key="account.id"
         :data-account-id="account.id"
+        :data-tour="accIdx === 0 ? 'account-card-sample' : undefined"
         :class="['account-card', `platform-${getPlatformClass(account.platform)}`]"
       >
         <!-- 卡片主体：头像 + 用户信息 -->
@@ -256,7 +263,7 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="empty-state">
+    <div v-else class="empty-state" data-tour="account-card-sample">
       <div class="empty-content">
         <el-icon class="empty-icon"><Folder /></el-icon>
         <h3>{{ searchKeyword ? '未找到匹配账号' : '暂无账号数据' }}</h3>
@@ -267,6 +274,22 @@
         </el-button>
       </div>
     </div>
+
+    <!-- 新手引导（首次进入自动播放，可随时点右上角重看） -->
+    <GuideTour
+      ref="guideTourRef"
+      :steps="accountGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
+
+    <!-- 导入用户弹窗引导 -->
+    <GuideTour
+      ref="importTourRef"
+      :steps="importGuideSteps"
+      @finish="onImportGuideDone"
+      @skip="onImportGuideDone"
+    />
 
     <!-- 添加/重新登录账号对话框 -->
     <LoginDialog
@@ -299,15 +322,22 @@
       :width="importStarted ? '520px' : '660px'"
       align-center
       class="import-account-dialog"
+      @opened="onImportOpened"
       @close="closeImportDialog"
     >
       <template #header>
         <div class="import-dialog-header">
-          <div class="import-dialog-title">
-            <el-icon class="title-icon"><Upload /></el-icon>
-            <span>导入用户账号</span>
+          <div class="import-header-main">
+            <div class="import-dialog-title">
+              <el-icon class="title-icon"><Upload /></el-icon>
+              <span>导入用户账号</span>
+            </div>
+            <div class="import-dialog-sub">通过 Cookie 字符串快速绑定已有平台账号</div>
           </div>
-          <div class="import-dialog-sub">通过 Cookie 字符串快速绑定已有平台账号</div>
+          <button class="import-guide-btn" type="button" @click="startImportGuide">
+            <el-icon><Guide /></el-icon>
+            新手引导
+          </button>
         </div>
       </template>
 
@@ -315,7 +345,7 @@
       <template v-if="!importStarted">
         <div class="import-form-split">
           <!-- 左：平台扁平卡片列表 -->
-          <div class="split-left">
+          <div class="split-left" data-tour="ig-platform">
             <div class="split-section-label">
               <span class="dot">●</span>
               <span>选择平台</span>
@@ -360,7 +390,7 @@
           </div>
 
           <!-- 右：cookie 输入 -->
-          <div class="split-right">
+          <div class="split-right" data-tour="ig-cookie">
             <div class="split-section-label">
               <span class="dot">●</span>
               <span>Cookie 字符串</span>
@@ -454,6 +484,7 @@
           <el-button @click="closeImportDialog" class="footer-btn">取消</el-button>
           <el-button
             type="primary"
+            data-tour="ig-submit"
             :loading="importStarting"
             :disabled="!importForm.platformId || !importForm.cookieStr.trim()"
             class="footer-btn-primary"
@@ -480,7 +511,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick, h } from 'vue'
-import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search, Clock } from '@element-plus/icons-vue'
+import { Refresh, Loading, Link, Plus, Edit, Delete, Check, Folder, Key, CollectionTag, Close, Upload, SuccessFilled, CircleCheckFilled, CircleCloseFilled, Position, InfoFilled, Select, Search, Clock, Guide } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { useAccountStore } from '@/stores/account'
@@ -492,9 +523,33 @@ import LoginDialog from '@/components/LoginDialog.vue'
 import TagPopover from '@/components/TagPopover.vue'
 import PrePublishCheckDialog from '@/components/PrePublishCheckDialog.vue'
 import BatchTagDialog from '@/components/BatchTagDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { accountGuideSteps, importGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const accountStore = useAccountStore()
 const appStore = useAppStore()
+
+// ========== 新手引导 ==========
+const guideTourRef = ref(null)
+
+const startGuide = () => guideTourRef.value?.start()
+
+// 引导完成/跳过都记为"已看过"，不再自动弹出
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.account)
+
+// ---- 导入用户弹窗引导 ----
+const importTourRef = ref(null)
+
+const startImportGuide = () => importTourRef.value?.start()
+
+const onImportGuideDone = () => markGuideDone(GUIDE_KEYS.import)
+
+// @opened：弹窗动画结束后再启动（输入阶段锚点已渲染）
+function onImportOpened() {
+  if (!isGuideDone(GUIDE_KEYS.import)) {
+    setTimeout(() => importTourRef.value?.start(), 150)
+  }
+}
 
 /** 平台是否已被加入黑名单（account.platform 是中文名,需先转为 key） */
 const isAccountDisabled = (account) => {
@@ -547,6 +602,10 @@ onMounted(() => {
     tagResizeObserver = new ResizeObserver(() => checkTagOverflow())
     document.querySelectorAll('.account-tags-viewport').forEach(el => tagResizeObserver.observe(el))
   })
+  // 首次进入自动播放新手引导（稍等页面渲染稳定后再启动）
+  if (!isGuideDone(GUIDE_KEYS.account)) {
+    setTimeout(() => startGuide(), 600)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1231,6 +1290,36 @@ const submitAccountForm = () => {
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
+// 导入用户弹窗 header 引导按钮（#header 插槽内容编译自本组件，顶层 scoped 直接命中）
+.import-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 32px;
+}
+
+.import-guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
+
 .account-management {
   padding: 24px;
   width: 100%;
@@ -1299,6 +1388,22 @@ const submitAccountForm = () => {
         border-color: rgba($overlay-rgb, 0.3);
         transform: translateY(-1px);
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      }
+    }
+
+    /* 新手引导入口：虚线幽灵按钮，辅助属性不与主操作抢视觉 */
+    .add-btn.guide-entry-btn {
+      background: transparent;
+      border: 1px dashed rgba($overlay-rgb, 0.28);
+      box-shadow: none;
+      color: $text-secondary;
+
+      &:hover {
+        background: rgba($brand-start, 0.08);
+        border-color: rgba($brand-start, 0.5);
+        color: $brand-start;
+        transform: none;
+        box-shadow: none;
       }
     }
   }

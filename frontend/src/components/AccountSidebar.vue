@@ -15,7 +15,7 @@
       <div
         v-for="group in visibleAccountGroups"
         :key="group.key"
-        :class="['group-wrap', { 'is-selected': selectedPlatform === group.key }]"
+        :class="['group-wrap', { 'is-selected': selectedPlatform === group.key && !selectedAccountId }]"
       >
         <div class="group-header cursor-pointer" @click="$emit('toggle-group', group.key)">
           <el-icon
@@ -64,7 +64,7 @@
     </div>
 
     <div v-if="mode === 'edit'" class="sidebar-footer">
-      <div class="add-btn cursor-pointer" @click="$emit('open-account-dialog')">+ 账号设置</div>
+      <div class="add-btn cursor-pointer" data-tour="sidebar-add-account" @click="$emit('open-account-dialog')">+ 账号设置</div>
     </div>
   </aside>
 </template>

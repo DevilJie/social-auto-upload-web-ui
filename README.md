@@ -266,6 +266,6 @@ cd backend-mcp && npm test                        # MCP 服务测试（vitest）
 
 ## 📄 许可证
 
-[MIT License](./LICENSE)
+[Apache License 2.0](./LICENSE)
 
 本项目仅供学习和个人使用，使用者需自行承担因自动化操作产生的一切风险与责任，请遵守各平台的相关使用条款。

@@ -1,19 +1,30 @@
 <template>
   <div class="draft-box">
     <div class="draft-header">
-      <h2>草稿箱</h2>
-      <el-tabs v-model="activeTab" class="draft-tabs">
+      <div class="draft-header-top">
+        <h2>草稿箱</h2>
+        <el-tooltip content="重新查看新手引导" placement="top">
+          <button class="guide-replay-btn" type="button" @click="restartGuide">
+            <el-icon><Guide /></el-icon>
+            新手引导
+          </button>
+        </el-tooltip>
+      </div>
+      <el-tabs v-model="activeTab" class="draft-tabs" data-tour="draft-tabs">
         <el-tab-pane label="视频草稿" name="video">
           <span class="draft-count">{{ videoDrafts.length }} 个草稿</span>
         </el-tab-pane>
         <el-tab-pane label="图集草稿" name="image">
           <span class="draft-count">{{ imageDrafts.length }} 个草稿</span>
         </el-tab-pane>
+        <el-tab-pane label="文章草稿" name="article">
+          <span class="draft-count">{{ articleDrafts.length }} 个草稿</span>
+        </el-tab-pane>
       </el-tabs>
     </div>
 
     <!-- Batch operations toolbar -->
-    <div class="draft-toolbar" :class="{ 'is-active': selectMode }">
+    <div class="draft-toolbar" data-tour="draft-toolbar" :class="{ 'is-active': selectMode }">
       <el-button
         v-if="!selectMode"
         size="default"
@@ -79,9 +90,10 @@
 
       <div v-else class="draft-grid">
         <div
-          v-for="draft in videoDrafts"
+          v-for="(draft, i) in videoDrafts"
           :key="draft.id"
           class="draft-card"
+          :data-tour="i === 0 ? 'draft-card' : undefined"
           :class="{
             'is-selected': selection.has(draft.id),
             'select-mode': selectMode,
@@ -133,7 +145,7 @@
           </div>
 
           <div class="card-actions">
-            <button class="action-btn action-edit" @click.stop="editVideoDraft(draft.id)">
+            <button class="action-btn action-edit" :data-tour="i === 0 ? 'card-edit' : undefined" @click.stop="editVideoDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
             <button class="action-btn action-delete" @click.stop="confirmDelete(draft.id, 'video')">
@@ -162,9 +174,10 @@
 
       <div v-else class="draft-grid">
         <div
-          v-for="draft in imageDrafts"
+          v-for="(draft, i) in imageDrafts"
           :key="draft.id"
           class="draft-card"
+          :data-tour="i === 0 ? 'draft-card' : undefined"
           :class="{
             'is-selected': selection.has(draft.id),
             'select-mode': selectMode,
@@ -212,7 +225,7 @@
           </div>
 
           <div class="card-actions">
-            <button class="action-btn action-edit" @click.stop="editImageDraft(draft.id)">
+            <button class="action-btn action-edit" :data-tour="i === 0 ? 'card-edit' : undefined" @click.stop="editImageDraft(draft.id)">
               <el-icon><Edit /></el-icon> 编辑
             </button>
             <button class="action-btn action-delete" @click.stop="confirmDelete(draft.id, 'image')">
@@ -222,6 +235,73 @@
         </div>
       </div>
     </template>
+
+    <!-- Article Drafts -->
+    <template v-if="activeTab === 'article'">
+      <div v-if="!loading && articleDrafts.length === 0" class="empty-state">
+        <el-empty description="还没有保存的文章草稿">
+          <el-button type="primary" @click="router.push('/article-publish')">去发布文章</el-button>
+        </el-empty>
+      </div>
+
+      <div v-else class="draft-grid">
+        <div
+          v-for="(draft, i) in articleDrafts"
+          :key="draft.id"
+          class="draft-card"
+          :data-tour="i === 0 ? 'draft-card' : undefined"
+        >
+          <div class="card-cover">
+            <img
+              v-if="draft.cover_path"
+              :src="getCoverUrl(draft.cover_path)"
+              alt="封面"
+            />
+            <div v-else class="cover-placeholder">
+              <el-icon :size="32"><EditPen /></el-icon>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="card-title">{{ draft.title || '无标题' }}</div>
+
+            <div v-if="draft.channels_summary && draft.channels_summary.length" class="card-channels">
+              <div class="channels-track">
+                <span v-for="ch in draft.channels_summary" :key="ch.platform" class="channel-tag">
+                  <img
+                    v-if="getPlatformLogo(ch.platform)"
+                    :src="getPlatformLogo(ch.platform)"
+                    class="channel-icon"
+                  />
+                  {{ ch.name }} × {{ ch.count }}
+                </span>
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <span>{{ formatTime(draft.updated_at) }}</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="action-btn action-edit" :data-tour="i === 0 ? 'card-edit' : undefined" @click.stop="editArticleDraft(draft.id)">
+              <el-icon><Edit /></el-icon> 编辑
+            </button>
+            <button class="action-btn action-delete" @click.stop="confirmDelete(draft.id, 'article')">
+              <el-icon><Delete /></el-icon> 删除
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- 页面新手引导（teleport 到 body） -->
+    <GuideTour
+      ref="tourRef"
+      :steps="draftGuideSteps"
+      @finish="onGuideDone"
+      @skip="onGuideDone"
+    />
   </div>
 </template>
 
@@ -229,17 +309,21 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Picture, Edit, Delete, Check, Select, Promotion, Close } from '@element-plus/icons-vue'
+import { Picture, Edit, Delete, Check, Select, Promotion, Close, EditPen, Guide } from '@element-plus/icons-vue'
 import { draftApi } from '@/api/draft'
 import { imagePublishApi } from '@/api/imagePublish'
+import { articlePublishApi } from '@/api/articlePublish'
 import { getPlatformByKey } from '@/config/platforms'
 import { getFileUrl } from '@/utils/storage'
 import BatchDraftPublishDialog from '@/components/BatchDraftPublishDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { draftGuideSteps, GUIDE_KEYS, isGuideDone, markGuideDone } from '@/config/guides'
 
 const router = useRouter()
 const activeTab = ref('video')
 const videoDrafts = ref([])
 const imageDrafts = ref([])
+const articleDrafts = ref([])
 const loading = ref(true)
 const channelRefs = {}
 const overflowMap = ref({})
@@ -318,6 +402,10 @@ function editImageDraft(id) {
   router.push(`/image-publish?draft=${id}`)
 }
 
+function editArticleDraft(id) {
+  router.push(`/article-publish?draft_id=${id}`)
+}
+
 function setChannelRef(draftId, el) {
   if (el) {
     channelRefs[draftId] = el
@@ -332,7 +420,8 @@ function isOverflow(draftId) {
 }
 
 async function confirmDelete(id, type) {
-  const typeName = type === 'video' ? '视频' : '图集'
+  const typeNameMap = { video: '视频', image: '图集', article: '文章' }
+  const typeName = typeNameMap[type] || '草稿'
   try {
     await ElMessageBox.confirm(`确定删除这个${typeName}草稿吗？`, '删除确认', {
       confirmButtonText: '删除',
@@ -351,12 +440,14 @@ async function loadAllDrafts() {
   loading.value = true
   try {
     // 统一从 /api/v2/drafts 获取，根据 type 分类
-    const [videoResp, imageResp] = await Promise.all([
+    const [videoResp, imageResp, articleResp] = await Promise.all([
       draftApi.getDrafts('video'),
-      draftApi.getDrafts('image')
+      draftApi.getDrafts('image'),
+      draftApi.getDrafts('article'),
     ])
     videoDrafts.value = videoResp.data || []
     imageDrafts.value = imageResp.data || []
+    articleDrafts.value = articleResp.data || []
   } catch (e) {
     console.error('Failed to load drafts:', e)
   } finally {
@@ -364,7 +455,18 @@ async function loadAllDrafts() {
   }
 }
 
-onMounted(loadAllDrafts)
+// ===== 新手引导 =====
+const tourRef = ref(null)
+const onGuideDone = () => markGuideDone(GUIDE_KEYS.draft)
+const restartGuide = () => tourRef.value?.start()
+
+onMounted(() => {
+  loadAllDrafts()
+  // 首次进入自动播放页面引导（与 loadAllDrafts 同时启动，数据到达前后引导都能兜底定位）
+  if (!isGuideDone(GUIDE_KEYS.draft)) {
+    setTimeout(() => tourRef.value?.start(), 600)
+  }
+})
 
 // ===== Batch operations =====
 
@@ -409,7 +511,9 @@ function toggleSelection(id, checked) {
 }
 
 function getCurrentDrafts() {
-  return activeTab.value === 'video' ? videoDrafts.value : imageDrafts.value
+  if (activeTab.value === 'video') return videoDrafts.value
+  if (activeTab.value === 'article') return articleDrafts.value
+  return imageDrafts.value
 }
 
 async function onBatchDelete() {
@@ -434,6 +538,7 @@ async function onBatchDelete() {
       // 从本地列表移除
       videoDrafts.value = videoDrafts.value.filter((d) => !deleted.includes(d.id))
       imageDrafts.value = imageDrafts.value.filter((d) => !deleted.includes(d.id))
+      articleDrafts.value = articleDrafts.value.filter((d) => !deleted.includes(d.id))
     }
     if (failed.length) {
       ElMessage.warning(`${failed.length} 个草稿删除失败：${failed.map((f) => f.reason).join('; ')}`)
@@ -472,8 +577,25 @@ async function onDialogConfirm(confirmedIds) {
 
   isPublishing.value = true
   const isImage = activeTab.value === 'image'
+  const isArticle = activeTab.value === 'article'
   try {
     // 根据当前 tab 调不同的批量发布端点
+    // 文章: 同步逐篇推送公众号草稿箱(每篇需开浏览器,数量多时耐心等待)
+    if (isArticle) {
+      const resp = await articlePublishApi.batchPublishArticleDrafts(confirmedIds)
+      const { succeeded = [], failed = [] } = resp || {}
+      if (succeeded.length) {
+        ElMessage.success(`已推送 ${succeeded.length} 篇到公众号草稿箱`)
+      }
+      if (failed.length) {
+        ElMessage.warning({
+          message: `${failed.length} 篇发布失败：${failed.map((f) => f.reason).join('; ')}`,
+          duration: 6000,
+        })
+      }
+      selection.value = new Set()
+      return
+    }
     const resp = isImage
       ? await imagePublishApi.batchPublishImageDrafts(confirmedIds)
       : await draftApi.batchPublishVideoDrafts(confirmedIds)
@@ -514,6 +636,35 @@ async function onDialogConfirm(confirmedIds) {
     font-size: 20px;
     font-weight: 600;
     color: $text-primary;
+  }
+}
+
+// 页头标题 + 新手引导重看入口
+.draft-header-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide-replay-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all $transition-fast;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
   }
 }
 

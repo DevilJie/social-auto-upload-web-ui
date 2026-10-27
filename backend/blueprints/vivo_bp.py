@@ -27,6 +27,7 @@ from conf import BASE_DIR
 from util._logger import get_channel_logger
 from impl._browser import create_browser, create_context
 from services.test_video import get_test_video
+from blueprints._platform_cache import get_cached, set_cached
 
 logger = get_channel_logger("vivo")
 
@@ -103,6 +104,9 @@ def search_position():
 
     Returns:
         {"code": 200, "data": {"position_list": [{name, address}, ...]}}
+
+    缓存:POI 数据天级变化,按 账号+关键词 TTL 缓存 5 分钟 —— 同关键词
+    重复搜索不再走浏览器流程(单次 15-60s)。
     """
     account_id = request.args.get('account_id')
     keyword = request.args.get('keyword', '')
@@ -110,6 +114,12 @@ def search_position():
 
     if not keyword:
         return jsonify({"code": 400, "msg": "缺少keyword参数"}), 400
+
+    cache_key = f"vivo:position:{account_id}:{keyword}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        logger.info(f"[位置搜索] 缓存命中: account_id={account_id}, keyword={keyword}")
+        return jsonify(cached)
 
     try:
         cookie_file = _get_account_cookie_file(account_id)
@@ -124,7 +134,9 @@ def search_position():
             logger.info(
                 f"[位置搜索] 成功,共 {len(data.get('position_list', []))} 个结果"
             )
-            return jsonify({"code": 200, "data": data})
+            payload = {"code": 200, "data": data}
+            set_cached(cache_key, payload)
+            return jsonify(payload)
         else:
             logger.error(f"[位置搜索] 失败: {result.get('error')}")
             return jsonify({

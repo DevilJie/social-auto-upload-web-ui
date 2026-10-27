@@ -1,21 +1,29 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="编辑封面"
     width="960px"
     class="cover-editor-dialog"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
     @closed="onClosed"
     append-to-body
   >
+    <template #header>
+      <div class="ce-dialog-header">
+        <span class="ce-dialog-title">编辑封面</span>
+        <el-tooltip content="引导" placement="top">
+          <button class="ce-guide-help" type="button" @click="startGuide">?</button>
+        </el-tooltip>
+      </div>
+    </template>
 
     <div class="cover-editor-body">
       <!-- 左侧：裁剪画布（主体） -->
       <div class="editor-crop">
-        <div class="crop-area">
+        <div class="crop-area" data-tour="ce-canvas">
           <div v-if="!currentImageSrc" class="crop-empty">
             <el-icon :size="32"><Picture /></el-icon>
-            <span>选择右侧时间轴帧、上传图片或从素材库选取</span>
+            <span>{{ fillAllMode ? '上传一张图片，其余尺寸自动裁剪填充' : '选择右侧时间轴帧、上传图片或从素材库选取' }}</span>
           </div>
           <div
             v-else
@@ -38,7 +46,7 @@
         <!-- 尺寸 tab -->
         <div class="sidebar-block">
           <div class="sidebar-label">封面尺寸</div>
-          <div class="ratio-tabs">
+          <div class="ratio-tabs" data-tour="ce-ratio-tabs">
             <button
               v-for="r in ratioTabs"
               :key="r"
@@ -46,10 +54,13 @@
               @click="switchTab(r)"
             >{{ r }}</button>
           </div>
+          <div v-if="fillAllMode" class="sidebar-hint">
+            只需上传 1 张，其余尺寸将按默认裁剪自动填充
+          </div>
         </div>
 
         <!-- Timeline -->
-        <div class="sidebar-block" v-if="frames.length > 0">
+        <div class="sidebar-block" data-tour="ce-timeline" v-if="frames.length > 0">
           <div class="sidebar-label">
             视频时间轴
             <span class="sidebar-hint">拖动选帧</span>
@@ -60,7 +71,7 @@
         <!-- 图片来源 -->
         <div class="sidebar-block">
           <div class="sidebar-label">图片来源</div>
-          <div class="editor-actions">
+          <div class="editor-actions" data-tour="ce-upload">
             <button class="action-btn action-upload" @click="triggerLocalUpload">
               <el-icon :size="16"><Upload /></el-icon>
               <span>上传图片</span>
@@ -81,15 +92,18 @@
       <div class="dialog-footer">
         <el-button @click="visible = false">取消</el-button>
         <el-button type="primary" @click="confirmCrop">
-          <el-icon><Check /></el-icon> 确认裁剪
+          <el-icon><Check /></el-icon> {{ fillAllMode ? '确认并填充其余尺寸' : '确认裁剪' }}
         </el-button>
       </div>
     </template>
   </el-dialog>
+
+  <!-- 弹窗新手引导（teleport 到 body，仅标题栏「?」按钮按需查看） -->
+  <GuideTour ref="ceTourRef" :steps="coverEditorGuideSteps" />
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload, Picture, PictureFilled, Check } from '@element-plus/icons-vue'
 import { materialsApi } from '@/api/materials'
@@ -97,6 +111,8 @@ import { getFileUrl } from '@/utils/storage'
 import { frameApi } from '@/api/frame'
 import VideoTimeline from './VideoTimeline.vue'
 import MaterialSelectDialog from './MaterialSelectDialog.vue'
+import GuideTour from '@/components/GuideTour.vue'
+import { coverEditorGuideSteps } from '@/config/guides'
 
 const props = defineProps({
   videoLandscape: { type: Object, default: null },
@@ -107,6 +123,12 @@ const props = defineProps({
   coverPrimary: { type: Object, default: null },
   // 次尺寸封面（横版=16:9，竖版=9:16）
   coverSecondary: { type: Object, default: null },
+  // 文章发布「一次上传填满全部尺寸」模式：传入 4 个比例，
+  // 弹窗一次管理全部，缺失的比例用已有图片自动居中裁剪补齐。
+  // 不传（视频发布）则沿用「每个比例都必须手动设置」的原逻辑。
+  allRatios: { type: Array, default: () => [] },
+  // allRatios 模式下按比例回填已有封面：{ '4:3': cover, '16:9': cover, ... }
+  coversByRatio: { type: Object, default: null },
 })
 
 const emit = defineEmits(['coverSaved'])
@@ -115,9 +137,19 @@ const visible = ref(false)
 // 当前编辑方向（由 open(orientation) 同步设置，不依赖 props 异步更新，避免切换横竖版时 ratio 错乱）
 const activeOrientation = ref('landscape')
 
-// 根据方向决定两个尺寸 tab
+// 文章「一次上传填满」模式：4 个比例由同一个弹窗管理
+const fillAllMode = computed(() => props.allRatios.length > 0)
+
+// 比例 → 方向（决定裁剪目标边长：横版定宽 1920 / 竖版定高 1920）
+function orientationForRatio(ratio) {
+  return ratio === '3:4' || ratio === '9:16' ? 'portrait' : 'landscape'
+}
+
+// 根据方向决定尺寸 tab（一次上传模式下直接用全部比例）
 const ratioTabs = computed(() =>
-  activeOrientation.value === 'portrait' ? ['3:4', '9:16'] : ['4:3', '16:9']
+  fillAllMode.value
+    ? props.allRatios
+    : activeOrientation.value === 'portrait' ? ['3:4', '9:16'] : ['4:3', '16:9']
 )
 // 主尺寸对应的 ratio（第一个 tab）
 const primaryRatio = computed(() => ratioTabs.value[0])
@@ -185,7 +217,9 @@ function open(orientation) {
   ratioTabs.value.forEach((r) => {
     panels[r] = { imageSrc: '', img: null, zoom: 1, offset: { x: 0, y: 0 }, displayScale: 1, cropRect: { x: 0, y: 0, w: 0, h: 0 } }
   })
-  activeTab.value = primaryRatio.value
+  activeTab.value = fillAllMode.value
+    ? (ratioTabs.value.find((r) => orientationForRatio(r) === activeOrientation.value) || primaryRatio.value)
+    : primaryRatio.value
   visible.value = true
   loadFrames()
   // 等 canvas 挂载后，为已有 cover 的面板加载图片
@@ -245,6 +279,7 @@ function stopPolling() {
 
 // 当前 ratio 对应的封面 prop（用于打开时回填已有封面）
 function coverForTab(ratio) {
+  if (fillAllMode.value) return props.coversByRatio?.[ratio] || null
   return ratio === secondaryRatio.value ? props.coverSecondary : props.coverPrimary
 }
 
@@ -410,8 +445,9 @@ async function cropAndUploadPanel(ratio) {
   const p = panels[ratio]
   if (!p || !p.img) return null
   const [rw, rh] = ratio.split(':').map(Number)
+  const orientation = orientationForRatio(ratio)
   let targetW, targetH
-  if (activeOrientation.value === 'portrait') {
+  if (orientation === 'portrait') {
     targetH = 1920
     targetW = Math.round(1920 * rw / rh)
   } else {
@@ -437,20 +473,41 @@ async function cropAndUploadPanel(ratio) {
   const blob = await new Promise(resolve => offscreen.toBlob(resolve, 'image/jpeg', 0.92))
   if (!blob) return null
   const formData = new FormData()
-  formData.append('file', blob, `cover_${activeOrientation.value}_${ratio.replace(':', 'x')}_${Date.now()}.jpg`)
+  formData.append('file', blob, `cover_${orientation}_${ratio.replace(':', 'x')}_${Date.now()}.jpg`)
   const resp = await materialsApi.coversUpload(formData)
   if (resp.code !== 200) return null
   const d = resp.data
   return { name: d.original_filename, url: getFileUrl(d.stored_path), stored_path: d.stored_path, size: d.file_size, type: d.mime_type }
 }
 
+// 用第一张已有图片补齐所有空面板（居中裁剪 = 默认裁剪）
+// 直接复用已加载的 Image 实例，避免 blob:/跨域重新加载
+function fillMissingPanels() {
+  const source = ratioTabs.value.find((r) => panels[r]?.img)
+  if (!source) return false
+  for (const r of ratioTabs.value) {
+    const p = panels[r]
+    if (!p || p.img) continue
+    p.imageSrc = panels[source].imageSrc
+    p.img = panels[source].img
+    initPanelCropRect(r, p.img)
+  }
+  return true
+}
+
 async function confirmCrop() {
-  // 校验：两个尺寸面板都必须选了图片
+  // 文章「一次上传填满」模式：只需 1 张，其余尺寸自动裁剪补齐
   const missing = ratioTabs.value.filter((r) => !panels[r] || !panels[r].img)
   if (missing.length > 0) {
-    ElMessage.warning(`请先为 ${missing.join('、')} 尺寸选择图片`)
-    if (missing[0]) switchTab(missing[0])
-    return
+    if (!fillAllMode.value) {
+      ElMessage.warning(`请先为 ${missing.join('、')} 尺寸选择图片`)
+      switchTab(missing[0])
+      return
+    }
+    if (!fillMissingPanels()) {
+      ElMessage.warning('请先上传一张封面图片')
+      return
+    }
   }
   // 逐个裁剪上传（裁剪前先把该面板重画到 canvas，确保 canvas 内容匹配）
   try {
@@ -464,9 +521,13 @@ async function confirmCrop() {
         ElMessage.error(`${r} 封面保存失败`)
         return
       }
-      emit('coverSaved', { orientation: activeOrientation.value, ratio: r, cover: coverData })
+      emit('coverSaved', {
+        orientation: orientationForRatio(r),
+        ratio: r,
+        cover: coverData,
+      })
     }
-    ElMessage.success('封面设置成功')
+    ElMessage.success(fillAllMode.value ? '封面设置成功，其余尺寸已自动裁剪填充' : '封面设置成功')
     visible.value = false
   } catch {
     ElMessage.error('封面上传失败')
@@ -480,6 +541,15 @@ function onClosed() {
   extracting.value = false
   Object.keys(panels).forEach((k) => delete panels[k])
 }
+
+// ========== 弹窗新手引导（仅按需查看：标题栏「?」按钮触发） ==========
+const ceTourRef = ref(null)
+const startGuide = () => ceTourRef.value?.start()
+
+// 保险：弹窗关闭时结束可能还开着的引导
+watch(visible, (v) => {
+  if (!v) ceTourRef.value?.stop()
+})
 
 defineExpose({ open })
 </script>
@@ -525,6 +595,40 @@ defineExpose({ open })
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 
+// 自定义 header（#header 插槽内容编译自本组件，scoped 直接命中）：
+// 标题 + 引导入口，padding-right 给右上角关闭按钮留位
+.ce-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 32px;
+}
+
+.ce-dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: $text-primary;
+}
+
+.ce-guide-help {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px dashed rgba($overlay-rgb, 0.28);
+  background: transparent;
+  color: $text-muted;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    color: $brand-start;
+    border-color: rgba($brand-start, 0.5);
+    background: rgba($brand-start, 0.08);
+  }
+}
 
 .cover-editor-body {
   display: flex;

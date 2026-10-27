@@ -426,6 +426,7 @@ def _serialize_batch_with_items(b, items):
         )
     # 兜底：当 batch 列上的 material_id 都为空（封面是从视频抽帧得到的，没有 materials.id）时，
     # 从第一个 detail 的 account_configs 里取 coverLandscape / coverPortrait / thumbnail_path。
+    # 文章发布(type=article)的封面存于 coverStoredPath(如 covers/2026/10/23/uuid.jpg)。
     fallback_cover_url = ''
     if items:
         first_cfg = items[0].get('account_configs') or {}
@@ -433,6 +434,7 @@ def _serialize_batch_with_items(b, items):
             _resolve_cover_from_path(first_cfg.get('coverLandscape', ''))
             or _resolve_cover_from_path(first_cfg.get('coverPortrait', ''))
             or _resolve_cover_from_path(first_cfg.get('thumbnail_path', ''))
+            or _resolve_cover_from_path(first_cfg.get('coverStoredPath', ''))
         )
     return {
         'id': b['id'],
@@ -747,8 +749,18 @@ def get_settings():
             "autoSaveInterval": "10",
             "accountCheckMode": "pre-publish",
             "batchTaskInterval": "0",
+            "manualReview": "false",
         }
         defaults.update(settings)
+        # manualReview 归一化为小写字符串 'true'/'false'
+        # （历史上可能存过 'True'/'False'/布尔，大小写不一致会让前端下拉无法匹配）
+        if 'manualReview' in defaults:
+            defaults['manualReview'] = (
+                'true' if str(defaults['manualReview']).strip().lower()
+                in ('1', 'true', 'yes') else 'false'
+            )
+        else:
+            defaults['manualReview'] = 'false'
         # 转换布尔值类型
         for key in ['autoFillTitle', 'autoSaveDraft']:
             if key in defaults:
@@ -1027,6 +1039,10 @@ def _active_draft_view(draft_data):
 def _extract_draft_title(draft_data):
     """从草稿数据中提取标题（第一个非空的平台标题）"""
     draft_data = _active_draft_view(draft_data)
+    # 文章草稿: 标题在 commonConfig.articleTitle(视频/图集在 platformConfigs.*.title)
+    article_title = (draft_data.get('commonConfig') or {}).get('articleTitle')
+    if article_title and str(article_title).strip():
+        return str(article_title).strip()[:100]
     pc = draft_data.get('platformConfigs', {})
     for key in ['douyin', 'xiaohongshu', 'kuaishou', 'bilibili', 'channels',
                 'baijiahao', 'tiktok', 'youtube', 'iqiyi', 'tencent_video']:

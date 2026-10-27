@@ -31,7 +31,11 @@ from .._utils import (
     scrape_bilibili_profile,
 )
 from ..base_platform import BasePlatform
-from .._manual_review import pause_after_input, wait_for_manual_publish
+from .._manual_review import (
+    manual_review_enabled,
+    pause_after_input,
+    wait_for_manual_publish,
+)
 
 BILIBILI_UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
 BILIBILI_MANAGE_URL = "https://member.bilibili.com/platform/upload-manager/article"
@@ -519,6 +523,16 @@ class BilibiliPlatform(BasePlatform):
             bili_collection_name = kwargs.get("bili_collection_name", "")
             # 是否保留 B 站系统生成的标签(False = 填自己标签前先清空标签栏)
             bili_keep_system_tags = bool(kwargs.get("bili_keep_system_tags", True))
+            # B 站参与话题(活动话题,如"影视未来星企划",可选)
+            bili_topic_name = kwargs.get("bili_topic_name", "")
+            # B 站可见范围: "self"=仅自己可见,空/"public"=公开可见(默认)
+            bili_visibility = kwargs.get("bili_visibility", "")
+            # B 站互动设置(更多设置折叠区内,全部可选)
+            bili_close_danmaku = bool(kwargs.get("bili_close_danmaku", False))
+            bili_close_comment = bool(kwargs.get("bili_close_comment", False))
+            bili_featured_comment = bool(kwargs.get("bili_featured_comment", False))
+            # B 站粉丝动态文案(发布时同步一条动态,最多 233 字)
+            bili_fans_dynamic = kwargs.get("bili_fans_dynamic", "")
 
             # 打印发布参数摘要
             logger.info("[发布参数] 标题: %s", title)
@@ -580,6 +594,12 @@ class BilibiliPlatform(BasePlatform):
                             bili_collection_name=bili_collection_name,
                             bili_repost_source=bili_repost_source,
                             bili_keep_system_tags=bili_keep_system_tags,
+                            bili_topic_name=bili_topic_name,
+                            bili_visibility=bili_visibility,
+                            bili_close_danmaku=bili_close_danmaku,
+                            bili_close_comment=bili_close_comment,
+                            bili_featured_comment=bili_featured_comment,
+                            bili_fans_dynamic=bili_fans_dynamic,
                         )
 
             logger.info("=" * 60)
@@ -607,6 +627,12 @@ class BilibiliPlatform(BasePlatform):
         bili_collection_name: str = "",
         bili_repost_source: str = "",
         bili_keep_system_tags: bool = True,
+        bili_topic_name: str = "",
+        bili_visibility: str = "",
+        bili_close_danmaku: bool = False,
+        bili_close_comment: bool = False,
+        bili_featured_comment: bool = False,
+        bili_fans_dynamic: str = "",
     ):
         """Upload a single video to Bilibili using CloakBrowser."""
         log_dir = Path(BASE_DIR / "logs")
@@ -672,6 +698,10 @@ class BilibiliPlatform(BasePlatform):
                 await self._fill_tags(page, tags, clear_existing=not bili_keep_system_tags)
                 await pause_after_input()
 
+                # 5.5 参与话题(活动话题 chip,可选)
+                if bili_topic_name:
+                    await self._set_topic(page, bili_topic_name)
+
                 # 6. Fill description
                 await self._fill_desc(page, desc)
                 await pause_after_input()
@@ -712,6 +742,19 @@ class BilibiliPlatform(BasePlatform):
                     logger.info("[设置合集] 开始设置合集: %s", bili_collection_name)
                     await self._set_collection(page, bili_collection_name)
 
+                # 9.6 更多设置区:可见范围/互动设置/粉丝动态(需先展开折叠区)
+                if any([bili_visibility == "self", bili_close_danmaku,
+                        bili_close_comment, bili_featured_comment,
+                        bili_fans_dynamic]):
+                    await self._apply_more_settings(
+                        page,
+                        visibility=bili_visibility,
+                        close_danmaku=bili_close_danmaku,
+                        close_comment=bili_close_comment,
+                        featured_comment=bili_featured_comment,
+                        fans_dynamic=bili_fans_dynamic,
+                    )
+
                 # 调试:输出本次发布的全部参数(便于人工核对填写是否正确)
                 logger.info("=" * 60)
                 logger.info("[发布调试] ===== 本次发布参数汇总 (dry_run=%s) =====", _PUBLISH_DRY_RUN)
@@ -726,6 +769,11 @@ class BilibiliPlatform(BasePlatform):
                 logger.info("[发布调试] 定时时间(publish_date): %s", publish_date)
                 logger.info("[发布调试] 发布策略(strategy): %s", publish_strategy)
                 logger.info("[发布调试] 合集(collection)  : %s", bili_collection_name or "(无)")
+                logger.info("[发布调试] 话题(topic)       : %s", bili_topic_name or "(无)")
+                logger.info("[发布调试] 可见范围(visibility): %s", "仅自己可见" if bili_visibility == "self" else "公开可见")
+                logger.info("[发布调试] 互动设置           : 关弹幕=%s 关评论=%s 精选评论=%s",
+                            bili_close_danmaku, bili_close_comment, bili_featured_comment)
+                logger.info("[发布调试] 粉丝动态(fans)     : %s", bili_fans_dynamic[:50] if bili_fans_dynamic else "(无)")
                 logger.info("[发布调试] ========================================")
                 logger.info("=" * 60)
 
@@ -740,7 +788,104 @@ class BilibiliPlatform(BasePlatform):
                         pass
                     raise RuntimeError('演练模式未实际发布，不计为发布成功')
 
-                await wait_for_manual_publish(page, 'bilibili')
+                if manual_review_enabled():
+                    await wait_for_manual_publish(page, 'bilibili')
+                else:
+                    # 10. Submit（自动提交，默认）
+                    logger.info("[上传视频] submitting video")
+                    await page.evaluate(
+                        "window.scrollTo(0, document.body.scrollHeight)"
+                    )
+                    await asyncio.sleep(1)
+
+                    submitted = False
+                    for attempt in range(10):
+                        try:
+                            submit_span = page.locator("span.submit-add")
+                            if await submit_span.count() > 0:
+                                await submit_span.first.scroll_into_view_if_needed()
+                                await submit_span.first.click()
+                                logger.info("[上传视频] clicked submit button")
+                            else:
+                                logger.info(
+                                    f"[上传视频] submit button not found, "
+                                    f"retry {attempt + 1}/10"
+                                )
+                                await asyncio.sleep(3)
+                                continue
+
+                            # 点击后 1s 即开始检测（原 3s+2s 粒度太粗，成功页已
+                            # 出来还要等好几秒才判定）；轮询 1s 一次，总时长不变
+                            await asyncio.sleep(1)
+                            for _ in range(30):
+                                await asyncio.sleep(1)
+                                btn_exists = (
+                                    await page.locator("span.submit-add").count()
+                                    > 0
+                                )
+                                if not btn_exists:
+                                    logger.info(
+                                        "[上传视频] submit success "
+                                        "(button disappeared)"
+                                    )
+                                    submitted = True
+                                    break
+                                if (
+                                    page.url != BILIBILI_UPLOAD_URL
+                                    and "/platform/upload/" not in page.url
+                                ):
+                                    logger.info(
+                                        f"[上传视频] submit success, "
+                                        f"redirected to: {page.url}"
+                                    )
+                                    submitted = True
+                                    break
+
+                            if submitted:
+                                break
+
+                            logger.info(
+                                f"[上传视频] page unchanged after click, "
+                                f"retry {attempt + 1}/10"
+                            )
+                            await page.screenshot(
+                                path=str(
+                                    log_dir / f"bilibili_submit_{attempt}.png"
+                                ),
+                                full_page=True,
+                            )
+                        except Exception as exc:
+                            logger.info(
+                                f"[上传视频] submit retry {attempt + 1}/10: {exc}"
+                            )
+                            await page.screenshot(
+                                path=str(
+                                    log_dir / f"bilibili_submit_{attempt}.png"
+                                ),
+                                full_page=True,
+                            )
+                            await asyncio.sleep(2)
+
+                    if not submitted:
+                        logger.info(
+                            "[上传视频] could not confirm submission, "
+                            "but it may have succeeded"
+                        )
+
+                    if submitted:
+                        # 已看到跳转/按钮消失 = 投稿受理成功，不再固定等 10s
+                        # （成功页都出来了还干等，用户体感「判定慢」），2s 稳定后截图
+                        logger.info("[上传视频] submitted, settling 2s")
+                        await asyncio.sleep(2)
+                        try:
+                            await page.screenshot(
+                                path=str(
+                                    log_dir / "bilibili_after_submit.png"
+                                ),
+                                full_page=True,
+                            )
+                        except Exception:
+                            pass
 
                 upload_success = True
             finally:
@@ -1510,6 +1655,284 @@ class BilibiliPlatform(BasePlatform):
             await page.keyboard.press("Escape")
         except Exception as e:
             logger.warning("[设置合集] 合集设置失败(非致命): %s", e)
+
+    # ------------------------------------------------------------------
+    # 更多设置区(2026-10 表单侦察):可见范围 / 互动设置 / 粉丝动态
+    # DOM 依据:bcc-checkbox / bcc-radio 是组件库固定语义 class;
+    # 粉丝动态是 contenteditable,data-placeholder 含「有趣的动态描述」。
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _ensure_more_settings_open(page) -> None:
+        """展开「更多设置」折叠区(幂等,展开后已开则跳过)。
+
+        判定标志:「互动设置」label 可见 = 折叠区已展开
+        (收起时该文本存在于 DOM 但不可见,不能只判 count)。
+
+        定位注意:折叠标题整段文本是「更多设置（含声明与权益、视频元素、
+        互动管理等）」,exact 匹配「更多设置」会失配 → 必须用子串匹配,
+        再从候选里挑可见节点点击。
+        """
+        marker = page.get_by_text("互动设置", exact=True)
+        if await marker.count() > 0 and await marker.first.is_visible():
+            return
+        more = page.get_by_text("更多设置")  # 子串匹配
+        clicked = False
+        count = await more.count()
+        for i in range(count):
+            el = more.nth(i)
+            try:
+                if not await el.is_visible():
+                    continue
+                await el.scroll_into_view_if_needed(timeout=5000)
+                await el.click(timeout=5000)
+                clicked = True
+                break
+            except Exception:
+                continue
+        if not clicked:
+            logger.warning("[更多设置] 未找到可点击的「更多设置」入口,跳过更多设置项")
+            return
+        # 等折叠动画完成再校验(动画期间 marker 短暂不可见,轮询避免误报)
+        for _ in range(6):
+            await asyncio.sleep(0.5)
+            try:
+                if await marker.count() > 0 and await marker.first.is_visible():
+                    logger.info("[更多设置] 已展开折叠区")
+                    return
+            except Exception:
+                pass
+        logger.info("[更多设置] 已点击展开入口(校验标志未及时可见,继续执行)")
+
+    @classmethod
+    async def _apply_more_settings(
+        cls,
+        page,
+        visibility: str = "",
+        close_danmaku: bool = False,
+        close_comment: bool = False,
+        featured_comment: bool = False,
+        fans_dynamic: str = "",
+    ) -> None:
+        """更多设置区批量设置入口(可见范围/互动设置/粉丝动态)。"""
+        await cls._ensure_more_settings_open(page)
+        if visibility == "self":
+            await cls._set_visibility(page, visibility)
+        if close_danmaku or close_comment or featured_comment:
+            await cls._set_interaction_settings(
+                page, close_danmaku, close_comment, featured_comment
+            )
+        if fans_dynamic:
+            await cls._fill_fans_dynamic(page, fans_dynamic)
+
+    @staticmethod
+    async def _set_visibility(page, visibility: str) -> None:
+        """设置可见范围为「仅自己可见」。
+
+        DOM:bcc-radio 自定义组件,input 不可见(侦察未抓到 radio input),
+        点击 label 文本「仅自己可见」切换选中。
+        失败不阻塞发布。
+        """
+        try:
+            option = page.get_by_text("仅自己可见", exact=True)
+            if await option.count() == 0:
+                # 兜底:label 与提示文案在同一节点(「仅自己可见 将不支持分享…」)
+                option = page.get_by_text("仅自己可见")
+            if await option.count() == 0:
+                logger.warning("[可见范围] 未找到「仅自己可见」选项,跳过")
+                return
+            # 挑第一个可见候选
+            target = None
+            for i in range(await option.count()):
+                el = option.nth(i)
+                if await el.is_visible():
+                    target = el
+                    break
+            if target is None:
+                logger.warning("[可见范围] 「仅自己可见」候选均不可见,跳过")
+                return
+            await target.scroll_into_view_if_needed(timeout=5000)
+            await target.click(timeout=5000)
+            await asyncio.sleep(0.8)
+            logger.info("[可见范围] 已切换为仅自己可见")
+        except Exception as e:
+            logger.warning("[可见范围] 设置失败(非致命): %s", e)
+
+    @staticmethod
+    async def _set_interaction_settings(
+        page,
+        close_danmaku: bool,
+        close_comment: bool,
+        featured_comment: bool,
+    ) -> None:
+        """设置互动设置(关闭弹幕/关闭评论/开启精选评论)。
+
+        DOM:每组是 bcc-checkbox,label 文本在 span,
+        input[type=checkbox] 父级为 .bcc-checkbox-checkbox。
+        按目标状态勾选:已是目标状态则跳过。
+        失败不阻塞发布。
+        """
+        targets = [
+            ("关闭弹幕", close_danmaku),
+            ("关闭评论", close_comment),
+            ("开启精选评论", featured_comment),
+        ]
+        for text, want in targets:
+            if not want:
+                continue
+            try:
+                label = page.get_by_text(text, exact=True)
+                if await label.count() == 0:
+                    logger.warning("[互动设置] 未找到「%s」,跳过", text)
+                    continue
+                # 文本节点向上找 bcc-checkbox 容器,取其内 checkbox 判断当前状态
+                container = label.first.locator(
+                    "xpath=ancestor::*[contains(@class,'bcc-checkbox')][1]"
+                )
+                cb = container.locator('input[type="checkbox"]').first
+                if await cb.count() == 0:
+                    # 兜底:直接点文本(bcc-checkbox 整个 label 区域可点)
+                    await label.first.click(timeout=5000)
+                else:
+                    if await cb.is_checked():
+                        logger.info("[互动设置] 「%s」已勾选,跳过", text)
+                        continue
+                    await cb.check(force=True, timeout=5000)
+                await asyncio.sleep(0.5)
+                logger.info("[互动设置] 已勾选「%s」", text)
+            except Exception as e:
+                logger.warning("[互动设置] 勾选「%s」失败(非致命): %s", text, e)
+
+    @staticmethod
+    async def _fill_fans_dynamic(page, text: str) -> None:
+        """填写粉丝动态(发布时同步的动态文案,上限 233 字)。
+
+        DOM:contenteditable,data-placeholder 含「有趣的动态描述」。
+        """
+        safe_text = (text or "").strip()[:233]
+        if not safe_text:
+            return
+        try:
+            editor = page.locator(
+                '[contenteditable="true"][data-placeholder*="有趣的动态描述"]'
+            ).first
+            if await editor.count() == 0:
+                # 兜底:任意 contenteditable 且 placeholder 含「动态」
+                editor = page.locator(
+                    '[contenteditable="true"][data-placeholder*="动态"]'
+                ).first
+            if await editor.count() == 0:
+                logger.warning("[粉丝动态] 未找到动态输入框,跳过")
+                return
+            await editor.scroll_into_view_if_needed()
+            await editor.click()
+            await clear_and_type(page, safe_text, delay=10)
+            logger.info("[粉丝动态] 已填写动态文案(%d 字)", len(safe_text))
+        except Exception as e:
+            logger.warning("[粉丝动态] 填写失败(非致命): %s", e)
+
+    @staticmethod
+    async def _set_topic(page, topic_name: str) -> None:
+        """点击「参与话题」区域的话题 chip。
+
+        DOM(2026-10 侦察):「参与话题:」label 行内是推荐话题 chip 列表
+        (chip 文本=话题名,带「活动」角标),右侧「搜索更多话题 >」入口
+        点开搜索弹层。策略:
+          1. 「参与话题」行内按话题名精确匹配 chip → 点击
+          2. 行内没有 → 点「搜索更多话题」→ 弹层内精确匹配候选 → 点击
+        全程失败不阻塞发布(话题是可选项)。
+        """
+        if not topic_name:
+            return
+        try:
+            row = page.get_by_text("参与话题", exact=True)
+            if await row.count() > 0:
+                container = row.first.locator("xpath=..")
+                chip = container.get_by_text(topic_name, exact=True)
+                if await chip.count() > 0 and await chip.first.is_visible():
+                    await chip.first.scroll_into_view_if_needed()
+                    await chip.first.click()
+                    await asyncio.sleep(1)
+                    logger.info("[参与话题] 已点击推荐话题 chip: %s", topic_name)
+                    return
+
+            # 推荐行没有 → 搜索弹层兜底(整体 30s 超时,防卡死发布流程)
+            logger.info("[参与话题] 推荐 chips 中无「%s」,尝试搜索弹层", topic_name)
+            try:
+                await asyncio.wait_for(
+                    BilibiliPlatform._pick_topic_via_search(page, topic_name),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[参与话题] 搜索弹层流程超时(30s),跳过话题设置")
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning("[参与话题] 搜索弹层失败(非致命): %s", e)
+        except Exception as e:
+            logger.warning("[参与话题] 设置失败(非致命): %s", e)
+
+    @staticmethod
+    async def _pick_topic_via_search(page, topic_name: str) -> None:
+        """打开「搜索更多话题」弹层并选择指定话题。"""
+        entry = page.get_by_text("搜索更多话题", exact=False)
+        if await entry.count() == 0:
+            logger.warning("[参与话题] 未找到「搜索更多话题」入口,跳过")
+            return
+        try:
+            await entry.first.scroll_into_view_if_needed(timeout=5000)
+        except Exception:
+            pass
+        await entry.first.click(timeout=5000)
+        await asyncio.sleep(2)
+        # 弹层内候选:精确文本匹配(不会命中含长文本的容器节点)
+        candidate = page.get_by_text(topic_name, exact=True)
+        count = await candidate.count()
+        logger.info("[参与话题] 搜索弹层精确匹配到 %d 个候选", count)
+        for i in range(count):
+            el = candidate.nth(i)
+            try:
+                if not await el.is_visible():
+                    continue
+                await el.click(timeout=3000)
+                await asyncio.sleep(1)
+                logger.info("[参与话题] 已从搜索弹层选择话题: %s", topic_name)
+                # 关闭弹层:优先点「完成/确定」,否则后续表单填写会被弹窗拦截
+                await BilibiliPlatform._close_topic_dialog(page)
+                return
+            except Exception:
+                continue
+        logger.warning("[参与话题] 搜索弹层中未匹配到「%s」,跳过", topic_name)
+        await BilibiliPlatform._close_topic_dialog(page)
+
+    @staticmethod
+    async def _close_topic_dialog(page) -> None:
+        """关闭话题搜索弹层(bcc-dialog)。
+
+        DOM(2026-10 e2e 实测):弹层底部是 .modal-footer,确认按钮文案
+        「完成/确定」。优先点确认按钮,找不到再按 Escape 兜底。
+        """
+        try:
+            confirm = page.locator(
+                ".modal-footer button:has-text('完成'), "
+                ".modal-footer button:has-text('确定'), "
+                ".modal-footer span:has-text('完成'), "
+                ".modal-footer span:has-text('确定')"
+            )
+            if await confirm.count() > 0 and await confirm.first.is_visible():
+                await confirm.first.click(timeout=3000)
+                await asyncio.sleep(1)
+                logger.info("[参与话题] 已点击确认关闭话题弹层")
+                return
+        except Exception as e:
+            logger.info("[参与话题] 点确认关闭弹层失败,改用 Escape: %s", e)
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
 
     @staticmethod
     async def _set_schedule_time(page, publish_date):

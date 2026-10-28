@@ -1302,8 +1302,12 @@ class WeixinGzhPlatform(BasePlatform):
         ``div.weui-desktop-dialog > div.weui-desktop-dialog__ft >
         button.weui-desktop-btn.weui-desktop-btn_primary``(文本=我知道了)
         另有右上角关闭按钮 ``weui-desktop-dialog__close-btn`` 可兜底。
+
+        2026-10-28 优化: 无弹窗时 3s 即返回(原实现固定轮询满 10s,
+        是"跳转编辑页后卡很久"的主要来源之一)。
         """
         deadline = asyncio.get_event_loop().time() + timeout_s
+        quick_deadline = asyncio.get_event_loop().time() + 3
         while asyncio.get_event_loop().time() < deadline:
             try:
                 known_btn = page.locator(
@@ -1324,8 +1328,11 @@ class WeixinGzhPlatform(BasePlatform):
                     return
             except Exception:
                 pass
+            if asyncio.get_event_loop().time() >= quick_deadline:
+                # 前 3s 无弹窗: 大概率不会弹了,不再阻塞主流程
+                logger.info("[阶段②] 未检测到教育弹窗,继续")
+                return
             await asyncio.sleep(0.5)
-        logger.info("[阶段②] 未检测到教育弹窗,继续")
 
     @staticmethod
     async def _fill_publish_title(page, title: str, max_len: int = 64):
@@ -2635,7 +2642,18 @@ class WeixinGzhPlatform(BasePlatform):
                 await page.goto(
                     edit_url, wait_until="domcontentloaded", timeout=40000
                 )
-                await asyncio.sleep(6)
+                # 等编辑器就绪(标题输入框出现)即继续,最长 10s(原固定 sleep(6)
+                # 是"跳转后卡很久"来源之一;页面慢时 6s 又不够)
+                ready_deadline = asyncio.get_event_loop().time() + 10
+                while asyncio.get_event_loop().time() < ready_deadline:
+                    try:
+                        if await page.locator(
+                            "#title.js_title, .ProseMirror"
+                        ).first.count():
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.5)
 
                 # 0. 关教育弹窗(「支持添加话题卡片」等,遮挡输入)
                 await self._dismiss_education_dialog(page)
@@ -3388,25 +3406,49 @@ class WeixinGzhPlatform(BasePlatform):
 
     @staticmethod
     async def _set_original_url(page, url: str):
-        """设置原文链接(设置区「原文链接 未添加」入口)。
+        """设置原文链接(设置区「原文链接 未添加」入口行)。
 
-        入口行文案「原文链接」,点击后显示 input.js_url,填完点「确定」。
-        选择器未知部分用文案兜底,失败抛异常由上层跳过。
+        2026-10-28 实测: 入口行是
+        ``div.setting-group__checkbox-item.js_url_area``
+        (内含「原文链接」文案 + 「未添加」状态 + icon)。点击行内
+        「未添加」节点即可展开 input.js_url —— 点击「原文链接」文案
+        本身不触发展开(旧实现等 input 可见 8s 超时,链接从未填上)。
         """
-        # 1. 点入口(设置区行内「原文链接」文案)
-        entry = page.locator("text=原文链接").first
-        await entry.click()
-        await asyncio.sleep(1.5)
-        # 2. 填 URL(input.js_url,点击入口后可见)
+        opened = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const area = [...document.querySelectorAll('.js_url_area')]
+                .filter(vis)[0];
+              if (!area) return false;
+              const kids = [...area.querySelectorAll('*')].filter(vis);
+              const pending = kids.find(
+                (k) => (k.innerText || '').trim() === '未添加');
+              (pending || area).click();
+              return true;
+            }"""
+        )
+        if not opened:
+            raise RuntimeError("未找到原文链接入口行(.js_url_area)")
+        # 2. 填 URL(input.js_url,展开后可见)
         url_input = page.locator("input.js_url").first
         await url_input.wait_for(state="visible", timeout=8000)
         await url_input.fill((url or "").strip()[:200])
         await asyncio.sleep(0.5)
-        # 3. 确认(弹窗 primary「确定」;部分版本自动保存无弹窗,容错)
-        try:
-            await WeixinGzhPlatform._click_dialog_primary(page, "确定", timeout_s=6)
-        except Exception:
-            pass
+        # 3. 确认: popover 内没有按钮,按 Enter 提交并关闭
+        #    (2026-10-28 实测: Enter 后行状态「未添加」→ 显示所填 URL)
+        await page.keyboard.press("Enter")
+        await asyncio.sleep(1.5)
+        # 4. 验证: 入口行应显示所填 URL
+        saved = await page.evaluate(
+            """() => {
+              const vis = (el) => el.getBoundingClientRect().width > 0;
+              const row = [...document.querySelectorAll('.js_url_area')]
+                .filter(vis)[0];
+              return row ? (row.innerText || '') : '';
+            }"""
+        )
+        if (url or "").strip() not in saved:
+            raise RuntimeError(f"原文链接未生效(入口行状态: {saved[:60]})")
         logger.info("[发布文章] 原文链接已填写")
 
     # ------------------------------------------------------------------
@@ -3570,12 +3612,18 @@ class WeixinGzhPlatform(BasePlatform):
         if changed is None:
             raise RuntimeError("留言设置弹窗内容读取失败")
         await asyncio.sleep(1)
+        if not changed:
+            # 当前状态已与目标一致:平台可能禁用「确定」,直接取消关闭
+            await WeixinGzhPlatform._click_gzh_dialog_button(page, "取消")
+            await asyncio.sleep(1)
+            logger.info("[发布文章] 留言已是目标设置,无需修改(已关闭弹窗)")
+            return
         if not await WeixinGzhPlatform._click_gzh_dialog_button(page, "确定"):
             raise RuntimeError("留言弹窗未找到「确定」")
         await asyncio.sleep(2)
         if await WeixinGzhPlatform._gzh_dialog_text(page):
             raise RuntimeError("留言弹窗未关闭(校验未通过)")
-        logger.info("[发布文章] 留言已设置(%s)", "、".join(changed or ["跟随默认"]))
+        logger.info("[发布文章] 留言已设置(%s)", "、".join(changed))
 
     @staticmethod
     async def _set_article_platform_recommend(page, enabled: bool):

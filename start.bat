@@ -67,25 +67,33 @@ if not exist "%BACKEND_DIR%" (
 if exist "%PROJECT_ROOT%\.git" (
     where git >nul 2>&1
     if !errorlevel! equ 0 (
-        set "UPDATE_CHOICE="
-        echo.
-        echo   是否检查并更新到最新代码？
-        echo     输入 Y 拉取最新代码后启动，输入 N 或直接回车跳过更新立即启动
-        set /p "UPDATE_CHOICE=  请选择 [Y/N]: "
-        if /i "!UPDATE_CHOICE!"=="Y" (
-            cd /d "%PROJECT_ROOT%"
-            echo   正在检查并更新到最新版本...
-            git remote set-url origin "%REPO_URL%" 2>nul
-            git fetch origin "%MAIN_BRANCH%" >nul 2>&1
-            if !errorlevel! equ 0 (
-                git checkout -f "%MAIN_BRANCH%" >nul 2>&1
-                git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
-                echo   √ 已更新到最新版本
-            ) else (
-                echo   ! 无法连接 GitHub 更新，继续使用本地版本
-            )
+        if defined SAU_JUST_UPDATED (
+            echo   √ 代码刚已完成更新，跳过更新检查
         ) else (
-            echo   跳过更新，使用本地版本启动
+            set "UPDATE_CHOICE="
+            echo.
+            echo   是否检查并更新到最新代码？
+            echo     输入 Y 拉取最新代码后启动，输入 N 或直接回车跳过更新立即启动
+            set /p "UPDATE_CHOICE=  请选择 [Y/N]: "
+            if /i "!UPDATE_CHOICE!"=="Y" (
+                cd /d "%PROJECT_ROOT%"
+                echo   正在检查并更新到最新版本...
+                git remote set-url origin "%REPO_URL%" 2>nul
+                git fetch origin "%MAIN_BRANCH%" >nul 2>&1
+                if !errorlevel! equ 0 (
+                    git checkout -f "%MAIN_BRANCH%" >nul 2>&1
+                    git reset --hard "origin/%MAIN_BRANCH%" >nul 2>&1
+                    echo   √ 已更新到最新版本，重新启动脚本...
+                    set "SAU_JUST_UPDATED=1"
+                    cd /d "%PROJECT_ROOT%"
+                    cmd /c ""%~f0""
+                    exit /b
+                ) else (
+                    echo   ! 无法连接 GitHub 更新，继续使用本地版本
+                )
+            ) else (
+                echo   跳过更新，使用本地版本启动
+            )
         )
     )
 )

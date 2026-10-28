@@ -89,17 +89,25 @@ if [[ ! -d "$BACKEND_DIR" ]]; then
     exec bash "$PROJECT_ROOT/start.sh"
 fi
 
-# 已有项目代码：强制更新到最新版本（覆盖本地修改，不询问）
+# 已有项目代码：询问用户是否检查更新（Y=拉取最新代码后启动，N=直接启动）
 if command -v git &>/dev/null && [[ -d "$PROJECT_ROOT/.git" ]]; then
-    cd "$PROJECT_ROOT"
-    echo -e "${CYAN}正在检查并更新到最新版本...${NC}"
-    git remote set-url origin "$REPO_URL" 2>/dev/null
-    if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
-        git checkout -f "$MAIN_BRANCH" 2>/dev/null
-        git reset --hard "origin/$MAIN_BRANCH"
-        echo -e "${CHECK} 已更新到最新版本"
+    echo ""
+    echo -e "${CYAN}是否检查并更新到最新代码？${NC}"
+    echo "  输入 Y 拉取最新代码后启动，输入 N 或直接回车跳过更新立即启动"
+    read -r -p "请选择 [Y/N]: " UPDATE_CHOICE
+    if [[ "$UPDATE_CHOICE" =~ ^[Yy]$ ]]; then
+        cd "$PROJECT_ROOT"
+        echo -e "${CYAN}正在检查并更新到最新版本...${NC}"
+        git remote set-url origin "$REPO_URL" 2>/dev/null
+        if git fetch origin "$MAIN_BRANCH" 2>/dev/null; then
+            git checkout -f "$MAIN_BRANCH" 2>/dev/null
+            git reset --hard "origin/$MAIN_BRANCH"
+            echo -e "${CHECK} 已更新到最新版本"
+        else
+            echo -e "${WARN} 无法连接 GitHub 更新，继续使用本地版本"
+        fi
     else
-        print_warn "无法连接 GitHub 更新，继续使用本地版本"
+        echo -e "${CHECK} 跳过更新，使用本地版本启动"
     fi
 fi
 

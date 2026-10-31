@@ -23,17 +23,38 @@ export class RuntimeManager {
       log('runtime-seed 缺失 → 开发模式（electron 直接 npm run dev），跳过拷贝');
       return { copied: false, source: 'no-seed' };
     }
-    if (fs.existsSync(this.p.runtimeDir) && this._hasMinimumLayout()) {
+    if (this._hasCompleteRuntime()) {
       log(`runtime/ 已就绪: ${this.p.runtimeDir}`);
       return { copied: false, source: 'already-ready' };
+    }
+    if (fs.existsSync(this.p.runtimeDir)) {
+      // 残留但不完整（上次复制中途退出/被杀）→ 删除重建，半成品没法用
+      log('runtime/ 不完整（上次复制被打断）→ 清理后重新复制');
+      fs.rmSync(this.p.runtimeDir, { recursive: true, force: true });
     }
     log(`首次启动：复制 runtime-seed → ${this.p.runtimeDir}`);
     this.copyDir(this.p.runtimeSeed, this.p.runtimeDir);
     return { copied: true, source: this.p.runtimeSeed };
   }
 
-  private _hasMinimumLayout(): boolean {
-    return fs.existsSync(path.join(this.p.runtimeDir, 'cloakbrowser'));
+  /**
+   * 运行时完整性判定：关键可执行文件**全部存在**才算就绪。
+   * 旧实现只查 cloakbrowser 目录是否存在——1.3GB 拷贝按字母序进行
+   * （bin → cloakbrowser → git → node → python），中途退出会留下
+   * 「cloakbrowser 已复制、python 还没有」的半成品，再次启动被误判
+   * 为已就绪，最终报「缺少可用的 python.exe」。
+   */
+  private _hasCompleteRuntime(): boolean {
+    const win = process.platform === 'win32';
+    const must: Array<[string, string]> = [
+      ['cloakbrowser', win ? 'chrome.exe' : 'chrome'],
+      ['python', win ? 'python.exe' : 'bin/python'],
+      ['bin', win ? 'ffmpeg.exe' : 'ffmpeg'],
+      ['node', win ? 'node.exe' : 'bin/node'],
+      ['git', win ? 'cmd/git.exe' : 'bin/git'],
+    ];
+    return must.every(([dir, exe]) =>
+      fs.existsSync(path.join(this.p.runtimeDir, dir, exe)));
   }
 
   detectAll(): RuntimeStatus[] {

@@ -142,6 +142,7 @@ async function bootstrap(): Promise<void> {
   await mainWindow.loadURL(dataUrl(LOADING_HTML));
 
   rt = new RuntimeManager();
+  await setStatus('正在准备运行时环境（首次启动约 1-2 分钟），请勿关闭窗口…');
   rt.bootstrap();
   log('--- runtime detect ---');
   const statuses = rt.detectAll();
